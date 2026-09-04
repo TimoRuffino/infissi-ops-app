@@ -143,6 +143,18 @@ export function createMemoryFattureRepository(): FattureRepository {
     const f = fatture.get(id);
     return f && f.sedeId === sedeId ? f : null;
   };
+  // Un patch parziale con una chiave presente ma `undefined` deve valere
+  // come "non toccare questo campo", non come "azzeralo": Object.assign
+  // copierebbe comunque quella chiave (copia per presenza, non per
+  // valore). Filtrarla qui allinea la memoria al backend Postgres, dove
+  // una colonna assente dal SET non viene proprio nominata nella query.
+  const senzaUndefined = <T extends object>(patch: T): Partial<T> => {
+    const risultato: Partial<T> = {};
+    for (const chiave of Object.keys(patch) as (keyof T)[]) {
+      if (patch[chiave] !== undefined) risultato[chiave] = patch[chiave];
+    }
+    return risultato;
+  };
   const righeDa = (fatturaId: number, righe: RigaFatturaInput[]): RigaFattura[] =>
     [...righe]
       .sort((a, b) => a.ordine - b.ordine)
@@ -188,7 +200,7 @@ export function createMemoryFattureRepository(): FattureRepository {
         createdAt: now,
         updatedAt: now,
         righe: righeDa(id, righe),
-        riepilogo: clona(riepilogo),
+        riepilogo: ordinaRiepilogo(clona(riepilogo)),
         scadenze: scadenzeDa(id, scadenze, []),
       };
       fatture.set(id, f);
@@ -242,11 +254,11 @@ export function createMemoryFattureRepository(): FattureRepository {
       if (f.revisione !== revisioneAttesa) {
         throw new Error("CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica.");
       }
-      Object.assign(f, clona(patch), {
+      Object.assign(f, clona(senzaUndefined(patch)), {
         revisione: f.revisione + 1,
         updatedAt: now,
         righe: righeDa(id, righe),
-        riepilogo: clona(riepilogo),
+        riepilogo: ordinaRiepilogo(clona(riepilogo)),
         scadenze: scadenzeDa(id, scadenze, f.scadenze),
       });
       return clona(f);
@@ -254,15 +266,20 @@ export function createMemoryFattureRepository(): FattureRepository {
     async aggiornaStato({ sedeId, id, patch, now }) {
       const f = trova(sedeId, id);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
-      Object.assign(f, clona(patch), { updatedAt: now });
+      Object.assign(f, clona(senzaUndefined(patch)), { updatedAt: now });
       return clona(f);
     },
     async aggiornaScadenza({ sedeId, fatturaId, numero, patch }) {
       const f = trova(sedeId, fatturaId);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
       const s = f.scadenze.find(x => x.numero === numero);
-      if (s) Object.assign(s, patch);
+      if (s) Object.assign(s, senzaUndefined(patch));
     },
+    // Non verifica che `fatturaId` appartenga davvero a `sedeId`: chi
+    // chiama (il servizio, Task 6) ha già in mano la fattura corretta.
+    // Un evento con sede/fattura scollegate non è isolato da `eventi()`,
+    // che filtra su entrambe, ma un chiamante malformato può comunque
+    // scrivere un evento "orfano": la garanzia non è qui.
     async appendEvento(e) {
       const evento: EventoFattura = { ...clona(e), id: prossimoEventoId++, createdAt: e.createdAt ?? new Date() };
       eventi.push(evento);
@@ -410,9 +427,13 @@ function rowToConfig(row: any): FatturazioneConfig {
   };
 }
 
-/** Ordina come le liste in memoria: chiave primaria di dominio, poi `id` a spareggio (l'ordine del RETURNING non è garantito dal protocollo). */
+/** Ordina come le liste in memoria: chiave primaria di dominio, poi `id` a spareggio (l'ordine del RETURNING non è garantito dal protocollo). Usata da entrambi i backend, memoria compresa, così `crea`/`aggiornaBozza` tornano lo stesso ordine su entrambi. */
 function ordinaRighe(righe: RigaFattura[]): RigaFattura[] {
   return [...righe].sort((a, b) => a.ordine - b.ordine || a.id - b.id);
+}
+/** Aliquota decrescente (22 poi 10): stesso ordine di `caricaFigli`/`perCommessa` su Postgres, dove nasce da un `ORDER BY aliquota DESC` — qui replicato per RETURNING e memoria, che non hanno un ORDER BY a cui appoggiarsi. */
+function ordinaRiepilogo(riepilogo: RiepilogoIva[]): RiepilogoIva[] {
+  return [...riepilogo].sort((a, b) => b.aliquota - a.aliquota);
 }
 function ordinaScadenze(scadenze: ScadenzaFattura[]): ScadenzaFattura[] {
   return [...scadenze].sort((a, b) => a.numero - b.numero || a.id - b.id);
@@ -429,6 +450,67 @@ function raggruppaPer<T>(righe: any[], mappa: (row: any) => T): Map<number, T[]>
     else risultato.set(fatturaId, [valore]);
   }
   return risultato;
+}
+
+/**
+ * Bulk insert di righe/riepilogo/scadenze per UNA fattura, condiviso da
+ * `crea` (dove `precedenti` è sempre `[]`: niente scadenze da conservare
+ * su una fattura nuova) e `aggiornaBozza` (dove `precedenti` sono le
+ * scadenze lette prima del DELETE, per riappaiare `ficPaymentId`/`stato`
+ * per `numero`). Deve girare dentro la stessa transazione del DELETE e
+ * dell'UPDATE della testata, quindi prende `tx`, non `sql`.
+ *
+ * `tx` è tipizzato `any`: `TransactionSql` di postgres-js non condivide
+ * un alias comodo con `Sql` (sono due interfacce sorelle sotto `ISql`,
+ * non l'una sottotipo dell'altra), e `Parameters<>` su `begin` — che è
+ * overloaded — risolverebbe l'overload sbagliato. Stesso compromesso già
+ * accettato per i mapper di riga (`row: any`) qui sopra: la correttezza
+ * la garantiscono le due suite di test, non il tipo.
+ */
+async function inserisciFigli(
+  tx: any,
+  fatturaId: number,
+  righe: RigaFatturaInput[],
+  riepilogo: RiepilogoIva[],
+  scadenze: ScadenzaFatturaInput[],
+  precedenti: ScadenzaFattura[]
+): Promise<{ righe: RigaFattura[]; riepilogo: RiepilogoIva[]; scadenze: ScadenzaFattura[] }> {
+  const righeInserite = righe.length === 0 ? [] : await tx`INSERT INTO fattura_righe ${tx(
+    righe.map(r => ({
+      fattura_id: fatturaId, ordine: r.ordine, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita,
+      prezzo_unit_cent: r.prezzoUnitCent, importo_cent: r.importoCent, aliquota: r.aliquota,
+      voce_computo_codice: r.voceComputoCodice, riga_commessa_id: r.rigaCommessaId, limite_cent: r.limiteCent,
+      bene_significativo: r.beneSignificativo, derivata: r.derivata,
+    })),
+    "fattura_id", "ordine", "tipo", "descrizione", "quantita", "prezzo_unit_cent", "importo_cent",
+    "aliquota", "voce_computo_codice", "riga_commessa_id", "limite_cent", "bene_significativo", "derivata"
+  )} RETURNING *`;
+
+  const riepilogoInserito = riepilogo.length === 0 ? [] : await tx`INSERT INTO fattura_riepilogo_iva ${tx(
+    riepilogo.map(v => ({
+      fattura_id: fatturaId, aliquota: v.aliquota, imponibile_cent: v.imponibileCent, imposta_cent: v.impostaCent,
+    })),
+    "fattura_id", "aliquota", "imponibile_cent", "imposta_cent"
+  )} RETURNING *`;
+
+  const scadenzeInserite = scadenze.length === 0 ? [] : await tx`INSERT INTO fattura_scadenze ${tx(
+    scadenze.map(s => {
+      const prima = precedenti.find(p => p.numero === s.numero);
+      return {
+        fattura_id: fatturaId, numero: s.numero, quota_pct: s.quotaPct, data: s.data, importo_cent: s.importoCent,
+        descrizione: s.descrizione, fic_payment_id: prima?.ficPaymentId ?? null, stato: prima?.stato ?? "attesa",
+      };
+    }),
+    "fattura_id", "numero", "quota_pct", "data", "importo_cent", "descrizione", "fic_payment_id", "stato"
+  )} RETURNING *`;
+
+  // L'ordine del RETURNING non è garantito dal protocollo: lo stesso
+  // ordine della rilettura (caricaFigli), applicato qui in memoria.
+  return {
+    righe: ordinaRighe(righeInserite.map(rowToRiga)),
+    riepilogo: ordinaRiepilogo(riepilogoInserito.map(rowToRiepilogo)),
+    scadenze: ordinaScadenze(scadenzeInserite.map(rowToScadenza)),
+  };
 }
 
 export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>): FattureRepository {
@@ -475,7 +557,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         )`;
         await tx`CREATE INDEX IF NOT EXISTS fattura_righe_fattura_idx ON fattura_righe (fattura_id, ordine)`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_riepilogo_iva (
-          fattura_id BIGINT NOT NULL REFERENCES fatture(id) ON DELETE CASCADE, aliquota INTEGER NOT NULL,
+          fattura_id BIGINT NOT NULL REFERENCES fatture(id) ON DELETE CASCADE, aliquota INTEGER NOT NULL CHECK (aliquota IN (22,10)),
           imponibile_cent BIGINT NOT NULL, imposta_cent BIGINT NOT NULL, PRIMARY KEY (fattura_id, aliquota)
         )`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_scadenze (
@@ -503,7 +585,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
   const caricaFigli = async (fatturaId: number) => {
     const [righe, riepilogo, scadenze] = await Promise.all([
       sql`SELECT * FROM fattura_righe WHERE fattura_id = ${fatturaId} ORDER BY ordine, id`,
-      sql`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ${fatturaId} ORDER BY aliquota`,
+      sql`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ${fatturaId} ORDER BY aliquota DESC`,
       sql`SELECT * FROM fattura_scadenze WHERE fattura_id = ${fatturaId} ORDER BY numero, id`,
     ]);
     return {
@@ -568,41 +650,9 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}
           ) RETURNING *`;
         const id = Number(rows[0].id);
-
-        const righeInserite = righe.length === 0 ? [] : await tx`INSERT INTO fattura_righe ${tx(
-          righe.map(r => ({
-            fattura_id: id, ordine: r.ordine, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita,
-            prezzo_unit_cent: r.prezzoUnitCent, importo_cent: r.importoCent, aliquota: r.aliquota,
-            voce_computo_codice: r.voceComputoCodice, riga_commessa_id: r.rigaCommessaId, limite_cent: r.limiteCent,
-            bene_significativo: r.beneSignificativo, derivata: r.derivata,
-          })),
-          "fattura_id", "ordine", "tipo", "descrizione", "quantita", "prezzo_unit_cent", "importo_cent",
-          "aliquota", "voce_computo_codice", "riga_commessa_id", "limite_cent", "bene_significativo", "derivata"
-        )} RETURNING *`;
-
-        const riepilogoInserito = riepilogo.length === 0 ? [] : await tx`INSERT INTO fattura_riepilogo_iva ${tx(
-          riepilogo.map(v => ({
-            fattura_id: id, aliquota: v.aliquota, imponibile_cent: v.imponibileCent, imposta_cent: v.impostaCent,
-          })),
-          "fattura_id", "aliquota", "imponibile_cent", "imposta_cent"
-        )} RETURNING *`;
-
-        const scadenzeInserite = scadenze.length === 0 ? [] : await tx`INSERT INTO fattura_scadenze ${tx(
-          scadenze.map(s => ({
-            fattura_id: id, numero: s.numero, quota_pct: s.quotaPct, data: s.data, importo_cent: s.importoCent,
-            descrizione: s.descrizione, fic_payment_id: null, stato: "attesa",
-          })),
-          "fattura_id", "numero", "quota_pct", "data", "importo_cent", "descrizione", "fic_payment_id", "stato"
-        )} RETURNING *`;
-
-        // L'ordine del RETURNING non è garantito dal protocollo: lo stesso
-        // ordine della rilettura (perId), applicato qui in memoria.
-        return rowToFattura(
-          rows[0],
-          ordinaRighe(righeInserite.map(rowToRiga)),
-          riepilogoInserito.map(rowToRiepilogo),
-          ordinaScadenze(scadenzeInserite.map(rowToScadenza))
-        );
+        // Una fattura nuova non ha scadenze precedenti da conservare.
+        const figli = await inserisciFigli(tx, id, righe, riepilogo, scadenze, []);
+        return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
       });
     },
 
@@ -625,7 +675,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       // trip per rileggere la sua storia.
       const [righe, riepilogo, scadenze] = await Promise.all([
         sql`SELECT * FROM fattura_righe WHERE fattura_id = ANY(${ids}::bigint[]) ORDER BY ordine, id`,
-        sql`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ANY(${ids}::bigint[]) ORDER BY aliquota`,
+        sql`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ANY(${ids}::bigint[]) ORDER BY aliquota DESC`,
         sql`SELECT * FROM fattura_scadenze WHERE fattura_id = ANY(${ids}::bigint[]) ORDER BY numero, id`,
       ]);
       const righePer = raggruppaPer(righe, rowToRiga);
@@ -731,94 +781,99 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         await tx`DELETE FROM fattura_riepilogo_iva WHERE fattura_id = ${id}`;
         await tx`DELETE FROM fattura_scadenze WHERE fattura_id = ${id}`;
 
-        const righeInserite = righe.length === 0 ? [] : await tx`INSERT INTO fattura_righe ${tx(
-          righe.map(r => ({
-            fattura_id: id, ordine: r.ordine, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita,
-            prezzo_unit_cent: r.prezzoUnitCent, importo_cent: r.importoCent, aliquota: r.aliquota,
-            voce_computo_codice: r.voceComputoCodice, riga_commessa_id: r.rigaCommessaId, limite_cent: r.limiteCent,
-            bene_significativo: r.beneSignificativo, derivata: r.derivata,
-          })),
-          "fattura_id", "ordine", "tipo", "descrizione", "quantita", "prezzo_unit_cent", "importo_cent",
-          "aliquota", "voce_computo_codice", "riga_commessa_id", "limite_cent", "bene_significativo", "derivata"
-        )} RETURNING *`;
-
-        const riepilogoInserito = riepilogo.length === 0 ? [] : await tx`INSERT INTO fattura_riepilogo_iva ${tx(
-          riepilogo.map(v => ({
-            fattura_id: id, aliquota: v.aliquota, imponibile_cent: v.imponibileCent, imposta_cent: v.impostaCent,
-          })),
-          "fattura_id", "aliquota", "imponibile_cent", "imposta_cent"
-        )} RETURNING *`;
-
-        const scadenzeInserite = scadenze.length === 0 ? [] : await tx`INSERT INTO fattura_scadenze ${tx(
-          scadenze.map(s => {
-            const prima = precedenti.find(p => p.numero === s.numero);
-            return {
-              fattura_id: id, numero: s.numero, quota_pct: s.quotaPct, data: s.data, importo_cent: s.importoCent,
-              descrizione: s.descrizione, fic_payment_id: prima?.ficPaymentId ?? null, stato: prima?.stato ?? "attesa",
-            };
-          }),
-          "fattura_id", "numero", "quota_pct", "data", "importo_cent", "descrizione", "fic_payment_id", "stato"
-        )} RETURNING *`;
-
-        return rowToFattura(
-          rows[0],
-          ordinaRighe(righeInserite.map(rowToRiga)),
-          riepilogoInserito.map(rowToRiepilogo),
-          ordinaScadenze(scadenzeInserite.map(rowToScadenza))
-        );
+        const figli = await inserisciFigli(tx, id, righe, riepilogo, scadenze, precedenti);
+        return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
       });
     },
 
     async aggiornaStato({ sedeId, id, patch, now }) {
       await ensureSchema();
-      const correnti = await sql`SELECT * FROM fatture WHERE id = ${id} AND sede_id = ${sedeId}`;
-      if (!correnti[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
-      const corrente = rowToFatturaParziale(correnti[0]);
+      return sql.begin(async tx => {
+        // FOR UPDATE blocca la riga per la durata della transazione: un
+        // aggiornaStato/aggiornaScadenza concorrente sulla stessa fattura
+        // (tipicamente il poller SdI e un'azione utente, R6) aspetta
+        // invece di leggere uno stato che questa scrittura sta per
+        // superare.
+        const correnti = await tx`SELECT id FROM fatture WHERE id = ${id} AND sede_id = ${sedeId} FOR UPDATE`;
+        if (!correnti[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
 
-      const stato = patch.stato === undefined ? corrente.stato : patch.stato;
-      const ficDocumentId = patch.ficDocumentId === undefined ? corrente.ficDocumentId : patch.ficDocumentId;
-      const numero = patch.numero === undefined ? corrente.numero : patch.numero;
-      const data = patch.data === undefined ? corrente.data : patch.data;
-      const clienteSnapshot = patch.clienteSnapshot === undefined ? corrente.clienteSnapshot : patch.clienteSnapshot;
-      const pdfStorageKey = patch.pdfStorageKey === undefined ? corrente.pdfStorageKey : patch.pdfStorageKey;
-      const xmlStorageKey = patch.xmlStorageKey === undefined ? corrente.xmlStorageKey : patch.xmlStorageKey;
-      const xmlSha256 = patch.xmlSha256 === undefined ? corrente.xmlSha256 : patch.xmlSha256;
-      const documentoId = patch.documentoId === undefined ? corrente.documentoId : patch.documentoId;
-      const eiStatusFic = patch.eiStatusFic === undefined ? corrente.eiStatusFic : patch.eiStatusFic;
-      const eiErrore = patch.eiErrore === undefined ? corrente.eiErrore : patch.eiErrore;
-      const inviataDryRun = patch.inviataDryRun === undefined ? corrente.inviataDryRun : patch.inviataDryRun;
-      const emessaDa = patch.emessaDa === undefined ? corrente.emessaDa : patch.emessaDa;
-      const emessaAt = patch.emessaAt === undefined ? corrente.emessaAt : patch.emessaAt;
-      const imponibileCent = patch.imponibileCent === undefined ? corrente.imponibileCent : patch.imponibileCent;
-      const ivaCent = patch.ivaCent === undefined ? corrente.ivaCent : patch.ivaCent;
-      const totaleCent = patch.totaleCent === undefined ? corrente.totaleCent : patch.totaleCent;
+        // SET solo sulle colonne presenti in patch (chiave con valore
+        // diverso da `undefined`): un patch vuoto tocca solo updated_at.
+        // Il FOR UPDATE da solo non basterebbe: un merge "leggi la riga,
+        // riscrivi ogni colonna" — anche dentro la stessa transazione —
+        // farebbe comunque perdere la scrittura di un'altra transazione
+        // già committata su una colonna che QUESTO patch non nomina,
+        // perché la riscriverebbe con un valore ormai superato. Con il
+        // SET dinamico, una colonna assente da patch non viene proprio
+        // nominata nella query: non può sovrascrivere niente.
+        const colonne: Record<string, any> = { updated_at: now };
+        if (patch.stato !== undefined) colonne.stato = patch.stato;
+        if (patch.ficDocumentId !== undefined) colonne.fic_document_id = patch.ficDocumentId;
+        if (patch.numero !== undefined) colonne.numero = patch.numero;
+        if (patch.data !== undefined) colonne.data = patch.data;
+        if (patch.clienteSnapshot !== undefined) {
+          colonne.cliente_snapshot = patch.clienteSnapshot == null ? null : tx.json(patch.clienteSnapshot as any);
+        }
+        if (patch.pdfStorageKey !== undefined) colonne.pdf_storage_key = patch.pdfStorageKey;
+        if (patch.xmlStorageKey !== undefined) colonne.xml_storage_key = patch.xmlStorageKey;
+        if (patch.xmlSha256 !== undefined) colonne.xml_sha256 = patch.xmlSha256;
+        if (patch.documentoId !== undefined) colonne.documento_id = patch.documentoId;
+        if (patch.eiStatusFic !== undefined) colonne.ei_status_fic = patch.eiStatusFic;
+        if (patch.eiErrore !== undefined) colonne.ei_errore = patch.eiErrore;
+        if (patch.inviataDryRun !== undefined) colonne.inviata_dry_run = patch.inviataDryRun;
+        if (patch.emessaDa !== undefined) colonne.emessa_da = patch.emessaDa;
+        if (patch.emessaAt !== undefined) colonne.emessa_at = patch.emessaAt;
+        if (patch.imponibileCent !== undefined) colonne.imponibile_cent = patch.imponibileCent;
+        if (patch.ivaCent !== undefined) colonne.iva_cent = patch.ivaCent;
+        if (patch.totaleCent !== undefined) colonne.totale_cent = patch.totaleCent;
 
-      const rows = await sql`UPDATE fatture SET
-          stato = ${stato}, fic_document_id = ${ficDocumentId}, numero = ${numero}, data = ${data},
-          cliente_snapshot = ${clienteSnapshot == null ? null : sql.json(clienteSnapshot as any)},
-          pdf_storage_key = ${pdfStorageKey}, xml_storage_key = ${xmlStorageKey}, xml_sha256 = ${xmlSha256},
-          documento_id = ${documentoId}, ei_status_fic = ${eiStatusFic}, ei_errore = ${eiErrore},
-          inviata_dry_run = ${inviataDryRun}, emessa_da = ${emessaDa}, emessa_at = ${emessaAt},
-          imponibile_cent = ${imponibileCent}, iva_cent = ${ivaCent}, totale_cent = ${totaleCent},
-          updated_at = ${now}
-        WHERE id = ${id} AND sede_id = ${sedeId}
-        RETURNING *`;
-      if (!rows[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
-      const figli = await caricaFigli(id);
-      return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
+        const rows = await tx`UPDATE fatture SET ${tx(colonne, ...Object.keys(colonne))}
+          WHERE id = ${id} AND sede_id = ${sedeId}
+          RETURNING *`;
+        // Letture dentro la stessa transazione (tx, non sql): aggiornaStato
+        // non tocca i figli, ma restano coerenti con lo snapshot della
+        // riga appena scritta invece di aprire una connessione a parte.
+        const [righeRows, riepilogoRows, scadenzeRows] = await Promise.all([
+          tx`SELECT * FROM fattura_righe WHERE fattura_id = ${id} ORDER BY ordine, id`,
+          tx`SELECT * FROM fattura_riepilogo_iva WHERE fattura_id = ${id} ORDER BY aliquota DESC`,
+          tx`SELECT * FROM fattura_scadenze WHERE fattura_id = ${id} ORDER BY numero, id`,
+        ]);
+        return rowToFattura(
+          rows[0],
+          righeRows.map(rowToRiga),
+          riepilogoRows.map(rowToRiepilogo),
+          scadenzeRows.map(rowToScadenza)
+        );
+      });
     },
     async aggiornaScadenza({ sedeId, fatturaId, numero, patch }) {
       await ensureSchema();
-      const fatturaRows = await sql`SELECT id FROM fatture WHERE id = ${fatturaId} AND sede_id = ${sedeId}`;
-      if (!fatturaRows[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
-      const correnti = await sql`SELECT * FROM fattura_scadenze WHERE fattura_id = ${fatturaId} AND numero = ${numero}`;
-      if (!correnti[0]) return;
-      const corrente = rowToScadenza(correnti[0]);
-      const ficPaymentId = patch.ficPaymentId === undefined ? corrente.ficPaymentId : patch.ficPaymentId;
-      const stato = patch.stato === undefined ? corrente.stato : patch.stato;
-      await sql`UPDATE fattura_scadenze SET fic_payment_id = ${ficPaymentId}, stato = ${stato}
-        WHERE fattura_id = ${fatturaId} AND numero = ${numero}`;
+      return sql.begin(async tx => {
+        const fatturaRows = await tx`SELECT id FROM fatture WHERE id = ${fatturaId} AND sede_id = ${sedeId}`;
+        if (!fatturaRows[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
+        // FOR UPDATE sulla riga che stiamo per patchare (non su `fatture`,
+        // qui solo un controllo di appartenenza): un webhook di pagamento
+        // FiC e un'altra scrittura sulla stessa scadenza si serializzano
+        // invece di correre, stesso R6 di aggiornaStato.
+        const scadenzaRows = await tx`SELECT id FROM fattura_scadenze
+          WHERE fattura_id = ${fatturaId} AND numero = ${numero} FOR UPDATE`;
+        if (!scadenzaRows[0]) return;
+
+        const colonne: Record<string, any> = {};
+        if (patch.ficPaymentId !== undefined) colonne.fic_payment_id = patch.ficPaymentId;
+        if (patch.stato !== undefined) colonne.stato = patch.stato;
+        if (Object.keys(colonne).length === 0) return;
+
+        await tx`UPDATE fattura_scadenze SET ${tx(colonne, ...Object.keys(colonne))}
+          WHERE fattura_id = ${fatturaId} AND numero = ${numero}`;
+      });
     },
+    // Non verifica che `fatturaId` appartenga davvero a `sedeId` (nessun
+    // JOIN/EXISTS su `fatture`): chi chiama (il servizio, Task 6) ha già
+    // in mano la fattura corretta. `eventi()` filtra su entrambe le
+    // colonne in lettura, ma un chiamante malformato può comunque
+    // scrivere un evento "orfano" qui — la garanzia non è di questo
+    // metodo.
     async appendEvento(e) {
       await ensureSchema();
       const createdAt = e.createdAt ?? new Date();

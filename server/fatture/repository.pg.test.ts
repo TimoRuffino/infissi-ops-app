@@ -18,6 +18,11 @@ const fattura = (sedeId: number = SEDE_A) => ({
 });
 const riga = (ordine: number) => ({ ordine, tipo: "bene" as const, descrizione: `r${ordine}`, quantita: 1, prezzoUnitCent: 100, importoCent: 100, aliquota: 22 as const, voceComputoCodice: null, rigaCommessaId: null, limiteCent: null, beneSignificativo: true, derivata: false });
 const scadenza = (numero: number) => ({ numero, quotaPct: 50, data: "2026-09-04", importoCent: 50, descrizione: null });
+const clienteSnapshot = {
+  clienteId: 501, nome: "Mario Rossi", tipo: "privato" as const, codiceFiscale: "RSSMRA80A01H501U",
+  partitaIva: null, indirizzo: "Via Roma 1", cap: "54100", citta: "Massa", provincia: "MS",
+  email: "mario.rossi@example.com", pec: null, codiceDestinatario: "0000000", ficEntityId: null,
+};
 
 describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
   const sql = kvSql!;
@@ -34,10 +39,14 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
   });
 
   it("crea, rilegge per id/commessa e isola la sede", async () => {
-    const f = await repo.crea({ fattura: fattura(), righe: [riga(2), riga(1)], riepilogo: [{ aliquota: 22, imponibileCent: 200, impostaCent: 44 }], scadenze: [scadenza(1), scadenza(2)], now: ora });
+    const f = await repo.crea({ fattura: fattura(), righe: [riga(2), riga(1)], riepilogo: [{ aliquota: 10, imponibileCent: 100, impostaCent: 10 }, { aliquota: 22, imponibileCent: 200, impostaCent: 44 }], scadenze: [scadenza(1), scadenza(2)], now: ora });
     expect(f.id).toBeGreaterThan(0);
     expect(f.revisione).toBe(1);
     expect(f.righe.map(r => r.ordine)).toEqual([1, 2]);
+    // Aliquota decrescente (22 poi 10), a prescindere dall'ordine in
+    // ingresso: sia nel RETURNING di `crea` che nella rilettura.
+    expect(f.riepilogo.map(r => r.aliquota)).toEqual([22, 10]);
+    expect((await repo.perId(SEDE_A, f.id))?.riepilogo.map(r => r.aliquota)).toEqual([22, 10]);
     expect((await repo.perId(SEDE_A, f.id))?.scadenze).toHaveLength(2);
     expect(await repo.perId(SEDE_B, f.id)).toBeNull();
     expect(await repo.perCommessa(SEDE_A, 10)).toHaveLength(1);
@@ -62,6 +71,9 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     await repo.aggiornaStato({ sedeId: SEDE_A, id: f.id, patch: { stato: "emessa", ficDocumentId: 4242, numero: "12/2026", data: "2026-09-04", inviataDryRun: true }, now: ora });
     expect((await repo.perFicDocumentId(SEDE_A, 4242))?.id).toBe(f.id);
     expect((await repo.daSondare()).map(x => x.id)).toContain(f.id);
+    // Contratto di daSondare: solo fatture con ficDocumentId valorizzato
+    // (mai null), a prescindere da cos'altro c'è nel risultato.
+    expect((await repo.daSondare()).every(x => x.ficDocumentId != null)).toBe(true);
     await repo.aggiornaStato({ sedeId: SEDE_A, id: f.id, patch: { stato: "consegnata" }, now: ora });
     expect((await repo.daSondare()).map(x => x.id)).not.toContain(f.id);
     await repo.appendEvento({ fatturaId: f.id, sedeId: SEDE_A, tipo: "creata_fic", payload: { ficDocumentId: 4242 }, actorUserId: 5 });
@@ -90,9 +102,12 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     // con l'intera lista, solo che b precede a (più recente prima).
     expect(lista.findIndex(f => f.id === b.id)).toBeLessThan(lista.findIndex(f => f.id === a.id));
     expect((await repo.lista({ sedeId: SEDE_A, tipo: "nota_credito" })).map(f => f.id)).toEqual([b.id]);
-    // Nessuna fattura di questa suite resta in "emessa": il test
-    // precedente la sposta a "consegnata" prima di finire.
-    expect(await repo.lista({ sedeId: SEDE_A, stati: ["emessa"] })).toEqual([]);
+    // Indipendente dall'ordine dei test: non si assume che l'intera lista
+    // "emessa" sia vuota (un'altra fattura di SEDE_A potrebbe esserlo, a
+    // seconda di quali altri test sono già girati), solo che a/b — create
+    // qui, mai spostate da "bozza" — non vi compaiano.
+    const emesse = await repo.lista({ sedeId: SEDE_A, stati: ["emessa"] });
+    expect(emesse.some(x => x.id === a.id || x.id === b.id)).toBe(false);
     // Le liste non portano le righe: un `crea` con righe (nel primo test
     // di questa suite) non deve trapelare nel risultato di `lista`.
     expect(lista.every(f => f.righe.length === 0 && f.riepilogo.length === 0 && f.scadenze.length === 0)).toBe(true);
@@ -122,12 +137,48 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     expect(riletta?.righe[1].derivata).toBe(true);
   });
 
-  it("il DATE della scadenza torna come YYYY-MM-DD", async () => {
-    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [scadenza(1)], now: ora });
+  it("il DATE della scadenza torna come YYYY-MM-DD, NUMERIC come numero", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [riga(1)], riepilogo: [], scadenze: [scadenza(1)], now: ora });
     // La colonna è DATE: il driver la restituisce come Date, non come
     // stringa. Deve tornare "2026-09-04", non un formato locale.
     expect(f.scadenze[0].data).toBe("2026-09-04");
+    // NUMERIC(6,2) e NUMERIC(10,3): il driver pg le restituisce come
+    // stringa di default — devono tornare Number, non "50.00"/"1.000".
+    expect(f.scadenze[0].quotaPct).toBe(50);
+    expect(f.righe[0].quantita).toBe(1);
     const riletta = await repo.perId(SEDE_A, f.id);
     expect(riletta?.scadenze[0].data).toBe("2026-09-04");
+    expect(riletta?.scadenze[0].quotaPct).toBe(50);
+    expect(riletta?.righe[0].quantita).toBe(1);
+  });
+
+  it("clienteSnapshot e diciture: round-trip completo, anche dopo aggiornaStato", async () => {
+    const f = await repo.crea({
+      fattura: { ...fattura(), clienteSnapshot, diciture: ["intervento_manutenzione", "copia_ade"] },
+      righe: [], riepilogo: [], scadenze: [], now: ora,
+    });
+    expect(f.clienteSnapshot).toEqual(clienteSnapshot);
+    expect(f.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
+    const riletta = await repo.perId(SEDE_A, f.id);
+    expect(riletta?.clienteSnapshot).toEqual(clienteSnapshot);
+    expect(riletta?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
+
+    // Un primo aggiornaStato tocca pdfStorageKey; un secondo, con solo
+    // clienteSnapshot nel patch, non deve azzerarlo. È la prova diretta
+    // che il SET dinamico (R6) nomina solo le colonne presenti nel
+    // patch corrente — un merge "leggi tutto, riscrivi tutto" avrebbe
+    // sempre incluso pdf_storage_key comunque, quindi da solo non
+    // basterebbe a fidarsi che qui sia rimasto quello del primo patch e
+    // non un valore riletto e poi riscritto.
+    await repo.aggiornaStato({ sedeId: SEDE_A, id: f.id, patch: { pdfStorageKey: "fatture/2026/f1.pdf" }, now: ora });
+    const aggiornata = await repo.aggiornaStato({
+      sedeId: SEDE_A, id: f.id, patch: { clienteSnapshot: { ...clienteSnapshot, ficEntityId: 42 } }, now: ora,
+    });
+    expect(aggiornata.clienteSnapshot).toEqual({ ...clienteSnapshot, ficEntityId: 42 });
+    expect(aggiornata.pdfStorageKey).toBe("fatture/2026/f1.pdf");
+    const rilettaDopo = await repo.perId(SEDE_A, f.id);
+    expect(rilettaDopo?.clienteSnapshot).toEqual({ ...clienteSnapshot, ficEntityId: 42 });
+    expect(rilettaDopo?.pdfStorageKey).toBe("fatture/2026/f1.pdf");
+    expect(rilettaDopo?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
   });
 });

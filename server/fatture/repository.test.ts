@@ -14,16 +14,24 @@ const fattura = (sedeId = 1) => ({
 });
 const riga = (ordine: number) => ({ ordine, tipo: "bene" as const, descrizione: `r${ordine}`, quantita: 1, prezzoUnitCent: 100, importoCent: 100, aliquota: 22 as const, voceComputoCodice: null, rigaCommessaId: null, limiteCent: null, beneSignificativo: true, derivata: false });
 const scadenza = (numero: number) => ({ numero, quotaPct: 50, data: "2026-09-04", importoCent: 50, descrizione: null });
+const clienteSnapshot = {
+  clienteId: 501, nome: "Mario Rossi", tipo: "privato" as const, codiceFiscale: "RSSMRA80A01H501U",
+  partitaIva: null, indirizzo: "Via Roma 1", cap: "54100", citta: "Massa", provincia: "MS",
+  email: "mario.rossi@example.com", pec: null, codiceDestinatario: "0000000", ficEntityId: null,
+};
 
 describe("repository fatture (memoria)", () => {
   let repo: FattureRepository;
   beforeEach(() => { repo = createMemoryFattureRepository(); });
 
   it("crea, rilegge per id/commessa e isola la sede", async () => {
-    const f = await repo.crea({ fattura: fattura(), righe: [riga(2), riga(1)], riepilogo: [{ aliquota: 22, imponibileCent: 200, impostaCent: 44 }], scadenze: [scadenza(1), scadenza(2)], now: ora });
+    const f = await repo.crea({ fattura: fattura(), righe: [riga(2), riga(1)], riepilogo: [{ aliquota: 10, imponibileCent: 100, impostaCent: 10 }, { aliquota: 22, imponibileCent: 200, impostaCent: 44 }], scadenze: [scadenza(1), scadenza(2)], now: ora });
     expect(f.id).toBeGreaterThan(0);
     expect(f.revisione).toBe(1);
     expect(f.righe.map(r => r.ordine)).toEqual([1, 2]);
+    // Aliquota decrescente (22 poi 10), a prescindere dall'ordine in
+    // ingresso: stessa convenzione usata dalla lettura Postgres.
+    expect(f.riepilogo.map(r => r.aliquota)).toEqual([22, 10]);
     expect((await repo.perId(1, f.id))?.scadenze).toHaveLength(2);
     expect(await repo.perId(2, f.id)).toBeNull();
     expect(await repo.perCommessa(1, 10)).toHaveLength(1);
@@ -72,5 +80,32 @@ describe("repository fatture (memoria)", () => {
     expect((await repo.lista({ sedeId: 1 })).map(f => f.id)).toEqual([b.id, a.id]);
     expect((await repo.lista({ sedeId: 1, tipo: "nota_credito" })).map(f => f.id)).toEqual([b.id]);
     expect(await repo.lista({ sedeId: 1, stati: ["emessa"] })).toEqual([]);
+  });
+
+  it("clienteSnapshot e diciture: round-trip completo, anche dopo aggiornaStato", async () => {
+    const f = await repo.crea({
+      fattura: { ...fattura(), clienteSnapshot, diciture: ["intervento_manutenzione", "copia_ade"] },
+      righe: [], riepilogo: [], scadenze: [], now: ora,
+    });
+    expect(f.clienteSnapshot).toEqual(clienteSnapshot);
+    expect(f.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
+    const riletta = await repo.perId(1, f.id);
+    expect(riletta?.clienteSnapshot).toEqual(clienteSnapshot);
+    expect(riletta?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
+
+    // Un primo aggiornaStato tocca pdfStorageKey; un secondo, con solo
+    // clienteSnapshot nel patch, non deve azzerarlo (senzaUndefined
+    // filtra le chiavi assenti prima dell'Object.assign).
+    await repo.aggiornaStato({ sedeId: 1, id: f.id, patch: { pdfStorageKey: "fatture/2026/f1.pdf" }, now: ora });
+    const aggiornata = await repo.aggiornaStato({
+      sedeId: 1, id: f.id, patch: { clienteSnapshot: { ...clienteSnapshot, ficEntityId: 42 } }, now: ora,
+    });
+    expect(aggiornata.clienteSnapshot).toEqual({ ...clienteSnapshot, ficEntityId: 42 });
+    expect(aggiornata.pdfStorageKey).toBe("fatture/2026/f1.pdf");
+    const rilettaDopo = await repo.perId(1, f.id);
+    expect(rilettaDopo?.clienteSnapshot).toEqual({ ...clienteSnapshot, ficEntityId: 42 });
+    expect(rilettaDopo?.pdfStorageKey).toBe("fatture/2026/f1.pdf");
+    // diciture non era mai nel patch: deve restare quella creata sopra.
+    expect(rilettaDopo?.diciture).toEqual(["intervento_manutenzione", "copia_ade"]);
   });
 });
