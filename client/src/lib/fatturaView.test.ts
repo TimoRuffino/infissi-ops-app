@@ -7,6 +7,7 @@ import type {
 import { DICITURE } from "@shared/fatturazione/diciture";
 import {
   badgeStatoFattura,
+  DICITURE_SELEZIONABILI,
   etichettaTabFattura,
   ibanSembraValido,
   indicatoreLimite,
@@ -340,6 +341,34 @@ describe("fatturaView", () => {
     ).toBe("Nota di credito 1-2026.xml");
     expect(nomeFileFattura({ numero: null, tipo: "fattura" }, "pdf")).toBe(
       "Fattura bozza.pdf"
+    );
+  });
+
+  it("DICITURE_SELEZIONABILI tiene solo le diciture in calce (R28)", () => {
+    // Ogni chiave offerta all'operatore deve esistere davvero: una chiave
+    // sconosciuta verrebbe rifiutata dal router (`z.enum` su DICITURE).
+    for (const chiave of DICITURE_SELEZIONABILI) {
+      expect(Object.keys(DICITURE)).toContain(chiave);
+    }
+    // I testi di riga li stampa il generatore al posto giusto: spuntarli
+    // qui li duplicherebbe in fondo al documento.
+    const testiDiRiga = [
+      "intestazione",
+      "seguira_ddt",
+      "beni_significativi",
+      "beni_autonomi",
+      "prestazioni",
+      "markup",
+      "storno_bs",
+      "riaddebito_bs",
+    ];
+    for (const chiave of testiDiRiga) {
+      expect(DICITURE_SELEZIONABILI).not.toContain(chiave);
+    }
+    // Le due liste insieme coprono tutte le chiavi: una dicitura nuova non
+    // può restare fuori da entrambe senza far fallire questo test.
+    expect(DICITURE_SELEZIONABILI.length + testiDiRiga.length).toBe(
+      Object.keys(DICITURE).length
     );
   });
 

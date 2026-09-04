@@ -10,7 +10,7 @@ import type {
   ScadenzaFattura,
   TipoRiga,
 } from "@shared/fatturazione/tipi";
-import { DICITURE } from "@shared/fatturazione/diciture";
+import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import { formatCent } from "./limitiView";
 
 type Tono = "neutro" | "ok" | "attenzione" | "errore";
@@ -225,6 +225,25 @@ export function testoDicitura(chiave: string): string {
     ? DICITURE[chiave as keyof typeof DICITURE]
     : chiave;
 }
+
+/**
+ * Le diciture che si scelgono in bozza (Ruling R28): solo quelle in calce al
+ * documento. Le altre chiavi di `DICITURE` sono testi di riga — il generatore
+ * le stampa come righe `intestazione` o `nota` al posto giusto (v.
+ * `server/fatture/generatore.ts`) — e spuntarle qui le duplicherebbe in fondo
+ * alla fattura, dove non hanno senso.
+ */
+export const DICITURE_SELEZIONABILI: ChiaveDicitura[] = [
+  "intervento_manutenzione",
+  "intervento_straordinaria",
+  "bonifico_ristrutturazione",
+  "bonifico_ecobonus",
+  "indicare_cf",
+  "copia_ade",
+  "pagamento_50_40_10",
+  "spese_professionali_escluse",
+  "pratica_edilizia",
+];
 
 /** Stati che, senza scarti né bocciature, contano come «fattura emessa con successo». */
 const STATI_EMESSA_PIU: ReadonlySet<StatoFattura> = new Set([

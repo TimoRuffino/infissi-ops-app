@@ -3,7 +3,7 @@
 // qui — il riepilogo, il markup e i limiti li rifà il server a ogni
 // `aggiornaBozza`, quindi i numeri mostrati sono sempre quelli salvati e il
 // salvataggio è esplicito (`StickyActionBar` con `dirty`).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -21,6 +21,7 @@ import { trpc } from "@/lib/trpc";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import type { RigaFattura } from "@shared/fatturazione/tipi";
 import {
+  DICITURE_SELEZIONABILI,
   indicatoreLimite,
   raggruppaRighe,
   riepilogoControlli,
@@ -117,13 +118,91 @@ type RigaAggiunta = {
   beneSignificativo: boolean;
 };
 
-let contatoreAggiunte = 0;
+/** Quante righe accetta `aggiornaBozza` in una modifica (MAX_RIGHE_AGGIUNTE lato server). */
+const MAX_RIGHE_AGGIUNTE = 20;
 
 const INDICATORE_TONO: Record<"ok" | "oltre" | "n_a", string> = {
   ok: "text-success",
   oltre: "text-warning",
   n_a: "",
 };
+
+function centDaTesto(testo: string): number | null {
+  const euro = parseEuroNonNegativo(testo);
+  return euro == null ? null : Math.round(euro * 100);
+}
+
+/**
+ * I campi vivi di una riga in bozza: l'input dell'importo con la sua
+ * normalizzazione, l'indicatore di limite e il pulsante di rimozione.
+ *
+ * Torna i tre pezzi separati invece di un sottoalbero perché la tabella li
+ * mette in tre celle diverse e la card mobile li impila: la logica sta qui
+ * una volta sola, alle due viste restano le rispettive strutture.
+ */
+function RigaBozzaCampi({
+  r,
+  testo,
+  puoModificare,
+  inRimozione,
+  classeInput,
+  classeBottone,
+  onImporto,
+  onNormalizza,
+  onRimozione,
+}: {
+  r: RigaFattura;
+  testo: string;
+  puoModificare: boolean;
+  inRimozione: boolean;
+  classeInput: string;
+  classeBottone: string;
+  onImporto: (testo: string) => void;
+  onNormalizza: () => void;
+  onRimozione: () => void;
+}): { importo: ReactNode; indicatore: ReactNode; rimozione: ReactNode } {
+  const indicatore = indicatoreLimite(r);
+  const modificabile = correggibile(r) && puoModificare && !inRimozione;
+  return {
+    importo: modificabile ? (
+      <Input
+        inputMode="decimal"
+        className={classeInput}
+        aria-label={`Importo di ${r.descrizione}`}
+        value={testo}
+        onChange={e => onImporto(e.target.value)}
+        onBlur={onNormalizza}
+      />
+    ) : (
+      <span className="tabular-nums">{formatCent(r.importoCent)}</span>
+    ),
+    indicatore: indicatore.testo ? (
+      <span className={`text-xs ${INDICATORE_TONO[indicatore.stato]}`}>
+        {indicatore.testo}
+      </span>
+    ) : null,
+    rimozione:
+      puoModificare && scrittaAMano(r) ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`${classeBottone} text-danger hover:text-danger hover:bg-danger-soft`}
+          aria-label={
+            inRimozione
+              ? `Ripristina ${r.descrizione}`
+              : `Rimuovi ${r.descrizione}`
+          }
+          onClick={onRimozione}
+        >
+          {inRimozione ? (
+            <Undo2 className="h-4 w-4" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
+      ) : null,
+  };
+}
 
 export default function BozzaFatturaEditor({
   commessaId,
@@ -169,6 +248,9 @@ export default function BozzaFatturaEditor({
   const [confermaEmissione, setConfermaEmissione] = useState(false);
   const [confermaRigenera, setConfermaRigenera] = useState(false);
   const [confermaAnnulla, setConfermaAnnulla] = useState(false);
+  // Chiavi React delle righe aggiunte: un contatore per montaggio, non di
+  // modulo — due editor aperti non si rubano i numeri.
+  const contatoreAggiunte = useRef(0);
 
   // Il form segue il server finché l'operatore non tocca niente: dopo un
   // salvataggio il server rinumera le righe, quindi ripartire dai suoi dati
@@ -185,7 +267,7 @@ export default function BozzaFatturaEditor({
     );
     setAggiunte([]);
     setRimosse([]);
-    setScadenze(f.scadenze.map(scadenzaDaServer));
+    setScadenze(f.scadenze.map((s, i) => scadenzaDaServer(s, `srv-${i}`)));
     setScadenzeToccate(false);
     setDiciture(f.diciture.filter((d): d is ChiaveDicitura => d in DICITURE));
     setCantiere(f.intestazioneCantiere ?? "");
@@ -279,7 +361,11 @@ export default function BozzaFatturaEditor({
   const gruppi = raggruppaRighe(f.righe);
   const controlli = validazioni.data?.controlli ?? [];
   const { errori, avvisi } = riepilogoControlli(controlli);
-  const emettibile = validazioni.data?.emettibile ?? false;
+  // Controlli non arrivati non vuol dire «tutto a posto»: senza il loro
+  // esito l'emissione resta chiusa e il pannello lo dice, invece di
+  // rassicurare con un elenco vuoto.
+  const validazioniKo = validazioni.isError;
+  const emettibile = !validazioniKo && (validazioni.data?.emettibile ?? false);
   const inCorso =
     salva.isPending ||
     rigenera.isPending ||
@@ -293,11 +379,6 @@ export default function BozzaFatturaEditor({
   );
   const mostraScavalco = puoEmettere && (erroriDiLimite || scavalco.attivo);
   const scavalcoIncompleto = scavalco.attivo && scavalco.motivo.trim() === "";
-
-  const centDaTesto = (testo: string): number | null => {
-    const euro = parseEuroNonNegativo(testo);
-    return euro == null ? null : Math.round(euro * 100);
-  };
 
   /**
    * Cosa mandare al server: solo i campi davvero cambiati. Le scadenze si
@@ -355,6 +436,40 @@ export default function BozzaFatturaEditor({
 
   const tocca = () => setSporco(true);
 
+  /** I campi vivi di una riga: i callback si scrivono qui una volta sola. */
+  const campiDi = (
+    r: RigaFattura,
+    classeInput: string,
+    classeBottone: string
+  ) =>
+    RigaBozzaCampi({
+      r,
+      testo: importi[r.ordine] ?? "",
+      puoModificare,
+      inRimozione: rimosse.includes(r.ordine),
+      classeInput,
+      classeBottone,
+      onImporto: t => {
+        tocca();
+        setImporti(prev => ({ ...prev, [r.ordine]: t }));
+      },
+      onNormalizza: () =>
+        setImporti(prev => ({
+          ...prev,
+          [r.ordine]: formatEuro(
+            (centDaTesto(prev[r.ordine] ?? "") ?? r.importoCent) / 100
+          ),
+        })),
+      onRimozione: () => {
+        tocca();
+        setRimosse(prev =>
+          prev.includes(r.ordine)
+            ? prev.filter(o => o !== r.ordine)
+            : [...prev, r.ordine]
+        );
+      },
+    });
+
   return (
     <div className="space-y-4 mt-4 min-w-0">
       <div className="grid gap-4 min-w-0 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -395,8 +510,12 @@ export default function BozzaFatturaEditor({
                     </TableHeader>
                     <TableBody>
                       {g.righe.map(r => {
-                        const indicatore = indicatoreLimite(r);
                         const inRimozione = rimosse.includes(r.ordine);
+                        const campi = campiDi(
+                          r,
+                          "h-9 text-right tabular-nums",
+                          "h-8 w-8"
+                        );
                         return (
                           <TableRow
                             key={r.ordine}
@@ -432,73 +551,13 @@ export default function BozzaFatturaEditor({
                               </TableCell>
                             )}
                             <TableCell className="text-right">
-                              {correggibile(r) &&
-                              puoModificare &&
-                              !inRimozione ? (
-                                <Input
-                                  inputMode="decimal"
-                                  className="h-9 text-right tabular-nums"
-                                  aria-label={`Importo di ${r.descrizione}`}
-                                  value={importi[r.ordine] ?? ""}
-                                  onChange={e => {
-                                    tocca();
-                                    setImporti(prev => ({
-                                      ...prev,
-                                      [r.ordine]: e.target.value,
-                                    }));
-                                  }}
-                                  onBlur={() =>
-                                    setImporti(prev => ({
-                                      ...prev,
-                                      [r.ordine]: formatEuro(
-                                        (centDaTesto(prev[r.ordine] ?? "") ??
-                                          r.importoCent) / 100
-                                      ),
-                                    }))
-                                  }
-                                />
-                              ) : (
-                                <span className="tabular-nums">
-                                  {formatCent(r.importoCent)}
-                                </span>
-                              )}
+                              {campi.importo}
                             </TableCell>
                             <TableCell className="text-right tabular-nums text-text-2">
                               {r.aliquota == null ? "—" : `${r.aliquota} %`}
                             </TableCell>
-                            <TableCell
-                              className={`text-xs ${INDICATORE_TONO[indicatore.stato]}`}
-                            >
-                              {indicatore.testo}
-                            </TableCell>
-                            <TableCell>
-                              {puoModificare && scrittaAMano(r) && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-danger hover:text-danger hover:bg-danger-soft"
-                                  aria-label={
-                                    inRimozione
-                                      ? `Ripristina ${r.descrizione}`
-                                      : `Rimuovi ${r.descrizione}`
-                                  }
-                                  onClick={() => {
-                                    tocca();
-                                    setRimosse(prev =>
-                                      prev.includes(r.ordine)
-                                        ? prev.filter(o => o !== r.ordine)
-                                        : [...prev, r.ordine]
-                                    );
-                                  }}
-                                >
-                                  {inRimozione ? (
-                                    <Undo2 className="h-4 w-4" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </Button>
-                              )}
-                            </TableCell>
+                            <TableCell>{campi.indicatore}</TableCell>
+                            <TableCell>{campi.rimozione}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -508,8 +567,12 @@ export default function BozzaFatturaEditor({
 
                 <ul className="space-y-2 md:hidden min-w-0">
                   {g.righe.map(r => {
-                    const indicatore = indicatoreLimite(r);
                     const inRimozione = rimosse.includes(r.ordine);
+                    const campi = campiDi(
+                      r,
+                      "h-11 text-right tabular-nums",
+                      "h-9 w-9 shrink-0"
+                    );
                     return (
                       <li
                         key={r.ordine}
@@ -530,32 +593,7 @@ export default function BozzaFatturaEditor({
                               derivata
                             </Badge>
                           )}
-                          {puoModificare && scrittaAMano(r) && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9 shrink-0 text-danger hover:text-danger hover:bg-danger-soft"
-                              aria-label={
-                                inRimozione
-                                  ? `Ripristina ${r.descrizione}`
-                                  : `Rimuovi ${r.descrizione}`
-                              }
-                              onClick={() => {
-                                tocca();
-                                setRimosse(prev =>
-                                  prev.includes(r.ordine)
-                                    ? prev.filter(o => o !== r.ordine)
-                                    : [...prev, r.ordine]
-                                );
-                              }}
-                            >
-                              {inRimozione ? (
-                                <Undo2 className="h-4 w-4" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
+                          {campi.rimozione}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap text-xs text-text-2">
                           <span>{ETICHETTA_TIPO[r.tipo]}</span>
@@ -575,41 +613,10 @@ export default function BozzaFatturaEditor({
                             </span>
                           )}
                         </div>
-                        {correggibile(r) && puoModificare && !inRimozione ? (
-                          <Input
-                            inputMode="decimal"
-                            className="h-11 text-right tabular-nums"
-                            aria-label={`Importo di ${r.descrizione}`}
-                            value={importi[r.ordine] ?? ""}
-                            onChange={e => {
-                              tocca();
-                              setImporti(prev => ({
-                                ...prev,
-                                [r.ordine]: e.target.value,
-                              }));
-                            }}
-                            onBlur={() =>
-                              setImporti(prev => ({
-                                ...prev,
-                                [r.ordine]: formatEuro(
-                                  (centDaTesto(prev[r.ordine] ?? "") ??
-                                    r.importoCent) / 100
-                                ),
-                              }))
-                            }
-                          />
-                        ) : (
-                          <p className="text-right text-sm font-semibold tabular-nums">
-                            {formatCent(r.importoCent)}
-                          </p>
-                        )}
-                        {indicatore.testo && (
-                          <p
-                            className={`text-xs ${INDICATORE_TONO[indicatore.stato]}`}
-                          >
-                            {indicatore.testo}
-                          </p>
-                        )}
+                        <div className="text-right text-sm font-semibold">
+                          {campi.importo}
+                        </div>
+                        {campi.indicatore}
                       </li>
                     );
                   })}
@@ -665,9 +672,15 @@ export default function BozzaFatturaEditor({
                 variant="outline"
                 size="sm"
                 className="h-9"
+                disabled={aggiunte.length >= MAX_RIGHE_AGGIUNTE}
+                title={
+                  aggiunte.length >= MAX_RIGHE_AGGIUNTE
+                    ? `Non più di ${MAX_RIGHE_AGGIUNTE} righe aggiunte per salvataggio.`
+                    : undefined
+                }
                 onClick={() => {
                   setNuovaRiga({
-                    chiave: `aggiunta-${(contatoreAggiunte += 1)}`,
+                    chiave: `aggiunta-${(contatoreAggiunte.current += 1)}`,
                     tipo: "bene",
                     descrizione: "",
                     importoTesto: "0,00",
@@ -716,7 +729,7 @@ export default function BozzaFatturaEditor({
           >
             <h3 className="text-sm font-medium">Diciture e testi</h3>
             <div className="grid gap-2 md:grid-cols-2">
-              {(Object.keys(DICITURE) as ChiaveDicitura[]).map(chiave => (
+              {DICITURE_SELEZIONABILI.map(chiave => (
                 <Label
                   key={chiave}
                   htmlFor={`dicitura-${chiave}`}
@@ -814,13 +827,27 @@ export default function BozzaFatturaEditor({
             tone="sunken"
             title="Controlli"
             description={
-              validazioni.isLoading
-                ? "Verifica in corso…"
-                : errori.length === 0 && avvisi.length === 0
-                  ? "Nessun problema aperto."
-                  : `${errori.length} da risolvere · ${avvisi.length} da leggere`
+              validazioniKo
+                ? `Controlli non disponibili: ${validazioni.error?.message ?? "errore sconosciuto"}`
+                : validazioni.isLoading || !validazioni.data
+                  ? "Verifica in corso…"
+                  : errori.length === 0 && avvisi.length === 0
+                    ? "Nessun problema aperto."
+                    : `${errori.length} da risolvere · ${avvisi.length} da leggere`
             }
           >
+            {validazioniKo && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-fit"
+                disabled={validazioni.isFetching}
+                onClick={() => void validazioni.refetch()}
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                {validazioni.isFetching ? "Riprovo…" : "Riprova"}
+              </Button>
+            )}
             {errori.length > 0 && (
               <ul
                 className="space-y-1 text-xs text-danger"
@@ -947,11 +974,13 @@ export default function BozzaFatturaEditor({
               className="h-11 sm:h-10"
               disabled={!emettibile || sporco || inCorso}
               title={
-                sporco
-                  ? "Salva la bozza prima di emetterla."
-                  : emettibile
-                    ? undefined
-                    : "Ci sono controlli da risolvere."
+                validazioniKo
+                  ? "Controlli non disponibili."
+                  : sporco
+                    ? "Salva la bozza prima di emetterla."
+                    : emettibile
+                      ? undefined
+                      : "Ci sono controlli da risolvere."
               }
               onClick={() => setConfermaEmissione(true)}
             >

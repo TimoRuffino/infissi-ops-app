@@ -4,6 +4,7 @@
 // modificano le righe e si dice se quadrano, nient'altro. La quadratura la
 // pretende il server (`aggiornaBozza` rifiuta scadenze che non sommano al
 // totale): mostrarla qui evita di scoprirlo con un errore.
+import { useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import type {
@@ -31,15 +32,23 @@ export type ScadenzaForm = {
 const COLONNE =
   "grid-cols-2 md:grid-cols-[2.5rem_5rem_9.5rem_7rem_minmax(0,1fr)_2.25rem]";
 
-let contatore = 0;
-function nuovaChiave(): string {
-  contatore += 1;
-  return `scadenza-${contatore}`;
-}
+/** Quante scadenze accetta `aggiornaBozza`: oltre, il server rifiuta la modifica. */
+export const MAX_SCADENZE = 12;
+/** Il server taglia la descrizione a 120 caratteri: meglio non farglielo fare di nascosto. */
+const MAX_DESCRIZIONE_SCADENZA = 120;
 
-export function scadenzaDaServer(s: ScadenzaFattura): ScadenzaForm {
+/**
+ * La chiave arriva da fuori: chi crea la riga sa da dove viene (`srv-` per le
+ * scadenze del server, `nuova-` per quelle aggiunte qui) e i due prefissi non
+ * si scontrano. Così non serve un contatore di modulo, che vivrebbe più a
+ * lungo del componente.
+ */
+export function scadenzaDaServer(
+  s: ScadenzaFattura,
+  chiave: string
+): ScadenzaForm {
   return {
-    chiave: nuovaChiave(),
+    chiave,
     numero: s.numero,
     quotaTesto: String(s.quotaPct),
     data: s.data,
@@ -49,9 +58,13 @@ export function scadenzaDaServer(s: ScadenzaFattura): ScadenzaForm {
 }
 
 /** Una scadenza nuova nasce a zero: quota e importo li scrive chi fattura. */
-export function scadenzaVuota(numero: number, data: string): ScadenzaForm {
+export function scadenzaVuota(
+  numero: number,
+  data: string,
+  chiave: string
+): ScadenzaForm {
   return {
-    chiave: nuovaChiave(),
+    chiave,
     numero,
     quotaTesto: "0",
     data,
@@ -104,6 +117,9 @@ export default function ScadenzeEditor({
   disabilitato?: boolean;
   onChange: (scadenze: ScadenzaForm[]) => void;
 }) {
+  // Le chiavi delle scadenze aggiunte qui: un contatore per montaggio, non
+  // di modulo — due editor aperti non si rubano i numeri.
+  const contatore = useRef(0);
   const salvate = scadenze.map(comeScadenzaSalvata);
   const somma = sommaScadenzeCent(salvate);
   const quadra = scadenzeQuadrano(salvate, totaleCent);
@@ -129,18 +145,26 @@ export default function ScadenzeEditor({
             size="sm"
             variant="outline"
             className="ml-auto h-8"
-            onClick={() =>
+            disabled={scadenze.length >= MAX_SCADENZE}
+            title={
+              scadenze.length >= MAX_SCADENZE
+                ? `Non più di ${MAX_SCADENZE} scadenze per fattura.`
+                : undefined
+            }
+            onClick={() => {
+              contatore.current += 1;
               onChange(
                 rinumera([
                   ...scadenze,
                   scadenzaVuota(
                     scadenze.length + 1,
                     scadenze[scadenze.length - 1]?.data ??
-                      new Date().toISOString().slice(0, 10)
+                      new Date().toISOString().slice(0, 10),
+                    `nuova-${contatore.current}`
                   ),
                 ])
-              )
-            }
+              );
+            }}
           >
             <Plus className="h-3.5 w-3.5 mr-1" /> Scadenza
           </Button>
@@ -204,6 +228,7 @@ export default function ScadenzeEditor({
           />
           <Input
             className="h-9 col-span-2 md:col-span-1"
+            maxLength={MAX_DESCRIZIONE_SCADENZA}
             placeholder="Descrizione"
             aria-label={`Descrizione della scadenza ${s.numero}`}
             value={s.descrizione}

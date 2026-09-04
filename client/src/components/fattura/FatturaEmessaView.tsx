@@ -62,6 +62,29 @@ const ETICHETTA_EVENTO: Record<string, string> = {
   scavalco_limiti: "Scavalco dei limiti",
 };
 
+/**
+ * Gli stati in cui ha senso chiedere allo SdI come è andata: serve un
+ * documento su Fatture in Cloud (`aggiornaStatoFattura` lo pretende) e una
+ * fattura già uscita. Su una bozza annullata non c'è niente da sondare.
+ */
+const STATI_SONDABILI: ReadonlySet<StatoFattura> = new Set([
+  "emessa",
+  "inviata",
+  "consegnata",
+  "scartata",
+  "rifiutata",
+  "mancata_consegna",
+]);
+
+/** Gli stati da cui si storna: stesso insieme di `STATI_STORNABILI` in server/fatture/notaCredito.ts — una scartata non è mai arrivata al cliente. */
+const STATI_STORNABILI: ReadonlySet<StatoFattura> = new Set([
+  "emessa",
+  "inviata",
+  "consegnata",
+  "rifiutata",
+  "mancata_consegna",
+]);
+
 const STATO_SCADENZA: Record<"attesa" | "pagata" | "stornata", string> = {
   attesa: "in attesa",
   pagata: "pagata",
@@ -170,7 +193,15 @@ export default function FatturaEmessaView({
 
   const f = dettaglio.data.fattura;
   const eventi: EventoFattura[] = dettaglio.data.eventi;
-  const badge = badgeStatoFattura(f.stato as StatoFattura, f.inviataDryRun);
+  const stato = f.stato as StatoFattura;
+  const badge = badgeStatoFattura(stato, f.inviataDryRun);
+  // Il pulsante che il server rifiuterebbe non si mostra: chiedere lo stato
+  // di una fattura senza documento FiC è una `PRECONDIZIONE` sicura.
+  const puoSondare = f.ficDocumentId != null && STATI_SONDABILI.has(stato);
+  const puoStornare =
+    puoNotaCredito && f.tipo === "fattura" && STATI_STORNABILI.has(stato);
+  const annullataIl =
+    eventi.find(e => e.tipo === "annullata")?.createdAt ?? f.updatedAt;
   const { errori, avvisi } = riepilogoControlli(dettaglio.data.controlli);
   const titolo =
     f.tipo === "nota_credito"
@@ -202,50 +233,69 @@ export default function FatturaEmessaView({
         </p>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9"
-          disabled={!f.pdfStorageKey || scaricando != null}
-          title={f.pdfStorageKey ? undefined : "PDF non ancora archiviato."}
-          onClick={() => void scarica("pdf", nomeFileFattura(f, "pdf"))}
-        >
-          <Download className="h-4 w-4 mr-1" />
-          {scaricando === "pdf" ? "Scarico…" : "Scarica PDF"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9"
-          disabled={!f.xmlStorageKey || scaricando != null}
-          title={f.xmlStorageKey ? undefined : "XML non ancora archiviato."}
-          onClick={() => void scarica("xml", nomeFileFattura(f, "xml"))}
-        >
-          <Download className="h-4 w-4 mr-1" />
-          {scaricando === "xml" ? "Scarico…" : "Scarica XML"}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9"
-          disabled={aggiornaStato.isPending}
-          onClick={() => aggiornaStato.mutate({ id: fatturaId })}
-        >
-          <RefreshCw className="h-4 w-4 mr-1" />
-          {aggiornaStato.isPending ? "Controllo…" : "Aggiorna stato"}
-        </Button>
-        {puoNotaCredito && f.tipo === "fattura" && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9"
-            onClick={() => setDialogoNota(true)}
-          >
-            <Undo2 className="h-4 w-4 mr-1" /> Nota di credito
-          </Button>
-        )}
-      </div>
+      {stato === "annullata" ? (
+        <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-2 min-w-0">
+          Bozza annullata il {new Date(annullataIl).toLocaleDateString("it-IT")}{" "}
+          — nessuna azione disponibile.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {f.pdfStorageKey && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={scaricando === "pdf"}
+              onClick={() => void scarica("pdf", nomeFileFattura(f, "pdf"))}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              {scaricando === "pdf" ? "Scarico…" : "Scarica PDF"}
+            </Button>
+          )}
+          {f.xmlStorageKey && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={scaricando === "xml"}
+              onClick={() => void scarica("xml", nomeFileFattura(f, "xml"))}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              {scaricando === "xml" ? "Scarico…" : "Scarica XML"}
+            </Button>
+          )}
+          {puoSondare && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={aggiornaStato.isPending}
+              onClick={() => aggiornaStato.mutate({ id: fatturaId })}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              {aggiornaStato.isPending ? "Controllo…" : "Aggiorna stato"}
+            </Button>
+          )}
+          {puoStornare && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              onClick={() => setDialogoNota(true)}
+            >
+              <Undo2 className="h-4 w-4 mr-1" /> Nota di credito
+            </Button>
+          )}
+          {!f.pdfStorageKey &&
+            !f.xmlStorageKey &&
+            !puoSondare &&
+            !puoStornare && (
+              <span className="text-xs text-text-3">
+                Nessuna azione disponibile in questo stato.
+              </span>
+            )}
+        </div>
+      )}
 
       <div className="grid gap-4 min-w-0 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-4 min-w-0">
