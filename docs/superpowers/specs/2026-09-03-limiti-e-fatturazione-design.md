@@ -285,8 +285,11 @@ tutto al 10 %.
 - `pattuito_tipo = imponibile`: M = G − B − N − S.
 - `pattuito_tipo = lordo`: ipotesi B > P → P = (G − 1,22·B) / 0,98; se
   P ≥ B l'ipotesi cade → P = G / 1,10 − B. Poi M = P − N − S.
-- M < 0 → avviso bloccante «i servizi superano il pattuito»: l'operatore
-  riduce i servizi (mai sopra i limiti, ma può scendere).
+- M < 0 → avviso bloccante «i servizi superano il pattuito»: la prassi è
+  **abbassare i beni** («Riequilibra i beni», v. la nota D-A qui sotto),
+  che è quello che fa la commercialista; ridurre i servizi resta
+  possibile (mai sopra i limiti, ma può scendere) e non è la strada
+  normale.
 - Tutto in centesimi. Riepilogo per aliquota: imposta = arrotondamento
   half-up al centesimo dell'imponibile × aliquota. Se il totale non coincide
   con G, si cercano P ± 1…3 centesimi; se nessuno coincide, si mostra

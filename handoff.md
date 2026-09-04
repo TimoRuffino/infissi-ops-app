@@ -2518,7 +2518,7 @@ e ne segue lo stato; nota di credito totale o parziale sulla stessa pipeline.
 Le tre fatture reali del 2026 usate come fixture d'oro (127, 129, 130 —
 `server/fatture/__fixtures__/fatture-reali.json`) sono le uniche citabili
 qui: nessun nome cliente, indirizzo, CF o importo di fattura reale altrove
-in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
+in questa sezione. I commit del ramo: `git log --oneline 9afaf4c..HEAD`.
 
 **Cosa c'è.**
 
@@ -2553,7 +2553,8 @@ in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
   `type: credit_note`).
 - Router: `server/routers/fatture.ts` (`trpc.fatture`: perCommessa, byId,
   creaBozza, aggiornaBozza, rigeneraBozza, validazioni, emetti,
-  aggiornaStato, notaCredito, download PDF/XML) e
+  aggiornaStato, notaCredito, annullaBozza, lista, documento — download
+  PDF/XML) e
   `server/routers/fatturazioneConfig.ts` (`trpc.fatturazioneConfig`: get,
   salva, verificaScope) — dietro `FLAG_FATTURAZIONE` in middleware
   (`procedureConInterruttore`) e `FLAG_LIMITI` per handler
@@ -2616,12 +2617,20 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    scadenze, spese di documentazione (22 %), dicitura straordinaria/pratica
    edilizia, scadenze 50/40/10 (0/60/75/90 giorni, il resto sull'ultima) —
    e «Riequilibra i beni» fino ai valori tenuti dalla commercialista.
-3. «Emetti» in dry-run: FiC **numera davvero** il documento (non ha bozze).
+3. **Prima di «Emetti»**, confermare nel pannello Fatturazione la
+   numerazione FiC scelta col commercialista: `emissione.ts` manda
+   `numeration` solo se `config.numerazioneFic` è valorizzata, e nessuna
+   validazione la pretende — se resta «Numerazione predefinita», FiC
+   numera con la propria serie e non lo segnala come errore.
+4. «Emetti» in dry-run: FiC **numera davvero** il documento (non ha bozze).
    Usare la company di prova FiC consigliata dalla spec §11 (licenza trial
    dal supporto), oppure accettare il numero e stornarlo subito con una
-   nota di credito.
-4. XML scaricato dalla tab Fattura e verificato dal commercialista.
-5. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
+   nota di credito. Un operatore, una scheda, e nessun retry finché la
+   chiamata non risponde: due «Emetti» sovrapposti sulla stessa bozza
+   danno `CONFLITTO` al secondo (il lease, R35), mai due numeri — ma la
+   regola operativa resta aspettare.
+5. XML scaricato dalla tab Fattura e verificato dal commercialista.
+6. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
    variabile Railway di **tutto il deployment**, non un campo per sede nel
    database — si spegne su un ambiente dedicato alla sede di prova, come
    già `FLAG_LIMITI` nel runbook del piano 1 (§11-vicies terdecies).
