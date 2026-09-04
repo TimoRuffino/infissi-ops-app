@@ -80,6 +80,20 @@ export function erroreServizioComeTrpc(errore: unknown): never {
   if (messaggio.startsWith("VALIDAZIONE: ")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: messaggio.slice("VALIDAZIONE: ".length) });
   }
+  // Fatturazione dal contratto (piano 2, Task 13): prefissi di
+  // server/fatture/servizio.ts, emissione.ts e repository.ts.
+  if (messaggio.startsWith("PRECONDIZIONE: ")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: messaggio.slice("PRECONDIZIONE: ".length) });
+  }
+  if (messaggio.startsWith("FATTURA_IMMUTABILE: ")) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: messaggio.slice("FATTURA_IMMUTABILE: ".length) });
+  }
+  if (messaggio.startsWith("CONFLITTO: ")) {
+    throw new TRPCError({ code: "CONFLICT", message: messaggio.slice("CONFLITTO: ".length) });
+  }
+  if (messaggio.startsWith("EMISSIONE: ")) {
+    throw new TRPCError({ code: "BAD_GATEWAY", message: messaggio.slice("EMISSIONE: ".length) });
+  }
   if ((errore as any)?.name === "ZodError") {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Dati del contratto non validi." });
   }
