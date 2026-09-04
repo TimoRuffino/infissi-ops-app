@@ -56,6 +56,7 @@ import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
 import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
+import FatturazioneConfigPanel from "@/components/fattura/FatturazioneConfigPanel";
 
 // Scorciatoie di direzione verso route già registrate in App.tsx. L'elenco non
 // autorizza nulla: ogni destinazione ha la sua guardia (RequireDirezione) e il
@@ -149,6 +150,12 @@ export default function Integrazioni() {
     staleTime: 300_000,
   });
   const limitiAttivi = Boolean(interruttori.data?.limiti);
+  // La fatturazione dal contratto dipende da due interruttori: senza i limiti
+  // non c'è il computo su cui la bozza si fonda, quindi la sua configurazione
+  // non avrebbe niente da governare.
+  const fatturazioneAttiva = Boolean(
+    interruttori.data?.fatturazione && interruttori.data?.limiti
+  );
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
@@ -190,6 +197,7 @@ export default function Integrazioni() {
           descrizione="Fatture in Cloud allinea documenti, pagamenti e anagrafica della sede. Le operazioni che scrivono si simulano prima e dichiarano cosa cambia."
         >
           <FattureInCloudCard />
+          {fatturazioneAttiva && <FatturazioneConfigPanel />}
           <ImportaClientiCard />
           <ResetPattuitiCard />
         </SezioneHub>
@@ -880,6 +888,32 @@ function FattureInCloudCard() {
             )}
           </div>
         )}
+
+        {/* Permessi di scrittura: servono solo alla fatturazione dal
+            contratto (emissione su FiC). Il collegamento di sola lettura
+            resta valido, quindi qui si dichiara lo stato e si offre il
+            ri-collegamento, senza allarmare chi non emette da qui. */}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-text-2">Permessi di scrittura fatture:</span>
+          {st.scopeScrittura ? (
+            <Badge variant="success">autorizzati</Badge>
+          ) : (
+            <Badge variant="warning">non autorizzati</Badge>
+          )}
+          {st.oauthClientReady && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11"
+              title="Rifà il consenso OAuth chiedendo anche la creazione dei documenti su Fatture in Cloud"
+              onClick={() => oauthStart.mutate({ scrittura: true })}
+              disabled={oauthStart.isPending}
+            >
+              <Link2 className="size-3.5" aria-hidden="true" />
+              Ri-autorizza con permessi di scrittura
+            </Button>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {st.oauthClientReady ? (

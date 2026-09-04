@@ -59,6 +59,7 @@ import {
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
 import { etichettaTabFattura } from "@/lib/fatturaView";
+import type { StatoFattura } from "@shared/fatturazione/tipi";
 import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
@@ -1185,6 +1186,7 @@ export default function CommessaDetail() {
           <PagamentiCard
             commessa={commessa.data}
             commessaId={commessaId}
+            fatture={fattureQ.data?.fatture}
             onSave={patch =>
               updateCommessa.mutate({ id: commessaId, ...patch })
             }
@@ -2868,13 +2870,23 @@ function PianoRateSezione({
   );
 }
 
+/** Fatture che hanno già lasciato il CRM: da qui in poi il pattuito è il documento. */
+const STATI_FATTURA_USCITA: ReadonlySet<StatoFattura> = new Set([
+  "emessa",
+  "inviata",
+  "consegnata",
+]);
+
 function PagamentiCard({
   commessa,
   commessaId,
+  fatture,
   onSave,
 }: {
   commessa: any;
   commessaId: number;
+  /** Da `fatture.perCommessa` letto in pagina: qui non si apre una seconda query. */
+  fatture?: Array<{ stato: StatoFattura }>;
   onSave: (patch: { importoTotale?: number | null }) => void;
 }) {
   const utils = trpc.useUtils();
@@ -2905,6 +2917,12 @@ function PagamentiCard({
   );
   const contratto = pattuitoDaFic ? null : (contrattoQ.data?.contratto ?? null);
   const daContratto = contratto != null;
+  // Terza fonte, fra FiC e il contratto: una fattura già emessa dal CRM. Il
+  // documento è partito, quindi il pattuito non si ritocca più da qui —
+  // si corregge con una nota di credito, non riscrivendo la cifra.
+  const daFatturaCrm =
+    !pattuitoDaFic &&
+    (fatture ?? []).some(f => STATI_FATTURA_USCITA.has(f.stato));
   // Capability effettive (ruoli + override individuali): decidono se offrire
   // i comandi di registrazione. Il registro stesso segue il payload: se il
   // server ha omesso `pagamenti`, qui non c'è niente da elencare. Il confine
@@ -2984,7 +3002,12 @@ function PagamentiCard({
                   da FiC
                 </Badge>
               )}
-              {contratto && (
+              {daFatturaCrm && (
+                <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                  da fattura CRM
+                </Badge>
+              )}
+              {contratto && !daFatturaCrm && (
                 <Badge variant="outline" className="h-4 px-1 text-[10px]">
                   da contratto · {contratto.pattuitoTipo}
                 </Badge>
@@ -2995,12 +3018,14 @@ function PagamentiCard({
                 rifiuta. Qui diventa una cifra con la sua fonte. Il blocco
                 «da contratto» invece per ora è solo di questa UI: la
                 riaffermazione lato server arriva col piano 2. */}
-            {pattuitoDaFic || daContratto ? (
+            {pattuitoDaFic || daFatturaCrm || daContratto ? (
               <p
                 className="h-9 w-32 flex items-center text-sm font-semibold tabular-nums"
                 title={
                   motivoBlocco ??
-                  (daContratto ? "Il pattuito arriva dalla tab Contratto." : undefined)
+                  (daFatturaCrm
+                    ? "Il pattuito è quello della fattura già emessa: si corregge con una nota di credito."
+                    : daContratto ? "Il pattuito arriva dalla tab Contratto." : undefined)
                 }
               >
                 {totale != null ? `€ ${fmt(totale)}` : "—"}
@@ -3053,7 +3078,7 @@ function PagamentiCard({
         <PianoRateSezione
           commessaId={commessaId}
           totalePattuito={totale}
-          soloLettura={pattuitoDaFic || daContratto}
+          soloLettura={pattuitoDaFic || daFatturaCrm || daContratto}
           daContratto={daContratto}
         />
 

@@ -176,8 +176,11 @@ function RigaBozzaCampi({
     ) : (
       <span className="tabular-nums">{formatCent(r.importoCent)}</span>
     ),
+    // `block`: sulla card mobile l'indicatore è figlio diretto di uno
+    // `space-y-2`, e un margine verticale su un elemento inline non produce
+    // spazio. Dentro la cella della tabella il rendering non cambia.
     indicatore: indicatore.testo ? (
-      <span className={`text-xs ${INDICATORE_TONO[indicatore.stato]}`}>
+      <span className={`block text-xs ${INDICATORE_TONO[indicatore.stato]}`}>
         {indicatore.testo}
       </span>
     ) : null,

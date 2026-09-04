@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 import BreakEvenPanel from "@/components/economia/BreakEvenPanel";
+import FattureEmesseSezione from "@/components/fattura/FattureEmesseSezione";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
 import type { StatePanelProps } from "@/components/patterns/StatePanel";
@@ -133,6 +134,15 @@ function PagamentiAutorizzata({
   const commesse = trpc.commesse.list.useQuery({});
   const recenti = trpc.commesse.pagamentiRecenti.useQuery({ limit: 12 });
   const utils = trpc.useUtils();
+  // Kill switch della fatturazione dal contratto: senza i limiti non esiste
+  // il computo su cui le fatture nascono, quindi servono entrambi. La UI
+  // nasconde la sezione, il server decide comunque.
+  const interruttori = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const fatturazioneAttiva = Boolean(
+    interruttori.data?.fatturazione && interruttori.data?.limiti
+  );
 
   const [search, setSearch] = useState("");
   const [filtro, setFiltro] = useState<FiltroId>("residuo");
@@ -373,6 +383,8 @@ function PagamentiAutorizzata({
           </>
         }
       />
+
+      {fatturazioneAttiva && <FattureEmesseSezione />}
 
       <DataSurface
         density="compact"
