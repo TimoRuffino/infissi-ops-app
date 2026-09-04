@@ -149,6 +149,174 @@ l'OCR».
 - Lettura 1.3.0: il worker rilegge ancora tutte le conferme per prendere
   fornitore e numero documento dall'intestazione.
 
+## Quinta tranche (mattina del 04/09): «è ancora troppo stupido»
+
+Caso guida: conferma BT Glass per De Petris (COM-2026-052), archiviata da
+Tars in chat alle 08:45 e letta «senza imponibile né totale, fornitore
+Ruffino Group». Il documento aveva tutto: pdf.js consegnava il testo
+nell'ordine del flusso, con il riquadro totali spezzato (importi dieci righe
+prima delle etichette) e l'agente al posto del fornitore. Poi la direzione
+ha mandato quindici conferme di fornitori diversi: dieci sono SCANSIONI.
+
+1. **Righe dalla geometria** (`server/documenti/testoPdf.ts`, parser
+   `pdf-testo-nativo` 2.0.0): ogni frammento pdf.js torna alla sua riga
+   (stessa quota) e alla sua colonna (x / larghezza media di un carattere),
+   come `pdftotext -layout`. Etichette e valori restano affiancati, le celle
+   di una tabella sono separate da almeno tre spazi, un valore resta sotto la
+   sua etichetta anche nella riga dopo.
+2. **Estrattore 1.1.0** (`estrazioneConferma.ts`): imponibile per
+   **aritmetica dell'IVA** (imponibile + IVA = totale con un'aliquota
+   italiana; Gianesin, riquadri OCR); `Imposta` come etichetta dell'IVA;
+   importi solo con decimali (una partita IVA o «Consegna 3» non sono
+   totali); «+ IVA / IVA esclusa / a vostro carico IVA» → il totale letto È
+   l'imponibile; «Totale (iva esclusa)» idem; numero non è una data («N.
+   000183 del 12/03/2026», «nostro riferimento n. OV-2025-…», cella sotto
+   «N.DOCUMENTO»); fornitore dall'intestazione senza scambiarlo con agente,
+   banca o destinatario (righe di etichette, marcatore a destra), poi la
+   firma in calce, poi il dominio del sito; «vs. riferimento» = valore
+   accanto o nella cella sotto, mai un'altra etichetta né una frase; «del
+   23/02/2026» è la data del documento anche con «Settimana 21» accanto; la
+   colonna «Consegna» di una tabella dà le date di consegna.
+3. **Merce 1.2.0** (`estrazioneMerce.ts`): righe a celle (codice |
+   descrizione | um | quantità), quantità prima o dopo l'unità, unità a
+   misura nel nome («LAMIERA A DISEGNO (4,70 ML)») con i pezzi dalla riga
+   sotto, articoli uguali sommati (tre sistemi scorrevoli = 1 riga × 3),
+   frasi delle condizioni e opzioni (maggiorazioni, imballi) scartate.
+4. **Riscontro** (`riscontroCommessa.ts`): il cognome anche con un carattere
+   sbagliato («Rif. POCCJ» per Pocci): le scansioni passano dall'OCR.
+5. **Lettura 1.4.0**: il worker rilegge tutte le conferme; la merce letta con
+   l'estrattore vecchio si rigenera se nessuno l'ha toccata.
+6. **`fic_pagamenti_links` mai salvato** (scoperto nei log della stessa
+   mattina): il modulo `routers/ficPagamenti.ts` era importato solo in modo
+   dinamico, il suo persistedStore si registrava DOPO `bootstrapAll` e ogni
+   salvataggio veniva rinviato per sempre («save deferred … bootstrap not
+   complete yet» una volta al secondo, per ore; i link delle riconciliazioni
+   FiC vivevano solo in memoria). Import statico in `_core/index.ts` e, in
+   `persistence.ts`, uno store registrato tardi si carica da solo.
+
+7. **Rilettura 1.5.0, dopo la sonda sul database di produzione** (39
+   conferme rilette): una rilettura migliore CORREGGE l'importo di un costo
+   nato dalla regola e mai toccato da una persona (tre conferme Pail erano a
+   registro a «22,00», l'aliquota IVA letta come imponibile da un estrattore
+   vecchio); un costo scritto o modificato a mano non si tocca, la lettura lo
+   dice. La conferma AGGIORNATA dello stesso ordine (stesso riferimento,
+   importo diverso, entrata dopo: le «(2).pdf» Oskura) sostituisce la vecchia
+   — costo e merce seguono la versione più recente, la vecchia diventa
+   `duplicato` con il motivo; una copia identica resta una copia. Il CAP
+   («19124») letto come numero di conferma non è più un riferimento
+   d'ordine (due ordini Brianzatende erano diventati un duplicato).
+   Rilettura 1.6.0: il costo «nato dalla regola» si riconosce dalla sua
+   impronta (descrizione `Conferma d'ordine …`, nota `Letto dalla conferma
+   d'ordine …`, nessuna modifica dalla scheda: `costi[].modificatoAMano`,
+   che `commesse.updateCosto` marca quando una persona cambia l'importo),
+   non dal confronto con la lettura precedente — la 1.4.0 aveva già letto
+   giusto le tre Pail senza correggerle, e il confronto le faceva sembrare
+   modificate a mano.
+
+Sul corpus dei quindici file (non nel repo: dati di clienti), dopo la
+tranche: i cinque PDF con testo nativo escono giusti (fornitore, numero,
+riferimento, consegna, imponibile, merce); delle dieci scansioni con
+l'OCR locale (solo `eng` sul Mac; in Railway c'è anche `ita`) otto danno
+fornitore e imponibile plausibili, una è una pagina ruotata (testo
+illeggibile: l'OCR non raddrizza), una ha i totali in una tabella che
+tesseract sbriciola. Un PDF «Conferme» conteneva più conferme: i totali si
+mescolano, va spezzato per documento (prossima tranche). La lettura con il
+modello (vision) delle scansioni resta la strada per il resto.
+
+## Sesta tranche (04/09, tarda mattina): lettura visiva e foto
+
+Mandato: «Procedi» sui passi proposti. Dieci conferme su quindici sono
+scansioni, una è ruotata, una è una foto jpeg: l'OCR locale è il percorso
+principale e quando fallisce costo e merce non nascono.
+
+1. **Foto** (`parserRegistry.ts` parser `immagine`, `ocr.ts`
+   `eseguiOcrImmagine`): jpeg/png/webp/gif/tiff/bmp passano da tesseract
+   senza rendering (HEIC no: va convertito). Il rendering PDF→PNG è ora
+   `renderizzaPaginePng`, condiviso con la lettura visiva.
+2. **Lettura visiva** (`documenti/letturaVisiva.ts`): quando l'OCR manca,
+   fallisce o legge poco e male (`daVerificare`, meno di 200 caratteri per
+   pagina), il modello TRASCRIVE le pagine (150 dpi, al più 8) riga per
+   riga, colonne separate da tre spazi. Il modello non decide niente: il
+   testo attraversa gli stessi estrattori deterministici. A pagamento:
+   passa dal governor e dal ledger (classe di costo nuova
+   `lettura_documenti`, `FLAG_LETTURA_VISIVA` fail-closed, modello
+   `TARS_MODEL_VISIONE` o quello interattivo). Parte SOLO con un'identità:
+   il worker con l'utente di sistema, `leggi_conferma_ordine` (1.3.0) e
+   `registra_costo_fornitore` con l'utente della chat. Mai nel percorso di
+   una richiesta HTTP (upload, archiviazione, smistamento).
+3. **Provider**: i turni utente possono portare immagini (`immagini[]`,
+   data URL, token stimati dichiarati); l'adapter le manda come
+   `input_image`; il governor le conta nella stima. La forma dell'input
+   Responses vive in `openai/corpo.ts`, funzione pura testabile.
+4. `fonteTesto` conosce «visione»; lettura 1.7.0 rilegge tutte le
+   conferme (le `non_leggibile` passano dal modello).
+
+## Settima tranche (04/09): più conferme in un file
+
+«Conferme Bertolotto 19-02-2026.pdf»: otto pagine, tre ordini con il loro
+riquadro «RIEPILOGO COSTI». Letto come un documento solo, il «TOT. MERCE»
+di listino (12.612,01) vinceva come totale e l'imponibile era quello di un
+ordine solo.
+
+1. `estrazioneConferma.ts`: `sezioniConferma` (ogni pagina con un riquadro
+   totali chiude una sezione; le code restano all'ultima) e
+   `estraiConfermeNelDocumento` (ogni sezione letta da sola, pagine delle
+   evidenze riportate al file intero; la lettura principale SOMMA imponibili
+   e totali solo se ogni sezione ha il suo, altrimenti `motivoSomma`). Il
+   totale del documento («TOTALE ORDINE») batte i parziali («TOT. MERCE»)
+   anche se più piccolo. Numero dall'intestazione a colonne «NUMERO DATA
+   PAGINA» / «VI/26/2292 19/02/2026».
+2. `costoDaConferma.ts` e `letturaConferma.ts` (strumento Tars) leggono a
+   sezioni: un costo solo con la somma, nota «3 conferme nel file, imponibile
+   = somma (…)», `letturaCosto.sezioni`; l'avvertenza in chat elenca le
+   sezioni. Lettura 1.8.0.
+
+## Ottava tranche (04/09 pomeriggio): la commessa dentro la conferma
+
+«Le conferme ordine sono ferme.» In produzione 60 mail degli ultimi 120
+giorni portavano un PDF «da conferma»: 57 non archiviate, 52 senza
+commessa. Il fornitore scrive «PAIL_2634169 RUFFINO» o «Commessa-N-1013363
+PENULTIMO PIANO» nella mail (il SUO numero, non il nostro), e il cliente
+solo dentro il PDF: il detector cercava candidati soltanto fra le mail
+collegate, che citano il codice o dello stesso cliente, quindi non le
+vedeva; «1-Conferma ordine cliente.PDF» (Ferramenta Fivizzanese) era
+persino escluso come «ordine del cliente».
+
+1. `tars/documenti/ricercaCommessaNelDocumento.ts`: `cercaCommessaNelTesto`
+   (il testo contro tutte le commesse vive con `riscontroCommessaNelTesto`;
+   forte = codice, ordine noto, indirizzo, cognome pieno; debole = quasi
+   uguale o corto; una forte = `unica`, due dello stesso cliente = vince
+   quella che aspetta la conferma, altrimenti `ambigua`; l'azienda stessa
+   censita come cliente non è mai candidata) e `creaLettoreCommessaNelDocumento`
+   (memoria 12 ore per allegato, tetto di letture nuove per istanza,
+   ritento con il modello di una scansione letta senza identità).
+2. `confermeMancanti.ts`: dipendenza opzionale `leggiCommessaNelDocumento`;
+   candidati anche dalle mail di nessuno quando il testo cita la commessa;
+   `riscontroTesto` + `prove` su ogni candidato; «certa» richiede che il
+   testo non smentisca; `nomeDaConferma` condiviso; stoplist corretta.
+3. `confermeAutoArchivio.ts`: archivia anche la conferma di una mail non
+   collegata quando il testo cita QUESTA commessa e nessun'altra, e
+   COLLEGA la mail (motivo scritto); verifica con OCR e visione (utente di
+   sistema), riusando le pagine già lette.
+4. Smistamento: `candidatiDagliAllegati` (worker) legge dentro gli allegati
+   «da conferma» di una mail senza verdetto → riscontro unico = collegamento
+   certo + archiviazione (pagine riusate nella verifica), riscontri multipli
+   = candidati con punteggio per il modello; una conferma d'ordine apre la
+   proposta anche su mail più vecchie di 30 giorni; l'approvazione umana
+   legge le scansioni con OCR e modello a nome di chi approva.
+5. `verificaConfermaPerFascicolo`: `lettura` (OCR/visione) e `pagine`.
+6. Analisi azienda: `archivia_allegato_comunicazione` nella whitelist delle
+   proposte eseguibili (mai `confermaSenzaRiscontro`), fotografia con
+   comunicazione e `allegatoIndex`, prompt analisi-v9 (conferme senza costo
+   leggibile = un punto, non proposte; posti riempiti con azioni eseguibili).
+7. Follow-up preventivi: 42P18 sul promemoria già esistente (parametro
+   nullo senza tipo) fermava ogni giro al primo sollecito; cast `::bigint`
+   + errore isolato per commessa; contratto PG in
+   `reminders/repository.pg.test.ts`.
+8. Prompt interattivo v12: «non ti arrendi» (rileggere, cercare per
+   cognome/telefono/comunicazioni prima di dire non posso) e «sicurezza»
+   (conclusioni senza attenuazioni, niente «vuoi che proceda?»).
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

@@ -25,6 +25,9 @@ import {
   confermeOrdineMancanti,
   type DipendenzeConfermeMancanti,
 } from "../documenti/confermeMancanti";
+import { creaLettoreCommessaNelDocumento } from "../documenti/ricercaCommessaNelDocumento";
+import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
+import type { IdentitaLettura } from "../../documenti/letturaVisiva";
 import {
   leggiConfermaAllegata,
   leggiConfermaDocumento,
@@ -264,7 +267,16 @@ const cercaDocumenti: StrumentoTars = {
 };
 
 /** Le dipendenze reali del detector: solo servizi di dominio, nessuna query nuova. */
-export function dipendenzeConfermeReali(): DipendenzeConfermeMancanti {
+export function dipendenzeConfermeReali(opzioni?: {
+  /** Identità per la lettura visiva delle scansioni; assente = testo nativo e OCR. */
+  visione?: IdentitaLettura | null;
+  /** Quanti file NUOVI leggere in questa chiamata (il testo resta in memoria 12 ore). */
+  massimoLetture?: number;
+}): DipendenzeConfermeMancanti {
+  const lettore = creaLettoreCommessaNelDocumento({
+    visione: opzioni?.visione ?? null,
+    massimoLetture: opzioni?.massimoLetture ?? 6,
+  });
   return {
     commesse: () => getCommesseStore() as any[],
     documentiDiCommessa: commessaId => getDocumentiDiCommessa(commessaId),
@@ -275,12 +287,28 @@ export function dipendenzeConfermeReali(): DipendenzeConfermeMancanti {
     giaArchiviato: (sedeId, comunicazioneId, allegatoIndex) =>
       findDocumentoComunicazione(sedeId, comunicazioneId, allegatoIndex) != null,
     link: c => linkComunicazione(c),
+    // Dentro il file: il fornitore cita il nostro cliente o il cantiere
+    // anche quando la mail non dice niente (04/09/2026).
+    leggiCommessaNelDocumento: (c, allegatoIndex, commesse) =>
+      lettore(
+        {
+          sedeId: c.sedeId,
+          comunicazioneId: c.id,
+          allegatoIndex,
+          leggi: () => leggiAllegatoRaw(c, allegatoIndex),
+        },
+        commesse
+      ),
   };
 }
 
 const cercaConfermeMancanti: StrumentoTars = {
   nome: "cerca_conferme_ordine_mancanti",
-  versione: "1.0.0",
+  // 1.1.0 (04/09 pomeriggio): i candidati nascono anche dal TESTO dei
+  // file (cognome, indirizzo, codice, ordine noto), quindi dalle mail dei
+  // fornitori che non sono collegate a niente; ogni candidato dice cosa
+  // ha letto (riscontroTesto, prove).
+  versione: "1.1.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -288,7 +316,7 @@ const cercaConfermeMancanti: StrumentoTars = {
   capability: ["commessa.read"],
   interruttore: "tars",
   descrizione:
-    "Le commesse da «da ordinare» in poi che NON hanno la conferma d'ordine nel fascicolo, con i file candidati cercati fra gli allegati delle mail (collegate alla commessa, che citano il codice, o dello stesso cliente). Ogni riga dice il suo esito: «archiviabile_subito» → archivia con archivia_allegato_comunicazione tipo conferma_ordine, senza chiedere; «da_confermare» → prima leggi il file con leggi_conferma_ordine, e se cita la commessa procedi, altrimenti chiedi; «non_trovata» → DILLO all'utente esplicitamente, elencando quali commesse restano scoperte. La conferma serve al gate documentale e porta il costo imponibile del margine.",
+    "Le commesse da «da ordinare» in poi che NON hanno la conferma d'ordine nel fascicolo, con i file candidati cercati fra gli allegati delle mail: mail collegate alla commessa, che citano il codice, dello stesso cliente, e anche mail di nessuno il cui file — letto dentro, con OCR e trascrizione del modello per le scansioni — cita il cliente, il cantiere o un ordine noto (riscontroTesto: cita / non_cita / ambiguo / non_leggibile / non_letto, con le prove). Ogni riga dice il suo esito: «archiviabile_subito» → archivia con archivia_allegato_comunicazione tipo conferma_ordine, senza chiedere; «da_confermare» → il motivo del candidato dice cosa manca (testo che non cita la commessa, più commesse citate, file non leggibile): se serve leggi il file con leggi_conferma_ordine, se cita la commessa procedi, altrimenti chiedi; «non_trovata» → DILLO all'utente esplicitamente, elencando quali commesse restano scoperte. La conferma serve al gate documentale e porta il costo imponibile del margine.",
   schemaInput: z
     .object({
       soloConCandidati: z.boolean().optional(),
@@ -298,7 +326,11 @@ const cercaConfermeMancanti: StrumentoTars = {
   async esegui(contesto: ContestoRun, input: any) {
     const tutte = await confermeOrdineMancanti({
       sedeId: contesto.sedeId,
-      deps: dipendenzeConfermeReali(),
+      // Con l'identità di chi chiede: le scansioni le legge il modello.
+      deps: dipendenzeConfermeReali({
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+        massimoLetture: 6,
+      }),
       limite: input.limite,
     });
     const righe = input.soloConCandidati
@@ -332,7 +364,7 @@ const cercaConfermeMancanti: StrumentoTars = {
       omissioni: [
         "commesse prima di «da ordinare»: lì la conferma non è ancora attesa",
         "allegati già archiviati nel fascicolo",
-        "mail che non citano il codice commessa e non sono collegate",
+        "file non ancora letti in questo giro (al massimo 6 letture nuove per chiamata: i candidati «non_letto» valgono solo per il nome)",
       ],
     });
   },
@@ -344,8 +376,10 @@ const leggiConferma: StrumentoTars = {
   // solo un allegato di mail — è il caso della conferma archiviata di cui
   // resta da registrare il costo. 1.2.0 (04/09): «cita la commessa» vale
   // anche per cliente, indirizzo e ordini noti (riscontro pieno), e si
-  // leggono il vostro riferimento e il fornitore dall'intestazione.
-  versione: "1.2.0",
+  // leggono il vostro riferimento e il fornitore dall'intestazione. 1.3.0
+  // (04/09, mattina): scansioni e foto che l'OCR non legge vengono
+  // trascritte dal modello (lettura visiva, a carico dell'utente sul ledger).
+  versione: "1.3.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -392,6 +426,7 @@ const leggiConferma: StrumentoTars = {
         codiceCommessa: commessa?.codice ?? null,
         fornitoreAtteso: input.fornitoreAtteso ?? null,
         numeroOrdineAtteso: input.numeroOrdineAtteso ?? null,
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
       });
       if (!letto) throw new Error("NOT_FOUND: documento non leggibile.");
       lettura_ = letto;
@@ -412,6 +447,7 @@ const leggiConferma: StrumentoTars = {
         codiceCommessa: commessa?.codice ?? null,
         commessa,
         fornitoreAtteso: input.fornitoreAtteso ?? null,
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
       });
       riferimentoEvidenza = `comunicazione:${c.id}`;
       descrizioneEvidenza = `${lettura_.nomeFile} — allegato di ${c.mittenteNome?.trim() || c.mittente}`;
@@ -459,7 +495,9 @@ const leggiConferma: StrumentoTars = {
         "questa è una lettura: nessun costo, ordine o documento viene registrato",
         ...(lettura_.fonteTesto === "ocr"
           ? ["testo da OCR: gli importi vanno verificati sul file"]
-          : []),
+          : lettura_.fonteTesto === "visione"
+            ? ["testo trascritto dal modello (scansione o foto): gli importi vanno verificati sul file"]
+            : []),
       ],
     });
   },

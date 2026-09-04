@@ -99,11 +99,12 @@ export async function giroSollecitiPreventivi(input: {
   sedeId: number;
   adesso: Date;
   deps?: DipendenzeFollowup;
-}): Promise<{ creati: number; saltati: number }> {
+}): Promise<{ creati: number; saltati: number; errori: number }> {
   const deps = input.deps ?? dipendenzeFollowupReali();
   const fermi = await preventiviFermiDiSede(input.sedeId, input.adesso, deps);
   let creati = 0;
   let saltati = 0;
+  let errori = 0;
   for (const { commessa, giorni, ultimaAttivita } of fermi) {
     if (giorni >= GIORNI_PERSO) continue; // dai 30 in poi parla il caso «perso»
     const assegnatario = commessa.assegnatoA ?? null;
@@ -111,20 +112,31 @@ export async function giroSollecitiPreventivi(input: {
       saltati += 1;
       continue;
     }
-    const esito = await deps.promemoria.createApproved({
-      sedeId: input.sedeId,
-      requestedByUserId: assegnatario,
-      sourceProposalId: null,
-      actionKey: `tars:sollecito-preventivo:${commessa.id}:${giornoIso(ultimaAttivita)}`,
-      text: `Sollecito preventivo ${commessa.codice ?? commessa.id} — ${commessa.cliente ?? "cliente"}: fermo da ${giorni} giorni. Bozza: «${bozzaSollecito(commessa)}»`,
-      remindAtIso: new Date(input.adesso.getTime() + 120_000).toISOString(),
-      clienteId: commessa.clienteId ?? null,
-      commessaId: commessa.id,
-    });
-    if ((esito as any)?.created === false) saltati += 1;
-    else creati += 1;
+    // Un promemoria che non si crea non ferma gli altri: prima del 04/09 il
+    // primo errore (42P18 sul promemoria già esistente) interrompeva il giro
+    // e i preventivi successivi non venivano mai sollecitati.
+    try {
+      const esito = await deps.promemoria.createApproved({
+        sedeId: input.sedeId,
+        requestedByUserId: assegnatario,
+        sourceProposalId: null,
+        actionKey: `tars:sollecito-preventivo:${commessa.id}:${giornoIso(ultimaAttivita)}`,
+        text: `Sollecito preventivo ${commessa.codice ?? commessa.id} — ${commessa.cliente ?? "cliente"}: fermo da ${giorni} giorni. Bozza: «${bozzaSollecito(commessa)}»`,
+        remindAtIso: new Date(input.adesso.getTime() + 120_000).toISOString(),
+        clienteId: commessa.clienteId ?? null,
+        commessaId: commessa.id,
+      });
+      if ((esito as any)?.created === false) saltati += 1;
+      else creati += 1;
+    } catch (errore) {
+      errori += 1;
+      console.error(
+        `[tars-followup] sollecito ${commessa.codice ?? commessa.id} non creato:`,
+        errore instanceof Error ? errore.message.slice(0, 200) : errore
+      );
+    }
   }
-  return { creati, saltati };
+  return { creati, saltati, errori };
 }
 
 /**

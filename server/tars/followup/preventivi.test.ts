@@ -58,7 +58,7 @@ describe("giroSollecitiPreventivi", () => {
     const primo = await giroSollecitiPreventivi({ sedeId: SEDE, adesso: ADESSO, deps: d });
     // 61 (10 gg, assegnata) → promemoria; 62 (35 gg) → è territorio del
     // caso «perso», niente promemoria.
-    expect(primo).toEqual({ creati: 1, saltati: 0 });
+    expect(primo).toEqual({ creati: 1, saltati: 0, errori: 0 });
     const promemoria = await getReminderService().listPersonal({
       sedeId: SEDE,
       recipientUserId: COMMERCIALE,
@@ -70,7 +70,27 @@ describe("giroSollecitiPreventivi", () => {
     expect(sollecito!.text).toContain("Soare Maria");
 
     const secondo = await giroSollecitiPreventivi({ sedeId: SEDE, adesso: ADESSO, deps: d });
-    expect(secondo).toEqual({ creati: 0, saltati: 1 });
+    expect(secondo).toEqual({ creati: 0, saltati: 1, errori: 0 });
+  });
+
+  it("un promemoria che non si crea non ferma gli altri (04/09/2026: il giro moriva al primo errore)", async () => {
+    let chiamate = 0;
+    const d = deps({
+      commesse: () => [
+        { id: 71, sedeId: SEDE, codice: "COM-2026-071", cliente: "Primo Fermo", clienteId: 21, stato: "preventivo", assegnatoA: COMMERCIALE, createdAt: giorniFa(12) },
+        { id: 72, sedeId: SEDE, codice: "COM-2026-072", cliente: "Secondo Fermo", clienteId: 22, stato: "preventivo", assegnatoA: COMMERCIALE, createdAt: giorniFa(8) },
+      ],
+      promemoria: {
+        createApproved: async () => {
+          chiamate += 1;
+          if (chiamate === 1) throw new Error("could not determine data type of parameter $3");
+          return { created: true } as any;
+        },
+      },
+    });
+    const esito = await giroSollecitiPreventivi({ sedeId: SEDE, adesso: ADESSO, deps: d });
+    expect(chiamate).toBe(2);
+    expect(esito).toEqual({ creati: 1, saltati: 0, errori: 1 });
   });
 
   it("la bozza è educata, nomina il cliente e non contiene importi", () => {

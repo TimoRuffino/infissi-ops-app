@@ -105,6 +105,45 @@ function candidati(parziale: Partial<EsitoCandidati> = {}): EsitoCandidati {
 }
 
 describe("applicaSmistamento", () => {
+  it("una mail vecchia con una CONFERMA D'ORDINE resta una proposta: il fascicolo la aspetta (04/09/2026)", async () => {
+    const sessantaGiorniFa = new Date(Date.now() - 60 * 86_400_000);
+    const conConferma = await inserisci({
+      receivedAt: sessantaGiorniFa,
+      mittente: "ordini@fornitore.test",
+      allegati: [{ nome: "Conferma_ordine_88.pdf", mimeType: "application/pdf", size: 40_000 }],
+    });
+    const proposta = await applicaSmistamento({
+      comunicazione: conConferma,
+      candidati: candidati({
+        candidati: [{ tipo: "commessa", id: 4343, etichetta: "COM-2026-333 — Galastri Giada", punteggio: 70, motivi: ["Il testo del file cita cliente galastri."] }],
+      }),
+      analisi: analisi({
+        collegamento: { tipo: "commessa", id: 4343, confidenza: "media", motivo: "La conferma cita la cliente." },
+        allegati: [{ indice: 0, tipo: "conferma_ordine", confidenza: "alta", archiviareSecondoModello: true, motivo: "Conferma del fornitore." }],
+      }),
+      allegati: [{ indice: 0, nome: "Conferma_ordine_88.pdf", mimeType: "application/pdf", size: 40_000, testo: "Conferma d'ordine n. 88 Vs. rif. Galastri", stato: "testo" }],
+      deps: depsFinte(),
+    });
+    expect(proposta.propostaStato).toBe("aperta");
+    expect(proposta.esito.allegati[0]).toMatchObject({ tipo: "conferma_ordine", archiviare: true });
+
+    // Senza conferma, la stessa età chiude la porta come prima.
+    const senza = await inserisci({ receivedAt: sessantaGiorniFa });
+    const niente = await applicaSmistamento({
+      comunicazione: senza,
+      candidati: candidati({
+        candidati: [{ tipo: "commessa", id: 4343, etichetta: "COM-2026-333 — Galastri Giada", punteggio: 70, motivi: [] }],
+      }),
+      analisi: analisi({
+        collegamento: { tipo: "commessa", id: 4343, confidenza: "media", motivo: "Coerente." },
+      }),
+      allegati: [ALLEGATO_PDF],
+      deps: depsFinte(),
+    });
+    expect(niente.propostaStato).toBe("nessuna");
+    expect(niente.esito.collegamento.motivo).toContain("giorni fa");
+  });
+
   it("collegamento CERTO: aggancia senza cambiare lo stato, archivia il documento riconosciuto, scrive il triage", async () => {
     const c = await inserisci();
     const deps = depsFinte();

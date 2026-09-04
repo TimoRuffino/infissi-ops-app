@@ -33,6 +33,12 @@ export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = [
   "sposta_documento",
   "archivia_commessa",
   "transizione_adiacente_commessa",
+  // La conferma d'ordine arrivata per mail entra nel fascicolo con un click
+  // (04/09/2026: il prompt lo chiedeva già, ma la whitelist lo scartava e
+  // la proposta decadeva a richiesta in chat). Lo strumento rilegge il
+  // testo e rifiuta da solo se non cita la commessa: la proposta non porta
+  // mai `confermaSenzaRiscontro`.
+  "archivia_allegato_comunicazione",
 ];
 
 const MODELLO_ANALISI_DEFAULT = "gpt-5.6-sol";
@@ -123,6 +129,8 @@ export function verificaEsito(
       return scarta();
     }
     if ((grezzi as any)?.scavalcaGate) return scarta();
+    // «È di questa commessa» lo dice una persona, mai una proposta.
+    if ((grezzi as any)?.confermaSenzaRiscontro) return scarta();
     const valido = descrittore.strumento.schemaInput.safeParse(grezzi);
     if (!valido.success) return scarta();
     return { strumento: azione.strumento, input: JSON.stringify(valido.data) };

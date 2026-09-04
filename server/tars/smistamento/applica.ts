@@ -17,7 +17,10 @@ import {
   type DocTipo,
 } from "../../routers/preventiviContratti";
 import { getCommessaById } from "../../routers/commesse";
-import { verificaConfermaPerFascicolo } from "../../commesse/costoDaConferma";
+import {
+  verificaConfermaPerFascicolo,
+  type LetturaPerVerifica,
+} from "../../commesse/costoDaConferma";
 import { classificaAllegatoComunicazione } from "../documenti/classificazione";
 import type { EsitoAnalisi, AllegatoPerAnalisi } from "./analisi";
 import type { EsitoCandidati } from "./candidati";
@@ -216,6 +219,10 @@ async function archiviaPianificati(input: {
   nota: string;
   createdBy: number | null;
   deps: DipendenzeApplica;
+  /** Pagine già lette (ricerca della commessa nel file), per indice di allegato. */
+  letture?: ReadonlyMap<number, readonly string[]>;
+  /** Come rileggere una conferma non ancora letta: OCR e, con identità, visione. */
+  lettura?: LetturaPerVerifica | null;
 }): Promise<{
   archiviati: EsitoSmistamento["archiviati"];
   avvertenze: string[];
@@ -246,6 +253,8 @@ async function archiviaPianificati(input: {
           nomeFile: raw.nome,
           mimeType: raw.mimeType,
           buffer: raw.buffer,
+          pagine: input.letture?.get(voce.indice) ?? null,
+          lettura: input.lettura ?? null,
         });
         if (!verifica.ok) {
           const motivo = `Conferma d'ordine NON archiviata: ${verifica.motivo}`;
@@ -306,11 +315,20 @@ export async function applicaSmistamento(input: {
   allegati: readonly AllegatoPerAnalisi[];
   deps?: DipendenzeApplica;
   adesso?: Date;
+  /** Pagine già lette dalla ricerca della commessa nel file, per indice. */
+  letture?: ReadonlyMap<number, readonly string[]>;
+  /** Come rileggere una conferma non letta prima di archiviarla. */
+  lettura?: LetturaPerVerifica | null;
 }): Promise<EsitoApplica> {
   const deps = input.deps ?? DIPENDENZE_APPLICA_REALI;
   const adesso = input.adesso ?? new Date();
   const { comunicazione, candidati, analisi } = input;
   const avvertenze = [...analisi.avvertenze];
+
+  // Il piano degli allegati non dipende dal collegamento: serve prima, per
+  // sapere se la mail porta una conferma d'ordine.
+  let piano = pianificaAllegati({ comunicazione, allegati: input.allegati, analisi });
+  const portaConferma = piano.some(p => p.tipo === "conferma_ordine" && p.archiviare);
 
   // 1. Collegamento.
   let commessaCollegata: number | null = comunicazione.commessaId ?? null;
@@ -360,7 +378,10 @@ export async function applicaSmistamento(input: {
     // gestita da una persona non si ripropone (direzione, 02/09 notte:
     // «continua a fare proposte su commesse vecchie mesi o già gestite»).
     const etaGiorni = (adesso.getTime() - new Date(comunicazione.receivedAt).getTime()) / 86_400_000;
-    const vecchia = etaGiorni > giorniProposte();
+    // Una conferma d'ordine vale anche se la mail è vecchia: finché il
+    // fascicolo non ce l'ha, il gate non passa e il margine è cieco
+    // (04/09/2026: «le conferme ordine sono ferme»).
+    const vecchia = etaGiorni > giorniProposte() && !portaConferma;
     const giaGestita = comunicazione.stato === "gestita";
     const inutile =
       (proposto.tipo === "cliente" && clienteCollegato === proposto.id) ||
@@ -408,8 +429,7 @@ export async function applicaSmistamento(input: {
     };
   }
 
-  // 2. Allegati: piano sempre, archiviazione solo con commessa collegata.
-  let piano = pianificaAllegati({ comunicazione, allegati: input.allegati, analisi });
+  // 2. Allegati: archiviazione solo con commessa collegata.
   let archiviati: EsitoSmistamento["archiviati"] = [];
   if (commessaCollegata != null && piano.some(p => p.archiviare)) {
     const esito = await archiviaPianificati({
@@ -419,6 +439,8 @@ export async function applicaSmistamento(input: {
       nota: `Archiviato automaticamente da Tars (smistamento): ${collegamento.motivo}`.slice(0, 300),
       createdBy: null,
       deps,
+      letture: input.letture,
+      lettura: input.lettura ?? null,
     });
     archiviati = esito.archiviati;
     avvertenze.push(...esito.avvertenze);
@@ -478,6 +500,8 @@ export async function applicaPropostaApprovata(input: {
   esito: EsitoSmistamento;
   utente: { id: number; nome: string };
   deps?: DipendenzeApplica;
+  /** Identità di chi approva: le scansioni delle conferme le legge il modello a suo nome. */
+  visione?: { sedeId: number; utenteId: number } | null;
 }): Promise<{ esito: EsitoSmistamento; avvertenze: string[] }> {
   const deps = input.deps ?? DIPENDENZE_APPLICA_REALI;
   const { comunicazione, esito } = input;
@@ -500,6 +524,9 @@ export async function applicaPropostaApprovata(input: {
       nota: `Archiviato da Tars su approvazione di ${input.utente.nome}: ${esito.collegamento.motivo}`.slice(0, 300),
       createdBy: input.utente.id,
       deps,
+      // Chi approva ha già deciso: una conferma scansionata si legge con
+      // OCR e con il modello, non si scarta per il formato.
+      lettura: { visione: input.visione ?? null },
     });
     archiviati = risultato.archiviati;
     avvertenze.push(...risultato.avvertenze);

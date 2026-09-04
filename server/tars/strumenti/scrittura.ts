@@ -927,6 +927,9 @@ const registraCostoFornitore: StrumentoTars = {
         codiceCommessa: commessa.codice ?? null,
         fornitoreAtteso: input.fornitore ?? null,
         numeroOrdineAtteso: input.numeroOrdine ?? null,
+        // Richiesta esplicita dell'utente: se è una scansione che l'OCR non
+        // legge, la trascrizione con il modello è a suo carico sul ledger.
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
       });
     } catch (errore) {
       return nonEseguito(nome, motivoSicuro(errore));
@@ -970,7 +973,11 @@ const registraCostoFornitore: StrumentoTars = {
         numeroOrdine: numeroOrdine ?? undefined,
         documentoId: input.documentoId,
         note: `${input.note ? `${input.note} ` : ""}Letto da Tars dal documento:${input.documentoId}${
-          lettura.fonteTesto === "ocr" ? " (testo da OCR)" : ""
+          lettura.fonteTesto === "ocr"
+            ? " (testo da OCR)"
+            : lettura.fonteTesto === "visione"
+              ? " (testo trascritto dal modello)"
+              : ""
         }`.slice(0, 300),
       });
       // Il documento ricorda che il suo costo è a registro: il worker di
@@ -1021,7 +1028,9 @@ const registraCostoFornitore: StrumentoTars = {
           "Il costo è IVA esclusa: il margine si calcola imponibile contro imponibile.",
           ...(lettura.fonteTesto === "ocr"
             ? ["Testo ricostruito con OCR: verifica l'importo sul file."]
-            : []),
+            : lettura.fonteTesto === "visione"
+              ? ["Testo trascritto dal modello (scansione o foto): verifica l'importo sul file."]
+              : []),
           ...lettura.avvertenze,
         ],
       });

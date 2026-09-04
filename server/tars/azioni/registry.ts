@@ -31,7 +31,7 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.19.0";
+export const VERSIONE_REGISTRO_AZIONI = "1.21.0";
 
 const schemaLettura = z
   .object({

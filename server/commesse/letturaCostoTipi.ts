@@ -10,7 +10,17 @@
 // testo per le archiviazioni automatiche, duplicati per riferimento
 // d'ordine, settimana di approntamento (04/09/2026 notte).
 // 1.3.0: fornitore dall'intestazione e numero documento del fornitore.
-export const VERSIONE_LETTURA_COSTO = "1.3.0";
+// 1.5.0 (04/09/2026): una rilettura corregge i costi nati dalla regola e mai
+// toccati; la conferma aggiornata dello stesso ordine sostituisce la vecchia;
+// il CAP non è più un riferimento d'ordine.
+// 1.6.0: il costo «nato dalla regola» si riconosce dalla sua impronta
+// (descrizione, nota, nessuna modifica a mano), non dal confronto con la
+// lettura precedente.
+// 1.7.0: lettura visiva con il modello per scansioni e foto che l'OCR non
+// legge (fonteTesto «visione»); le foto (jpeg, png) passano dall'OCR.
+// 1.8.0: un file con più conferme (Bertolotto) si legge a sezioni e il costo
+// è la somma degli imponibili, solo se ogni sezione ha il suo.
+export const VERSIONE_LETTURA_COSTO = "1.8.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -42,7 +52,7 @@ export type LetturaCostoDocumento = {
   checksum: string | null;
   quando: string; // ISO
   esito: EsitoLetturaCosto;
-  fonteTesto: "testo_pdf" | "ocr" | "nessuna";
+  fonteTesto: "testo_pdf" | "ocr" | "visione" | "nessuna";
   imponibile: number | null;
   fornitore: string | null;
   numeroOrdine: string | null;
@@ -59,6 +69,8 @@ export type LetturaCostoDocumento = {
   merce?: MerceDaConferma | null;
   /** I riferimenti d'ordine del documento (nome file e testo): servono a riconoscere i duplicati. */
   riferimenti?: string[];
+  /** Quante conferme contiene il file (1 di norma; Bertolotto ne manda tre in un PDF). */
+  sezioni?: number;
   /** Il documento di cui questa conferma è un duplicato. */
   duplicatoDi?: number | null;
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */

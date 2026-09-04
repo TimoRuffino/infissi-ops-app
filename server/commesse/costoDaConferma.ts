@@ -30,15 +30,20 @@
 // già archiviate prima di questa regola.
 
 import { getComunicazione } from "../comunicazioni/comunicazioni";
-import { estraiConfermaOrdine, type EstrazioneConferma } from "../documenti/estrazioneConferma";
+import {
+  estraiConfermeNelDocumento,
+  type EstrazioneConferma,
+} from "../documenti/estrazioneConferma";
 import {
   dataDaSettimanaIso,
   ESTRATTORE_MERCE_VERSIONE,
   estraiRigheMerce,
 } from "../documenti/estrazioneMerce";
+import type { IdentitaLettura } from "../documenti/letturaVisiva";
 import {
   estraiTestoDocumento,
   type EsitoParser,
+  type OpzioniLettura,
 } from "../documenti/parserRegistry";
 import {
   riferimentiOrdineDocumento,
@@ -47,8 +52,10 @@ import {
   type RiferimentiCommessa,
   type RiscontroCommessa,
 } from "../documenti/riscontroCommessa";
+import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
+import { getSediStore } from "../routers/sedi";
 import {
   creaProdottiDaConferma,
   getMagazzinoStore,
@@ -66,12 +73,17 @@ import {
   type Documento,
 } from "../routers/preventiviContratti";
 import {
+  aggiornaImportoCosto,
   aggiungiCosto,
   collegaCostoAlDocumento,
   costoDelDocumento,
   costoManualeCorrispondente,
+  costoNatoDallaRegola,
+  DESCRIZIONE_COSTO_DA_CONFERMA,
+  NOTA_COSTO_DA_CONFERMA,
   riferimentoNormalizzato,
   rimuoviCostoDelDocumento,
+  type CostoRegistrato,
 } from "./costiRegistro";
 import {
   ESITI_TERMINALI,
@@ -111,11 +123,16 @@ export type DipendenzeCostoDaConferma = {
   leggiDocumento: (
     documentoId: number
   ) => Promise<{ buffer: Buffer; nome: string; mimeType: string } | null>;
+  /**
+   * Testo del documento. `ocr` = OCR locale ammesso (worker, richiesta
+   * esplicita); `visione` = identità per la lettura con il modello quando
+   * l'OCR non basta (null = mai una chiamata a pagamento).
+   */
   estraiTesto: (
     buffer: Buffer,
     mimeType: string,
     nome: string,
-    ocr: boolean
+    opzioni: { ocr: boolean; visione: IdentitaLettura | null }
   ) => Promise<EsitoParser>;
   /** Il mittente della mail da cui il documento è stato archiviato: fornitore di ripiego. */
   nomeMittente: (documento: Documento) => Promise<string | null>;
@@ -133,8 +150,11 @@ export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
         mimeType: letto.documento.mimeType,
       };
     },
-    estraiTesto: (buffer, mimeType, nome, ocr) =>
-      estraiTestoDocumento(buffer, mimeType, nome, ocr ? undefined : { ocr: false }),
+    estraiTesto: (buffer, mimeType, nome, opzioni) =>
+      estraiTestoDocumento(buffer, mimeType, nome, {
+        ...(opzioni.ocr ? {} : { ocr: false }),
+        visione: opzioni.ocr ? opzioni.visione : null,
+      }),
     nomeMittente: async documento => {
       if (documento.source !== "comunicazione" || !documento.sourceRef) return null;
       const [sede, comunicazione] = documento.sourceRef.split(":");
@@ -162,6 +182,43 @@ function motivoSicuro(errore: unknown): string {
 
 function arrotonda(valore: number): number {
   return Math.round((valore + Number.EPSILON) * 100) / 100;
+}
+
+/** «1.709,44»: scrittura italiana senza dipendere dai dati di locale di Node. */
+function euro(valore: number): string {
+  const [intero, decimali] = Math.abs(valore).toFixed(2).split(".");
+  const conPunti = intero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${valore < 0 ? "-" : ""}${conPunti},${decimali}`;
+}
+
+/** Il documento entrato dopo nel fascicolo (a parità di istante, l'id più alto). */
+function piuRecente(a: Documento, b: Documento): boolean {
+  const ta = new Date(a.createdAt as any).getTime();
+  const tb = new Date(b.createdAt as any).getTime();
+  if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta > tb;
+  return a.id > b.id;
+}
+
+/**
+ * Il costo a registro l'ha scritto la regola e nessuna persona l'ha
+ * modificato: porta descrizione e nota della regola (non è un costo manuale
+ * collegato dopo) e la scheda non l'ha toccato. Solo allora una rilettura
+ * migliore può correggerlo. (Non basta confrontarlo con la lettura
+ * precedente: la 1.4.0 aveva già letto giusto le tre Pail a «22,00» senza
+ * correggerle, e il confronto con lei le faceva sembrare modificate a mano.)
+ */
+function costoScrittoDallaRegola(
+  costo: CostoRegistrato,
+  precedente: LetturaCostoDocumento | null
+): boolean {
+  if (precedente?.esito === "collegato") return false;
+  if (costoNatoDallaRegola(costo)) return true;
+  return (
+    precedente?.esito === "registrato" &&
+    precedente.imponibile != null &&
+    !costo.modificatoAMano &&
+    Math.abs(costo.importo - precedente.imponibile) < 0.005
+  );
 }
 
 /** Le archiviazioni fatte da un automatismo: qui il testo deve citare la commessa. */
@@ -193,12 +250,27 @@ export function riferimentiDellaCommessa(commessa: any): RiferimentiCommessa {
     for (const r of d.letturaCosto?.riferimenti ?? []) riferimentiOrdine.add(r);
     if (d.letturaCosto?.numeroOrdine) riferimentiOrdine.add(d.letturaCosto.numeroOrdine);
   }
+  // La via dell'azienda compare in ogni conferma come destinatario: non è
+  // mai la prova che il documento parla di QUESTO cantiere.
+  const sede = getSediStore().find(s => s.id === commessa.sedeId);
+  const paroleEscluse = String(sede?.indirizzo ?? "")
+    .split(/[\s,.'’-]+/)
+    .filter(p => p.length >= 3);
+  // Il cognome dall'anagrafica: è la parola che identifica il cliente, i
+  // nomi propri no.
+  const anagrafica: any =
+    Number.isInteger(commessa.clienteId) && commessa.clienteId > 0
+      ? (getClienteById(commessa.clienteId) ?? null)
+      : null;
+  const cognome = String(anagrafica?.cognome ?? "").trim() || null;
   return {
     codice: commessa.codice ?? null,
     cliente: commessa.cliente ?? null,
+    cognome,
     indirizzo: commessa.indirizzo ?? null,
     citta: commessa.citta ?? null,
     riferimentiOrdine: [...riferimentiOrdine],
+    paroleEscluse,
   };
 }
 
@@ -269,12 +341,28 @@ export type VerificaConfermaPerFascicolo = {
  * regola delle conferme certe, strumento Tars): il testo deve citare la
  * commessa e non deve essere una copia di una conferma già presente.
  */
+export type LetturaPerVerifica = {
+  /** OCR locale: assente = con i limiti di default; `false` = spento. */
+  ocr?: OpzioniLettura["ocr"];
+  /** Lettura visiva con il modello, con l'identità di chi paga sul ledger. */
+  visione?: OpzioniLettura["visione"];
+};
+
 export async function verificaConfermaPerFascicolo(input: {
   commessaId: number;
   nomeFile: string;
   mimeType: string;
   buffer: Buffer;
   estraiTesto?: DipendenzeCostoDaConferma["estraiTesto"];
+  /**
+   * Senza `lettura` si legge solo il testo nativo (rapido, gratuito):
+   * è il percorso di una richiesta HTTP. I worker e le approvazioni
+   * passano OCR e visione: una scansione non deve fermare la conferma
+   * (04/09/2026: «non deve arrendersi»).
+   */
+  lettura?: LetturaPerVerifica | null;
+  /** Pagine già lette da chi chiama (ricerca della commessa): niente rilettura. */
+  pagine?: readonly string[] | null;
 }): Promise<VerificaConfermaPerFascicolo> {
   const commessa: any = getCommessaById(input.commessaId);
   if (!commessa) {
@@ -283,7 +371,19 @@ export async function verificaConfermaPerFascicolo(input: {
   const estrai = input.estraiTesto ?? dipendenzeCostoDaConfermaReali().estraiTesto;
   let parser: EsitoParser;
   try {
-    parser = await estrai(input.buffer, input.mimeType, input.nomeFile, false);
+    parser = input.pagine?.length
+      ? { esito: "estratto", parser: "fornito", versione: "0", pagine: [...input.pagine], avvertenze: [] }
+      : await estrai(
+          input.buffer,
+          input.mimeType,
+          input.nomeFile,
+          input.lettura
+            ? {
+                ocr: input.lettura.ocr !== false,
+                visione: (input.lettura.visione || null) as IdentitaLettura | null,
+              }
+            : { ocr: false, visione: null }
+        );
   } catch (errore) {
     return {
       ok: false,
@@ -303,7 +403,7 @@ export async function verificaConfermaPerFascicolo(input: {
       duplicatoDi: null,
     };
   }
-  const estrazione = estraiConfermaOrdine(parser.pagine, {
+  const { estrazione } = estraiConfermeNelDocumento(parser.pagine, {
     codiceOrdine: null,
     fornitoreNome: null,
     righeOrdine: [],
@@ -349,6 +449,10 @@ export async function registraCostoDaConferma(input: {
   documentoId: number;
   /** OCR ammesso: solo dal worker o su richiesta esplicita, mai nel percorso della richiesta. */
   ocr?: boolean;
+  /** Lettura visiva con il modello quando l'OCR non basta (default: sì, se l'OCR è ammesso). */
+  visione?: boolean;
+  /** Chi paga la lettura visiva sul ledger: default la sede della commessa con l'utente di sistema. */
+  identitaVisione?: IdentitaLettura;
   /**
    * Rilegge anche se la lettura precedente è già decisa e rimette un costo
    * tolto a mano: è la richiesta esplicita di un utente (Tars), non il worker.
@@ -477,7 +581,13 @@ export async function registraCostoDaConferma(input: {
 
   let parser: EsitoParser;
   try {
-    parser = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome, input.ocr === true);
+    parser = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome, {
+      ocr: input.ocr === true,
+      visione:
+        input.ocr === true && input.visione !== false
+          ? (input.identitaVisione ?? { sedeId: Number(commessa.sedeId ?? 1), utenteId: 0 })
+          : null,
+    });
   } catch (errore) {
     return fallita("errore", `Parser fallito: ${motivoSicuro(errore)}`);
   }
@@ -494,13 +604,17 @@ export async function registraCostoDaConferma(input: {
     return fallita("non_leggibile", parser.motivo);
   }
   const fonteTesto: LetturaCostoDocumento["fonteTesto"] =
-    parser.ocr != null ? "ocr" : "testo_pdf";
+    parser.visione != null ? "visione" : parser.ocr != null ? "ocr" : "testo_pdf";
 
-  const estrazione = estraiConfermaOrdine(parser.pagine, {
+  // Un file può contenere più conferme (Bertolotto): si legge a sezioni e
+  // l'imponibile è la somma, solo se ogni sezione ha il suo.
+  const documentoLetto = estraiConfermeNelDocumento(parser.pagine, {
     codiceOrdine: input.numeroOrdine ?? null,
     fornitoreNome: input.fornitore ?? null,
     righeOrdine: [],
   });
+  const estrazione = documentoLetto.estrazione;
+  const sezioni = documentoLetto.sezioni.length;
   const imponibile =
     estrazione.imponibileDocumento?.valore != null
       ? arrotonda(estrazione.imponibileDocumento.valore)
@@ -520,7 +634,11 @@ export async function registraCostoDaConferma(input: {
   });
   const riferimentoDocumento = `«${raw.nome}» (documento:${documento.id})`;
   const avvisoOcr =
-    fonteTesto === "ocr" ? " — testo da OCR, verificare sul file" : "";
+    fonteTesto === "ocr"
+      ? " — testo da OCR, verificare sul file"
+      : fonteTesto === "visione"
+        ? " — testo trascritto dal modello, verificare sul file"
+        : "";
   const memoriaBase = {
     fonteTesto,
     imponibile,
@@ -529,6 +647,7 @@ export async function registraCostoDaConferma(input: {
     dataDocumento,
     tentativi,
     riferimenti,
+    sezioni,
   };
 
   // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
@@ -562,23 +681,56 @@ export async function registraCostoDaConferma(input: {
     dataDocumento,
   });
   if (duplicato) {
-    const ritirato = ritira(commessa, documento);
-    const motivo = `Stessa conferma di «${duplicato.documento.nome}» (riferimento ${duplicato.riferimento}): il costo e la merce restano quelli dell'originale.${
-      ritirato ? " Costo e merce doppi ritirati." : ""
-    }`;
-    salva({
-      ...memoriaBase,
+    // Stesso ordine ma importo diverso, e questo documento è entrato DOPO:
+    // è la conferma aggiornata, non una copia (04/09/2026, Oskura: la
+    // «(2).pdf» dello stesso ordine con il totale rivisto). Il costo e la
+    // merce seguono la versione più recente — se il costo dell'originale
+    // era ancora quello scritto dalla regola, mai toccato da una persona.
+    const originale = duplicato.documento;
+    const costoOriginale = costoDelDocumento(commessa, originale.id);
+    const letturaOriginale = originale.letturaCosto ?? null;
+    const revisione =
+      imponibile != null &&
+      imponibile > 0 &&
+      costoOriginale != null &&
+      costoScrittoDallaRegola(costoOriginale, letturaOriginale) &&
+      Math.abs(costoOriginale.importo - imponibile) >= 0.005 &&
+      piuRecente(documento, originale);
+    if (!revisione) {
+      const ritirato = ritira(commessa, documento);
+      const importoDiverso =
+        imponibile != null && costoOriginale != null && Math.abs(costoOriginale.importo - imponibile) >= 0.005
+          ? ` Attenzione: qui l'imponibile è ${euro(imponibile)}, a registro c'è ${euro(costoOriginale.importo)}.`
+          : "";
+      const motivo = `Stessa conferma di «${originale.nome}» (riferimento ${duplicato.riferimento}): il costo e la merce restano quelli dell'originale.${
+        ritirato ? " Costo e merce doppi ritirati." : ""
+      }${importoDiverso}`;
+      salva({
+        ...memoriaBase,
+        esito: "duplicato",
+        motivo,
+        costoId: null,
+        merce: null,
+        duplicatoDi: originale.id,
+        riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+      });
+      return base(documento, "duplicato", motivo, {
+        fonteTesto,
+        imponibile,
+        duplicatoDi: originale.id,
+      });
+    }
+    ritira(commessa, originale);
+    salvaLetturaCostoDocumento(originale.id, {
+      ...(letturaOriginale as LetturaCostoDocumento),
       esito: "duplicato",
-      motivo,
+      motivo: `Sostituita dalla versione più recente «${raw.nome}» (documento:${documento.id}): costo e merce seguono quella (qui l'imponibile era ${euro(
+        letturaOriginale?.imponibile ?? costoOriginale!.importo
+      )}).`,
       costoId: null,
       merce: null,
-      duplicatoDi: duplicato.documento.id,
-      riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
-    });
-    return base(documento, "duplicato", motivo, {
-      fonteTesto,
-      imponibile,
-      duplicatoDi: duplicato.documento.id,
+      duplicatoDi: documento.id,
+      quando: deps.adesso().toISOString(),
     });
   }
 
@@ -605,8 +757,41 @@ export async function registraCostoDaConferma(input: {
   };
 
   if (esistente) {
-    salva({ ...memoriaCosto, esito: "registrato", motivo: null, costoId: esistente.id });
-    return base(documento, "gia_registrato", null, {
+    const esitoEsistente: EsitoLetturaCosto =
+      precedente?.esito === "collegato" ? "collegato" : "registrato";
+    const diverso =
+      imponibile != null && imponibile > 0 && Math.abs(esistente.importo - imponibile) >= 0.005;
+    // Una rilettura migliore corregge un costo nato dalla regola e mai
+    // toccato da nessuno (04/09/2026: conferme Pail registrate a «22,00»,
+    // l'aliquota IVA letta come imponibile da un estrattore vecchio). Un
+    // costo scritto o modificato da una persona non si tocca: si dice.
+    if (diverso && costoScrittoDallaRegola(esistente, precedente) && input.importoAtteso == null) {
+      const era = esistente.importo;
+      aggiornaImportoCosto(
+        commessa,
+        esistente,
+        imponibile!,
+        `Importo corretto dalla rilettura di ${riferimentoDocumento}: era ${euro(era)}${avvisoOcr}.`,
+        { fornitore, data: dataDocumento, numeroOrdine }
+      );
+      salva({
+        ...memoriaCosto,
+        esito: "registrato",
+        motivo: `Importo corretto dalla rilettura: era ${euro(era)}.`,
+        costoId: esistente.id,
+      });
+      return base(documento, "registrato", null, {
+        imponibile: imponibile!,
+        costoId: esistente.id,
+        fonteTesto,
+        merce,
+      });
+    }
+    const motivo = diverso
+      ? `La rilettura di «${raw.nome}» dice ${euro(imponibile!)}, a registro c'è ${euro(esistente.importo)} (scritto o modificato a mano): non lo tocco.`
+      : null;
+    salva({ ...memoriaCosto, esito: esitoEsistente, motivo, costoId: esistente.id });
+    return base(documento, "gia_registrato", motivo, {
       imponibile: esistente.importo,
       costoId: esistente.id,
       fonteTesto,
@@ -630,9 +815,11 @@ export async function registraCostoDaConferma(input: {
   }
 
   if (imponibile == null || imponibile <= 0) {
-    const motivo = estrazione.totaleDocumento
-      ? `«${raw.nome}» dichiara un totale ma non l'imponibile: l'IVA non si scorpora per stima, il costo va registrato a mano.`
-      : `In «${raw.nome}» non c'è un imponibile leggibile: il costo va registrato a mano.`;
+    const motivo =
+      documentoLetto.motivoSomma ??
+      (estrazione.totaleDocumento
+        ? `«${raw.nome}» dichiara un totale ma non l'imponibile: l'IVA non si scorpora per stima, il costo va registrato a mano.`
+        : `In «${raw.nome}» non c'è un imponibile leggibile: il costo va registrato a mano.`);
     salva({ ...memoriaCosto, esito: "senza_imponibile", motivo, costoId: null });
     return base(documento, "senza_imponibile", motivo, { fonteTesto, merce });
   }
@@ -649,10 +836,15 @@ export async function registraCostoDaConferma(input: {
     );
   }
 
-  const nota = `${input.nota?.trim() ? `${input.nota.trim()} ` : ""}Letto dalla conferma d'ordine ${riferimentoDocumento}${avvisoOcr}`.slice(
-    0,
-    300
-  );
+  // La nota comincia SEMPRE con l'impronta della regola: è così che una
+  // rilettura riconosce un costo scritto da lei (una nota di chi chiama va in coda).
+  const nota = `${NOTA_COSTO_DA_CONFERMA}${riferimentoDocumento}${avvisoOcr}${
+    sezioni > 1
+      ? ` — ${sezioni} conferme nel file, imponibile = somma (${documentoLetto.sezioni
+          .map(s => euro(s.estrazione.imponibileDocumento?.valore ?? 0))
+          .join(" + ")})`
+      : ""
+  }${input.nota?.trim() ? ` — ${input.nota.trim()}` : ""}`.slice(0, 300);
 
   // Un costo già scritto a mano per lo stesso ordine, lo stesso importo o lo
   // stesso fornitore: la conferma lo lega al documento, non lo raddoppia.
@@ -673,7 +865,7 @@ export async function registraCostoDaConferma(input: {
   const costo = aggiungiCosto(commessa, {
     importo: imponibile,
     fornitore,
-    descrizione: `Conferma d'ordine ${raw.nome}`.slice(0, 160),
+    descrizione: `${DESCRIZIONE_COSTO_DA_CONFERMA}${raw.nome}`.slice(0, 160),
     data: dataDocumento,
     numeroOrdine,
     note: nota,

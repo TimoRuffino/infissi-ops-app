@@ -16,9 +16,20 @@ import {
   OCR_VERSIONE,
   configOcrDefault,
   disponibilitaOcr,
+  eseguiOcrImmagine,
   eseguiOcrPdf,
+  immagineLeggibileDaOcr,
+  renderizzaPaginePng,
   type ConfigOcr,
 } from "./ocr";
+import {
+  MAX_PAGINE_VISIONE,
+  trascriviImmagini,
+  VISIONE_VERSIONE,
+  type DipendenzeVisione,
+  type IdentitaLettura,
+} from "./letturaVisiva";
+import { pagineDaDocumento, type DocumentoPdf } from "./testoPdf";
 
 export type MetadatiOcr = {
   lingue: string;
@@ -27,6 +38,13 @@ export type MetadatiOcr = {
   confidenzaPagine: number[];
   confidenzaMedia: number;
   daVerificare: boolean;
+};
+
+export type MetadatiVisione = {
+  modello: string;
+  pagine: number;
+  tokenInput: number;
+  tokenOutput: number;
 };
 
 export type EsitoParser =
@@ -38,6 +56,8 @@ export type EsitoParser =
       avvertenze: string[];
       /** Presente solo quando il testo arriva dall'OCR locale (slice 4). */
       ocr?: MetadatiOcr;
+      /** Presente solo quando il testo è la trascrizione del modello (lettura visiva). */
+      visione?: MetadatiVisione;
     }
   | {
       // Il PDF esiste ma non ha un layer testuale: è una scansione (o una
@@ -67,9 +87,27 @@ export type ParserDocumento = {
 
 const MAX_BYTE_ANALISI = 15 * 1024 * 1024;
 
+/**
+ * Le pagine di un PDF con testo nativo: righe ricostruite dalla geometria
+ * dei frammenti (2.0.0). Se la geometria manca (frammenti senza coordinate)
+ * resta il testo piatto di unpdf, nell'ordine del flusso.
+ */
+async function pagineNative(pdf: unknown): Promise<string[]> {
+  try {
+    return await pagineDaDocumento(pdf as DocumentoPdf);
+  } catch {
+    const { text } = await extractText(pdf as any, { mergePages: false });
+    return (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
+      String(pagina ?? "")
+    );
+  }
+}
+
 const pdfTestoNativo: ParserDocumento = {
   nome: "pdf-testo-nativo",
-  versione: "1.0.0",
+  // 2.0.0 (04/09/2026): righe dalla geometria, non dal flusso di contenuto —
+  // etichette e valori tornano affiancati, le colonne restano celle.
+  versione: "2.0.0",
   supporta: (mimeType, nomeFile) =>
     (mimeType ?? "").toLowerCase().includes("pdf") ||
     nomeFile.toLowerCase().endsWith(".pdf"),
@@ -79,11 +117,11 @@ const pdfTestoNativo: ParserDocumento = {
       // per ogni font che non sa misurare (Math.sumPrecise assente in Node)
       // e il worker delle conferme ne produce decine per documento.
       const pdf = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
-      const { text } = await extractText(pdf, { mergePages: false });
-      const pagine = (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
-        String(pagina ?? "")
-          .replace(/[ \t]+\n/g, "\n")
-          .trim()
+      // Si tolgono gli spazi in coda alle righe e le righe vuote ai bordi,
+      // NON il rientro iniziale: è la colonna del frammento, e un valore
+      // sotto la sua etichetta si riconosce da lì.
+      const pagine = (await pagineNative(pdf)).map(pagina =>
+        pagina.replace(/[ \t]+\n/g, "\n").replace(/^\n+/, "").replace(/\s+$/, "")
       );
       const totale = pagine.reduce((somma, p) => somma + p.length, 0);
       if (totale === 0) {
@@ -120,11 +158,125 @@ const pdfTestoNativo: ParserDocumento = {
   },
 };
 
-// Ordine di registrazione = priorità. `pdf-ocr` non è in lista: è il
-// FALLBACK esplicito del nativo dentro `estraiTestoDocumento`, mai una
-// scelta silenziosa. Slot futuri (piano §4): `immagine`, `xlsx-csv`,
-// `xml`, `zip`, parser proprietari per fornitore.
-const PARSER_REGISTRATI: readonly ParserDocumento[] = [pdfTestoNativo];
+const MIME_IMMAGINE = /^image\/(?:jpeg|jpg|png|webp|gif|tiff|bmp|heic|heif)$/i;
+
+/**
+ * Una foto o un'immagine (la conferma fotografata e mandata via WhatsApp):
+ * non ha un livello di testo per definizione. Va all'OCR locale e, se
+ * quello non basta, alla lettura visiva — come una scansione di una pagina.
+ */
+const immagine: ParserDocumento = {
+  nome: "immagine",
+  versione: "1.0.0",
+  supporta: (mimeType, nomeFile) =>
+    MIME_IMMAGINE.test(mimeType ?? "") ||
+    /\.(?:jpe?g|png|webp|gif|tiff?|bmp|heic|heif)$/i.test(nomeFile),
+  async estrai() {
+    return {
+      esito: "scansione_senza_testo",
+      parser: this.nome,
+      versione: this.versione,
+      pagineTotali: 1,
+    };
+  },
+};
+
+// Ordine di registrazione = priorità. `pdf-ocr` e `visione` non sono in
+// lista: sono i FALLBACK espliciti dentro `estraiTestoDocumento`, mai una
+// scelta silenziosa. Slot futuri (piano §4): `xlsx-csv`, `xml`, `zip`,
+// parser proprietari per fornitore.
+const PARSER_REGISTRATI: readonly ParserDocumento[] = [pdfTestoNativo, immagine];
+
+/** Formati che il provider accetta come immagine di input. */
+const MIME_VISIONE = /^image\/(?:jpeg|jpg|png|webp|gif)$/i;
+const DPI_VISIONE = 150;
+const TIMEOUT_RENDERING_VISIONE_MS = 60_000;
+/** Sotto questa media di caratteri per pagina l'OCR non ha letto davvero. */
+const CARATTERI_MINIMI_PER_PAGINA = 200;
+
+export type OpzioneVisione = IdentitaLettura & { deps?: Partial<DipendenzeVisione> };
+
+/**
+ * Lettura visiva (04/09/2026): il modello trascrive le pagine quando l'OCR
+ * non c'è, fallisce o legge poco e male. Costa: parte SOLO se chi chiama
+ * passa un'identità (worker con utente di sistema, strumento di Tars con
+ * l'utente della chat), mai nel percorso di una richiesta HTTP.
+ */
+async function tentaVisione(
+  bytes: Buffer,
+  mimeType: string,
+  nomeFile: string,
+  visione: OpzioneVisione,
+  precedente: EsitoParser
+): Promise<EsitoParser> {
+  const conMotivo = (motivo: string): EsitoParser =>
+    precedente.esito === "estratto"
+      ? { ...precedente, avvertenze: [...precedente.avvertenze, motivo] }
+      : precedente.esito === "scansione_senza_testo"
+        ? { ...precedente, motivo: `${precedente.motivo ?? ""} ${motivo}`.trim() }
+        : precedente;
+
+  let immagini: Array<{ bytes: Buffer; mime: string }>;
+  if (MIME_VISIONE.test(mimeType ?? "")) {
+    immagini = [{ bytes, mime: (mimeType ?? "").toLowerCase().replace("image/jpg", "image/jpeg") }];
+  } else if (MIME_IMMAGINE.test(mimeType ?? "")) {
+    return conMotivo(`Lettura visiva: il formato ${mimeType} non è accettato dal modello (converti in JPEG o PNG).`);
+  } else {
+    const rendering = await renderizzaPaginePng(bytes, {
+      dpi: DPI_VISIONE,
+      maxPagine: MAX_PAGINE_VISIONE,
+      timeoutMs: TIMEOUT_RENDERING_VISIONE_MS,
+      numeroPagine:
+        precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null,
+    });
+    if (rendering.esito === "errore") {
+      return conMotivo(`Lettura visiva non riuscita: ${rendering.motivo}`);
+    }
+    immagini = rendering.immagini.map(png => ({ bytes: png, mime: "image/png" }));
+  }
+
+  const trascrizione = await trascriviImmagini({
+    immagini,
+    identita: { sedeId: visione.sedeId, utenteId: visione.utenteId },
+    nome: nomeFile,
+    deps: visione.deps,
+  });
+  if (trascrizione.esito !== "trascritto") {
+    console.info("[visione] non riuscita", { file: nomeFile.slice(0, 60), motivo: trascrizione.motivo });
+    return conMotivo(`Lettura visiva non riuscita: ${trascrizione.motivo}`);
+  }
+  console.info("[visione] trascritto", {
+    file: nomeFile.slice(0, 60),
+    pagine: trascrizione.pagine.length,
+    caratteri: trascrizione.pagine.reduce((s, p) => s + p.length, 0),
+    tokenInput: trascrizione.uso.input,
+    tokenOutput: trascrizione.uso.output,
+    modello: trascrizione.modello,
+  });
+  return {
+    esito: "estratto",
+    parser: "visione",
+    versione: VISIONE_VERSIONE,
+    pagine: trascrizione.pagine,
+    avvertenze: [
+      `Testo trascritto dal modello (${trascrizione.modello}, ${trascrizione.pagine.length} pagine): verificare gli importi sul documento originale.`,
+    ],
+    visione: {
+      modello: trascrizione.modello,
+      pagine: trascrizione.pagine.length,
+      tokenInput: trascrizione.uso.input,
+      tokenOutput: trascrizione.uso.output,
+    },
+  };
+}
+
+/** L'OCR ha letto, ma poco o male: la lettura visiva può fare meglio. */
+function ocrInsufficiente(esito: EsitoParser): boolean {
+  if (esito.esito !== "estratto") return true;
+  if (esito.ocr?.daVerificare) return true;
+  const caratteri = esito.pagine.reduce((s, p) => s + p.trim().length, 0);
+  return caratteri < CARATTERI_MINIMI_PER_PAGINA * Math.max(1, esito.pagine.length);
+}
 
 /**
  * Fallback OCR (slice 4): parte SOLO quando il testo nativo è assente.
@@ -135,6 +287,7 @@ const PARSER_REGISTRATI: readonly ParserDocumento[] = [pdfTestoNativo];
  */
 async function tentaOcr(
   bytes: Buffer,
+  mimeType: string,
   scansione: Extract<EsitoParser, { esito: "scansione_senza_testo" }>,
   config?: Partial<ConfigOcr>
 ): Promise<EsitoParser> {
@@ -154,10 +307,19 @@ async function tentaOcr(
       motivo: `Senza OCR il contenuto non viene compreso. ${disponibilita.motivo ?? ""}`.trim(),
     };
   }
-  const esitoOcr = await eseguiOcrPdf(bytes, {
-    numeroPagine: scansione.pagineTotali ?? null,
-    config,
-  });
+  const eImmagine = scansione.parser === "immagine";
+  if (eImmagine && !immagineLeggibileDaOcr(mimeType)) {
+    return {
+      ...scansione,
+      motivo: `Formato immagine ${mimeType || "sconosciuto"} non leggibile dall'OCR locale (HEIC: converti in JPEG).`,
+    };
+  }
+  const esitoOcr = eImmagine
+    ? await eseguiOcrImmagine(bytes, mimeType, { config })
+    : await eseguiOcrPdf(bytes, {
+        numeroPagine: scansione.pagineTotali ?? null,
+        config,
+      });
   if (esitoOcr.esito !== "ocr_completato") {
     return { ...scansione, motivo: esitoOcr.motivo };
   }
@@ -220,14 +382,21 @@ export function trovaParser(
   );
 }
 
+export type OpzioniLettura = {
+  /** `false` disattiva il fallback OCR; un oggetto ne cambia i limiti. */
+  ocr?: Partial<ConfigOcr> | false;
+  /**
+   * Lettura visiva con il modello quando l'OCR non basta: serve l'identità
+   * per il governor (sede e utente). Assente = mai una chiamata a pagamento.
+   */
+  visione?: OpzioneVisione | null | false;
+};
+
 export async function estraiTestoDocumento(
   bytes: Buffer,
   mimeType: string,
   nomeFile: string,
-  opzioni?: {
-    /** `false` disattiva il fallback OCR; un oggetto ne cambia i limiti. */
-    ocr?: Partial<ConfigOcr> | false;
-  }
+  opzioni?: OpzioniLettura
 ): Promise<EsitoParser> {
   if (bytes.length === 0) {
     return { esito: "non_supportato", motivo: "File vuoto." };
@@ -246,19 +415,28 @@ export async function estraiTestoDocumento(
     };
   }
   const esito = await parser.estrai(bytes);
-  if (esito.esito === "scansione_senza_testo" && opzioni?.ocr !== false) {
-    return tentaOcr(
+  if (esito.esito !== "scansione_senza_testo") return esito;
+
+  // Scansione o foto: prima l'OCR locale (gratis), poi — se chi chiama lo
+  // ammette — la lettura visiva quando l'OCR manca, fallisce o legge poco.
+  let letto: EsitoParser = esito;
+  if (opzioni?.ocr !== false) {
+    letto = await tentaOcr(
       bytes,
+      mimeType,
       esito,
       opzioni?.ocr === undefined ? undefined : opzioni.ocr
     );
   }
-  if (esito.esito === "scansione_senza_testo" && !esito.motivo) {
+  if (opzioni?.visione && ocrInsufficiente(letto)) {
+    letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
+  }
+  if (letto.esito === "scansione_senza_testo" && !letto.motivo) {
     return {
-      ...esito,
+      ...letto,
       motivo:
-        "PDF senza testo estraibile: senza OCR il contenuto non viene compreso.",
+        "Documento senza testo estraibile: senza OCR il contenuto non viene compreso.",
     };
   }
-  return esito;
+  return letto;
 }

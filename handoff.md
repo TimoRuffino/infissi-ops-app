@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 03/09/2026<br>
+**Aggiornato:** 04/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -52,6 +52,118 @@
 > min se tutte gestite; le scartate non si ripropongono). Aperto: lo scavalco
 > dei gate quando l'utente nomina lo stato di arrivo (oggi consentito dal
 > mandato del 02/09) e la lettura con il modello dei PDF scansionati.
+>
+> **Mattina del 04/09, «è ancora troppo stupido» (conferma BT Glass per De
+> Petris, letta senza importi e con il fornitore sbagliato).** Il testo dei
+> PDF nativi ora viene ricostruito dalla GEOMETRIA dei frammenti
+> (`documenti/testoPdf.ts`, parser 2.0.0, stile `pdftotext -layout`): righe
+> vere, celle separate da tre spazi, valori allineati sotto le etichette.
+> Estrattore 1.1.0: imponibile anche per aritmetica dell'IVA, «Imposta» come
+> IVA, importi solo con decimali, «IVA esclusa» → il totale è l'imponibile,
+> numero mai una data, fornitore non è agente/banca/destinatario (poi firma
+> in calce, poi dominio), «vs. riferimento» nella cella accanto o sotto,
+> colonna «Consegna». Merce 1.2.0 a celle, unità a misura, righe uguali
+> sommate. Riscontro con un carattere di tolleranza sul cognome. Lettura
+> 1.4.0: rilettura di tutte le conferme. Corpus di 15 conferme reali (non
+> nel repo): 5 nativi giusti, 8 scansioni su 10 leggibili con l'OCR locale,
+> 1 pagina ruotata illeggibile, 1 PDF con più conferme (totali mescolati:
+> da spezzare, prossima tranche). Scoperto e corretto nei log: lo store
+> `fic_pagamenti_links` si registrava DOPO `bootstrapAll` (modulo importato
+> solo dinamicamente) e i suoi salvataggi venivano rinviati per sempre
+> («save deferred … bootstrap not complete yet» ogni secondo): import
+> statico in `_core/index.ts` e store tardivi che si caricano da soli in
+> `persistence.ts`. Poi, letta la produzione con una sonda in sola lettura
+> (`railway ssh -- node …`, i comandi passano da una shell remota: pipe e
+> redirezioni vanno quotate localmente), lettura 1.5.0: una rilettura
+> corregge i costi nati dalla regola e mai toccati (tre Pail a «22,00»), la
+> conferma aggiornata dello stesso ordine sostituisce la vecchia (Oskura
+> «(2).pdf»), il CAP non è un riferimento d'ordine (Brianzatende). Un costo
+> è «nato dalla regola» se porta la sua impronta (descrizione e nota) e
+> nessuno l'ha modificato dalla scheda (`costi[].modificatoAMano`, marcato
+> da `commesse.updateCosto`): solo quello una rilettura corregge. Piano:
+> `docs/superpowers/plans/2026-09-03-costo-da-conferma.md` (quinta tranche).
+>
+> **Tarda mattina del 04/09 — lettura visiva e foto (sesta tranche).** Le
+> foto (jpeg/png/webp) passano da tesseract (`eseguiOcrImmagine`). Quando
+> l'OCR manca, fallisce o legge poco e male, il modello TRASCRIVE le pagine
+> (`documenti/letturaVisiva.ts`: 150 dpi, al più 8 pagine, riga per riga con
+> le colonne a tre spazi) e il testo attraversa gli stessi estrattori: il
+> modello non decide niente. A pagamento, dietro governor e ledger (classe
+> `lettura_documenti`), con `FLAG_LETTURA_VISIVA` (fail-closed; acceso in
+> Railway il 04/09) e modello `TARS_MODEL_VISIONE` (default: quello
+> interattivo). Parte solo con un'identità: worker (utente di sistema),
+> `leggi_conferma_ordine` 1.3.0 e `registra_costo_fornitore` (utente della
+> chat); mai in upload, archiviazione o smistamento. I turni utente del
+> provider portano immagini (`immagini[]`), l'adapter le manda come
+> `input_image` (`openai/corpo.ts`), il governor le conta nella stima.
+> Lettura 1.7.0. Poi (settima tranche) i PDF con più conferme (Bertolotto,
+> tre ordini in otto pagine): `sezioniConferma` ed
+> `estraiConfermeNelDocumento` leggono ogni sezione da sola e il costo è la
+> SOMMA degli imponibili, solo se ogni sezione ha il suo (`motivoSomma`
+> altrimenti); «TOTALE ORDINE» batte «TOT. MERCE». Lettura 1.8.0.
+>
+> **Pomeriggio del 04/09 — «Tars non fa proposte, è tutto fermo, idem le
+> conferme ordine; non deve arrendersi, deve essere sicuro e molto più
+> attivo».** Diagnosi in produzione (sonde in sola lettura): l'analisi
+> azienda girava (5+1 proposte/giorno, versione 1.2.0) ma sprecava posti
+> in «registra a mano»; lo smistamento smistava (49 mail/giorno) senza
+> aprire proposte perché i candidati nascevano solo dalla mail; le conferme
+> dei fornitori — 60 PDF in 120 giorni, 57 non archiviati, 52 in mail senza
+> commessa («PAIL_2634169 RUFFINO», «Commessa-N-1013363 PENULTIMO PIANO»:
+> il cliente è solo dentro il PDF) — restavano allegati; il follow-up
+> preventivi moriva ogni mezz'ora su `could not determine data type of
+> parameter $3` (42P18: promemoria già esistente cercato con un parametro
+> nullo senza cast). Fatto: (1) **la commessa si cerca DENTRO la conferma**
+> (`tars/documenti/ricercaCommessaNelDocumento.ts`: il testo — nativo, OCR
+> o trascritto dal modello — contro tutte le commesse vive con lo stesso
+> riscontro dell'archiviazione; una forte = trovata, due dello stesso
+> cliente = quella che aspetta la conferma, altrimenti decide una persona;
+> l'azienda stessa non è mai candidata; lettore con memoria 12 h e tetto di
+> letture per giro); il detector `confermeMancanti` legge dentro i file
+> (`riscontroTesto` + prove su ogni candidato, «certa» solo se il testo non
+> smentisce), il worker delle conferme archivia anche dalle mail di nessuno
+> e le COLLEGA, lo smistamento legge gli allegati «da conferma» all'arrivo
+> (riscontro unico = collegamento certo + archiviazione; più riscontri =
+> candidati per il modello) e una conferma apre la proposta anche su mail
+> vecchie; `verificaConfermaPerFascicolo` accetta OCR/visione e pagine già
+> lette; «conferma ordine cliente» del fornitore non è più esclusa.
+> (2) **Analisi**: `archivia_allegato_comunicazione` eseguibile con un click
+> dalle proposte (fotografia con comunicazione e `allegatoIndex`), prompt
+> analisi-v9 (conferme senza costo leggibile = un punto, mai proposte).
+> (3) **Follow-up**: cast `::bigint` in `reminders/repository.ts`, errori
+> isolati per commessa, contratto PG `reminders/repository.pg.test.ts`.
+> (4) **Prompt v12**: «non ti arrendi» (rileggere e cercare per cognome,
+> telefono, comunicazioni prima di dire non posso) e «sicurezza» (niente
+> «vuoi che proceda?»). Registro azioni 1.21.0
+> (`cerca_conferme_ordine_mancanti` 1.1.0). Costi: al più 8 letture nuove
+> per giro del worker (10 min), 10 per giro di smistamento, 6 per
+> fotografia/chat; il testo letto resta in memoria 12 ore (30 minuti se la
+> lettura è fallita). Primo giro vero (15:18): 8 file letti (nativi e OCR),
+> tutti «ambigui» — l'indirizzo dell'azienda (Via Crispi, La Spezia) sta in
+> ogni conferma e faceva riscontrare quattro commesse, e la data «31/07/26»
+> letta come «310726» passava per ordine noto. Riscontro corretto
+> (`documenti/riscontroCommessa.ts`): l'indirizzo vale solo con una parola
+> DISTINTIVA della via (≥5 lettere, non articoli né nomi da toponomastica,
+> non la via della sede) subito dopo «via/piazza/loc.»; il solo indirizzo è
+> una prova debole (decide una persona); `sembraData` esclude le date dai
+> riferimenti d'ordine (anche nei nomi file). Secondo giro (15:28): «Via
+> Francesco Crispi» faceva riscontrare ogni cliente di nome Francesco e
+> «Stefano» + «Angelo» sparsi in un ordine Pail passavano per il cliente
+> «Stefano Angelo» → i NOMI PROPRI comuni non identificano nessuno (vale il
+> cognome dall'anagrafica, o una parola che non sia un nome), il nome
+> completo vale solo se le sue parole stanno sulla stessa riga entro tre
+> parole, e un cognome solo su una commessa che non aspetta la conferma
+> (preventivo) non aggancia da solo. Terzo giro (15:38): «spezia» dentro il
+> nome di tre enti clienti → località, enti, articoli lunghi e i cognomi
+> più diffusi (Rossi, Bianchi, Ferrari…) fra le parole che da sole non
+> identificano nessuno (il cognome diffuso vale con il nome accanto).
+> Quarto giro (15:50): riscontro pulito — Cecconi (Alias) unica sulla sua
+> commessa (già archiviata: copia), gli altri sette file solo indizi deboli
+> («~isanto», «~scotti») → restano proposte «va confermato» nella
+> fotografia. Ogni lettura e ogni riscontro lasciano una riga
+> `[ricerca-commessa]` nei log, e il giro del worker conta i candidati
+> (certe/probabili/non letti). Metodo che ha funzionato: leggere i log del
+> giro dopo ogni deploy e togliere UNA classe di falsi positivi per volta.
 
 ## 1. Contesto
 
@@ -2009,6 +2121,42 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
+## 11-untricies. Via le pagine Fornitori e Garanzie (04/09/2026)
+
+Richiesta direzione: «elimina le pagine fornitori e garanzie». Entrambe erano
+superfici di sola direzione fuori dalla navigazione, raggiunte dall'hub
+Impostazioni. `/fornitori` era già registrata qui sotto come «candidata alla
+rimozione»: questa è la conferma.
+
+Rimosso: `pages/FornitoriList.tsx`, `pages/GaranzieList.tsx` e
+`components/fornitori/` (`AnalisiConfermaOrdine`, `ProposteOrdine`, montati
+solo lì). Le due rotte restano registrate come **redirect** — `/garanzie` →
+`/clienti`, `/fornitori` → `/commesse` — con lo stesso `LegacyRedirect` di
+`/produzione` e `/comunicazioni`: notifiche e segnalibri già salvati non
+devono atterrare su un 404 muto. Tolte le voci dall'hub Impostazioni e dalla
+`shellPresentation`; il contratto di rotta passa a `kind: "redirect"` e le
+guardie di direzione scendono da sei a quattro.
+
+**I domini restano, e non è un dettaglio.** `fornitoriRouter` è dipendenza di
+una quindicina di moduli server: il costo del margine che nasce dalla conferma
+d'ordine (`commesse/costoDaConferma.ts`), l'intelligenza documentale D7
+(`analisiOrdine`, `proposte`) e mezzo Tars (briefing, fascicoli, versioni,
+strumenti). Toglierlo avrebbe rotto il margine, non una pagina. `garanzieRouter`
+alimenta notifiche, Centro Azioni e backup Drive, e le garanzie restano
+leggibili e registrabili dalla **scheda cliente**, che è dove stavano già.
+In produzione il modulo fornitori conta comunque zero ordini, zero proposte e
+zero analisi (diagnosi del 02/09), quindi la pagina non copriva lavoro vivo.
+
+Link riportati dove il lavoro è rimasto: le notifiche di garanzia in scadenza
+(`notifiche.ts`, `actionCenter/signals.ts`) e la Dashboard puntano alla scheda
+del cliente ricavata dalla commessa, non più a `/garanzie`; i fallback Tars e
+briefing che davano su `/fornitori` vanno a `/commesse`.
+
+Residuo dichiarato: `warrantyExpiryTone` e `warrantyExpiryLabel` in
+`client/src/lib/supportQueue.ts` restano senza consumatori (li usava solo la
+pagina rimossa). Sono tenuti, non cancellati: la scheda cliente potrebbe
+adottarli per dire le scadenze a parole invece che con una data secca.
+
 ## 11-tricies. Ordine e conferma: un tipo di documento solo (03/09/2026)
 
 Seguito della fusione dei passi timeline: restavano due voci nel menu dei
@@ -2291,10 +2439,8 @@ non cambia.
 grammatica Modular Control (`PageHeader`, `DataSurface`, `StatePanel`,
 `StickyActionBar`, `ContextInspector`), tranne due esclusioni motivate:
 
-- `/fornitori` — **esclusa per decisione dell'utente**: la pagina è candidata
-  alla rimozione, quindi non è stata toccata (comportamento, router, permessi e
-  gateway DI restano quelli correnti). Se venisse confermata, va migrata come
-  le altre, con la sua decisione registrata.
+- `/fornitori` — **rimossa il 04/09/2026** (la candidatura alla rimozione qui
+  registrata è stata confermata dalla direzione). La rotta resta come redirect.
 - `LoginPage` — fuori dalla shell e fuori dal flag, per il confine di
   autenticazione già documentato nel manifest.
 

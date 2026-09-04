@@ -141,10 +141,13 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
       mancano: (REQUIRED_DOC_TIPI_PER_STATO[stato] ?? []).map(t => DOC_TIPO_LABEL[t]),
     }),
     ordini: () => getOrdiniFornitoriStore() as any[],
+    // La fotografia legge anche DENTRO i file candidati (poche letture per
+    // giro, con il modello per le scansioni, utente di sistema): così dice
+    // se la conferma cita la commessa e la proposta «archivia» è eseguibile.
     confermeMancanti: sedeId =>
       confermeOrdineMancanti({
         sedeId,
-        deps: dipendenzeConfermeReali(),
+        deps: dipendenzeConfermeReali({ visione: { sedeId, utenteId: 0 }, massimoLetture: 6 }),
         limite: 25,
       }),
     confermeSenzaCosto: async sedeId => confermeSenzaCostoLeggibileDiSede(sedeId, 20),
@@ -300,10 +303,12 @@ export async function costruisciFotografia(input: {
       const primo = certo ?? riga.candidati[0] ?? null;
       return {
         chiave: `commessa:${riga.commessaId}:conferma_ordine`,
+        // comunicazione e allegatoIndex nel testo: sono i parametri
+        // dell'azione «archivia con un click» che il modello compila.
         testo: `${riga.codice ?? `Commessa ${riga.commessaId}`} — ${riga.cliente ?? "cliente non indicato"}: in «${riga.stato}» senza conferma d'ordine nel fascicolo${
           primo
-            ? `; il file «${primo.nomeFile}» è arrivato da ${primo.mittente}${
-                certo ? " e si può archiviare subito" : " ma va confermato"
+            ? `; il file «${primo.nomeFile}» è arrivato da ${primo.mittente} (comunicazione ${primo.comunicazioneId}, allegatoIndex ${primo.allegatoIndex})${
+                certo ? " e si può archiviare subito" : ` ma va confermato: ${primo.motivo}`
               }`
             : "; nessun allegato candidato trovato nelle mail"
         }.`,

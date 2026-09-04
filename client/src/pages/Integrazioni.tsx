@@ -68,22 +68,10 @@ const GESTIONE_LINKS: Array<{
   description: string;
 }> = [
   {
-    icon: Truck,
-    label: "Fornitori",
-    path: "/fornitori",
-    description: "Anagrafica fornitori, ordini, listini",
-  },
-  {
     icon: Users,
     label: "Squadre",
     path: "/squadre",
     description: "Squadre di posa e assegnazioni",
-  },
-  {
-    icon: Shield,
-    label: "Garanzie",
-    path: "/garanzie",
-    description: "Registro garanzie e scadenze",
   },
   {
     icon: Calculator,

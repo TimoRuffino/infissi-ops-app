@@ -46,6 +46,10 @@ export type Interruttore =
   // Contratto strutturato e computo limiti DM MITE (03/09/2026): tab
   // Contratto/Limiti, gate sulla transizione verso «Fatture pagamento».
   | "limiti"
+  // Lettura visiva dei documenti (04/09/2026): il modello trascrive le
+  // pagine che l'OCR locale non legge (scansioni ruotate, foto). A
+  // pagamento: passa dal governor, classe «lettura_documenti».
+  | "letturaVisiva"
   // Fatturazione dal contratto (piano 2, 04/09/2026): bozza, emissione FiC, sonda SdI
   | "fatturazione";
 
@@ -68,6 +72,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "FLAG_TARS_ANALISI_AZIENDA",
   uiV2: "FLAG_UI_V2",
   limiti: "FLAG_LIMITI",
+  letturaVisiva: "FLAG_LETTURA_VISIVA",
   fatturazione: "FLAG_FATTURAZIONE",
 };
 
@@ -91,6 +96,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "L'analisi giornaliera dell'azienda di Tars",
   uiV2: "L'interfaccia Modular Control / Borgogna Operativa",
   limiti: "Il contratto strutturato e il computo dei limiti di spesa",
+  letturaVisiva: "La lettura visiva dei documenti con il modello",
   fatturazione:
     "La fatturazione dal contratto (bozza, emissione su Fatture in Cloud, stati SdI)",
 };
@@ -131,6 +137,7 @@ export function tarsAttivo(
     | "ocr"
     | "uiV2"
     | "limiti"
+    | "letturaVisiva"
     | "fatturazione"
   >
 ): boolean {
@@ -147,6 +154,7 @@ export function assicuraTars(
     | "ocr"
     | "uiV2"
     | "limiti"
+    | "letturaVisiva"
     | "fatturazione"
   >
 ): void {

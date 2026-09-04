@@ -18,8 +18,28 @@ export type CostoRegistrato = {
   note: string | null;
   /** Il documento del fascicolo da cui il costo è nato, se c'è. */
   documentoId: number | null;
+  /** Una persona ha modificato l'importo dalla scheda: nessuna rilettura lo tocca più. */
+  modificatoAMano?: boolean;
   createdAt: Date;
 };
+
+/** Le impronte che la regola lascia su un costo che scrive lei. */
+export const DESCRIZIONE_COSTO_DA_CONFERMA = "Conferma d'ordine ";
+export const NOTA_COSTO_DA_CONFERMA = "Letto dalla conferma d'ordine ";
+
+/**
+ * Un costo NATO dalla regola e mai toccato da una persona: porta la
+ * descrizione e la nota che scrive lei, non è stato modificato dalla scheda
+ * e non è un costo manuale collegato dopo. Solo questo una rilettura può
+ * correggere.
+ */
+export function costoNatoDallaRegola(costo: CostoRegistrato): boolean {
+  if (costo.documentoId == null || costo.modificatoAMano) return false;
+  return (
+    String(costo.descrizione ?? "").startsWith(DESCRIZIONE_COSTO_DA_CONFERMA) &&
+    String(costo.note ?? "").startsWith(NOTA_COSTO_DA_CONFERMA)
+  );
+}
 
 export function costiDi(commessa: any): CostoRegistrato[] {
   if (!Array.isArray(commessa.costi)) commessa.costi = [];
@@ -81,6 +101,28 @@ export function costoManualeCorrispondente(
       return Math.abs((c.importo ?? 0) - criterio.importo) < 0.005;
     }) ?? null
   );
+}
+
+/**
+ * Una rilettura migliore corregge l'importo di un costo NATO dalla regola e
+ * mai toccato da una persona (04/09/2026: tre conferme Pail lette «22,00»
+ * — l'aliquota IVA — da un estrattore vecchio). Chi chiama ha verificato
+ * che l'importo a registro è ancora quello scritto dalla lettura precedente.
+ */
+export function aggiornaImportoCosto(
+  commessa: any,
+  costo: CostoRegistrato,
+  importo: number,
+  nota: string,
+  completa: { fornitore?: string | null; data?: string | null; numeroOrdine?: string | null } = {}
+): void {
+  costo.importo = importo;
+  if (!costo.fornitore && completa.fornitore) costo.fornitore = completa.fornitore;
+  if (!costo.data && completa.data) costo.data = completa.data;
+  if (!costo.numeroOrdine && completa.numeroOrdine) costo.numeroOrdine = completa.numeroOrdine;
+  costo.note = costo.note ? `${costo.note} ${nota}`.slice(0, 300) : nota;
+  commessa.updatedAt = new Date();
+  saveCommesseStore();
 }
 
 export function collegaCostoAlDocumento(

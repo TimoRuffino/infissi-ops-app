@@ -20,13 +20,39 @@ export type RigaMerce = {
   pagina: number; // 1-based
 };
 
-export const ESTRATTORE_MERCE_VERSIONE = "1.1.0";
+// 1.2.0 (04/09/2026): righe a CELLE (tre spazi fra le colonne, come le
+// ricostruisce la geometria del PDF), unità a misura nel nome, righe uguali
+// che si sommano invece di sparire.
+export const ESTRATTORE_MERCE_VERSIONE = "1.2.0";
 
 const MASSIMO_RIGHE = 40;
 
 /** Righe che non sono merce anche se contengono un numero. */
 const NON_MERCE =
-  /\b(totale|tot\.|imponibile|subtotale|sconto|acconto|saldo|pagamento|bonifico|banca|iban|bic|swift|consegna|spedizione|trasporto|imballo|porto|resa|riferimento|rif\.|vs\.?\s*rif|ns\.?\s*rif|ordine\s+n|data|telefono|tel\.|cell\.|fax|e-?mail|pec|www\.|http|p\.?\s*iva|partita\s+iva|c\.?\s*f\.|codice\s+fiscale|cap\b|via\b|viale|piazza|p\.zza|corso|loc\.|località|frazione|note|condizioni|validit|pagina|pag\.|firma|timbro|iva\s*\d|aliquota|peso|kg\b|colli|mq\b|m²|spese)/i;
+  /\b(totale|tot\.|imponibile|subtotale|sconto|acconto|saldo|pagamento|bonifico|banca|iban|bic|swift|consegna|spedizione|trasporto|imballo|imballagg\w*|gabbia|bancale|pallet|porto|resa|riferimento|rif\.|vs\.?\s*rif|ns\.?\s*rif|ordine\s+n|data|telefono|tel\.|cell\.|fax|e-?mail|pec|www\.|http|p\.?\s*iva|partita\s+iva|c\.?\s*f\.|codice\s+fiscale|cap\b|via\b|viale|piazza|p\.zza|corso|loc\.|località|frazione|note|condizioni|validit|pagina|pag\.|firma|timbro|iva\s*\d|aliquota|peso|kg\b|colli|mq\b|m²|spese|oggetto|maggiorazion\w*|supplemento|sovrapprezzo|ai\s+sensi|artt?\.|documento|disegni|allegat\w*|descrizione|commessa\s+n\.?\s*\d)/i;
+
+/** Una frase (condizioni di vendita, note) non è una riga di merce: tante parole minuscole, niente cifre. */
+function sembraFrase(testo: string): boolean {
+  const parole = testo.trim().split(/\s+/);
+  if (parole.length < 8) return false;
+  const minuscole = parole.filter(p => /^[a-zà-ù]/.test(p)).length;
+  const cifre = (testo.match(/\d/g) ?? []).length;
+  return minuscole >= parole.length * 0.6 && cifre <= 2;
+}
+
+// Unità «a pezzi» (la quantità è un intero di magazzino) e «a misura»
+// (metri, chili: la quantità resta scritta nel nome, a magazzino conta 1).
+const UNITA_PEZZI =
+  /^(?:pz\.?|pezzi|pcs|nr\.?|n\.?|n°|cad\.?|stk|st\.?|vg\.?|cf\.?|conf\.?|set|kit|pa\.?|paia|cp\.?|coppi[ae])$/i;
+const UNITA_MISURA = /^(?:ml|mq|m²|m|mt|mtl|kg|lt?|l\.|cm)$/i;
+// La cella della quantità: un numero, al più seguito da altro testo della
+// stessa colonna («2 SALA-CAMERA - BOTTI», Primed mette il subcliente accanto).
+const QUANTITA_CELLA = /^(\d{1,4}(?:[.,]\d{1,3})?)(?:\s|$)/;
+// Sotto una riga a misura (12,720 MQ) alcuni fornitori scrivono i pezzi:
+// «1570x2700H -col A01 - pz 3» (Gianesin).
+// Solo interi: «N. 1,0 x 469,5» (BT Glass) è una misura, non un conteggio.
+const PEZZI_NELLA_RIGA_SOTTO =
+  /\b(?:pz\.?|pezzi|nr\.?|n\.)\s*(\d{1,4})(?![.,]?\d)|\b(\d{1,4})\s*(?:pz\.?|pezzi)\b/i;
 
 /** Prezzi e importi: si tolgono dalla descrizione, non sono il nome della merce. */
 const IMPORTO = /(?:€|eur\.?)?\s*\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\b(?:\s*(?:€|eur\.?))?/gi;
@@ -78,6 +104,9 @@ const SOLO_UNITA_QUANTITA = new RegExp(
 
 function pulisciNome(grezzo: string): string {
   return grezzo
+    // Il numero di posizione davanti a un codice o a un nome maiuscolo
+    // («17 ADLIS», «12 PRLAVL14AM.RAL»); «2 ante» resta.
+    .replace(/^\s*\d{1,3}\s+(?=[A-Z0-9][A-Za-z0-9.\-\/]*\s|[A-Z])/, "")
     .replace(IMPORTO, " ")
     // Coda di listino/sconto incollata («0130,00» → «01», «50,00 15,00»):
     // via i decimali e i numeri di 1-2 cifre in coda; le misure («< 1900»,
@@ -97,6 +126,7 @@ function lettere(testo: string): number {
 function nomeValido(nome: string): boolean {
   if (lettere(nome) < 4) return false;
   if (NON_MERCE.test(nome.slice(0, 40))) return false;
+  if (sembraFrase(nome)) return false;
   return true;
 }
 
@@ -133,6 +163,56 @@ function leggiRiga(riga: string): { nome: string; quantita: number } | null {
 }
 
 /**
+ * Riga di tabella a CELLE, tre spazi fra le colonne: «G71   SISTEMA
+ * SCORREVOLE TUTTOVETRO   PZ   1,00   2.392,95 …» oppure «60-00406   LAMIERA
+ * A DISEGNO   ML   4,70   30,00 …». Le celle prima dell'unità sono codice e
+ * descrizione; la cella dopo è la quantità.
+ */
+function leggiRigaCelle(
+  riga: string,
+  rigaSotto: string | null
+): { nome: string; quantita: number; usaRigaSotto: boolean } | null {
+  let celle = riga.split(/\s{3,}/).map(c => c.trim()).filter(c => c.length > 0);
+  // Il numero di posizione («3», «10», anche incollato al codice: «12 PRLAVL14AM.RAL»)
+  // non fa parte della descrizione.
+  if (celle.length > 3 && /^\d{1,3}$/.test(celle[0])) celle = celle.slice(1);
+  else if (celle.length >= 3) celle[0] = celle[0].replace(/^\d{1,3}\s+(?=[A-Z0-9])/, "");
+  if (celle.length < 3) return null;
+  for (let u = 1; u < celle.length - 1; u += 1) {
+    const unita = celle[u];
+    const aPezzi = UNITA_PEZZI.test(unita);
+    const aMisura = !aPezzi && UNITA_MISURA.test(unita);
+    if (!aPezzi && !aMisura) continue;
+    // La quantità sta prima dell'unità («2   pz   350,00») o dopo («PZ   1,00»).
+    const prima = u >= 2 && /^\d{1,4}(?:[.,]\d{1,3})?$/.test(celle[u - 1]) ? celle[u - 1] : null;
+    const q = prima ? [prima, prima] : QUANTITA_CELLA.exec(celle[u + 1]);
+    if (!q) continue;
+    const quantita = Number(q[1].replace(",", "."));
+    if (!(quantita > 0 && quantita <= 9999)) continue;
+    const descrizione = celle.slice(0, prima ? u - 1 : u).join(" ");
+    if (lettere(descrizione) < 4 || NON_MERCE.test(descrizione.slice(0, 40))) return null;
+    const nome = pulisciNome(descrizione);
+    if (!nomeValido(nome)) return null;
+    if (aMisura) {
+      // «12,720 MQ» e sotto «1570x2700H -col A01 - pz 3»: tre pezzi di quella
+      // misura, e la misura resta nel nome.
+      const pezzi = rigaSotto ? PEZZI_NELLA_RIGA_SOTTO.exec(rigaSotto) : null;
+      const quantitaPezzi = pezzi ? Number(pezzi[1] ?? pezzi[2]) : 0;
+      const coda = pezzi
+        ? " " + rigaSotto!.replace(PEZZI_NELLA_RIGA_SOTTO, "").replace(/[\s\-–,;]+$/, "").trim()
+        : "";
+      return {
+        nome: `${nome} (${q[1]} ${unita.toUpperCase()})${coda}`.replace(/\s+/g, " ").slice(0, 120),
+        quantita: quantitaPezzi >= 1 && quantitaPezzi <= 9999 ? quantitaPezzi : 1,
+        usaRigaSotto: pezzi != null,
+      };
+    }
+    return { nome, quantita: Math.max(1, Math.round(quantita)), usaRigaSotto: false };
+  }
+  return null;
+}
+
+/**
  * Una descrizione da sola («KPO44 KIT PORTA») con unità e quantità nella
  * riga sotto, saltando al più due righe di soli codici («26C0374604 -
  * 003460 - .»).
@@ -143,8 +223,14 @@ function leggiConRigaSotto(
 ): { nome: string; quantita: number } | null {
   const riga = righe[indice];
   // Una riga di configurazione con il prezzo in coda («… 445,00 NETTO») non è
-  // una descrizione di merce in attesa della quantità.
-  if (lettere(riga) < 4 || /\d{1,3}(?:[.\s]\d{3})*,\d{2}(?:\s*[A-Z]+)?\s*$/.test(riga.trim())) {
+  // una descrizione di merce in attesa della quantità; una che finisce con un
+  // trattino o una virgola («FRIZIONATA-AMBRA,EV-») è la coda di una
+  // descrizione spezzata, non un articolo.
+  if (
+    lettere(riga) < 4 ||
+    /\d{1,3}(?:[.\s]\d{3})*,\d{2}(?:\s*[A-Z]+)?\s*$/.test(riga.trim()) ||
+    /[-–,]$/.test(riga.trim())
+  ) {
     return null;
   }
   if (NON_MERCE.test(riga.slice(0, 30))) return null;
@@ -158,39 +244,44 @@ function leggiConRigaSotto(
   return null;
 }
 
-/** Le righe di merce riconosciute nelle pagine, nell'ordine in cui compaiono. */
+/**
+ * Le righe di merce riconosciute nelle pagine, nell'ordine in cui compaiono.
+ * Lo stesso articolo su più righe (tre «SISTEMA SCORREVOLE TUTTOVETRO» di
+ * misure diverse) è una riga sola con le quantità sommate: a magazzino
+ * arrivano tre sistemi, non uno.
+ */
 export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
   const righe: RigaMerce[] = [];
-  const visti = new Set<string>();
+  const visti = new Map<string, RigaMerce>();
   pagine.forEach((testo, indicePagina) => {
-    const linee = testo.split(/\r?\n/).map(r => r.replace(/\t/g, "  ").trimEnd());
+    const linee = testo.split(/\r?\n/).map(r => r.replace(/\t/g, "  ").trim());
     for (let i = 0; i < linee.length; i += 1) {
       const riga = linee[i];
-      if (riga.trim().length < 8) continue;
-      const letta = leggiRiga(riga) ?? leggiConRigaSotto(linee, i);
+      if (riga.length < 8) continue;
+      const aCelle = leggiRigaCelle(riga, linee[i + 1] ?? null);
+      if (aCelle?.usaRigaSotto) i += 1;
+      const letta = aCelle ?? leggiRiga(riga) ?? leggiConRigaSotto(linee, i);
       if (!letta) continue;
       const chiave = letta.nome.toLowerCase();
-      if (visti.has(chiave)) continue;
-      visti.add(chiave);
-      righe.push({
+      const gia = visti.get(chiave);
+      if (gia) {
+        gia.quantita = Math.min(9999, gia.quantita + letta.quantita);
+        continue;
+      }
+      const nuova: RigaMerce = {
         nome: letta.nome,
         quantita: letta.quantita,
         evidenza: riga.trim().slice(0, 160),
         pagina: indicePagina + 1,
-      });
+      };
+      visti.set(chiave, nuova);
+      righe.push(nuova);
       if (righe.length >= MASSIMO_RIGHE) return;
     }
   });
   return righe;
 }
 
-/**
- * Il lunedì della settimana ISO indicata: una conferma che dice «settimana
- * 38» promette la merce da quel lunedì. L'anno è quello dichiarato accanto
- * («2026 Settimana 21»), altrimenti quello del riferimento; se la settimana
- * è già passata da più di due mesi rispetto al riferimento, si intende
- * l'anno successivo.
- */
 export function dataDaSettimanaIso(
   settimana: number,
   riferimento: Date,

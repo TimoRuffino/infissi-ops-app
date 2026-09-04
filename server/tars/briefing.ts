@@ -322,7 +322,7 @@ function rilevaSegnalazioni(
         dettaglio: `Consegna prevista ${ordine.dataConsegnaPrevista} (${fornitoreNome ?? "fornitore ?"}) superata senza consegna effettiva.`,
         commessaId: ordine.commessaId ?? null,
         ordineId: ordine.id,
-        link: ordine.commessaId ? `/commesse/${ordine.commessaId}` : "/fornitori",
+        link: ordine.commessaId ? `/commesse/${ordine.commessaId}` : "/commesse",
         agganciataACasoAperto:
           ordine.commessaId != null && seguite.has(ordine.commessaId),
       });

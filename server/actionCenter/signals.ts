@@ -296,7 +296,7 @@ export function collectActionSignals(input: ActionSignalInput): ActionSignal[] {
       targetRole: "amministrazione",
       dueAt: dateAtNoon(warranty.dataScadenza),
       occurredAt: dateAtNoon(warranty.dataScadenza),
-      link: "/garanzie",
+      link: commessa?.clienteId ? `/clienti/${commessa.clienteId}` : "/clienti",
       fingerprint: fingerprint([
         "warranty",
         warranty.id,

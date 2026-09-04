@@ -236,7 +236,17 @@ export function tokenInputStimati(
         JSON.stringify(s.parametri).length,
       0
     );
-  return Math.ceil((caratteri / CARATTERI_PER_TOKEN_PESSIMISTICO) * margine);
+  // Le immagini (lettura visiva) non si misurano in caratteri: contano i
+  // token dichiarati da chi le allega, con lo stesso margine.
+  const tokenImmagini = richiesta.input.reduce(
+    (somma, m) =>
+      somma +
+      ("immagini" in m && m.immagini
+        ? m.immagini.reduce((s, i) => s + Math.max(0, i.tokenStimati), 0)
+        : 0),
+    0
+  );
+  return Math.ceil((caratteri / CARATTERI_PER_TOKEN_PESSIMISTICO + tokenImmagini) * margine);
 }
 
 /**

@@ -6,10 +6,25 @@
 // provider reale: è il punto unico dove una chiamata esterna può nascere,
 // e nasce solo con FLAG_TARS acceso e chiave presente.
 
+/**
+ * Un'immagine allegata a un turno utente (lettura visiva dei documenti,
+ * 04/09/2026): la pagina di una scansione o una foto. Il governor non sa
+ * misurare un'immagine in caratteri: chi la allega dichiara i token
+ * stimati, e la stima resta un soffitto come per il testo.
+ */
+export type ImmagineMessaggio = {
+  /** `data:image/png;base64,…` — mai un URL remoto: i byte non lasciano il CRM se non verso il provider. */
+  dataUrl: string;
+  dettaglio?: "low" | "high" | "auto";
+  tokenStimati: number;
+};
+
 export type MessaggioTars =
   | {
       ruolo: "user" | "assistant";
       contenuto: string;
+      /** Immagini del turno (solo user): pagine da trascrivere. */
+      immagini?: readonly ImmagineMessaggio[];
       /**
        * Solo per assistant: le function call emesse in quel turno. La
        * Responses API esige il turno assistant con le chiamate PRIMA dei

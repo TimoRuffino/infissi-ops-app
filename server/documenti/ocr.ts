@@ -222,6 +222,164 @@ export function richiedeRevisione(pagine: PaginaOcr[]): boolean {
   );
 }
 
+export type EsitoRendering =
+  | { esito: "ok"; immagini: Buffer[] }
+  | { esito: "errore"; motivo: string };
+
+/**
+ * Le pagine di un PDF come PNG (pdftoppm, argomenti fissi, nessuna shell),
+ * in una directory temporanea che sparisce sempre. Serve all'OCR locale e
+ * alla lettura visiva con il modello, che vogliono la stessa immagine.
+ */
+export async function renderizzaPaginePng(
+  bytes: Buffer,
+  opzioni: {
+    dpi: number;
+    maxPagine: number;
+    timeoutMs: number;
+    numeroPagine?: number | null;
+    binari?: Partial<ConfigOcr["binari"]>;
+  }
+): Promise<EsitoRendering> {
+  const binari = { ...configOcrDefault().binari, ...opzioni.binari };
+  if (opzioni.numeroPagine != null && opzioni.numeroPagine > opzioni.maxPagine) {
+    return {
+      esito: "errore",
+      motivo: `Il documento ha ${opzioni.numeroPagine} pagine: oltre il limite di ${opzioni.maxPagine}.`,
+    };
+  }
+  let cartella: string | null = null;
+  try {
+    cartella = await fs.mkdtemp(path.join(os.tmpdir(), "ruffino-pagine-"));
+    const ingresso = path.join(cartella, "input.pdf");
+    await fs.writeFile(ingresso, bytes);
+    try {
+      await execFileAsync(
+        binari.pdftoppm,
+        [
+          "-r",
+          String(opzioni.dpi),
+          "-png",
+          "-f",
+          "1",
+          "-l",
+          String(Math.min(opzioni.numeroPagine ?? opzioni.maxPagine, opzioni.maxPagine)),
+          ingresso,
+          path.join(cartella, "pagina"),
+        ],
+        { timeout: Math.max(1, opzioni.timeoutMs) }
+      );
+    } catch (errore: any) {
+      if (errore?.killed || errore?.signal) {
+        return {
+          esito: "errore",
+          motivo: `Timeout durante il rendering delle pagine (${opzioni.timeoutMs} ms totali).`,
+        };
+      }
+      return {
+        esito: "errore",
+        motivo: `Rendering PDF fallito: ${String(errore?.stderr || errore?.message || errore).slice(0, 300)}`,
+      };
+    }
+    const nomi = (await fs.readdir(cartella))
+      .filter(nome => nome.startsWith("pagina") && nome.endsWith(".png"))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    if (nomi.length === 0) {
+      return { esito: "errore", motivo: "Il rendering non ha prodotto pagine (PDF vuoto o corrotto)." };
+    }
+    if (nomi.length > opzioni.maxPagine) {
+      return {
+        esito: "errore",
+        motivo: `Il documento ha più di ${opzioni.maxPagine} pagine: oltre il limite.`,
+      };
+    }
+    const immagini: Buffer[] = [];
+    for (const nome of nomi) immagini.push(await fs.readFile(path.join(cartella, nome)));
+    return { esito: "ok", immagini };
+  } catch (errore: any) {
+    return {
+      esito: "errore",
+      motivo: `Errore di rendering: ${String(errore?.message ?? errore).slice(0, 300)}`,
+    };
+  } finally {
+    if (cartella) await fs.rm(cartella, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Tesseract su UN'immagine già pronta (PNG/JPEG/…): argomenti fissi, nessuna shell. */
+async function riconosciImmagine(
+  percorso: string,
+  lingue: string,
+  config: ConfigOcr,
+  timeoutMs: number
+): Promise<{ pagina: PaginaOcr } | { errore: EsitoOcr }> {
+  try {
+    const { stdout } = await execFileAsync(
+      config.binari.tesseract,
+      [
+        percorso,
+        "stdout",
+        "-l",
+        lingue,
+        // psm 6 (blocco uniforme) tiene ogni riga della tabella su una
+        // riga di testo — codice, descrizione, quantità, prezzo — mentre
+        // psm 3 spezzava le colonne in blocchi separati e le righe di
+        // merce diventavano illeggibili. preserve_interword_spaces
+        // conserva gli spazi fra le colonne (04/09/2026).
+        "--psm",
+        "6",
+        "-c",
+        "preserve_interword_spaces=1",
+        "tsv",
+      ],
+      { timeout: Math.max(1, timeoutMs), maxBuffer: 32 * 1024 * 1024 }
+    );
+    return { pagina: parseTsv(stdout) };
+  } catch (errore: any) {
+    if (errore?.killed || errore?.signal) {
+      return {
+        errore: {
+          esito: "ocr_fallito",
+          motivo: `Timeout OCR sulla pagina (${config.timeoutPaginaMs} ms per pagina).`,
+        },
+      };
+    }
+    const dettaglio = String(errore?.stderr || errore?.message || errore);
+    if (/Failed loading language|Tessdata|traineddata/i.test(dettaglio)) {
+      return {
+        errore: { esito: "ocr_fallito", motivo: `Lingua OCR mancante: ${dettaglio.slice(0, 200)}` },
+      };
+    }
+    return {
+      errore: { esito: "ocr_fallito", motivo: `OCR fallito: ${dettaglio.slice(0, 300)}` },
+    };
+  }
+}
+
+async function preparaOcr(
+  config: ConfigOcr
+): Promise<{ effettive: string[]; mancanti: string[] } | { errore: EsitoOcr }> {
+  const disponibilita = await disponibilitaOcr(config.binari);
+  if (!disponibilita.disponibile) {
+    return {
+      errore: {
+        esito: "ocr_non_disponibile",
+        motivo: disponibilita.motivo ?? "OCR non disponibile.",
+      },
+    };
+  }
+  const { effettive, mancanti } = lingueEffettive(config.lingue, disponibilita.lingueInstallate);
+  if (effettive.length === 0) {
+    return {
+      errore: {
+        esito: "ocr_fallito",
+        motivo: `Lingue OCR non installate: ${config.lingue}. Disponibili: ${disponibilita.lingueInstallate.join(", ") || "nessuna"}.`,
+      },
+    };
+  }
+  return { effettive, mancanti };
+}
+
 async function eseguiOcrIsolato(
   bytes: Buffer,
   numeroPagine: number | null,
@@ -233,83 +391,27 @@ async function eseguiOcrIsolato(
       motivo: `Il documento ha ${numeroPagine} pagine: oltre il limite OCR di ${config.maxPagine}.`,
     };
   }
-  const disponibilita = await disponibilitaOcr(config.binari);
-  if (!disponibilita.disponibile) {
-    return {
-      esito: "ocr_non_disponibile",
-      motivo: disponibilita.motivo ?? "OCR non disponibile.",
-    };
-  }
-  const { effettive, mancanti } = lingueEffettive(
-    config.lingue,
-    disponibilita.lingueInstallate
-  );
-  if (effettive.length === 0) {
-    return {
-      esito: "ocr_fallito",
-      motivo: `Lingue OCR non installate: ${config.lingue}. Disponibili: ${disponibilita.lingueInstallate.join(", ") || "nessuna"}.`,
-    };
-  }
+  const lingue = await preparaOcr(config);
+  if ("errore" in lingue) return lingue.errore;
+  const { effettive, mancanti } = lingue;
 
   const partenza = Date.now();
   const budgetResiduo = () =>
     config.timeoutTotaleMs - (Date.now() - partenza);
+  const rendering = await renderizzaPaginePng(bytes, {
+    dpi: config.dpi,
+    maxPagine: config.maxPagine,
+    timeoutMs: Math.max(1, Math.min(config.timeoutTotaleMs, budgetResiduo())),
+    numeroPagine,
+    binari: config.binari,
+  });
+  if (rendering.esito === "errore") return { esito: "ocr_fallito", motivo: rendering.motivo };
+
   let cartella: string | null = null;
   try {
     cartella = await fs.mkdtemp(path.join(os.tmpdir(), "ruffino-ocr-"));
-    const ingresso = path.join(cartella, "input.pdf");
-    await fs.writeFile(ingresso, bytes);
-
-    // Rendering pagina per pagina: argomenti fissi, nessuna shell.
-    try {
-      await execFileAsync(
-        config.binari.pdftoppm,
-        [
-          "-r",
-          String(config.dpi),
-          "-png",
-          "-f",
-          "1",
-          "-l",
-          String(Math.min(numeroPagine ?? config.maxPagine, config.maxPagine)),
-          ingresso,
-          path.join(cartella, "pagina"),
-        ],
-        { timeout: Math.max(1, Math.min(config.timeoutTotaleMs, budgetResiduo())) }
-      );
-    } catch (errore: any) {
-      if (errore?.killed || errore?.signal) {
-        return {
-          esito: "ocr_fallito",
-          motivo: `Timeout durante il rendering delle pagine (${config.timeoutTotaleMs} ms totali).`,
-        };
-      }
-      return {
-        esito: "ocr_fallito",
-        motivo: `Rendering PDF fallito: ${String(errore?.stderr || errore?.message || errore).slice(0, 300)}`,
-      };
-    }
-
-    const immagini = (await fs.readdir(cartella))
-      .filter(nome => nome.startsWith("pagina") && nome.endsWith(".png"))
-      .sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
-      );
-    if (immagini.length === 0) {
-      return {
-        esito: "ocr_fallito",
-        motivo: "Il rendering non ha prodotto pagine (PDF vuoto o corrotto).",
-      };
-    }
-    if (immagini.length > config.maxPagine) {
-      return {
-        esito: "ocr_fallito",
-        motivo: `Il documento ha più di ${config.maxPagine} pagine: oltre il limite OCR.`,
-      };
-    }
-
     const pagine: PaginaOcr[] = [];
-    for (const immagine of immagini) {
+    for (const [indice, immagine] of rendering.immagini.entries()) {
       const residuo = budgetResiduo();
       if (residuo <= 0) {
         return {
@@ -317,50 +419,19 @@ async function eseguiOcrIsolato(
           motivo: `Timeout OCR complessivo (${config.timeoutTotaleMs} ms) dopo ${pagine.length} pagine.`,
         };
       }
-      try {
-        const { stdout } = await execFileAsync(
-          config.binari.tesseract,
-          [
-            path.join(cartella, immagine),
-            "stdout",
-            "-l",
-            effettive.join("+"),
-            // psm 6 (blocco uniforme) tiene ogni riga della tabella su una
-            // riga di testo — codice, descrizione, quantità, prezzo — mentre
-            // psm 3 spezzava le colonne in blocchi separati e le righe di
-            // merce diventavano illeggibili. preserve_interword_spaces
-            // conserva gli spazi fra le colonne (04/09/2026).
-            "--psm",
-            "6",
-            "-c",
-            "preserve_interword_spaces=1",
-            "tsv",
-          ],
-          {
-            timeout: Math.min(config.timeoutPaginaMs, residuo),
-            maxBuffer: 32 * 1024 * 1024,
-          }
-        );
-        pagine.push(parseTsv(stdout));
-      } catch (errore: any) {
-        if (errore?.killed || errore?.signal) {
-          return {
-            esito: "ocr_fallito",
-            motivo: `Timeout OCR sulla pagina ${pagine.length + 1} (${config.timeoutPaginaMs} ms per pagina).`,
-          };
-        }
-        const dettaglio = String(errore?.stderr || errore?.message || errore);
-        if (/Failed loading language|Tessdata|traineddata/i.test(dettaglio)) {
-          return {
-            esito: "ocr_fallito",
-            motivo: `Lingua OCR mancante: ${dettaglio.slice(0, 200)}`,
-          };
-        }
-        return {
-          esito: "ocr_fallito",
-          motivo: `OCR fallito sulla pagina ${pagine.length + 1}: ${dettaglio.slice(0, 300)}`,
-        };
+      const percorso = path.join(cartella, `pagina-${indice + 1}.png`);
+      await fs.writeFile(percorso, immagine);
+      const letta = await riconosciImmagine(
+        percorso,
+        effettive.join("+"),
+        config,
+        Math.min(config.timeoutPaginaMs, residuo)
+      );
+      if ("errore" in letta) {
+        const motivo = letta.errore.esito === "ocr_fallito" ? letta.errore.motivo : "OCR fallito.";
+        return { esito: "ocr_fallito", motivo: motivo.replace("sulla pagina", `sulla pagina ${pagine.length + 1}`) };
       }
+      pagine.push(letta.pagina);
     }
 
     return {
@@ -383,6 +454,83 @@ async function eseguiOcrIsolato(
       await fs.rm(cartella, { recursive: true, force: true }).catch(() => {});
     }
   }
+}
+
+const ESTENSIONE_IMMAGINE: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/tiff": "tif",
+  "image/bmp": "bmp",
+};
+
+/** I formati di immagine che tesseract sa aprire (HEIC no: va convertito prima). */
+export function immagineLeggibileDaOcr(mimeType: string): boolean {
+  return (mimeType ?? "").toLowerCase() in ESTENSIONE_IMMAGINE;
+}
+
+/**
+ * OCR di UNA foto o immagine (jpeg, png, webp…): la conferma d'ordine
+ * fotografata e mandata via WhatsApp (04/09/2026: «Ordine fornitore
+ * BODYTECH S.R.L..jpeg» restava non leggibile). Stessa pipeline delle
+ * pagine, senza rendering.
+ */
+export async function eseguiOcrImmagine(
+  bytes: Buffer,
+  mimeType: string,
+  opzioni?: { config?: Partial<ConfigOcr> }
+): Promise<EsitoOcr> {
+  const base = configOcrDefault();
+  const config: ConfigOcr = {
+    ...base,
+    ...opzioni?.config,
+    binari: { ...base.binari, ...opzioni?.config?.binari },
+  };
+  const estensione = ESTENSIONE_IMMAGINE[(mimeType ?? "").toLowerCase()];
+  if (!estensione) {
+    return { esito: "ocr_fallito", motivo: `Formato immagine non leggibile dall'OCR: ${mimeType || "sconosciuto"}.` };
+  }
+  const firma = await firmaOcrCorrente(config);
+  const chiaveCache = `${createHash("sha256").update(bytes).digest("hex")}|${firma}|img`;
+  const inCache = cacheRisultati.get(chiaveCache);
+  if (inCache) return inCache;
+
+  const esecuzione = codaOcr.then(async (): Promise<EsitoOcr> => {
+    const lingue = await preparaOcr(config);
+    if ("errore" in lingue) return lingue.errore;
+    let cartella: string | null = null;
+    try {
+      cartella = await fs.mkdtemp(path.join(os.tmpdir(), "ruffino-ocr-img-"));
+      const percorso = path.join(cartella, `immagine.${estensione}`);
+      await fs.writeFile(percorso, bytes);
+      const letta = await riconosciImmagine(
+        percorso,
+        lingue.effettive.join("+"),
+        config,
+        config.timeoutPaginaMs
+      );
+      if ("errore" in letta) return letta.errore;
+      return {
+        esito: "ocr_completato",
+        pagine: [letta.pagina],
+        lingue: lingue.effettive.join("+"),
+        lingueMancanti: lingue.mancanti,
+        dpi: 0,
+        versione: OCR_VERSIONE,
+        daVerificare: richiedeRevisione([letta.pagina]),
+      };
+    } catch (errore: any) {
+      return { esito: "ocr_fallito", motivo: `Errore OCR: ${String(errore?.message ?? errore).slice(0, 300)}` };
+    } finally {
+      if (cartella) await fs.rm(cartella, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+  codaOcr = esecuzione.catch(() => {});
+  const esito = await esecuzione;
+  if (esito.esito === "ocr_completato") cacheRisultati.set(chiaveCache, esito);
+  return esito;
 }
 
 export async function eseguiOcrPdf(

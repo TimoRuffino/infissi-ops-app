@@ -146,6 +146,10 @@ type StoreEntry = {
 const registry = new Map<string, StoreEntry>();
 const saveTimers = new Map<string, NodeJS.Timeout>();
 const SAVE_DEBOUNCE_MS = 200;
+// Vero dopo bootstrapAll: uno store registrato più tardi (modulo importato
+// in modo dinamico) si carica da solo, altrimenti resterebbe «non caricato»
+// e i suoi salvataggi sarebbero rinviati per sempre.
+let bootstrapEseguito = false;
 
 // Date revival for ISO-ish strings produced by JSON.stringify(new Date(...)).
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
@@ -185,13 +189,41 @@ export function persistedStore<T>(
   }
   const items: any[] = [];
   // loaded=true when no DB at all — lets tests / local dev save freely.
-  registry.set(key, { key, items, onLoad: onLoad as any, loaded: !sql });
+  const entry: StoreEntry = { key, items, onLoad: onLoad as any, loaded: !sql };
+  registry.set(key, entry);
   const store: PersistedStore<T> = {
     items: items as T[],
     save: () => scheduleSave(key),
   };
   storeKeys.set(store, key);
+  if (sql && bootstrapEseguito) void caricaTardivo(entry);
   return store;
+}
+
+/**
+ * Carica dal DB uno store registrato DOPO bootstrapAll. Se nel frattempo il
+ * modulo ha già messo elementi in memoria, restano in coda a quelli letti:
+ * meglio un doppione da riconciliare che una perdita silenziosa.
+ */
+async function caricaTardivo(entry: StoreEntry): Promise<void> {
+  console.warn(
+    `[persistence] store ${entry.key} registrato dopo il bootstrap: lo carico ora`
+  );
+  try {
+    await ensureSchema();
+  } catch {
+    void backgroundRecover();
+    return;
+  }
+  const inMemoria = entry.items.splice(0, entry.items.length);
+  const caricato = await caricaEntry(entry);
+  if (inMemoria.length > 0) {
+    entry.items.push(...inMemoria);
+    console.warn(
+      `[persistence] store ${entry.key}: ${inMemoria.length} elementi scritti prima del caricamento, accodati`
+    );
+  }
+  if (!caricato) void backgroundRecover();
 }
 
 function risolviStoreAtomici(
@@ -405,6 +437,7 @@ export async function bootstrapAll() {
       store.onLoad?.(store.items, { firstBoot: true });
       store.loaded = true;
     });
+    bootstrapEseguito = true;
     return;
   }
   try {
@@ -422,82 +455,91 @@ export async function bootstrapAll() {
     registry.forEach((store) =>
       store.onLoad?.(store.items, { firstBoot: false })
     );
+    bootstrapEseguito = true;
     // Background: keep trying so the app can recover once DNS warms up.
     void backgroundRecover();
     return;
   }
 
-  const entries: Array<[string, StoreEntry]> = [];
-  registry.forEach((store, key) => entries.push([key, store]));
-  for (const [key, store] of entries) {
-    try {
-      const rows = await withRetry(
-        () => sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`,
-        `load(${key})`
-      );
-      const firstBoot = rows.length === 0;
-      if (rows.length > 0) {
-        let raw = rows[0].data;
-        // Legacy recovery: early versions double-encoded the payload
-        // (stored as a JSONB string whose value is the JSON text of the
-        // array). Detect and unwrap.
-        if (typeof raw === "string") {
-          try {
-            raw = JSON.parse(raw);
-            console.warn(
-              `[persistence] load ${key}: unwrapped legacy double-encoded payload — will be rewritten on next save`
-            );
-            // Schedule a rewrite with the correct JSONB encoding.
-            setTimeout(() => scheduleSave(key), 0);
-          } catch (e) {
-            console.error(
-              `[persistence] load ${key}: payload is a string but not JSON:`,
-              e
-            );
-          }
-        }
-        const rawType = Array.isArray(raw) ? "array" : typeof raw;
-        // Re-serialize + parse with reviver to restore Date objects from ISO.
-        let restored: any;
-        try {
-          restored = JSON.parse(JSON.stringify(raw), reviveDates);
-        } catch (parseErr) {
-          console.error(
-            `[persistence] parse failed for ${key} (rawType=${rawType}):`,
-            parseErr
-          );
-          restored = raw;
-        }
-        if (Array.isArray(restored)) {
-          store.items.length = 0;
-          store.items.push(...restored);
-        } else {
-          console.warn(
-            `[persistence] load ${key}: DB row exists but data is not an array (rawType=${rawType}). Ignoring.`
-          );
-        }
-      } else {
-        console.log(`[persistence] load ${key}: no row in DB (cold)`);
-      }
-      store.onLoad?.(store.items, { firstBoot });
-      store.loaded = true;
-      console.log(`[persistence] loaded ${key}: ${store.items.length} items`);
-    } catch (e) {
-      console.error(
-        `[persistence] load FAILED for ${key} after retries — keeping UNLOADED; saves for this key are blocked`,
-        e
-      );
-      // firstBoot=false — we can't prove the DB is empty, so don't seed.
-      store.onLoad?.(store.items, { firstBoot: false });
-      // NOT setting loaded=true. Saves stay blocked until a background
-      // recovery pass succeeds.
-    }
-  }
+  const entries: StoreEntry[] = [];
+  registry.forEach((store) => entries.push(store));
+  for (const store of entries) await caricaEntry(store);
+  bootstrapEseguito = true;
 
   // If any key failed to load, start a background retry so the app can
   // self-heal when DNS / network finally comes up.
   const anyUnloaded = Array.from(registry.values()).some((s) => !s.loaded);
   if (anyUnloaded) void backgroundRecover();
+}
+
+/** Carica un solo store dal DB (con retry). `false` = resta non caricato, salvataggi bloccati. */
+async function caricaEntry(store: StoreEntry): Promise<boolean> {
+  if (!sql) return false;
+  const key = store.key;
+  try {
+    const rows = await withRetry(
+      () => sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`,
+      `load(${key})`
+    );
+    const firstBoot = rows.length === 0;
+    if (rows.length > 0) {
+      let raw = rows[0].data;
+      // Legacy recovery: early versions double-encoded the payload
+      // (stored as a JSONB string whose value is the JSON text of the
+      // array). Detect and unwrap.
+      if (typeof raw === "string") {
+        try {
+          raw = JSON.parse(raw);
+          console.warn(
+            `[persistence] load ${key}: unwrapped legacy double-encoded payload — will be rewritten on next save`
+          );
+          // Schedule a rewrite with the correct JSONB encoding.
+          setTimeout(() => scheduleSave(key), 0);
+        } catch (e) {
+          console.error(
+            `[persistence] load ${key}: payload is a string but not JSON:`,
+            e
+          );
+        }
+      }
+      const rawType = Array.isArray(raw) ? "array" : typeof raw;
+      // Re-serialize + parse with reviver to restore Date objects from ISO.
+      let restored: any;
+      try {
+        restored = JSON.parse(JSON.stringify(raw), reviveDates);
+      } catch (parseErr) {
+        console.error(
+          `[persistence] parse failed for ${key} (rawType=${rawType}):`,
+          parseErr
+        );
+        restored = raw;
+      }
+      if (Array.isArray(restored)) {
+        store.items.length = 0;
+        store.items.push(...restored);
+      } else {
+        console.warn(
+          `[persistence] load ${key}: DB row exists but data is not an array (rawType=${rawType}). Ignoring.`
+        );
+      }
+    } else {
+      console.log(`[persistence] load ${key}: no row in DB (cold)`);
+    }
+    store.onLoad?.(store.items, { firstBoot });
+    store.loaded = true;
+    console.log(`[persistence] loaded ${key}: ${store.items.length} items`);
+    return true;
+  } catch (e) {
+    console.error(
+      `[persistence] load FAILED for ${key} after retries — keeping UNLOADED; saves for this key are blocked`,
+      e
+    );
+    // firstBoot=false — we can't prove the DB is empty, so don't seed.
+    store.onLoad?.(store.items, { firstBoot: false });
+    // NOT setting loaded=true. Saves stay blocked until a background
+    // recovery pass succeeds.
+    return false;
+  }
 }
 
 // Periodically retry bootstrap for stores that never loaded. Exits as soon

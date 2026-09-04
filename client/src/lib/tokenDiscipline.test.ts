@@ -50,13 +50,10 @@ const DEROGHE_HEX = [
   join("client", "src", "components", "WhatsAppCard.tsx"),
   join("client", "src", "components", "WhatsAppButton.tsx"),
 ];
-// La pagina Fornitori è esplicitamente fuori dallo scope del redesign corrente.
-const FUORI_SCOPE_UI = [
-  join("client", "src", "pages", "FornitoriList.tsx"),
-  ...FILE_APPLICAZIONE.filter(percorso =>
-    percorso.includes(join("client", "src", "components", "fornitori"))
-  ),
-];
+// La deroga copriva la pagina Fornitori, rimossa il 04/09/2026: niente più
+// eccezioni al redesign. Resta la lista, vuota, perché aggiungerne una nuova
+// sia una scelta esplicita e non una riga sparsa nei controlli.
+const FUORI_SCOPE_UI: string[] = [];
 
 function scansiona(
   regex: RegExp,

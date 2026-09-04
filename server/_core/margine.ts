@@ -38,6 +38,8 @@ export type CostoCommessa = {
   note: string | null;
   /** La conferma d'ordine del fascicolo da cui il costo è nato (null = a mano). */
   documentoId: number | null;
+  /** Una persona ha modificato l'importo dalla scheda: nessuna rilettura lo tocca più. */
+  modificatoAMano?: boolean;
 };
 
 /** Perché i ricavi non sono utilizzabili: si dice, non si stima. */
