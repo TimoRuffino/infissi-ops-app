@@ -68,7 +68,9 @@ const documentoFixture: DocumentoFicInput = {
   date: "2026-09-04",
   visible_subject: "Acconto contratto 2026-014",
   notes: "Pagamento come da contratto.",
-  items_list: [{ name: "Acconto lavori", qty: 1, net_price: 1000, vat: { id: 3 } }],
+  items_list: [
+    { name: "Acconto lavori", qty: 1, net_price: 1000, vat: { id: 3 } },
+  ],
   payments_list: [{ amount: 1220, due_date: "2026-10-04", status: "not_paid" }],
   e_invoice: true,
   ei_data: {
@@ -107,12 +109,19 @@ describe("client FiC di emissione", () => {
     );
     expect(fetchMock.mock.calls[0][1].headers.accept).toBe("application/json");
     expect(risultato).toEqual([
-      { id: 10, name: "Mario Rossi", tax_code: "RSSMRA80A01H501U", vat_number: null },
+      {
+        id: 10,
+        name: "Mario Rossi",
+        tax_code: "RSSMRA80A01H501U",
+        vat_number: null,
+      },
     ]);
   });
 
   it("creaCliente: POST body {data: cliente}, risposta id", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, { data: { id: 88 } }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { data: { id: 88 } }));
     global.fetch = fetchMock as any;
     const client = creaClientFicEmissione();
     const creato = await client.creaCliente(ctx, clienteFixture);
@@ -146,7 +155,9 @@ describe("client FiC di emissione", () => {
         payments_list: [{ id: 9001, amount: 1220, due_date: "2026-10-04" }],
       },
     };
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, rispostaServer));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, rispostaServer));
     global.fetch = fetchMock as any;
     const client = creaClientFicEmissione();
     const creato = await client.creaDocumento(ctx, documentoFixture, {
@@ -177,7 +188,9 @@ describe("client FiC di emissione", () => {
     const promessa = client.creaDocumento(ctx, documentoFixture, {
       fix_payments: true,
     });
-    await expect(promessa).rejects.toThrow(/Token rifiutato da Fatture in Cloud/);
+    await expect(promessa).rejects.toThrow(
+      /Token rifiutato da Fatture in Cloud/
+    );
     await promessa.catch((e: Error) => {
       expect(e.message).not.toContain(ctx.token);
     });
@@ -198,7 +211,9 @@ describe("client FiC di emissione", () => {
         payments_list: [{ id: 9001, amount: 1220, due_date: "2026-10-04" }],
       },
     };
-    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, rispostaServer));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, rispostaServer));
     global.fetch = fetchMock as any;
     const client = creaClientFicEmissione();
     const letto = await client.leggiDocumento(ctx, 501);
@@ -282,11 +297,15 @@ describe("client FiC di emissione", () => {
       data: {},
       options: { dry_run: true },
     });
-    expect(esito).toEqual({ name: "IT01234567890_00001.xml", date: "2026-09-04" });
+    expect(esito).toEqual({
+      name: "IT01234567890_00001.xml",
+      date: "2026-09-04",
+    });
   });
 
   it("scaricaXml: Accept text/xml, legge text() non json(), esito Buffer", async () => {
-    const xml = '<?xml version="1.0"?><FatturaElettronica>contenuto</FatturaElettronica>';
+    const xml =
+      '<?xml version="1.0"?><FatturaElettronica>contenuto</FatturaElettronica>';
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -318,7 +337,9 @@ describe("client FiC di emissione", () => {
     });
     global.fetch = fetchMock as any;
     const client = creaClientFicEmissione();
-    await expect(client.scaricaXml(ctx, 999)).rejects.toThrow(/Azienda non trovata/);
+    await expect(client.scaricaXml(ctx, 999)).rejects.toThrow(
+      /Azienda non trovata/
+    );
   });
 
   it("scaricaPdf: due chiamate, url firmato senza bearer, tetto e magic bytes rispettati", async () => {
@@ -412,7 +433,12 @@ describe("fake FIC a copione", () => {
     const client = creaClientFicFinto(
       {
         cercaClienti: async () => [
-          { id: 1, name: "Mario Rossi", tax_code: "RSSMRA80A01H501U", vat_number: null },
+          {
+            id: 1,
+            name: "Mario Rossi",
+            tax_code: "RSSMRA80A01H501U",
+            vat_number: null,
+          },
         ],
         creaCliente: async () => ({ id: 9 }),
       },
@@ -422,10 +448,18 @@ describe("fake FIC a copione", () => {
     const creato = await client.creaCliente(ctx, clienteFixture);
 
     expect(trovati).toEqual([
-      { id: 1, name: "Mario Rossi", tax_code: "RSSMRA80A01H501U", vat_number: null },
+      {
+        id: 1,
+        name: "Mario Rossi",
+        tax_code: "RSSMRA80A01H501U",
+        vat_number: null,
+      },
     ]);
     expect(creato).toEqual({ id: 9 });
-    expect(registro.map(c => c.metodo)).toEqual(["cercaClienti", "creaCliente"]);
+    expect(registro.map(c => c.metodo)).toEqual([
+      "cercaClienti",
+      "creaCliente",
+    ]);
     expect(registro[0]).toEqual({
       metodo: "cercaClienti",
       path: "RSSMRA80A01H501U",
@@ -440,6 +474,8 @@ describe("fake FIC a copione", () => {
 
   it("senza registro esplicito il fake funziona comunque (registro di default)", async () => {
     const client = creaClientFicFinto({ creaCliente: async () => ({ id: 1 }) });
-    await expect(client.creaCliente(ctx, clienteFixture)).resolves.toEqual({ id: 1 });
+    await expect(client.creaCliente(ctx, clienteFixture)).resolves.toEqual({
+      id: 1,
+    });
   });
 });

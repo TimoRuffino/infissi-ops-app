@@ -95,7 +95,10 @@ export type ClientFicEmissione = {
       vat_number: string | null;
     }>
   >;
-  creaCliente(ctx: ContestoFic, cliente: ClienteFicInput): Promise<{ id: number }>;
+  creaCliente(
+    ctx: ContestoFic,
+    cliente: ClienteFicInput
+  ): Promise<{ id: number }>;
   creaDocumento(
     ctx: ContestoFic,
     documento: DocumentoFicInput,
@@ -240,7 +243,10 @@ async function verificaXml(
     `${FIC}/c/${ctx.companyId}/issued_documents/${documentId}/e_invoice/xml_verify`,
     {
       method: "GET",
-      headers: { authorization: `Bearer ${ctx.token}`, accept: "application/json" },
+      headers: {
+        authorization: `Bearer ${ctx.token}`,
+        accept: "application/json",
+      },
     },
     ctx.signal
   );
@@ -254,7 +260,9 @@ async function verificaXml(
   // error.validation_result.xml_errors[]; senza quelli resta il messaggio
   // generico italiano di messaggioErroreFic.
   const corpo = parseJsonSicuro(testo);
-  const xmlErrors: any[] = Array.isArray(corpo?.error?.validation_result?.xml_errors)
+  const xmlErrors: any[] = Array.isArray(
+    corpo?.error?.validation_result?.xml_errors
+  )
     ? corpo.error.validation_result.xml_errors
     : [];
   const estratti = xmlErrors
@@ -283,7 +291,10 @@ async function inviaEInvoice(
   return { name: data?.data?.name ?? null, date: data?.data?.date ?? null };
 }
 
-async function scaricaXml(ctx: ContestoFic, documentId: number): Promise<Buffer> {
+async function scaricaXml(
+  ctx: ContestoFic,
+  documentId: number
+): Promise<Buffer> {
   const res = await fetchFicConTimeout(
     `${FIC}/c/${ctx.companyId}/issued_documents/${documentId}/e_invoice/xml?include_attachment=false`,
     {
@@ -309,7 +320,10 @@ async function scaricaXml(ctx: ContestoFic, documentId: number): Promise<Buffer>
 // dei magic bytes %PDF-.
 const MAX_FATTURA_PDF_BYTES = 10 * 1024 * 1024;
 
-async function scaricaPdf(ctx: ContestoFic, documentId: number): Promise<Buffer> {
+async function scaricaPdf(
+  ctx: ContestoFic,
+  documentId: number
+): Promise<Buffer> {
   const risposta = await ficGet(
     `/c/${ctx.companyId}/issued_documents/${documentId}?fields=id,url`,
     ctx.token,
@@ -341,7 +355,9 @@ async function scaricaPdf(ctx: ContestoFic, documentId: number): Promise<Buffer>
     throw new Error("Il PDF della fattura supera il limite di 10MB.");
   }
   if (pdf.length < 5 || pdf.subarray(0, 5).toString("ascii") !== "%PDF-") {
-    throw new Error("Il file ricevuto da Fatture in Cloud non è un PDF valido.");
+    throw new Error(
+      "Il file ricevuto da Fatture in Cloud non è un PDF valido."
+    );
   }
   return pdf;
 }
