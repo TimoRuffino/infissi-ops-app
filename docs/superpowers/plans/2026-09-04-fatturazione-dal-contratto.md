@@ -1940,6 +1940,28 @@ git commit -m "feat(fatture): spese di documentazione al 22 %, righe manuali in 
 
 ---
 
+### Task 12c: Verifica dei limiti per blocco (prodotti + markup vs massimali; servizi vs opere; totale vs limite del computo)
+
+Prova sul demo (04/09, commessa col contratto 127 riequilibrata al markup reale): la regola 3 del Task 6 sommava il markup ai servizi e lo confrontava con la somma dei limiti delle opere → `limite_totale` sempre in errore. Il foglio (`CHECK1`, intestazione «PRODOTTI: … il mark-up / servizi di vendita è da sommare a formare il prezzo limite del prodotto») e la fattura reale 129 («Calcolo limite massimo spesa: 0,73 mq × 780 + 12,60 mq × 900 = 11.909,40; Spesa totale € 7.752,91 < LIMITE MASSIMO», dove 7.752,91 = beni + markup) dicono che il **markup appartiene al blocco prodotti**.
+
+**Ruling R25 (controller):** `verificaLimiti(f, computo?)` produce quattro famiglie di controlli:
+1. `limite_riga` (avviso) — per ogni riga con `voceComputoCodice` e `limiteCent`: `importoCent > limiteCent`.
+2. `limite_prodotti` — Σ (`bene` con `voceComputoCodice == null` **+ righe manuali `bene`**) + `markupCent` vs Σ `limiteCent` delle voci `massimale_*` del computo (prodotti Allegato A, CHECK1): sopra → `errore` (`avviso` con motivo se `scavalcoLimiti`). Le righe `bene` con `voceComputoCodice` (spese documentazione) non sono prodotti: escluse.
+3. `limite_servizi` — Σ `servizio` (aliquota 10, con o senza voce, manuali inclusi) vs Σ `limiteCent` delle voci `opere`/`eventuali` proposte (quelle che hanno generato righe, più le eventuali incluse): sopra → `errore`/`avviso` come sopra.
+4. `limite_totale` — `imponibileCent` vs `computo.limiteCent` (min CHECK1/CHECK2): sopra → `errore`/`avviso`. Senza computo (o `computoId` null): `limiti_non_verificati` avviso, come oggi.
+`markup_negativo` resta. Il computo arriva da `ultimoComputo(sedeId, commessaId)` in `validaPerEmissione` e in `leggiFattura` (una lettura in più; le voci servono); `verificaLimiti` resta pura con il computo opzionale in ingresso. Messaggi: «Beni e markup (€ X) superano il massimale dei prodotti (€ Y).», «I servizi (€ X) superano i limiti delle opere (€ Y).», «L'imponibile (€ X) supera il limite del computo (€ Y).».
+
+**Files:** `server/fatture/servizio.ts` (+ test), `server/fatture/emissione.ts` se chiama `verificaLimiti` direttamente, `client/src/lib/fatturaView.ts` `riepilogoControlli` invariato (codici nuovi passano come testo).
+
+**Test (servizio.test.ts):** sul caso 127 riequilibrato al markup 215359 con servizi proposti dai limiti: `limite_prodotti` ok (817.926 + 215.359 = 1.033.285 ≤ massimale_A 1.603.976), `limite_servizi` ok (Σ servizi = Σ limiti arrotondati), `limite_totale` ok (imponibile 1.380.785 ≤ limite 1.837.728 del computo demo — usare il valore del computo del test); poi un servizio manuale da 500.000 → `limite_servizi` errore; beni portati a 1.600.000 → `limite_prodotti` errore; scavalco → avvisi.
+
+```bash
+git add server/fatture
+git commit -m "fix(fatture): limiti verificati per blocco — prodotti con markup, servizi con le opere, totale col computo"
+```
+
+---
+
 ### Task 13: Router tRPC `fatture` e `fatturazioneConfig`
 
 **Files:**
