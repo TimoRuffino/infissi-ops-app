@@ -724,7 +724,12 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
     async aggiornaBozza({ sedeId, id, revisioneAttesa, patch, righe, riepilogo, scadenze, now }) {
       await ensureSchema();
       return sql.begin(async tx => {
-        const correnti = await tx`SELECT * FROM fatture WHERE id = ${id} AND sede_id = ${sedeId}`;
+        // FOR UPDATE dall'inizio della transazione (Ruling R7): il merge
+        // campo per campo qui sotto legge lo stato corrente e lo riscrive,
+        // e `aggiornaStato` non tocca `revisione` — senza il lock di riga
+        // una modifica di stato concorrente verrebbe persa fra la lettura
+        // e l'UPDATE, che il confronto ottimistico non intercetterebbe.
+        const correnti = await tx`SELECT * FROM fatture WHERE id = ${id} AND sede_id = ${sedeId} FOR UPDATE`;
         if (!correnti[0]) throw new Error("NOT_FOUND: Fattura non trovata.");
         const corrente = rowToFatturaParziale(correnti[0]);
 
