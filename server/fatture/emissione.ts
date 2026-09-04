@@ -49,7 +49,11 @@ import { allineaTimelineAlBoard } from "../routers/timeline";
 import { getUtentiStore } from "../routers/utenti";
 import { sdiDryRun } from "./dryRun";
 import { getFattureRepository, type FattureRepository } from "./repository";
-import { validaPerEmissione } from "./servizio";
+// `iso`: il giorno di calendario ITALIANO (TZDate Europe/Rome). Alle
+// 00:30 di Sarzana l'UTC è ancora ieri, e una fattura emessa il primo
+// dell'anno nascerebbe datata 31 dicembre — anno fiscale e numerazione
+// sbagliati.
+import { iso, validaPerEmissione } from "./servizio";
 
 export type PassoEmissione =
   | "validazione"
@@ -105,11 +109,6 @@ export function repo(dip?: DipendenzeEmissione): FattureRepository {
 export function messaggio(errore: unknown): string {
   const testo = String((errore as any)?.message ?? errore ?? "").trim();
   return testo || "errore sconosciuto";
-}
-
-/** Il giorno di calendario in ISO, per la data della fattura senza `data`. */
-function isoDi(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 /** Un numero come «127/2026» non può diventare un nome di file. */
@@ -261,7 +260,7 @@ export function costruisciDocumentoFic(
   const documento: DocumentoFicInput = {
     type: f.tipo === "nota_credito" ? "credit_note" : "invoice",
     entity: { id: ficEntityId },
-    date: f.data ?? oggi ?? isoDi(new Date()),
+    date: f.data ?? oggi ?? iso(new Date()),
     visible_subject: commessaCodice,
     notes: noteFattura(f, config),
     items_list: f.righe
@@ -551,7 +550,7 @@ export async function emettiFattura(
           config,
           ficEntityId!,
           String(commessa.codice ?? ""),
-          isoDi(now)
+          iso(now)
         ),
         { fix_payments: true }
       );

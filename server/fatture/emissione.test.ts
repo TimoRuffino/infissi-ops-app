@@ -1107,6 +1107,28 @@ describe("emettiFattura", () => {
     expect(b.files.map(x => x.nome)).toEqual(["128-2026.xml", "128-2026.pdf"]);
   });
 
+  // La data della fattura è il giorno di calendario ITALIANO, non quello
+  // UTC: alle 00:30 di Sarzana l'UTC è ancora ieri, e una fattura emessa
+  // il primo dell'anno nascerebbe datata 31 dicembre — anno fiscale
+  // sbagliato, numerazione sbagliata.
+  it("la data del documento segue Europe/Rome, non UTC", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const capodanno = new Date("2026-12-31T23:30:00Z");
+    const b = banco(copioneFelice(fattura));
+
+    await emettiFattura({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: fattura.revisione,
+      ...b.dip,
+      now: () => capodanno,
+    });
+
+    const creazione = b.registro.find(c => c.metodo === "creaDocumento")!;
+    expect((creazione.body as any).documento.date).toBe("2027-01-01");
+  });
+
   it("un omonimo con codice fiscale diverso non è il nostro cliente: si crea lo stesso", async () => {
     const { fattura } = await bozzaEmettibile();
     const b = banco(
