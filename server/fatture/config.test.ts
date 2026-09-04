@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetFattureRepositoryForTests } from "./repository";
+import { accessTokenFic } from "../routers/fattureInCloud";
 import {
   configFatturazione,
   ibanValido,
@@ -19,7 +20,7 @@ vi.mock("../routers/fattureInCloud", async importOriginal => {
       accessTokenCifrato: "x",
       refreshTokenCifrato: "y",
     }),
-    accessTokenFic: async () => "a/token",
+    accessTokenFic: vi.fn(async () => "a/token"),
   };
 });
 
@@ -79,6 +80,17 @@ describe("config fatturazione", () => {
     const esito = await verificaScopeScrittura({ sedeId: 1, ficGet });
     expect(esito.ok).toBe(false);
     expect(esito.motivo).toMatch(/ri-autorizza/);
+    expect((await configFatturazione(1)).scopeScritturaOk).toBe(false);
+  });
+  it("accessTokenFic che lancia (refresh fallito) non fa esplodere la verifica", async () => {
+    vi.mocked(accessTokenFic).mockRejectedValueOnce(
+      new Error("Collegamento OAuth incompleto: ricollega Fatture in Cloud")
+    );
+    const ficGet = vi.fn();
+    const esito = await verificaScopeScrittura({ sedeId: 1, ficGet });
+    expect(esito.ok).toBe(false);
+    expect(esito.motivo).toMatch(/Verifica non riuscita/);
+    expect(ficGet).not.toHaveBeenCalled();
     expect((await configFatturazione(1)).scopeScritturaOk).toBe(false);
   });
 });

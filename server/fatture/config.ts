@@ -108,20 +108,20 @@ export async function verificaScopeScrittura(input: {
   await repo.ensureSchema();
   const attuale = await repo.config(input.sedeId);
   const cfg = getCfg(input.sedeId);
-  const token = cfg.companyId ? await accessTokenFic(cfg) : null;
-  if (!token || !cfg.companyId) {
-    const config = await repo.salvaConfig({
-      ...attuale,
-      scopeScritturaOk: false,
-    });
-    return {
-      ok: false,
-      motivo: "Fatture in Cloud non è collegato per questa sede.",
-      config,
-      opzioni: null,
-    };
-  }
   try {
+    const token = cfg.companyId ? await accessTokenFic(cfg) : null;
+    if (!token || !cfg.companyId) {
+      const config = await repo.salvaConfig({
+        ...attuale,
+        scopeScritturaOk: false,
+      });
+      return {
+        ok: false,
+        motivo: "Fatture in Cloud non è collegato per questa sede.",
+        config,
+        opzioni: null,
+      };
+    }
     const risposta = await (input.ficGet ?? ficGetDefault)(
       `/c/${cfg.companyId}/issued_documents/info?type=invoice`,
       token
