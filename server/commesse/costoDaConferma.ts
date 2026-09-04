@@ -52,6 +52,7 @@ import {
   type RiferimentiCommessa,
   type RiscontroCommessa,
 } from "../documenti/riscontroCommessa";
+import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
 import { getSediStore } from "../routers/sedi";
@@ -255,9 +256,17 @@ export function riferimentiDellaCommessa(commessa: any): RiferimentiCommessa {
   const paroleEscluse = String(sede?.indirizzo ?? "")
     .split(/[\s,.'’-]+/)
     .filter(p => p.length >= 3);
+  // Il cognome dall'anagrafica: è la parola che identifica il cliente, i
+  // nomi propri no.
+  const anagrafica: any =
+    Number.isInteger(commessa.clienteId) && commessa.clienteId > 0
+      ? (getClienteById(commessa.clienteId) ?? null)
+      : null;
+  const cognome = String(anagrafica?.cognome ?? "").trim() || null;
   return {
     codice: commessa.codice ?? null,
     cliente: commessa.cliente ?? null,
+    cognome,
     indirizzo: commessa.indirizzo ?? null,
     citta: commessa.citta ?? null,
     riferimentiOrdine: [...riferimentiOrdine],

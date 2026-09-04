@@ -14,6 +14,8 @@ import { senzaAccenti } from "../_core/ricerca";
 export type RiferimentiCommessa = {
   codice: string | null;
   cliente: string | null;
+  /** Il cognome dall'anagrafica cliente, quando c'è: è la parola che identifica. */
+  cognome?: string | null;
   indirizzo?: string | null;
   citta?: string | null;
   /** Numeri d'ordine già noti alla commessa (costi, magazzino, ordini fornitore, conferme). */
@@ -62,6 +64,40 @@ const PAROLE_DI_VIA_COMUNI = new Set([
   "marconi", "garibaldi", "mazzini", "cavour", "dante", "verdi", "manzoni",
 ]);
 
+/**
+ * Nomi propri comuni: da soli non identificano un cliente. «Via Francesco
+ * Crispi» (l'indirizzo dell'azienda) faceva riscontrare ogni cliente di nome
+ * Francesco, e «Stefano» + «Angelo» sparsi in un ordine Pail passavano per
+ * il cliente «Stefano Angelo» (04/09/2026). Un nome proprio conta solo
+ * accanto al cognome.
+ */
+const NOMI_PROPRI_COMUNI = new Set([
+  "alessandro", "alessandra", "alessia", "alessio", "alberto", "andrea", "angela", "angelo",
+  "anna", "annamaria", "antonella", "antonio", "barbara", "beatrice", "bruno", "carla",
+  "carlo", "carmela", "carmine", "caterina", "chiara", "claudia", "claudio", "cristina",
+  "cristian", "cristiano", "daniela", "daniele", "dario", "davide", "debora", "diego",
+  "domenico", "donatella", "elena", "eleonora", "elisa", "elisabetta", "emanuela", "emanuele",
+  "emilio", "enrico", "enzo", "ermanno", "ettore", "fabio", "fabrizio", "federica", "federico",
+  "filippo", "fiorella", "flavio", "franca", "francesca", "francesco", "franco", "gabriele",
+  "gabriella", "gaetano", "gianluca", "gianni", "giacomo", "giada", "gianfranco", "gianpaolo",
+  "gigi", "giorgia", "giorgio", "giovanna", "giovanni", "giulia", "giuliana", "giuliano",
+  "giulio", "giuseppe", "giuseppina", "graziella", "guido", "ilaria", "irene", "isabella",
+  "ivan", "ivano", "jacopo", "laura", "leonardo", "letizia", "lidia", "liliana", "lorenza",
+  "lorenzo", "luca", "lucia", "luciana", "luciano", "lucio", "luigi", "luisa", "manuela",
+  "marcello", "marco", "margherita", "maria", "marina", "mario", "marta", "martina",
+  "massimiliano", "massimo", "matteo", "maurizio", "mauro", "michela", "michele", "milena",
+  "mirko", "monica", "nadia", "nicola", "nicoletta", "nicolò", "nicolo", "orlando", "paola",
+  "paolo", "patrizia", "patrizio", "piero", "pietro", "raffaele", "raffaella", "renato",
+  "riccardo", "rita", "roberta", "roberto", "rocco", "romina", "rosa", "rosanna", "rosario",
+  "rossana", "salvatore", "samuele", "sandra", "sandro", "sara", "sergio", "silvana", "silvia",
+  "silvio", "simona", "simone", "sonia", "stefania", "stefano", "susanna", "teresa", "tiziana",
+  "tiziano", "tommaso", "umberto", "valentina", "valeria", "valerio", "vanessa", "veronica",
+  "vincenzo", "vittoria", "vittorio", "walter", "sergio", "elio", "ugo", "ida", "ada", "eva",
+  "timothy", "timoteo", "giulietta", "mattia", "gioia", "greta", "aurora", "sofia", "noemi",
+  "nicole", "erika", "erica", "denise", "jessica", "samantha", "morgan", "kevin", "manuel",
+  "loris", "moreno", "omar", "italiana", "italiano",
+]);
+
 /** «Via», «Piazza», «Loc.»: dopo una di queste parole c'è il nome della strada. */
 const MARCATORE_STRADA =
   /(?:^|[^a-z0-9])(?:via|viale|piazza|piazzale|corso|largo|vicolo|vico|salita|traversa|strada|loc|localita|frazione|borgata|lungomare)\s+/g;
@@ -97,6 +133,30 @@ export function sembraData(riferimento: string): boolean {
       (anno >= 1990 && anno <= 2099 && leggi(cifre.slice(0, 2), cifre.slice(2, 4))) ||
       (annoPrima >= 1990 && annoPrima <= 2099 && leggi(cifre.slice(6, 8), cifre.slice(4, 6)))
     );
+  }
+  return false;
+}
+
+/**
+ * Tutte le parole del nome compaiono entro poche parole l'una dall'altra,
+ * in qualunque ordine e anche con un refuso («GIACOMAZI GIULIA»).
+ */
+function paroleVicine(righe: readonly string[], parole: readonly string[]): boolean {
+  // Sulla STESSA riga: «Agente: Stefano Bruni» e «Rif.: Angelo Pistone» su
+  // due righe non sono il cliente «Stefano Angelo».
+  const FINESTRA = 3;
+  for (const riga of righe) {
+    const paroleRiga = riga.split(" ");
+    const posizioni = parole.map(p =>
+      paroleRiga
+        .map((w, i) => (w === p || (p.length >= 6 && w.length >= 5 && quasiUguali(w, p)) ? i : -1))
+        .filter(i => i >= 0)
+    );
+    if (posizioni.some(lista => lista.length === 0)) continue;
+    const vicine = posizioni[0].some(inizio =>
+      posizioni.every(lista => lista.some(i => Math.abs(i - inizio) <= FINESTRA))
+    );
+    if (vicine) return true;
   }
   return false;
 }
@@ -174,7 +234,14 @@ export function riscontroCommessaNelTesto(
   testo: string | readonly string[],
   riferimenti: RiferimentiCommessa
 ): RiscontroCommessa {
-  const corpo = normalizza(Array.isArray(testo) ? testo.join("\n") : String(testo));
+  const grezzo = Array.isArray(testo) ? testo.join("\n") : String(testo);
+  const corpo = normalizza(grezzo);
+  // Le righe originali, normalizzate una per una: il nome completo si cerca
+  // dentro la riga, non attraverso il documento.
+  const righeCorpo = grezzo
+    .split(/\r?\n/)
+    .map(r => normalizza(r))
+    .filter(Boolean);
   const prove: string[] = [];
   if (!corpo) {
     return { ok: false, prove, motivo: "Nessun testo leggibile nel documento." };
@@ -184,21 +251,30 @@ export function riscontroCommessaNelTesto(
     prove.push(`codice ${riferimenti.codice}`);
   }
 
-  // Il cliente: basta il primo nome utile (il cognome, o la ragione sociale
-  // vera) se è lungo abbastanza da non essere una via o una città («Roma»),
-  // oppure due parole qualsiasi del nome.
-  const parole = paroleUtili(riferimenti.cliente);
-  const trovate = parole.filter(p => contieneParola(corpo, p));
-  if (
-    trovate.length > 0 &&
-    ((trovate[0] === parole[0] && parole[0].length >= 5) || trovate.length >= 2)
-  ) {
-    prove.push(`cliente ${trovate.join(" ")}`);
+  // Il cliente. Il nome COMPLETO vale quando le sue parole stanno vicine
+  // nel testo («Vs. rif. GIACOMAZZI GIULIA», «Angelo Pistone»); da sola vale
+  // la parola che identifica — il cognome dall'anagrafica, o una parola che
+  // non sia un nome proprio né la via dell'azienda — se è lunga abbastanza
+  // da non essere una via o una città («Roma»). Due nomi propri sparsi in
+  // pagine diverse non sono nessuno.
+  const escluseCliente = new Set((riferimenti.paroleEscluse ?? []).map(p => normalizza(p)));
+  const parole = paroleUtili(riferimenti.cliente).filter(p => !escluseCliente.has(p));
+  const cognomeAnagrafica = paroleUtili(riferimenti.cognome).filter(p => !escluseCliente.has(p));
+  const identificanti = (cognomeAnagrafica.length > 0 ? cognomeAnagrafica : parole).filter(
+    p => !NOMI_PROPRI_COMUNI.has(p)
+  );
+  if (parole.length >= 2 && paroleVicine(righeCorpo, parole)) {
+    prove.push(`cliente ${parole.join(" ")}`);
   } else {
-    // Quasi uguale: un carattere di differenza sul cognome (OCR, refusi).
-    const paroleTesto = new Set(corpo.split(" ").filter(p => p.length >= 5));
-    const quasi = parole.find(p => contieneParolaQuasi(paroleTesto, p));
-    if (quasi) prove.push(`cliente ~${quasi}`);
+    const trovata = identificanti.find(p => p.length >= 5 && contieneParola(corpo, p));
+    if (trovata) {
+      prove.push(`cliente ${trovata}`);
+    } else {
+      // Quasi uguale: un carattere di differenza sul cognome (OCR, refusi).
+      const paroleTesto = new Set(corpo.split(" ").filter(p => p.length >= 5));
+      const quasi = identificanti.find(p => contieneParolaQuasi(paroleTesto, p));
+      if (quasi) prove.push(`cliente ~${quasi}`);
+    }
   }
 
   // L'indirizzo del cantiere: una parola DISTINTIVA della via (almeno

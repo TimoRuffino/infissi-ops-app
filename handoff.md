@@ -146,9 +146,16 @@
 > DISTINTIVA della via (≥5 lettere, non articoli né nomi da toponomastica,
 > non la via della sede) subito dopo «via/piazza/loc.»; il solo indirizzo è
 > una prova debole (decide una persona); `sembraData` esclude le date dai
-> riferimenti d'ordine (anche nei nomi file). Ogni lettura e ogni riscontro
-> lasciano una riga `[ricerca-commessa]` nei log, e il giro del worker
-> conta i candidati (certe/probabili/non letti).
+> riferimenti d'ordine (anche nei nomi file). Secondo giro (15:28): «Via
+> Francesco Crispi» faceva riscontrare ogni cliente di nome Francesco e
+> «Stefano» + «Angelo» sparsi in un ordine Pail passavano per il cliente
+> «Stefano Angelo» → i NOMI PROPRI comuni non identificano nessuno (vale il
+> cognome dall'anagrafica, o una parola che non sia un nome), il nome
+> completo vale solo se le sue parole stanno sulla stessa riga entro tre
+> parole, e un cognome solo su una commessa che non aspetta la conferma
+> (preventivo) non aggancia da solo. Ogni lettura e ogni riscontro lasciano
+> una riga `[ricerca-commessa]` nei log, e il giro del worker conta i
+> candidati (certe/probabili/non letti).
 
 ## 1. Contesto
 

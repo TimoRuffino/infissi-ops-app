@@ -119,6 +119,47 @@ describe("riscontroCommessaNelTesto", () => {
   });
 });
 
+describe("nomi propri e nome completo", () => {
+  const ordinePail = [
+    "PAIL SERRAMENTI - Conferma ordine 2634169",
+    "Spett.le RUFFINO GROUP SRLS Via Francesco Crispi 12 La Spezia",
+    "Agente: Stefano Bruni",
+    "Rif.: SOST. Angelo Pistone",
+    "Porta interna laccata 800x2100",
+  ].join("\n");
+
+  it("un nome proprio da solo non identifica un cliente («Via Francesco Crispi» non è il sig. Francesco)", () => {
+    expect(
+      riscontroCommessaNelTesto(ordinePail, { codice: null, cliente: "Francesco Marini" }).ok
+    ).toBe(false);
+    // Due nomi propri sparsi nel testo non sono il cliente «Stefano Angelo».
+    expect(
+      riscontroCommessaNelTesto(ordinePail, { codice: null, cliente: "Stefano Angelo" }).ok
+    ).toBe(false);
+  });
+
+  it("il nome completo vicino nel testo vale, in qualunque ordine; il cognome dell'anagrafica vale da solo", () => {
+    const pieno = riscontroCommessaNelTesto(ordinePail, { codice: null, cliente: "Pistone Angelo" });
+    expect(pieno.ok).toBe(true);
+    expect(pieno.prove).toEqual(["cliente pistone angelo"]);
+    const cognome = riscontroCommessaNelTesto(ordinePail, {
+      codice: null,
+      cliente: "Angelo Pistone Junior",
+      cognome: "Pistone",
+    });
+    expect(cognome.ok).toBe(true);
+    expect(cognome.prove[0]).toMatch(/^cliente pistone/);
+    // La via dell'azienda non vale nemmeno come cognome.
+    expect(
+      riscontroCommessaNelTesto(ordinePail, {
+        codice: null,
+        cliente: "Crispi Marco",
+        paroleEscluse: ["Francesco", "Crispi"],
+      }).ok
+    ).toBe(false);
+  });
+});
+
 describe("sembraData", () => {
   it("riconosce le date a sei e otto cifre, non i numeri d'ordine", () => {
     expect(sembraData("310726")).toBe(true);

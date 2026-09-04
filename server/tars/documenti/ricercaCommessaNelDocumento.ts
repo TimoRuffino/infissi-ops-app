@@ -172,11 +172,26 @@ export function cercaCommessaNelTesto(input: {
   const forti = candidati.filter(c => c.forza === "forte");
   const descrivi = (c: CandidatoRicerca) => `commessa ${c.commessaId} (${c.prove.join(", ")})`;
   if (forti.length === 1) {
+    // Un cognome solo su una commessa che NON aspetta una conferma (un
+    // preventivo) non basta per agganciarla da soli: decide una persona.
+    // Codice, ordine noto o nome completo sì.
+    const unica = forti[0];
+    const provaPiena = unica.prove.some(
+      p => /^(codice|ordine) /.test(p) || (p.startsWith("cliente ") && p.split(" ").length >= 3)
+    );
+    if (unica.attesaConferma || provaPiena) {
+      return {
+        esito: "unica",
+        commessaId: unica.commessaId,
+        candidati,
+        motivo: `Il testo cita ${unica.prove.join(", ")} e nessun'altra commessa viva.`,
+      };
+    }
     return {
-      esito: "unica",
-      commessaId: forti[0].commessaId,
+      esito: "ambigua",
+      commessaId: null,
       candidati,
-      motivo: `Il testo cita ${forti[0].prove.join(", ")} e nessun'altra commessa viva.`,
+      motivo: `Il testo cita ${unica.prove.join(", ")}, ma la commessa ${unica.commessaId} non è in uno stato che aspetta una conferma. Decide una persona.`,
     };
   }
   if (forti.length > 1) {
