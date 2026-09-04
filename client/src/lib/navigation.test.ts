@@ -166,7 +166,7 @@ describe("effective-capability navigation matrix", () => {
     const decision: MenuItem = {
       icon: Circle,
       label: "Decisioni Document Intelligence",
-      path: "/fornitori?tab=proposte",
+      path: "/commesse",
       requiredCapabilities: DOCUMENT_INTELLIGENCE_DECISION_CAPABILITIES,
     };
     const overrideOnly = { ruoli: ["commerciale"] };
@@ -222,7 +222,7 @@ describe("effective-capability navigation matrix", () => {
     const decision: MenuItem = {
       icon: Circle,
       label: "Applica proposta ordine",
-      path: "/fornitori?tab=proposte",
+      path: "/commesse",
       requiredCapabilities: DOCUMENT_INTELLIGENCE_DECISION_CAPABILITIES,
     };
 

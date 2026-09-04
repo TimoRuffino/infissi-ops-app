@@ -709,6 +709,8 @@ export default function Dashboard() {
       for (const g of garanzieListQ.data ?? []) {
         if (g.stato !== "attiva" || g.dataScadenza > soon) continue;
         const scaduta = g.dataScadenza < today;
+        // La garanzia conosce solo la commessa: il cliente si ricava da lì.
+        const cmGaranzia = g.commessaId ? byId.get(g.commessaId) : null;
         items.push({
           key: `gar-${g.id}`,
           rank: scaduta ? 1 : 4,
@@ -718,7 +720,13 @@ export default function Dashboard() {
             : "bg-warning-soft text-warning",
           title: `${scaduta ? "Garanzia scaduta" : "Garanzia in scadenza"} — ${g.descrizione}`,
           sub: `scadenza ${new Date(g.dataScadenza + "T12:00:00").toLocaleDateString("it-IT")}`,
-          onClick: () => setLocation("/garanzie"),
+          // Le garanzie vivono nella scheda del cliente che le possiede.
+          onClick: () =>
+            setLocation(
+              cmGaranzia?.clienteId
+                ? `/clienti/${cmGaranzia.clienteId}`
+                : "/clienti"
+            ),
         });
       }
     }
@@ -1055,7 +1063,7 @@ export default function Dashboard() {
                   }
                   icon={Shield}
                   accentClass="bg-warning"
-                  onClick={() => setLocation("/garanzie")}
+                  onClick={() => setLocation("/clienti")}
                 />
               ),
               (squadre.data?.length ?? 0) > 0 && (

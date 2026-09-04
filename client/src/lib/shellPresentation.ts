@@ -24,9 +24,7 @@ const ROUTE_PRESENTATION: Record<string, RoutePresentation> = {
   },
   "/planning": { section: "Cantiere", title: "Planning" },
   "/ticket": { section: "Post-vendita", title: "Ticket" },
-  "/garanzie": { section: "Post-vendita", title: "Garanzie" },
   "/squadre": { section: "Cantiere", title: "Squadre di posa" },
-  "/fornitori": { section: "Ordini", title: "Fornitori e ordini" },
   "/preventivatori": { section: "Commesse", title: "Preventivatori" },
   "/preventivatori/fivizzanese/persiane": {
     section: "Preventivatori",

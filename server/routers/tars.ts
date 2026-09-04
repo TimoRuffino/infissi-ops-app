@@ -1147,7 +1147,7 @@ export const tarsRouter = router({
             hashAnteprima: v.hashAnteprima,
             creataIl: v.createdAt,
             scadeIl: v.scadeIl,
-            link: v.commessaId ? `/commesse/${v.commessaId}` : "/fornitori",
+            link: v.commessaId ? `/commesse/${v.commessaId}` : "/commesse",
           };
         });
     } catch (errore) {

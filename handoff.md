@@ -2009,6 +2009,42 @@ primario «Crea cliente e commessa» solo con `commessa.create`, secondario
 capability il pulsante torna «Crea cliente». Test:
 `server/routers/clienti.test.ts` e `modularRoutePresentation.test.ts`.
 
+## 11-untricies. Via le pagine Fornitori e Garanzie (04/09/2026)
+
+Richiesta direzione: «elimina le pagine fornitori e garanzie». Entrambe erano
+superfici di sola direzione fuori dalla navigazione, raggiunte dall'hub
+Impostazioni. `/fornitori` era già registrata qui sotto come «candidata alla
+rimozione»: questa è la conferma.
+
+Rimosso: `pages/FornitoriList.tsx`, `pages/GaranzieList.tsx` e
+`components/fornitori/` (`AnalisiConfermaOrdine`, `ProposteOrdine`, montati
+solo lì). Le due rotte restano registrate come **redirect** — `/garanzie` →
+`/clienti`, `/fornitori` → `/commesse` — con lo stesso `LegacyRedirect` di
+`/produzione` e `/comunicazioni`: notifiche e segnalibri già salvati non
+devono atterrare su un 404 muto. Tolte le voci dall'hub Impostazioni e dalla
+`shellPresentation`; il contratto di rotta passa a `kind: "redirect"` e le
+guardie di direzione scendono da sei a quattro.
+
+**I domini restano, e non è un dettaglio.** `fornitoriRouter` è dipendenza di
+una quindicina di moduli server: il costo del margine che nasce dalla conferma
+d'ordine (`commesse/costoDaConferma.ts`), l'intelligenza documentale D7
+(`analisiOrdine`, `proposte`) e mezzo Tars (briefing, fascicoli, versioni,
+strumenti). Toglierlo avrebbe rotto il margine, non una pagina. `garanzieRouter`
+alimenta notifiche, Centro Azioni e backup Drive, e le garanzie restano
+leggibili e registrabili dalla **scheda cliente**, che è dove stavano già.
+In produzione il modulo fornitori conta comunque zero ordini, zero proposte e
+zero analisi (diagnosi del 02/09), quindi la pagina non copriva lavoro vivo.
+
+Link riportati dove il lavoro è rimasto: le notifiche di garanzia in scadenza
+(`notifiche.ts`, `actionCenter/signals.ts`) e la Dashboard puntano alla scheda
+del cliente ricavata dalla commessa, non più a `/garanzie`; i fallback Tars e
+briefing che davano su `/fornitori` vanno a `/commesse`.
+
+Residuo dichiarato: `warrantyExpiryTone` e `warrantyExpiryLabel` in
+`client/src/lib/supportQueue.ts` restano senza consumatori (li usava solo la
+pagina rimossa). Sono tenuti, non cancellati: la scheda cliente potrebbe
+adottarli per dire le scadenze a parole invece che con una data secca.
+
 ## 11-tricies. Ordine e conferma: un tipo di documento solo (03/09/2026)
 
 Seguito della fusione dei passi timeline: restavano due voci nel menu dei
@@ -2291,10 +2327,8 @@ non cambia.
 grammatica Modular Control (`PageHeader`, `DataSurface`, `StatePanel`,
 `StickyActionBar`, `ContextInspector`), tranne due esclusioni motivate:
 
-- `/fornitori` — **esclusa per decisione dell'utente**: la pagina è candidata
-  alla rimozione, quindi non è stata toccata (comportamento, router, permessi e
-  gateway DI restano quelli correnti). Se venisse confermata, va migrata come
-  le altre, con la sua decisione registrata.
+- `/fornitori` — **rimossa il 04/09/2026** (la candidatura alla rimozione qui
+  registrata è stata confermata dalla direzione). La rotta resta come redirect.
 - `LoginPage` — fuori dalla shell e fuori dal flag, per il confine di
   autenticazione già documentato nel manifest.
 

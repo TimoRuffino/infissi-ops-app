@@ -356,7 +356,9 @@ export function buildNotifichePerUtente(
           ? `Garanzia "${g.descrizione}" scaduta il ${new Date(g.dataScadenza + "T12:00:00").toLocaleDateString("it-IT")}`
           : `Garanzia "${g.descrizione}" in scadenza il ${new Date(g.dataScadenza + "T12:00:00").toLocaleDateString("it-IT")}`,
         severity: scaduta ? "urgent" : "warning",
-        link: "/garanzie",
+        // La pagina Garanzie non esiste più: si atterra dove la
+        // garanzia si legge davvero, la scheda del cliente.
+        link: cm?.clienteId ? `/clienti/${cm.clienteId}` : "/clienti",
         createdAt: new Date(g.dataScadenza + "T00:00:00"),
       });
     }

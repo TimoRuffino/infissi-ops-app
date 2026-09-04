@@ -19,13 +19,11 @@ const Planning = lazy(() => import("./pages/Planning"));
 const TicketList = lazy(() => import("./pages/TicketList"));
 const RilievoDetail = lazy(() => import("./pages/RilievoDetail"));
 const VerbaleChiusura = lazy(() => import("./pages/VerbaleChiusura"));
-const GaranzieList = lazy(() => import("./pages/GaranzieList"));
 const SquadreList = lazy(() => import("./pages/SquadreList"));
 const ClientiList = lazy(() => import("./pages/ClientiList"));
 const ClienteDetail = lazy(() => import("./pages/ClienteDetail"));
 const Integrazioni = lazy(() => import("./pages/Integrazioni"));
 const Tars = lazy(() => import("./pages/Tars"));
-const FornitoriList = lazy(() => import("./pages/FornitoriList"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
 const ConfermeOrdine = lazy(() => import("./pages/ConfermeOrdine"));
@@ -119,29 +117,21 @@ function Router() {
             <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
             <Route path="/planning" component={Planning} />
             <Route path="/ticket">{() => <TicketList />}</Route>
-            {/* Superfici di sola direzione. Non stanno nella navigazione:
-            si raggiungono dall'hub Impostazioni di Modular Control. La
-            guardia client mostra uno stato bloccato, così chi non è
-            direzione legge un messaggio chiaro invece di un 404 muto; le
-            route restano registrate perché i deep link autorizzati funzionino.
-            L'autorizzazione vera resta delle procedure server. */}
+            {/* Garanzie e Fornitori non hanno più una pagina (04/09/2026).
+            Le rotte restano come redirect: notifiche e segnalibri già salvati
+            devono atterrare dove il lavoro è rimasto, non su un 404 muto.
+            Le garanzie si leggono e si registrano dalla scheda cliente; il
+            dominio ordini fornitore resta server-side (costo dalla conferma,
+            merce in arrivo) ma senza interfaccia propria. */}
             <Route path="/garanzie">
-              {() => (
-                <RequireDirezione>
-                  <GaranzieList />
-                </RequireDirezione>
-              )}
+              {() => <LegacyRedirect redirect={() => "/clienti"} />}
             </Route>
             {/* Leggibile da tutti (serve a posatori e ufficio per sapere chi
             è in cantiere); creare/modificare resta direzione, sia lato
             server (adminProcedure) sia nei comandi della pagina. */}
             <Route path="/squadre" component={SquadreList} />
             <Route path="/fornitori">
-              {() => (
-                <RequireDirezione>
-                  <FornitoriList />
-                </RequireDirezione>
-              )}
+              {() => <LegacyRedirect redirect={() => "/commesse"} />}
             </Route>
             <Route path="/preventivatori" component={Preventivatori} />
             <Route
