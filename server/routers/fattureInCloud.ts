@@ -52,12 +52,7 @@ export type FicSyncResult = {
   result: string;
   complete: boolean;
   stats: FicPaymentSyncStats;
-  commesseCreate?: {
-    create: number;
-    existing: number;
-    ambiguous: number;
-    skipped: number;
-  };
+  commesseCreate?: { create: number; existing: number; ambiguous: number; skipped: number };
 };
 
 export type FicConfig = {
@@ -604,7 +599,10 @@ async function ficListAll(
   return { rows, complete: false };
 }
 
-export function normalizzaRate(value: unknown, documentoId: number): RataFic[] {
+export function normalizzaRate(
+  value: unknown,
+  documentoId: number
+): RataFic[] {
   return (Array.isArray(value) ? value : []).map((p: any, index) => {
     const id = p.id == null ? null : Number(p.id);
     const importo = Number(p.amount ?? 0);
@@ -643,9 +641,7 @@ function normalizzaDocumentoEmesso(row: any, tipo: "invoice" | "credit_note") {
     clienteIndirizzo: entity.address_street
       ? String(entity.address_street).trim()
       : null,
-    clienteCitta: entity.address_city
-      ? String(entity.address_city).trim()
-      : null,
+    clienteCitta: entity.address_city ? String(entity.address_city).trim() : null,
     clienteCap: entity.address_postal_code
       ? String(entity.address_postal_code).trim()
       : null,
@@ -927,12 +923,7 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     cfg.lastResult = result;
     cfg.lastStats = { ...payments.stats };
     _cfgStore.save();
-    return {
-      result,
-      complete: completo,
-      stats: payments.stats,
-      commesseCreate,
-    };
+    return { result, complete: completo, stats: payments.stats, commesseCreate };
   } catch (e: any) {
     const cfg2 = getCfg(sedeId);
     cfg2.economicScopesReady = false;
@@ -958,24 +949,27 @@ const INTERVALLO_SYNC_MS = 60 * 60 * 1000;
 let ficTimer: NodeJS.Timeout | null = null;
 export function startFicScheduler(): void {
   if (ficTimer) return;
-  ficTimer = setInterval(async () => {
-    // Ogni sede col suo giro: se una ha il token scaduto, le altre
-    // continuano. Un errore per sede non ferma la fila.
-    for (const sedeId of allSedeIds()) {
-      try {
-        const cfg = getCfg(sedeId);
-        const hasCredential =
-          !!cfg.accessTokenCifrato ||
-          !!cfg.refreshTokenCifrato ||
-          !!(cfg as any).accessToken;
-        if (cfg.enabled && hasCredential && cfg.companyId) {
-          await runFicSync(sedeId);
+  ficTimer = setInterval(
+    async () => {
+      // Ogni sede col suo giro: se una ha il token scaduto, le altre
+      // continuano. Un errore per sede non ferma la fila.
+      for (const sedeId of allSedeIds()) {
+        try {
+          const cfg = getCfg(sedeId);
+          const hasCredential =
+            !!cfg.accessTokenCifrato ||
+            !!cfg.refreshTokenCifrato ||
+            !!(cfg as any).accessToken;
+          if (cfg.enabled && hasCredential && cfg.companyId) {
+            await runFicSync(sedeId);
+          }
+        } catch (e) {
+          console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
         }
-      } catch (e) {
-        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
       }
-    }
-  }, INTERVALLO_SYNC_MS);
+    },
+    INTERVALLO_SYNC_MS
+  );
   ficTimer.unref?.();
 }
 
@@ -1089,6 +1083,9 @@ export const fattureInCloudRouter = router({
     cfg.companyId = null;
     cfg.enabled = false;
     cfg.economicScopesReady = false;
+    // Il permesso di scrittura era legato a QUEL collegamento: scompare con
+    // lui, non resta come traccia di un consenso che non vale più.
+    cfg.scopeScrittura = false;
     delete (cfg as any).accessToken;
     _cfgStore.save();
     return { success: true } as const;

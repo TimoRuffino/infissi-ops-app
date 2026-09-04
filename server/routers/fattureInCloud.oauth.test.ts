@@ -220,4 +220,36 @@ describe("OAuth Fatture in Cloud", () => {
       .fattureInCloud.status();
     expect(status.scopeScrittura).toBe(false);
   });
+
+  it("disconnectOAuth azzera anche scopeScrittura, non solo la connessione", async () => {
+    const { url } = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.oauthStartUrl({ scrittura: true });
+    const state = new URL(url).searchParams.get("state")!;
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(200, {
+          access_token: "a/da-scollegare-abcdefghijklmnopqrstuvwxyz",
+          refresh_token: "r/da-scollegare-abcdefghijklmnopqrstuvwxyz",
+          expires_in: 86_400,
+        })
+      )
+      .mockResolvedValueOnce(response(200, { data: { companies: [] } }));
+    global.fetch = fetchMock as any;
+
+    await handleFicOAuthCallback("c/da-scollegare", state);
+    const collegato = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.status();
+    expect(collegato.scopeScrittura).toBe(true);
+
+    await appRouter.createCaller(makeCtx()).fattureInCloud.disconnectOAuth();
+    const scollegato = await appRouter
+      .createCaller(makeCtx())
+      .fattureInCloud.status();
+    expect(scollegato.scopeScrittura).toBe(false);
+    expect(scollegato.connected).toBe(false);
+  });
 });
