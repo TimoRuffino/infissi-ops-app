@@ -11,13 +11,16 @@ export default function ContrattoStatoBanner({
   commessaId,
   stato,
   flagAttivo,
+  fatturazioneAttiva = false,
   onApri,
 }: {
   commessaId: number;
   stato: string;
   /** Le procedure vivono dietro FLAG_LIMITI: senza flag non si chiamano. */
   flagAttivo: boolean;
-  onApri: (tab: "prodotti" | "limiti") => void;
+  /** FLAG_FATTURAZIONE oltre a FLAG_LIMITI: senza, la tab Fattura non esiste. */
+  fatturazioneAttiva?: boolean;
+  onApri: (tab: "prodotti" | "limiti" | "fattura") => void;
 }) {
   const mostra =
     flagAttivo && (stato === "aggiornamento_contratto" || stato === "fatture_pagamento");
@@ -48,6 +51,16 @@ export default function ContrattoStatoBanner({
       >
         Limiti
       </Button>
+      {fatturazioneAttiva && stato === "fatture_pagamento" && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => onApri("fattura")}
+        >
+          Fattura
+        </Button>
+      )}
     </div>
   );
 }

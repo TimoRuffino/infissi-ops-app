@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { etichettaTabFattura } from "@/lib/fatturaView";
 import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
 import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
@@ -76,6 +77,7 @@ import TarsFascicoloCard from "@/components/TarsFascicoloCard";
 import ContrattoTab from "@/components/contratto/ContrattoTab";
 import ContrattoStatoBanner from "@/components/contratto/ContrattoStatoBanner";
 import LimitiTab from "@/components/computo/LimitiTab";
+import FatturaTab from "@/components/fattura/FatturaTab";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
@@ -164,6 +166,16 @@ export default function CommessaDetail() {
   const computoQ = trpc.computo.ultimo.useQuery(
     { commessaId },
     { enabled: limitiAttivi && statoUsaLimiti, retry: false },
+  );
+  // La fatturazione dal contratto vive dietro due interruttori: senza i
+  // limiti non c'è il computo su cui la bozza si fonda. L'elenco serve solo
+  // a scrivere l'etichetta della tab: le righe le carica la tab quando si
+  // apre (`fatture.byId`).
+  const fatturazioneAttiva =
+    Boolean(interruttori.data?.fatturazione) && limitiAttivi;
+  const fattureQ = trpc.fatture.perCommessa.useQuery(
+    { commessaId },
+    { enabled: fatturazioneAttiva && statoUsaLimiti, retry: false },
   );
   // Full cliente record — loaded when the commessa has a clienteId so we can
   // edit anagrafica (nome, cognome, codice fiscale, ...). Skipped for legacy
@@ -1162,6 +1174,7 @@ export default function CommessaDetail() {
           commessaId={commessaId}
           stato={c.stato}
           flagAttivo={limitiAttivi}
+          fatturazioneAttiva={fatturazioneAttiva}
           onApri={setTab}
         />
 
@@ -1218,6 +1231,11 @@ export default function CommessaDetail() {
           {limitiAttivi && (
             <TabsTrigger value="limiti">
               {etichettaTabLimiti(computoQ.data)}
+            </TabsTrigger>
+          )}
+          {fatturazioneAttiva && (
+            <TabsTrigger value="fattura">
+              {etichettaTabFattura(fattureQ.data?.fatture)}
             </TabsTrigger>
           )}
           <TabsTrigger value="interventi">
@@ -1573,6 +1591,13 @@ export default function CommessaDetail() {
         {limitiAttivi && (
           <TabsContent value="limiti">
             <LimitiTab commessaId={commessaId} />
+          </TabsContent>
+        )}
+
+        {/* Fattura Tab */}
+        {fatturazioneAttiva && (
+          <TabsContent value="fattura">
+            <FatturaTab commessaId={commessaId} />
           </TabsContent>
         )}
 
