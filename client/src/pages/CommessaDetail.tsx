@@ -3025,7 +3025,9 @@ function PagamentiCard({
                   motivoBlocco ??
                   (daFatturaCrm
                     ? "Il pattuito è quello della fattura già emessa: si corregge con una nota di credito."
-                    : daContratto ? "Il pattuito arriva dalla tab Contratto." : undefined)
+                    : daContratto
+                      ? "Il pattuito arriva dalla tab Contratto."
+                      : undefined)
                 }
               >
                 {totale != null ? `€ ${fmt(totale)}` : "—"}
