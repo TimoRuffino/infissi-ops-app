@@ -11,7 +11,9 @@ import { risolvi, type EsitoRisolutore } from "./risolutore";
 export type InputGeneratore = {
   contratto: Contratto; righe: RigaContratto[]; computo: Computo | null;
   cliente: ClienteSnapshot | null; commessa: { codice: string; indirizzo: string | null; citta: string | null };
-  config: FatturazioneConfig; dataFattura: string;
+  /** Non ancora consumata qui: riservata al task di emissione (IBAN, banca, numerazione FiC…). */
+  config: FatturazioneConfig;
+  dataFattura: string;
 };
 export type Bozza = {
   righe: RigaFatturaInput[]; scadenze: ScadenzaFatturaInput[]; diciture: ChiaveDicitura[];
@@ -78,6 +80,20 @@ function rinumera(righe: RigaFatturaInput[]): RigaFatturaInput[] {
   return righe.map((r, i) => ({ ...r, ordine: i + 1 }));
 }
 
+/**
+ * Dove va il markup nel corpo (senza le note): subito dopo l'ultima riga
+ * bene, se c'è. Senza righe bene (es. contratto tutto senza prezzo)
+ * `lastIndexOf` torna −1: il markup non deve finire in testa, prima delle
+ * intestazioni — va prima dell'intestazione «prestazioni» se c'è,
+ * altrimenti in coda al corpo (Ruling R5, fix review Task 4).
+ */
+function posizioneMarkup(corpo: RigaFatturaInput[]): number {
+  const ultimoBene = corpo.map(r => r.tipo).lastIndexOf("bene");
+  if (ultimoBene >= 0) return ultimoBene + 1;
+  const prestazioni = corpo.findIndex(r => r.tipo === "intestazione" && r.descrizione === DICITURE.prestazioni);
+  return prestazioni >= 0 ? prestazioni : corpo.length;
+}
+
 export function ricalcola(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; esito: EsitoRisolutore } {
   const fisse = input.righe.filter(r => !r.derivata);
   const beni = fisse.filter(r => r.tipo === "bene");
@@ -92,8 +108,8 @@ export function ricalcola(input: { righe: RigaFatturaInput[]; pattuitoCent: numb
 
   const corpo = fisse.filter(r => r.tipo !== "nota");
   const note = fisse.filter(r => r.tipo === "nota");
-  const ultimoBene = corpo.map(r => r.tipo).lastIndexOf("bene");
-  const conMarkup = [...corpo.slice(0, ultimoBene + 1), markup, ...corpo.slice(ultimoBene + 1)];
+  const posMarkup = posizioneMarkup(corpo);
+  const conMarkup = [...corpo.slice(0, posMarkup), markup, ...corpo.slice(posMarkup)];
   const ultimoServizio = conMarkup.map(r => r.tipo).lastIndexOf("servizio");
   const posizione = ultimoServizio >= 0 ? ultimoServizio + 1 : conMarkup.length;
   const conStorno = esito.stornoCent > 0
@@ -108,7 +124,10 @@ export function generaBozza(input: InputGeneratore): Bozza {
   const righe: RigaFatturaInput[] = [];
 
   righe.push(rigaBase("intestazione", `${DICITURE.intestazione}\n${DICITURE.seguira_ddt}`, 0, null));
-  const significative = input.righe.filter(r => r.beneSignificativo);
+  // Solo le righe che diventeranno davvero una riga bene (prezzate): una
+  // famiglia non deve comparire in intestazione senza righe corrispondenti
+  // (fix review Task 4).
+  const significative = input.righe.filter(r => r.beneSignificativo && r.prezzoTotCent != null);
   const famiglie = [...new Set(significative.map(r => FAMIGLIA[r.categoria] ?? r.categoria))];
   righe.push(rigaBase("intestazione", `${DICITURE.beni_significativi} ${famiglie.join(", ")}`.trim(), 0, null));
 
@@ -143,7 +162,9 @@ export function generaBozza(input: InputGeneratore): Bozza {
   if (quote.length === 0 || (quote.length === 3 && quote[0] === 50 && quote[1] === 40 && quote[2] === 10)) diciture.push("pagamento_50_40_10");
   if (!contratto.opzioniComputo.speseProfessionali) diciture.push("spese_professionali_escluse");
 
-  const luogo = `${input.commessa.indirizzo ?? ""} ${contratto.comuneCantiere ?? input.commessa.citta ?? ""}`.trim();
+  // "||" e non "??": un comuneCantiere vuoto ("", non solo null) deve
+  // ricadere su commessa.citta comunque (fix review Task 4).
+  const luogo = `${input.commessa.indirizzo ?? ""} ${contratto.comuneCantiere || input.commessa.citta || ""}`.trim();
   const intestazioneCantiere = luogo ? `Intervento da effettuare presso ${luogo}` : null;
   if (!intestazioneCantiere && contratto.detrazioneTipo !== "nessuna") avvertenze.push("Indirizzo del cantiere mancante.");
   if (contratto.detrazioneTipo !== "nessuna" && !input.cliente?.codiceFiscale) avvertenze.push("Cliente senza codice fiscale: obbligatorio con la detrazione.");

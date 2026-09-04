@@ -64,10 +64,20 @@ describe("generaBozza", () => {
     expect(b.scadenze.map(s => s.quotaPct)).toEqual([50, 40, 10]);
     expect(b.avvertenze).toContain("Cliente senza codice fiscale: obbligatorio con la detrazione.");
   });
-  it("senza computo: nessun servizio e avvertenza", () => {
-    const b = generaBozza({ contratto: contratto(), righe, computo: null, ...base });
+  it("senza computo: nessun servizio e avvertenza; comuneCantiere vuoto ricade su commessa.citta", () => {
+    const b = generaBozza({ contratto: contratto({ comuneCantiere: "" }), righe, computo: null, ...base });
     expect(b.righe.filter(r => r.tipo === "servizio")).toHaveLength(0);
     expect(b.avvertenze).toContain("Computo assente: nessun servizio proposto.");
+    expect(b.intestazioneCantiere).toBe("Intervento da effettuare presso Via Alta 80 Sarzana");
+  });
+  it("senza righe bene (tutte senza prezzo) il markup precede l'intestazione «prestazioni», non l'apertura fattura", () => {
+    const righeSenzaPrezzo = righe.map(r => ({ ...r, prezzoTotCent: null }));
+    const b = generaBozza({ contratto: contratto(), righe: righeSenzaPrezzo, computo: computo(), ...base });
+    expect(b.righe.filter(r => r.tipo === "bene")).toHaveLength(0);
+    expect(b.righe.map(r => r.tipo)).toEqual(["intestazione", "intestazione", "markup", "intestazione", "servizio", "servizio", "nota"]);
+    expect(b.righe.map(r => r.ordine)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(b.righe.filter(r => r.tipo === "storno_bs" || r.tipo === "riaddebito_bs")).toHaveLength(0); // B=0 → storno 0
+    expect(b.avvertenze.filter(a => a.includes("senza prezzo"))).toHaveLength(3);
   });
 });
 
