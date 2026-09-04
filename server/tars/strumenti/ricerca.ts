@@ -344,8 +344,10 @@ const leggiConferma: StrumentoTars = {
   // solo un allegato di mail — è il caso della conferma archiviata di cui
   // resta da registrare il costo. 1.2.0 (04/09): «cita la commessa» vale
   // anche per cliente, indirizzo e ordini noti (riscontro pieno), e si
-  // leggono il vostro riferimento e il fornitore dall'intestazione.
-  versione: "1.2.0",
+  // leggono il vostro riferimento e il fornitore dall'intestazione. 1.3.0
+  // (04/09, mattina): scansioni e foto che l'OCR non legge vengono
+  // trascritte dal modello (lettura visiva, a carico dell'utente sul ledger).
+  versione: "1.3.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -392,6 +394,7 @@ const leggiConferma: StrumentoTars = {
         codiceCommessa: commessa?.codice ?? null,
         fornitoreAtteso: input.fornitoreAtteso ?? null,
         numeroOrdineAtteso: input.numeroOrdineAtteso ?? null,
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
       });
       if (!letto) throw new Error("NOT_FOUND: documento non leggibile.");
       lettura_ = letto;
@@ -412,6 +415,7 @@ const leggiConferma: StrumentoTars = {
         codiceCommessa: commessa?.codice ?? null,
         commessa,
         fornitoreAtteso: input.fornitoreAtteso ?? null,
+        visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
       });
       riferimentoEvidenza = `comunicazione:${c.id}`;
       descrizioneEvidenza = `${lettura_.nomeFile} — allegato di ${c.mittenteNome?.trim() || c.mittente}`;
@@ -459,7 +463,9 @@ const leggiConferma: StrumentoTars = {
         "questa è una lettura: nessun costo, ordine o documento viene registrato",
         ...(lettura_.fonteTesto === "ocr"
           ? ["testo da OCR: gli importi vanno verificati sul file"]
-          : []),
+          : lettura_.fonteTesto === "visione"
+            ? ["testo trascritto dal modello (scansione o foto): gli importi vanno verificati sul file"]
+            : []),
       ],
     });
   },

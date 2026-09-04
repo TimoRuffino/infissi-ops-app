@@ -45,7 +45,11 @@ export type Interruttore =
   | "uiV2"
   // Contratto strutturato e computo limiti DM MITE (03/09/2026): tab
   // Contratto/Limiti, gate sulla transizione verso «Fatture pagamento».
-  | "limiti";
+  | "limiti"
+  // Lettura visiva dei documenti (04/09/2026): il modello trascrive le
+  // pagine che l'OCR locale non legge (scansioni ruotate, foto). A
+  // pagamento: passa dal governor, classe «lettura_documenti».
+  | "letturaVisiva";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -66,6 +70,7 @@ const VARIABILE: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "FLAG_TARS_ANALISI_AZIENDA",
   uiV2: "FLAG_UI_V2",
   limiti: "FLAG_LIMITI",
+  letturaVisiva: "FLAG_LETTURA_VISIVA",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -88,6 +93,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   tarsAnalisiAzienda: "L'analisi giornaliera dell'azienda di Tars",
   uiV2: "L'interfaccia Modular Control / Borgogna Operativa",
   limiti: "Il contratto strutturato e il computo dei limiti di spesa",
+  letturaVisiva: "La lettura visiva dei documenti con il modello",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -121,7 +127,7 @@ export function statoInterruttori(): Record<Interruttore, boolean> {
 export function tarsAttivo(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
+    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti" | "letturaVisiva"
   >
 ): boolean {
   if (!interruttoreAttivo("tars")) return false;
@@ -132,7 +138,7 @@ export function tarsAttivo(
 export function assicuraTars(
   funzione?: Exclude<
     Interruttore,
-    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti"
+    "documentIntelligence" | "proposte" | "ocr" | "uiV2" | "limiti" | "letturaVisiva"
   >
 ): void {
   assicuraInterruttore("tars");

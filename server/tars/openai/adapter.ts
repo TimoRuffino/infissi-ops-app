@@ -28,6 +28,7 @@ import {
   type TarsProvider,
   type UsoToken,
 } from "../provider";
+import { inputPerResponses } from "./corpo";
 
 const ENDPOINT = "https://api.openai.com/v1/responses";
 
@@ -122,28 +123,7 @@ export function creaProviderRealeGrezzo(): TarsProvider {
       const corpo = {
         model: richiesta.modello,
         instructions: richiesta.istruzioni,
-        input: richiesta.input.flatMap((m): Array<Record<string, unknown>> => {
-          if (m.ruolo === "tool") {
-            return [
-              {
-                type: "function_call_output",
-                call_id: m.toolCallId,
-                output: m.contenuto,
-              },
-            ];
-          }
-          if (m.ruolo === "assistant" && m.chiamate?.length) {
-            // Il turno assistant con le function call precede i loro
-            // output (contratto Responses).
-            return m.chiamate.map(c => ({
-              type: "function_call",
-              call_id: c.id,
-              name: c.nome,
-              arguments: c.argomenti,
-            }));
-          }
-          return [{ role: m.ruolo, content: m.contenuto }];
-        }),
+        input: inputPerResponses(richiesta.input),
         tools: richiesta.strumenti.map(s => ({
           type: "function",
           name: s.nome,

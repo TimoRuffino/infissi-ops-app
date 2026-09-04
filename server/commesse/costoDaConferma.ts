@@ -36,6 +36,7 @@ import {
   ESTRATTORE_MERCE_VERSIONE,
   estraiRigheMerce,
 } from "../documenti/estrazioneMerce";
+import type { IdentitaLettura } from "../documenti/letturaVisiva";
 import {
   estraiTestoDocumento,
   type EsitoParser,
@@ -116,11 +117,16 @@ export type DipendenzeCostoDaConferma = {
   leggiDocumento: (
     documentoId: number
   ) => Promise<{ buffer: Buffer; nome: string; mimeType: string } | null>;
+  /**
+   * Testo del documento. `ocr` = OCR locale ammesso (worker, richiesta
+   * esplicita); `visione` = identità per la lettura con il modello quando
+   * l'OCR non basta (null = mai una chiamata a pagamento).
+   */
   estraiTesto: (
     buffer: Buffer,
     mimeType: string,
     nome: string,
-    ocr: boolean
+    opzioni: { ocr: boolean; visione: IdentitaLettura | null }
   ) => Promise<EsitoParser>;
   /** Il mittente della mail da cui il documento è stato archiviato: fornitore di ripiego. */
   nomeMittente: (documento: Documento) => Promise<string | null>;
@@ -138,8 +144,11 @@ export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
         mimeType: letto.documento.mimeType,
       };
     },
-    estraiTesto: (buffer, mimeType, nome, ocr) =>
-      estraiTestoDocumento(buffer, mimeType, nome, ocr ? undefined : { ocr: false }),
+    estraiTesto: (buffer, mimeType, nome, opzioni) =>
+      estraiTestoDocumento(buffer, mimeType, nome, {
+        ...(opzioni.ocr ? {} : { ocr: false }),
+        visione: opzioni.ocr ? opzioni.visione : null,
+      }),
     nomeMittente: async documento => {
       if (documento.source !== "comunicazione" || !documento.sourceRef) return null;
       const [sede, comunicazione] = documento.sourceRef.split(":");
@@ -325,7 +334,7 @@ export async function verificaConfermaPerFascicolo(input: {
   const estrai = input.estraiTesto ?? dipendenzeCostoDaConfermaReali().estraiTesto;
   let parser: EsitoParser;
   try {
-    parser = await estrai(input.buffer, input.mimeType, input.nomeFile, false);
+    parser = await estrai(input.buffer, input.mimeType, input.nomeFile, { ocr: false, visione: null });
   } catch (errore) {
     return {
       ok: false,
@@ -391,6 +400,10 @@ export async function registraCostoDaConferma(input: {
   documentoId: number;
   /** OCR ammesso: solo dal worker o su richiesta esplicita, mai nel percorso della richiesta. */
   ocr?: boolean;
+  /** Lettura visiva con il modello quando l'OCR non basta (default: sì, se l'OCR è ammesso). */
+  visione?: boolean;
+  /** Chi paga la lettura visiva sul ledger: default la sede della commessa con l'utente di sistema. */
+  identitaVisione?: IdentitaLettura;
   /**
    * Rilegge anche se la lettura precedente è già decisa e rimette un costo
    * tolto a mano: è la richiesta esplicita di un utente (Tars), non il worker.
@@ -519,7 +532,13 @@ export async function registraCostoDaConferma(input: {
 
   let parser: EsitoParser;
   try {
-    parser = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome, input.ocr === true);
+    parser = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome, {
+      ocr: input.ocr === true,
+      visione:
+        input.ocr === true && input.visione !== false
+          ? (input.identitaVisione ?? { sedeId: Number(commessa.sedeId ?? 1), utenteId: 0 })
+          : null,
+    });
   } catch (errore) {
     return fallita("errore", `Parser fallito: ${motivoSicuro(errore)}`);
   }
@@ -536,7 +555,7 @@ export async function registraCostoDaConferma(input: {
     return fallita("non_leggibile", parser.motivo);
   }
   const fonteTesto: LetturaCostoDocumento["fonteTesto"] =
-    parser.ocr != null ? "ocr" : "testo_pdf";
+    parser.visione != null ? "visione" : parser.ocr != null ? "ocr" : "testo_pdf";
 
   const estrazione = estraiConfermaOrdine(parser.pagine, {
     codiceOrdine: input.numeroOrdine ?? null,
@@ -562,7 +581,11 @@ export async function registraCostoDaConferma(input: {
   });
   const riferimentoDocumento = `«${raw.nome}» (documento:${documento.id})`;
   const avvisoOcr =
-    fonteTesto === "ocr" ? " — testo da OCR, verificare sul file" : "";
+    fonteTesto === "ocr"
+      ? " — testo da OCR, verificare sul file"
+      : fonteTesto === "visione"
+        ? " — testo trascritto dal modello, verificare sul file"
+        : "";
   const memoriaBase = {
     fonteTesto,
     imponibile,

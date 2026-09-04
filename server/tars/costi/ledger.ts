@@ -31,6 +31,9 @@ export const CLASSI_COSTO = [
   "smistamento",
   // Analisi azienda giornaliera (02/09/2026).
   "analisi_azienda",
+  // Lettura visiva dei documenti (04/09/2026): il modello trascrive le
+  // pagine di scansioni e foto che l'OCR locale non legge.
+  "lettura_documenti",
   "eval",
 ] as const;
 export type ClasseCosto = (typeof CLASSI_COSTO)[number];

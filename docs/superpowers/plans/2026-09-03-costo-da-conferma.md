@@ -223,6 +223,34 @@ tesseract sbriciola. Un PDF «Conferme» conteneva più conferme: i totali si
 mescolano, va spezzato per documento (prossima tranche). La lettura con il
 modello (vision) delle scansioni resta la strada per il resto.
 
+## Sesta tranche (04/09, tarda mattina): lettura visiva e foto
+
+Mandato: «Procedi» sui passi proposti. Dieci conferme su quindici sono
+scansioni, una è ruotata, una è una foto jpeg: l'OCR locale è il percorso
+principale e quando fallisce costo e merce non nascono.
+
+1. **Foto** (`parserRegistry.ts` parser `immagine`, `ocr.ts`
+   `eseguiOcrImmagine`): jpeg/png/webp/gif/tiff/bmp passano da tesseract
+   senza rendering (HEIC no: va convertito). Il rendering PDF→PNG è ora
+   `renderizzaPaginePng`, condiviso con la lettura visiva.
+2. **Lettura visiva** (`documenti/letturaVisiva.ts`): quando l'OCR manca,
+   fallisce o legge poco e male (`daVerificare`, meno di 200 caratteri per
+   pagina), il modello TRASCRIVE le pagine (150 dpi, al più 8) riga per
+   riga, colonne separate da tre spazi. Il modello non decide niente: il
+   testo attraversa gli stessi estrattori deterministici. A pagamento:
+   passa dal governor e dal ledger (classe di costo nuova
+   `lettura_documenti`, `FLAG_LETTURA_VISIVA` fail-closed, modello
+   `TARS_MODEL_VISIONE` o quello interattivo). Parte SOLO con un'identità:
+   il worker con l'utente di sistema, `leggi_conferma_ordine` (1.3.0) e
+   `registra_costo_fornitore` con l'utente della chat. Mai nel percorso di
+   una richiesta HTTP (upload, archiviazione, smistamento).
+3. **Provider**: i turni utente possono portare immagini (`immagini[]`,
+   data URL, token stimati dichiarati); l'adapter le manda come
+   `input_image`; il governor le conta nella stima. La forma dell'input
+   Responses vive in `openai/corpo.ts`, funzione pura testabile.
+4. `fonteTesto` conosce «visione»; lettura 1.7.0 rilegge tutte le
+   conferme (le `non_leggibile` passano dal modello).
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

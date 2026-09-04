@@ -82,6 +82,21 @@
 > nessuno l'ha modificato dalla scheda (`costi[].modificatoAMano`, marcato
 > da `commesse.updateCosto`): solo quello una rilettura corregge. Piano:
 > `docs/superpowers/plans/2026-09-03-costo-da-conferma.md` (quinta tranche).
+>
+> **Tarda mattina del 04/09 — lettura visiva e foto (sesta tranche).** Le
+> foto (jpeg/png/webp) passano da tesseract (`eseguiOcrImmagine`). Quando
+> l'OCR manca, fallisce o legge poco e male, il modello TRASCRIVE le pagine
+> (`documenti/letturaVisiva.ts`: 150 dpi, al più 8 pagine, riga per riga con
+> le colonne a tre spazi) e il testo attraversa gli stessi estrattori: il
+> modello non decide niente. A pagamento, dietro governor e ledger (classe
+> `lettura_documenti`), con `FLAG_LETTURA_VISIVA` (fail-closed; acceso in
+> Railway il 04/09) e modello `TARS_MODEL_VISIONE` (default: quello
+> interattivo). Parte solo con un'identità: worker (utente di sistema),
+> `leggi_conferma_ordine` 1.3.0 e `registra_costo_fornitore` (utente della
+> chat); mai in upload, archiviazione o smistamento. I turni utente del
+> provider portano immagini (`immagini[]`), l'adapter le manda come
+> `input_image` (`openai/corpo.ts`), il governor le conta nella stima.
+> Lettura 1.7.0. Ancora aperto: PDF con più conferme (Bertolotto).
 
 ## 1. Contesto
 

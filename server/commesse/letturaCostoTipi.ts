@@ -16,7 +16,9 @@
 // 1.6.0: il costo «nato dalla regola» si riconosce dalla sua impronta
 // (descrizione, nota, nessuna modifica a mano), non dal confronto con la
 // lettura precedente.
-export const VERSIONE_LETTURA_COSTO = "1.6.0";
+// 1.7.0: lettura visiva con il modello per scansioni e foto che l'OCR non
+// legge (fonteTesto «visione»); le foto (jpeg, png) passano dall'OCR.
+export const VERSIONE_LETTURA_COSTO = "1.7.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -48,7 +50,7 @@ export type LetturaCostoDocumento = {
   checksum: string | null;
   quando: string; // ISO
   esito: EsitoLetturaCosto;
-  fonteTesto: "testo_pdf" | "ocr" | "nessuna";
+  fonteTesto: "testo_pdf" | "ocr" | "visione" | "nessuna";
   imponibile: number | null;
   fornitore: string | null;
   numeroOrdine: string | null;

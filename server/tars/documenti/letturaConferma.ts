@@ -25,6 +25,7 @@ import {
   estraiConfermaOrdine,
   type EstrazioneConferma,
 } from "../../documenti/estrazioneConferma";
+import type { IdentitaLettura } from "../../documenti/letturaVisiva";
 import { estraiTestoDocumento } from "../../documenti/parserRegistry";
 import {
   riscontroCommessaNelTesto,
@@ -37,7 +38,7 @@ export type LetturaConferma = {
   nomeFile: string;
   mimeType: string;
   /** Come si è ottenuto il testo: utile a spiegare una lettura incerta. */
-  fonteTesto: "testo_pdf" | "ocr" | "nessuna";
+  fonteTesto: "testo_pdf" | "ocr" | "visione" | "nessuna";
   pagine: number;
   estrazione: EstrazioneConferma | null;
   /**
@@ -58,14 +59,17 @@ export type DipendenzeLettura = {
   /**
    * Testo del documento: il registry sceglie il parser dal mime e ricade
    * DA SOLO sull'OCR locale quando il PDF è una scansione — la stessa
-   * pipeline dell'analisi documentale, non una seconda.
+   * pipeline dell'analisi documentale, non una seconda. Con un'identità
+   * (`visione`) può chiedere al modello di trascrivere le pagine che l'OCR
+   * non legge: è la lettura esplicita di UN file chiesta in chat.
    */
   estraiTesto: (
     buffer: Buffer,
     mimeType: string,
-    nome: string
+    nome: string,
+    visione?: IdentitaLettura | null
   ) => Promise<
-    | { pagine: string[]; daOcr: boolean; avvertenze: string[] }
+    | { pagine: string[]; daOcr: boolean; daVisione?: boolean; avvertenze: string[] }
     | { pagine: null; motivo: string }
   >;
 };
@@ -74,12 +78,15 @@ export function dipendenzeLetturaReali(): DipendenzeLettura {
   return {
     leggiAllegato: (comunicazione, allegatoIndex) =>
       leggiAllegatoRaw(comunicazione, allegatoIndex),
-    estraiTesto: async (buffer, mimeType, nome) => {
-      const esito = await estraiTestoDocumento(buffer, mimeType, nome);
+    estraiTesto: async (buffer, mimeType, nome, visione) => {
+      const esito = await estraiTestoDocumento(buffer, mimeType, nome, {
+        visione: visione ?? null,
+      });
       if (esito.esito === "estratto") {
         return {
           pagine: esito.pagine,
           daOcr: esito.ocr != null,
+          daVisione: esito.visione != null,
           avvertenze: esito.avvertenze ?? [],
         };
       }
@@ -101,7 +108,7 @@ export function dipendenzeLetturaReali(): DipendenzeLettura {
 function componiLettura(input: {
   raw: { nome: string; mimeType: string };
   testo:
-    | { pagine: string[]; daOcr: boolean; avvertenze: string[] }
+    | { pagine: string[]; daOcr: boolean; daVisione?: boolean; avvertenze: string[] }
     | { pagine: null; motivo: string };
   codiceCommessa: string | null;
   commessa: any | null;
@@ -123,7 +130,11 @@ function componiLettura(input: {
   }
   const pagine = testo.pagine;
   const avvertenze = [...testo.avvertenze];
-  if (testo.daOcr) {
+  if (testo.daVisione) {
+    avvertenze.push(
+      "Scansione o foto trascritta dal modello: verifica gli importi sul documento prima di registrarli."
+    );
+  } else if (testo.daOcr) {
     avvertenze.push(
       "PDF scansionato: testo ricostruito con OCR, verifica gli importi prima di registrarli."
     );
@@ -160,7 +171,7 @@ function componiLettura(input: {
   return {
     nomeFile: raw.nome,
     mimeType: raw.mimeType,
-    fonteTesto: testo.daOcr ? "ocr" : "testo_pdf",
+    fonteTesto: testo.daVisione ? "visione" : testo.daOcr ? "ocr" : "testo_pdf",
     pagine: pagine.length,
     estrazione,
     citaLaCommessa,
@@ -176,11 +187,13 @@ export async function leggiConfermaAllegata(input: {
   /** La commessa per cui si legge (oggetto vivo dello store): abilita il riscontro pieno. */
   commessa?: any | null;
   fornitoreAtteso?: string | null;
+  /** Identità per la lettura visiva (chi paga sul ledger); assente = solo OCR. */
+  visione?: IdentitaLettura | null;
   deps?: DipendenzeLettura;
 }): Promise<LetturaConferma> {
   const deps = input.deps ?? dipendenzeLetturaReali();
   const raw = await deps.leggiAllegato(input.comunicazione, input.allegatoIndex);
-  const testo = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome);
+  const testo = await deps.estraiTesto(raw.buffer, raw.mimeType, raw.nome, input.visione ?? null);
   return componiLettura({
     raw,
     testo,
@@ -202,6 +215,8 @@ export async function leggiConfermaDocumento(input: {
   codiceCommessa?: string | null;
   fornitoreAtteso?: string | null;
   numeroOrdineAtteso?: string | null;
+  /** Identità per la lettura visiva (chi paga sul ledger); assente = solo OCR. */
+  visione?: IdentitaLettura | null;
   deps?: Pick<DipendenzeLettura, "estraiTesto"> & {
     leggiDocumento?: (
       documentoId: number,
@@ -228,7 +243,7 @@ export async function leggiConfermaDocumento(input: {
   if (!raw) return null;
   const commessa: any =
     raw.commessaId != null ? (getCommessaById(raw.commessaId) ?? null) : null;
-  const testo = await estraiTesto(raw.buffer, raw.mimeType, raw.nome);
+  const testo = await estraiTesto(raw.buffer, raw.mimeType, raw.nome, input.visione ?? null);
   return componiLettura({
     raw,
     testo,
