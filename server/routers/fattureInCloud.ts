@@ -31,7 +31,7 @@ import {
 // any client that doesn't exist in the CRM yet. Read-only towards FiC;
 // OAuth Authorization Code is the primary mode, with automatic refresh.
 
-const FIC = "https://api-v2.fattureincloud.it";
+export const FIC = "https://api-v2.fattureincloud.it";
 const FIC_REQUEST_TIMEOUT_MS = 30_000;
 const FIC_SYNC_TIMEOUT_MS = 10 * 60_000;
 // Lettura: il sync automatico che legge fatture/clienti/pagamenti da FiC.
@@ -227,7 +227,7 @@ type FicTokenResponse = {
   expires_in?: number;
 };
 
-async function fetchFicConTimeout(
+export async function fetchFicConTimeout(
   input: string,
   init: RequestInit = {},
   signal?: AbortSignal
@@ -406,7 +406,7 @@ export function tokenSembraValido(t: string): boolean {
 
 // Gli errori dell'API arrivano in inglese e generici: qui diventano frasi
 // che dicono all'operatore cosa fare.
-function messaggioErroreFic(status: number, corpo: string): string {
+export function messaggioErroreFic(status: number, corpo: string): string {
   if (status === 401) {
     return "Token rifiutato da Fatture in Cloud: è scaduto, è stato revocato, oppure non è un token (controlla di non aver incollato il Client ID).";
   }
