@@ -21,7 +21,7 @@ export async function giroFollowup(now = new Date()): Promise<void> {
   for (const sede of getSediStore()) {
     try {
       const esito = await giroSollecitiPreventivi({ sedeId: sede.id, adesso: now });
-      if (esito.creati > 0) {
+      if (esito.creati > 0 || esito.errori > 0) {
         console.info("[tars-followup] solleciti preventivi", { sedeId: sede.id, ...esito });
       }
     } catch (errore) {

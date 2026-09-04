@@ -6,7 +6,12 @@
 import { describe, expect, it } from "vitest";
 import { creaProviderFinto } from "../openai/fake";
 import { PROMPT_ANALISI, PROMPT_ANALISI_VERSIONE } from "./prompt";
-import { analisiDeterministica, analizzaConModello, verificaEsito } from "./analisi";
+import {
+  STRUMENTI_PROPOSTE_ESEGUIBILI,
+  analisiDeterministica,
+  analizzaConModello,
+  verificaEsito,
+} from "./analisi";
 import { costruisciFotografia, entitaDellaFotografia, testoFotografia, type DipendenzeFotografia } from "./fotografia";
 import { creaRepositoryAnalisiMemoria } from "./repository";
 import { RITENTO_ERRORE_MS, generaAnalisiAzienda, giroAnalisi, type DipendenzeAnalisi } from "./worker";
@@ -174,8 +179,8 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v8: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v8");
+  it("analisi-v9: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v9");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
@@ -183,6 +188,14 @@ describe("prompt", () => {
     expect(PROMPT_ANALISI).toContain("Conferme d'ordine mancanti");
     expect(PROMPT_ANALISI).toMatch(/[Ss]olo se conosci TUTTI i parametri/);
     expect(PROMPT_ANALISI).toContain("MAI proporre di «rispondere»");
+    // 04/09: la conferma arrivata per mail si archivia con un click; la
+    // conferma senza costo leggibile è un punto, non una proposta.
+    expect(PROMPT_ANALISI).toContain("archivia_allegato_comunicazione: input");
+    expect(PROMPT_ANALISI).toContain("NON è una proposta");
+  });
+
+  it("archivia_allegato_comunicazione è eseguibile da una proposta, ma mai senza riscontro", () => {
+    expect(STRUMENTI_PROPOSTE_ESEGUIBILI).toContain("archivia_allegato_comunicazione");
   });
 });
 

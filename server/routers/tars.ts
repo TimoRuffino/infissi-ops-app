@@ -908,6 +908,7 @@ export const tarsRouter = router({
           comunicazione,
           esito: esitoDaApplicare,
           utente: { id: contesto.utenteId, nome: ctx.user?.name ?? "un operatore" },
+          visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
         });
         await repository.registra({
           comunicazioneId: input.comunicazioneId,
@@ -949,7 +950,9 @@ export const tarsRouter = router({
         if (!comunicazione) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Comunicazione non trovata." });
         }
-        const deps = dipendenzeSmistamentoReali();
+        const deps = dipendenzeSmistamentoReali({
+          visione: { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+        });
         const precedente = await deps.repository.perComunicazione(contesto.sedeId, comunicazione.id);
         const fatto = await smistaComunicazione({
           comunicazione,

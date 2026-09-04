@@ -400,11 +400,20 @@ export function createPostgresReminderRepository(
           return { record, created: true };
         }
 
+        // Il cast è obbligatorio: con `sourceProposalId` nullo PostgreSQL
+        // non sa il tipo del parametro in `$n IS NOT NULL` (42P18 «could not
+        // determine data type of parameter») e la seconda creazione con la
+        // stessa chiave — il caso normale di ogni worker che rigira — falliva
+        // invece di restituire il promemoria esistente (04/09/2026: i
+        // solleciti preventivi si fermavano al primo già creato).
         const existing = await tx`SELECT * FROM promemoria
           WHERE sede_id = ${input.sedeId}
             AND (
               canonical_key = ${input.canonicalKey}
-              OR (${input.sourceProposalId} IS NOT NULL AND source_proposal_id = ${input.sourceProposalId})
+              OR (
+                ${input.sourceProposalId}::bigint IS NOT NULL
+                AND source_proposal_id = ${input.sourceProposalId}::bigint
+              )
             )
           ORDER BY id ASC LIMIT 1`;
         if (!existing[0]) throw new Error("REMINDER_CREATE_CONFLICT");

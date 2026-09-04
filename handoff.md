@@ -101,6 +101,43 @@
 > `estraiConfermeNelDocumento` leggono ogni sezione da sola e il costo è la
 > SOMMA degli imponibili, solo se ogni sezione ha il suo (`motivoSomma`
 > altrimenti); «TOTALE ORDINE» batte «TOT. MERCE». Lettura 1.8.0.
+>
+> **Pomeriggio del 04/09 — «Tars non fa proposte, è tutto fermo, idem le
+> conferme ordine; non deve arrendersi, deve essere sicuro e molto più
+> attivo».** Diagnosi in produzione (sonde in sola lettura): l'analisi
+> azienda girava (5+1 proposte/giorno, versione 1.2.0) ma sprecava posti
+> in «registra a mano»; lo smistamento smistava (49 mail/giorno) senza
+> aprire proposte perché i candidati nascevano solo dalla mail; le conferme
+> dei fornitori — 60 PDF in 120 giorni, 57 non archiviati, 52 in mail senza
+> commessa («PAIL_2634169 RUFFINO», «Commessa-N-1013363 PENULTIMO PIANO»:
+> il cliente è solo dentro il PDF) — restavano allegati; il follow-up
+> preventivi moriva ogni mezz'ora su `could not determine data type of
+> parameter $3` (42P18: promemoria già esistente cercato con un parametro
+> nullo senza cast). Fatto: (1) **la commessa si cerca DENTRO la conferma**
+> (`tars/documenti/ricercaCommessaNelDocumento.ts`: il testo — nativo, OCR
+> o trascritto dal modello — contro tutte le commesse vive con lo stesso
+> riscontro dell'archiviazione; una forte = trovata, due dello stesso
+> cliente = quella che aspetta la conferma, altrimenti decide una persona;
+> l'azienda stessa non è mai candidata; lettore con memoria 12 h e tetto di
+> letture per giro); il detector `confermeMancanti` legge dentro i file
+> (`riscontroTesto` + prove su ogni candidato, «certa» solo se il testo non
+> smentisce), il worker delle conferme archivia anche dalle mail di nessuno
+> e le COLLEGA, lo smistamento legge gli allegati «da conferma» all'arrivo
+> (riscontro unico = collegamento certo + archiviazione; più riscontri =
+> candidati per il modello) e una conferma apre la proposta anche su mail
+> vecchie; `verificaConfermaPerFascicolo` accetta OCR/visione e pagine già
+> lette; «conferma ordine cliente» del fornitore non è più esclusa.
+> (2) **Analisi**: `archivia_allegato_comunicazione` eseguibile con un click
+> dalle proposte (fotografia con comunicazione e `allegatoIndex`), prompt
+> analisi-v9 (conferme senza costo leggibile = un punto, mai proposte).
+> (3) **Follow-up**: cast `::bigint` in `reminders/repository.ts`, errori
+> isolati per commessa, contratto PG `reminders/repository.pg.test.ts`.
+> (4) **Prompt v12**: «non ti arrendi» (rileggere e cercare per cognome,
+> telefono, comunicazioni prima di dire non posso) e «sicurezza» (niente
+> «vuoi che proceda?»). Registro azioni 1.21.0
+> (`cerca_conferme_ordine_mancanti` 1.1.0). Costi: al più 8 letture nuove
+> per giro del worker (10 min), 10 per giro di smistamento, 6 per
+> fotografia/chat; il testo letto resta in memoria 12 ore.
 
 ## 1. Contesto
 

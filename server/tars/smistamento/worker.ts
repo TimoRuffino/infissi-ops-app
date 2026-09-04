@@ -30,6 +30,13 @@ import {
 } from "./analisi";
 import { applicaSmistamento, type DipendenzeApplica } from "./applica";
 import { generaCandidati, type EsitoCandidati } from "./candidati";
+import { nomeDaConferma } from "../documenti/confermeMancanti";
+import {
+  creaLettoreCommessaNelDocumento,
+  type CommessaRicercabile,
+  type LettoreCommessaNelDocumento,
+} from "../documenti/ricercaCommessaNelDocumento";
+import type { CandidatoCollegamento } from "./types";
 import {
   repositorySmistamentoAutorevoleDisponibile,
   repositorySmistamentoCorrente,
@@ -78,12 +85,32 @@ export type DipendenzeWorker = {
   leggiRaw: typeof leggiAllegatoRaw;
   estraiTesto: typeof estraiTestoDocumento;
   applica?: DipendenzeApplica;
+  /**
+   * Cerca la commessa DENTRO una conferma d'ordine allegata (04/09/2026:
+   * il fornitore scrive «PAIL_2634169 RUFFINO» nella mail e il cliente
+   * solo nel PDF). Opzionale: senza, valgono solo i candidati della mail.
+   */
+  cercaCommessaNelDocumento?: LettoreCommessaNelDocumento;
   now: () => Date;
 };
 
-/** Dipendenze di produzione: usate dal worker e dal «riesamina» dell'operatore. */
-export function dipendenzeSmistamentoReali(): DipendenzeWorker {
-  return dipendenzeReali();
+/**
+ * Dipendenze di produzione: usate dal worker e dal «riesamina»
+ * dell'operatore. Con un'identità, le scansioni delle conferme le legge il
+ * modello a nome di chi chiede (o della sede, per il worker).
+ */
+export function dipendenzeSmistamentoReali(opzioni?: {
+  visione?: { sedeId: number; utenteId: number } | null;
+}): DipendenzeWorker {
+  const base = dipendenzeReali();
+  if (!opzioni?.visione) return base;
+  return {
+    ...base,
+    cercaCommessaNelDocumento: creaLettoreCommessaNelDocumento({
+      visione: opzioni.visione,
+      massimoLetture: LOTTO_PER_GIRO,
+    }),
+  };
 }
 
 function dipendenzeReali(): DipendenzeWorker {
@@ -110,7 +137,121 @@ function dipendenzeReali(): DipendenzeWorker {
     filo: cercaFiloCollegato,
     leggiRaw: leggiAllegatoRaw,
     estraiTesto: estraiTestoDocumento,
+    // Un lettore per giro: al massimo un file nuovo per comunicazione del
+    // lotto, scansioni trascritte dal modello con l'utente di sistema.
+    cercaCommessaNelDocumento: creaLettoreCommessaNelDocumento({
+      visione: null,
+      massimoLetture: LOTTO_PER_GIRO,
+    }),
     now: () => new Date(),
+  };
+}
+
+/**
+ * Il lettore di produzione paga le letture visive per sede: si crea con
+ * l'identità della sede al momento dello smistamento.
+ */
+function lettoreConVisione(sedeId: number): LettoreCommessaNelDocumento {
+  return creaLettoreCommessaNelDocumento({
+    visione: { sedeId, utenteId: UTENTE_SISTEMA },
+    massimoLetture: LOTTO_PER_GIRO,
+  });
+}
+
+/** Punteggio di un candidato trovato nel testo del file. */
+const PUNTI_TESTO_FORTE = 70;
+const PUNTI_TESTO_DEBOLE = 45;
+const MASSIMO_CANDIDATI = 8;
+
+/**
+ * I candidati che nascono DENTRO gli allegati «da conferma»: il testo del
+ * PDF letto contro le commesse vive della sede. Un riscontro unico è un
+ * verdetto certo (come il codice nella mail); più riscontri sono candidati
+ * con punteggio, e li giudica il modello. Restituisce anche le pagine
+ * lette, così l'archiviazione non rilegge il file.
+ */
+export async function candidatiDagliAllegati(input: {
+  comunicazione: Comunicazione;
+  candidati: EsitoCandidati;
+  commesse: readonly CommessaRicercabile[];
+  cerca: LettoreCommessaNelDocumento;
+  leggiRaw: typeof leggiAllegatoRaw;
+}): Promise<{ candidati: EsitoCandidati; letture: Map<number, string[]> }> {
+  const letture = new Map<number, string[]>();
+  const { comunicazione } = input;
+  if (input.candidati.certo || comunicazione.commessaId != null) {
+    return { candidati: input.candidati, letture };
+  }
+  const commesse = input.commesse.filter(c => !c.archivedAt && c.stato !== "archiviata");
+  const perId = new Map(commesse.map(c => [c.id, c] as const));
+  const lista: CandidatoCollegamento[] = input.candidati.candidati.map(c => ({ ...c, motivi: [...c.motivi] }));
+  const aggiungi = (commessaId: number, punti: number, motivo: string) => {
+    const commessa = perId.get(commessaId);
+    if (!commessa) return;
+    const voce = lista.find(c => c.tipo === "commessa" && c.id === commessaId);
+    if (voce) {
+      voce.punteggio = Math.min(100, voce.punteggio + punti);
+      if (!voce.motivi.includes(motivo)) voce.motivi.push(motivo);
+      return;
+    }
+    lista.push({
+      tipo: "commessa",
+      id: commessaId,
+      etichetta: `${commessa.codice ?? commessaId} — ${commessa.cliente ?? "cliente"}`,
+      punteggio: Math.min(100, punti),
+      motivi: [motivo],
+    });
+  };
+
+  for (const [indice, allegato] of comunicazione.allegati.entries()) {
+    if (!nomeDaConferma(allegato.nome, allegato.mimeType)) continue;
+    let ricerca;
+    try {
+      ricerca = await input.cerca(
+        {
+          sedeId: comunicazione.sedeId,
+          comunicazioneId: comunicazione.id,
+          allegatoIndex: indice,
+          leggi: () => input.leggiRaw(comunicazione, indice),
+        },
+        commesse
+      );
+    } catch {
+      continue;
+    }
+    if (ricerca.pagine) letture.set(indice, ricerca.pagine);
+    if (ricerca.esito === "unica" && ricerca.commessaId != null) {
+      const commessa = perId.get(ricerca.commessaId)!;
+      const motivo = `La conferma «${allegato.nome}» cita ${ricerca.candidati.find(c => c.commessaId === ricerca.commessaId)?.prove.join(", ") ?? "la commessa"}: candidato unico fra le commesse vive.`;
+      return {
+        candidati: {
+          certo: { commessaId: commessa.id, clienteId: commessa.clienteId ?? null, motivo },
+          candidati: [
+            {
+              tipo: "commessa",
+              id: commessa.id,
+              etichetta: `${commessa.codice ?? commessa.id} — ${commessa.cliente ?? "cliente"}`,
+              punteggio: 100,
+              motivi: [motivo],
+            },
+          ],
+          segnali: input.candidati.segnali,
+        },
+        letture,
+      };
+    }
+    for (const c of ricerca.candidati) {
+      aggiungi(
+        c.commessaId,
+        c.forza === "forte" ? PUNTI_TESTO_FORTE : PUNTI_TESTO_DEBOLE,
+        `Il testo del file «${allegato.nome}» cita ${c.prove.join(", ")}.`
+      );
+    }
+  }
+  lista.sort((a, b) => b.punteggio - a.punteggio || (a.tipo === "commessa" ? -1 : 1) - (b.tipo === "commessa" ? -1 : 1) || a.id - b.id);
+  return {
+    candidati: { ...input.candidati, candidati: lista.slice(0, MASSIMO_CANDIDATI) },
+    letture,
   };
 }
 
@@ -214,7 +355,7 @@ export async function smistaComunicazione(input: {
     finestraGiorni: FILO_GIORNI,
     escludiId: comunicazione.id,
   });
-  const candidati = generaCandidati({
+  let candidati = generaCandidati({
     comunicazione,
     clienti: sede.clienti,
     commesse: sede.commesse,
@@ -222,6 +363,20 @@ export async function smistaComunicazione(input: {
     cognomiInterni: sede.cognomiInterni,
     filoCollegato,
   });
+  // La mail non dice di chi è, ma la conferma allegata sì: si legge dentro.
+  let letture = new Map<number, string[]>();
+  const cerca = deps.cercaCommessaNelDocumento;
+  if (cerca && !candidati.certo && comunicazione.commessaId == null) {
+    const arricchiti = await candidatiDagliAllegati({
+      comunicazione,
+      candidati,
+      commesse: sede.commesse,
+      cerca,
+      leggiRaw: deps.leggiRaw,
+    });
+    candidati = arricchiti.candidati;
+    letture = arricchiti.letture;
+  }
   const allegati = await allegatiPerAnalisi(comunicazione, deps);
   const contestoCandidati = new Map(
     candidati.candidati
@@ -274,6 +429,10 @@ export async function smistaComunicazione(input: {
     allegati,
     deps: deps.applica,
     adesso: now,
+    letture,
+    // Una conferma scansionata si verifica con OCR e, se serve, col modello
+    // (utente di sistema): la scansione non ferma la conferma.
+    lettura: { visione: { sedeId: comunicazione.sedeId, utenteId: UTENTE_SISTEMA } },
   });
   await deps.repository.registra({
     comunicazioneId: comunicazione.id,
@@ -299,7 +458,10 @@ export async function eseguiGiroSmistamento(input: {
   deps?: DipendenzeWorker;
   limite?: number;
 }): Promise<EsitoGiro> {
-  const deps = input.deps ?? dipendenzeReali();
+  const deps = input.deps ?? {
+    ...dipendenzeReali(),
+    cercaCommessaNelDocumento: lettoreConVisione(input.sedeId),
+  };
   const now = deps.now();
   const esito: EsitoGiro = {
     sedeId: input.sedeId,

@@ -43,6 +43,7 @@ import type { IdentitaLettura } from "../documenti/letturaVisiva";
 import {
   estraiTestoDocumento,
   type EsitoParser,
+  type OpzioniLettura,
 } from "../documenti/parserRegistry";
 import {
   riferimentiOrdineDocumento,
@@ -323,12 +324,28 @@ export type VerificaConfermaPerFascicolo = {
  * regola delle conferme certe, strumento Tars): il testo deve citare la
  * commessa e non deve essere una copia di una conferma già presente.
  */
+export type LetturaPerVerifica = {
+  /** OCR locale: assente = con i limiti di default; `false` = spento. */
+  ocr?: OpzioniLettura["ocr"];
+  /** Lettura visiva con il modello, con l'identità di chi paga sul ledger. */
+  visione?: OpzioniLettura["visione"];
+};
+
 export async function verificaConfermaPerFascicolo(input: {
   commessaId: number;
   nomeFile: string;
   mimeType: string;
   buffer: Buffer;
   estraiTesto?: DipendenzeCostoDaConferma["estraiTesto"];
+  /**
+   * Senza `lettura` si legge solo il testo nativo (rapido, gratuito):
+   * è il percorso di una richiesta HTTP. I worker e le approvazioni
+   * passano OCR e visione: una scansione non deve fermare la conferma
+   * (04/09/2026: «non deve arrendersi»).
+   */
+  lettura?: LetturaPerVerifica | null;
+  /** Pagine già lette da chi chiama (ricerca della commessa): niente rilettura. */
+  pagine?: readonly string[] | null;
 }): Promise<VerificaConfermaPerFascicolo> {
   const commessa: any = getCommessaById(input.commessaId);
   if (!commessa) {
@@ -337,7 +354,19 @@ export async function verificaConfermaPerFascicolo(input: {
   const estrai = input.estraiTesto ?? dipendenzeCostoDaConfermaReali().estraiTesto;
   let parser: EsitoParser;
   try {
-    parser = await estrai(input.buffer, input.mimeType, input.nomeFile, { ocr: false, visione: null });
+    parser = input.pagine?.length
+      ? { esito: "estratto", parser: "fornito", versione: "0", pagine: [...input.pagine], avvertenze: [] }
+      : await estrai(
+          input.buffer,
+          input.mimeType,
+          input.nomeFile,
+          input.lettura
+            ? {
+                ocr: input.lettura.ocr !== false,
+                visione: (input.lettura.visione || null) as IdentitaLettura | null,
+              }
+            : { ocr: false, visione: null }
+        );
   } catch (errore) {
     return {
       ok: false,

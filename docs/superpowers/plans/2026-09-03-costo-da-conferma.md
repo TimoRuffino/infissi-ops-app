@@ -271,6 +271,52 @@ ordine solo.
    = somma (…)», `letturaCosto.sezioni`; l'avvertenza in chat elenca le
    sezioni. Lettura 1.8.0.
 
+## Ottava tranche (04/09 pomeriggio): la commessa dentro la conferma
+
+«Le conferme ordine sono ferme.» In produzione 60 mail degli ultimi 120
+giorni portavano un PDF «da conferma»: 57 non archiviate, 52 senza
+commessa. Il fornitore scrive «PAIL_2634169 RUFFINO» o «Commessa-N-1013363
+PENULTIMO PIANO» nella mail (il SUO numero, non il nostro), e il cliente
+solo dentro il PDF: il detector cercava candidati soltanto fra le mail
+collegate, che citano il codice o dello stesso cliente, quindi non le
+vedeva; «1-Conferma ordine cliente.PDF» (Ferramenta Fivizzanese) era
+persino escluso come «ordine del cliente».
+
+1. `tars/documenti/ricercaCommessaNelDocumento.ts`: `cercaCommessaNelTesto`
+   (il testo contro tutte le commesse vive con `riscontroCommessaNelTesto`;
+   forte = codice, ordine noto, indirizzo, cognome pieno; debole = quasi
+   uguale o corto; una forte = `unica`, due dello stesso cliente = vince
+   quella che aspetta la conferma, altrimenti `ambigua`; l'azienda stessa
+   censita come cliente non è mai candidata) e `creaLettoreCommessaNelDocumento`
+   (memoria 12 ore per allegato, tetto di letture nuove per istanza,
+   ritento con il modello di una scansione letta senza identità).
+2. `confermeMancanti.ts`: dipendenza opzionale `leggiCommessaNelDocumento`;
+   candidati anche dalle mail di nessuno quando il testo cita la commessa;
+   `riscontroTesto` + `prove` su ogni candidato; «certa» richiede che il
+   testo non smentisca; `nomeDaConferma` condiviso; stoplist corretta.
+3. `confermeAutoArchivio.ts`: archivia anche la conferma di una mail non
+   collegata quando il testo cita QUESTA commessa e nessun'altra, e
+   COLLEGA la mail (motivo scritto); verifica con OCR e visione (utente di
+   sistema), riusando le pagine già lette.
+4. Smistamento: `candidatiDagliAllegati` (worker) legge dentro gli allegati
+   «da conferma» di una mail senza verdetto → riscontro unico = collegamento
+   certo + archiviazione (pagine riusate nella verifica), riscontri multipli
+   = candidati con punteggio per il modello; una conferma d'ordine apre la
+   proposta anche su mail più vecchie di 30 giorni; l'approvazione umana
+   legge le scansioni con OCR e modello a nome di chi approva.
+5. `verificaConfermaPerFascicolo`: `lettura` (OCR/visione) e `pagine`.
+6. Analisi azienda: `archivia_allegato_comunicazione` nella whitelist delle
+   proposte eseguibili (mai `confermaSenzaRiscontro`), fotografia con
+   comunicazione e `allegatoIndex`, prompt analisi-v9 (conferme senza costo
+   leggibile = un punto, non proposte; posti riempiti con azioni eseguibili).
+7. Follow-up preventivi: 42P18 sul promemoria già esistente (parametro
+   nullo senza tipo) fermava ogni giro al primo sollecito; cast `::bigint`
+   + errore isolato per commessa; contratto PG in
+   `reminders/repository.pg.test.ts`.
+8. Prompt interattivo v12: «non ti arrendi» (rileggere, cercare per
+   cognome/telefono/comunicazioni prima di dire non posso) e «sicurezza»
+   (conclusioni senza attenuazioni, niente «vuoi che proceda?»).
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

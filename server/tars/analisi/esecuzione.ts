@@ -100,6 +100,11 @@ export async function eseguiPropostaAnalisi(input: {
   if ((grezzi as any)?.scavalcaGate) {
     throw new PropostaNonEseguibile("Lo scavalco del gate non si esegue da una proposta.");
   }
+  if ((grezzi as any)?.confermaSenzaRiscontro) {
+    throw new PropostaNonEseguibile(
+      "Una conferma che non cita la commessa si archivia solo su conferma esplicita in chat."
+    );
+  }
   const argomenti = descrittore.strumento.schemaInput.parse(grezzi);
 
   const runId = `analisi:${input.record.id}:proposta:${input.indice}`;
