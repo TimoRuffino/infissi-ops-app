@@ -48,9 +48,11 @@ const DESCRIZIONE_SPESE_DOCUMENTAZIONE = "Spese per documentazione detrazione";
  * R17 (fatture 92 e 106): `spese_professionali` non è una prestazione al
  * 10 %, è la riga «Spese per documentazione detrazione» al 22 % fra i beni
  * significativi — resta fuori dai servizi proposti anche quando il computo
- * la include.
+ * la include. Esportata: `verificaLimiti` (R25) la riusa per sommare i
+ * limiti delle stesse voci opere/eventuali che qui generano le righe —
+ * stesso insieme, un solo posto che lo definisce.
  */
-function servizioProposto(v: VoceComputo): boolean {
+export function servizioProposto(v: VoceComputo): boolean {
   return (
     (v.gruppo === "opere" || v.gruppo === "eventuali") && v.inclusa && v.limiteCent > 0 &&
     v.codice !== "altri_servizi" && v.codice !== VOCE_SPESE_DOCUMENTAZIONE

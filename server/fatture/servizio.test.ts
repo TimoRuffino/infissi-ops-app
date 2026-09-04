@@ -2,13 +2,16 @@
 // Il servizio della bozza sul caso reale 127/2026 (fixture del computo):
 // contratto e computo veri, non finti, così i servizi proposti e i limiti
 // sono i numeri del foglio. Pattuito 1549472 lordo, beni significativi
-// 1199677, servizi proposti 347500, somma dei limiti 348008.
+// 1199677, servizi proposti 347500, somma dei limiti delle opere 348008,
+// massimale_A 1603976, limite del computo (min CHECK1/CHECK2) 1930728.
+// Riequilibrato al markup reale della fattura 129 (215359): beni senza
+// voce di computo 817926 (R25, `describe("verificaLimiti")`).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
 import type { ClienteSnapshot, FatturazioneConfig } from "@shared/fatturazione/tipi";
 import casi from "../computo/__fixtures__/casi-reali.json";
 import { _resetComputiRepositoryForTests } from "../computo/repository";
-import { eseguiComputo } from "../computo/servizio";
+import { eseguiComputo, ultimoComputo } from "../computo/servizio";
 import { _resetContrattiRepositoryForTests } from "../contratti/repository";
 import { salvaContratto } from "../contratti/servizio";
 import { getClientiStore } from "../routers/clienti";
@@ -33,7 +36,6 @@ const ora = new Date("2026-09-04T10:00:00Z");
 const PATTUITO = 1549472;
 const BENI_SIGNIFICATIVI = 1199677;
 const SERVIZI_PROPOSTI = 347500;
-const SOMMA_LIMITI = 348008;
 
 let repository: FattureRepository;
 const dip = () => ({ repository, now: () => ora });
@@ -306,7 +308,10 @@ describe("creaBozza", () => {
     // I servizi al 10 % restano quelli del computo: il confronto sui
     // limiti non cambia (la riga al 22 % sta nel blocco beni).
     expect(fattura.righe.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0)).toBe(SERVIZI_PROPOSTI);
-    expect(codici(verificaLimiti(fattura))).toEqual(["markup_negativo"]);
+    // La spesa ha una voce di computo: esce dal blocco prodotti (R25) come
+    // già usciva dal blocco servizi (R17) — resta solo il markup negativo.
+    const { computo } = await ultimoComputo(SEDE, commessaId);
+    expect(codici(verificaLimiti(fattura, computo))).toEqual(["markup_negativo"]);
   });
 });
 
@@ -404,15 +409,21 @@ describe("aggiornaBozza", () => {
     expect(b.fattura.righe.filter(r => r.tipo === "bene").map(r => r.importoCent)).toEqual([590810, 223976, 95806]);
     expect(b.fattura.righe.filter(r => r.tipo === "bene").reduce((s, r) => s + r.importoCent, 0)).toBe(910592);
     expect(b.fattura.totaleCent).toBe(PATTUITO);
-    // Ora la prestazione (447500) supera la somma dei limiti proposti (348008).
-    expect(errori(b.controlli)).toEqual(["limite_totale"]);
+    // R25: nessun errore. Il markup sta coi prodotti (910592 + 100000 =
+    // 1010592 ≤ massimale_A 1603976), i servizi restano quelli proposti dal
+    // computo (347500 ≤ 348008 di opere) e l'imponibile resta sotto il
+    // limite del computo — prima della correzione R25 questo stesso caso
+    // sommava servizi e markup (447500 > 348008) e dava `limite_totale` per
+    // errore: è esattamente il bug del Task 6 che questo task corregge.
+    expect(errori(b.controlli)).toEqual([]);
   });
 
-  it("un servizio oltre il proprio limite: avviso sulla riga, errore sul totale", async () => {
+  it("un servizio oltre il proprio limite: avviso sulla riga, errore sul blocco servizi", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
-    // Posa a 2000,00 (limite 1314,00) e markup portato a 100.000: la
-    // prestazione sale a 5161,00 contro 3480,08 di limiti proposti.
+    // Posa a 2000,00 (limite 1314,00) e markup portato a 100.000: i servizi
+    // salgono a 4161,00 contro 3480,08 di limiti delle opere (R25: il
+    // markup non c'entra più — sta coi prodotti, ben sotto il massimale).
     const esito = await aggiornaBozza({
       sedeId: SEDE,
       id: fattura.id,
@@ -430,12 +441,12 @@ describe("aggiornaBozza", () => {
     expect(esito.controlli.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
       { codice: "cliente", esito: "ok" },
       { codice: "limite_riga", esito: "avviso" },
-      { codice: "limite_totale", esito: "errore" },
+      { codice: "limite_servizi", esito: "errore" },
     ]);
     const riga = esito.controlli.find(c => c.codice === "limite_riga")!;
     expect(riga.messaggio).toContain("supera il limite di € 1314,00");
-    expect(esito.controlli.find(c => c.codice === "limite_totale")!.messaggio).toBe(
-      "Le prestazioni in fattura (€ 5161,00) superano il limite del computo (€ 3480,08)."
+    expect(esito.controlli.find(c => c.codice === "limite_servizi")!.messaggio).toBe(
+      "I servizi (€ 4161,00) superano i limiti delle opere (€ 3480,08)."
     );
   });
 
@@ -729,16 +740,21 @@ describe("aggiornaBozza", () => {
   it("lo scavalco dei limiti è registrato con l'evento e il motivo", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
-    // Prestazione oltre la somma dei limiti (447500 > 348008) con markup 100.000.
+    // Stesso scenario del test precedente (posa oltre il proprio limite,
+    // markup portato a 100.000): i servizi (4161,00) superano le opere
+    // (3480,08) — R25, il markup non c'entra, sta coi prodotti.
     const a = await aggiornaBozza({
       sedeId: SEDE,
       id: fattura.id,
       revisione: 1,
       actorUserId: ATTORE,
-      modifica: { riequilibraBeniAMarkupCent: 100000 },
+      modifica: {
+        righe: [{ ordine: ordineDi(fattura, "posa"), importoCent: 200000 }],
+        riequilibraBeniAMarkupCent: 100000,
+      },
       ...dip(),
     });
-    expect(errori(a.controlli)).toEqual(["limite_totale"]);
+    expect(errori(a.controlli)).toEqual(["limite_servizi"]);
 
     const b = await aggiornaBozza({
       sedeId: SEDE,
@@ -752,9 +768,10 @@ describe("aggiornaBozza", () => {
     expect(b.fattura.scavalcoMotivo).toBe("Extra concordati fuori computo");
     expect(b.controlli.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
       { codice: "cliente", esito: "ok" },
-      { codice: "limite_totale", esito: "avviso" },
+      { codice: "limite_riga", esito: "avviso" },
+      { codice: "limite_servizi", esito: "avviso" },
     ]);
-    expect(b.controlli.find(c => c.codice === "limite_totale")!.messaggio).toContain(
+    expect(b.controlli.find(c => c.codice === "limite_servizi")!.messaggio).toContain(
       "scavalcato: Extra concordati fuori computo"
     );
 
@@ -765,13 +782,16 @@ describe("aggiornaBozza", () => {
 });
 
 describe("verificaLimiti", () => {
-  it("segnala la riga oltre il limite, il totale oltre la somma dei limiti e il markup negativo", async () => {
+  it("segnala la riga oltre il limite, il blocco servizi oltre le opere, il totale oltre il computo e il markup negativo", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const { computo } = await ultimoComputo(SEDE, commessaId);
 
-    // Il caso base: markup negativo, ma nessuna riga oltre il proprio limite
-    // e prestazione (87618) ben sotto la somma dei limiti (348008).
-    expect(codici(verificaLimiti(fattura))).toEqual(["markup_negativo"]);
+    // Il caso base: markup negativo, ma nessuna riga oltre il proprio
+    // limite e nessun blocco oltre il proprio — beni+markup (939795) sotto
+    // il massimale (1603976), servizi (347500) sotto le opere (348008),
+    // imponibile (1287295) sotto il limite del computo (1930728).
+    expect(codici(verificaLimiti(fattura, computo))).toEqual(["markup_negativo"]);
 
     const posa = fattura.righe.find(r => r.voceComputoCodice === "posa")!;
     const oltre = {
@@ -779,36 +799,117 @@ describe("verificaLimiti", () => {
       markupCent: 0,
       righe: fattura.righe.map(r => (r.ordine === posa.ordine ? { ...r, importoCent: 200000 } : r)),
     };
-    // La riga fuori limite si porta dietro anche il totale (416100 > 348008):
-    // l'una è un indicatore, l'altro è un blocco.
-    const controlli = verificaLimiti(oltre);
+    // La riga fuori limite si porta dietro il blocco servizi (416100 >
+    // 348008, R25): l'una è un indicatore, l'altro è un blocco. Beni
+    // (invariati) e totale (invariato) restano dentro i propri limiti.
+    const controlli = verificaLimiti(oltre, computo);
     expect(controlli.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
       { codice: "limite_riga", esito: "avviso" },
-      { codice: "limite_totale", esito: "errore" },
+      { codice: "limite_servizi", esito: "errore" },
     ]);
     expect(controlli[0].messaggio).toContain("supera il limite di € 1314,00");
+    expect(controlli[1].messaggio).toBe("I servizi (€ 4161,00) superano i limiti delle opere (€ 3480,08).");
 
-    // Prestazione (servizi + markup) oltre la somma dei limiti proposti.
-    const totaleOltre = verificaLimiti({ ...fattura, markupCent: SOMMA_LIMITI - SERVIZI_PROPOSTI + 1 });
-    expect(totaleOltre.filter(c => c.esito === "errore").map(c => c.codice)).toEqual(["limite_totale"]);
-    expect(verificaLimiti({ ...fattura, markupCent: SOMMA_LIMITI - SERVIZI_PROPOSTI })).toEqual([
+    // Imponibile esattamente al limite del computo: ok; un centesimo sopra: errore.
+    expect(verificaLimiti({ ...fattura, markupCent: 0, imponibileCent: computo!.limiteCent }, computo)).toEqual([
       { codice: "limiti", esito: "ok", messaggio: "Prestazioni entro i limiti del computo." },
     ]);
+    const totaleOltre = verificaLimiti({ ...fattura, markupCent: 0, imponibileCent: computo!.limiteCent + 1 }, computo);
+    expect(totaleOltre.map(c => c.codice)).toEqual(["limite_totale"]);
+    expect(totaleOltre[0].messaggio).toBe("L'imponibile (€ 19.307,29) supera il limite del computo (€ 19.307,28).");
 
-    // Senza voci proposte manca il metro: si dichiara che i limiti non
-    // sono stati verificati, mai che sono rispettati (Ruling R8).
-    const senzaServizi = verificaLimiti({
-      ...fattura,
-      markupCent: 0,
-      righe: fattura.righe.filter(r => r.tipo !== "servizio"),
-    });
-    expect(senzaServizi).toEqual([
+    // Senza computo manca il metro: si dichiara che i limiti non sono stati
+    // verificati, mai che sono rispettati (Ruling R8) — indipendentemente
+    // dalle righe, ora che il confronto guarda le voci del computo.
+    const senzaComputo = verificaLimiti({ ...fattura, markupCent: 0 });
+    expect(senzaComputo).toEqual([
       {
         codice: "limiti_non_verificati",
         esito: "avviso",
         messaggio: "Limiti non verificati: computo assente o senza voci proposte.",
       },
     ]);
+  });
+
+  // Ruling R25 (prova sul demo 04/09): il caso 127 riequilibrato al markup
+  // reale della fattura 129 — il foglio e la fattura sommano beni e markup
+  // contro il massimale dei prodotti, mai markup e servizi contro le opere.
+  it("R25: il markup sta nei prodotti (col massimale), non nei servizi (con le opere)", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura: base } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const { computo } = await ultimoComputo(SEDE, commessaId);
+    const { fattura } = await aggiornaBozza({
+      sedeId: SEDE,
+      id: base.id,
+      revisione: base.revisione,
+      actorUserId: ATTORE,
+      modifica: { riequilibraBeniAMarkupCent: 215359 },
+      ...dip(),
+    });
+
+    // Scenario del foglio/fattura 129: beni senza voce di computo 817926 +
+    // markup 215359 = 1033285, sotto il massimale_A (1603976); servizi
+    // proposti dal computo invariati (347500), sotto le opere (348008);
+    // imponibile (1380785) sotto il limite del computo (1930728). Tre
+    // blocchi ok, nessun errore (markup non più negativo).
+    expect(fattura.markupCent).toBe(215359);
+    const beniSenzaVoce = fattura.righe
+      .filter(r => r.tipo === "bene" && r.voceComputoCodice == null)
+      .reduce((s, r) => s + r.importoCent, 0);
+    expect(beniSenzaVoce).toBe(817926);
+    expect(beniSenzaVoce + fattura.markupCent).toBe(1033285);
+    expect(computo!.voci.find(v => v.codice === "massimale_A")!.limiteCent).toBe(1603976);
+    expect(fattura.righe.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0)).toBe(
+      SERVIZI_PROPOSTI
+    );
+    expect(fattura.imponibileCent).toBe(1380785);
+    expect(verificaLimiti(fattura, computo)).toEqual([
+      { codice: "limiti", esito: "ok", messaggio: "Prestazioni entro i limiti del computo." },
+    ]);
+
+    // Un servizio manuale da 500.000: solo il blocco servizi sfora (i
+    // prodotti e il totale restano quelli di sopra, invariati).
+    const servizioManuale: (typeof fattura.righe)[number] = {
+      ...fattura.righe.find(r => r.tipo === "servizio")!,
+      ordine: Math.max(...fattura.righe.map(r => r.ordine)) + 1,
+      descrizione: "Extra manuale",
+      voceComputoCodice: null,
+      limiteCent: null,
+      importoCent: 500000,
+      prezzoUnitCent: 500000,
+      derivata: false,
+    };
+    const conServizioExtra = { ...fattura, righe: [...fattura.righe, servizioManuale] };
+    const soloServizi = verificaLimiti(conServizioExtra, computo);
+    expect(codici(soloServizi)).toEqual(["limite_servizi"]);
+    expect(soloServizi[0].messaggio).toBe("I servizi (€ 8475,00) superano i limiti delle opere (€ 3480,08).");
+
+    // Beni (senza voce) portati a 1.600.000: solo il blocco prodotti sfora.
+    const primoBene = fattura.righe.find(r => r.tipo === "bene" && r.voceComputoCodice == null)!;
+    const altriBeniSenzaVoce = beniSenzaVoce - primoBene.importoCent;
+    const conBeniAlti = {
+      ...fattura,
+      righe: fattura.righe.map(r =>
+        r.ordine === primoBene.ordine ? { ...r, importoCent: 1600000 - altriBeniSenzaVoce } : r
+      ),
+    };
+    const soloProdotti = verificaLimiti(conBeniAlti, computo);
+    expect(codici(soloProdotti)).toEqual(["limite_prodotti"]);
+    expect(soloProdotti[0].messaggio).toBe(
+      "Beni e markup (€ 18.153,59) superano il massimale dei prodotti (€ 16.039,76)."
+    );
+
+    // Entrambi insieme, con lo scavalco: due avvisi, non due errori.
+    const combinato = { ...conBeniAlti, righe: [...conBeniAlti.righe, servizioManuale] };
+    const scavalcato = verificaLimiti(
+      { ...combinato, scavalcoLimiti: true, scavalcoMotivo: "Extra concordati fuori computo" },
+      computo
+    );
+    expect(scavalcato.map(c => ({ codice: c.codice, esito: c.esito }))).toEqual([
+      { codice: "limite_prodotti", esito: "avviso" },
+      { codice: "limite_servizi", esito: "avviso" },
+    ]);
+    expect(scavalcato.every(c => c.messaggio.includes("scavalcato: Extra concordati fuori computo"))).toBe(true);
   });
 });
 

@@ -28,14 +28,14 @@ import {
   type ScadenzaFattura,
   type ScadenzaFatturaInput,
 } from "@shared/fatturazione/tipi";
-import type { Contratto } from "@shared/limiti/tipi";
+import type { Computo, Contratto } from "@shared/limiti/tipi";
 import { ultimoComputo } from "../computo/servizio";
 import { leggiContratto } from "../contratti/servizio";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
 import { controlliCliente, snapshotCliente } from "./cliente";
-import { generaBozza, ricalcola, scadenzeDaRate, type Bozza } from "./generatore";
+import { generaBozza, ricalcola, scadenzeDaRate, servizioProposto, type Bozza } from "./generatore";
 import { getFattureRepository, type FattureRepository, type PatchBozza } from "./repository";
 import { riequilibraBeni, type EsitoRisolutore } from "./risolutore";
 
@@ -332,7 +332,8 @@ export async function leggiFattura(
   // Sulla nota di credito i limiti del computo non dicono nulla (Ruling
   // R14, stessa guardia di `validaPerEmissione`): in lettura sarebbero
   // solo rumore.
-  const limiti = fattura.tipo === "nota_credito" ? [] : verificaLimiti(fattura);
+  const limiti =
+    fattura.tipo === "nota_credito" ? [] : verificaLimiti(fattura, await computoPerLimiti(sedeId, fattura));
   return { fattura, controlli: [...controlliClienteDi(fattura), ...limiti], eventi };
 }
 
@@ -659,7 +660,11 @@ export async function aggiornaBozza(
 
   return {
     fattura: aggiornata,
-    controlli: [...controlliClienteDi(aggiornata), ...verificaLimiti(aggiornata), ...avvisi],
+    controlli: [
+      ...controlliClienteDi(aggiornata),
+      ...verificaLimiti(aggiornata, await computoPerLimiti(input.sedeId, aggiornata)),
+      ...avvisi,
+    ],
   };
 }
 
@@ -730,17 +735,39 @@ export async function rigeneraBozza(
 // ── Limiti e validazioni ────────────────────────────────────────────────
 
 /**
- * I limiti del computo sulla bozza (spec §7.3). Per riga è un indicatore
- * (avviso): un servizio sopra il proprio limite resta ammesso, la
- * detrazione del cliente ne risentirà e basta. Sul totale è un blocco: la
- * prestazione complessiva oltre la somma dei limiti proposti impedisce
+ * Il computo per verificare i limiti (R25): quello più recente della
+ * commessa, ma solo se `computoId` dice che era valido quando la bozza è
+ * nata o è stata rigenerata — con `computoId` nullo le righe potrebbero non
+ * corrispondere più a nessuna voce del computo attuale, e il confronto
+ * userebbe un numero a caso spacciato per un limite. `verificaLimiti`
+ * resta pura: questa è la lettura in più (Task 12c) che `leggiFattura`,
+ * `aggiornaBozza` e `validaPerEmissione` pagano solo quando serve — con
+ * `computoId` nullo non tocca il repository.
+ */
+async function computoPerLimiti(sedeId: number, f: Fattura): Promise<Computo | null> {
+  if (f.computoId == null) return null;
+  const { computo } = await ultimoComputo(sedeId, f.commessaId);
+  return computo;
+}
+
+/**
+ * I limiti del computo sulla bozza (spec §7.3, Ruling R25). Per riga è un
+ * indicatore (avviso): un servizio sopra il proprio limite resta ammesso,
+ * la detrazione del cliente ne risentirà e basta. Tre blocchi sono un
+ * vincolo vero: il markup è margine sui prodotti, non sui servizi (prova
+ * sul demo 04/09: il foglio e la fattura 129 sommano beni e markup contro
+ * il massimale dell'Allegato A, mai markup e servizi contro le opere) —
+ * prodotti (beni senza voce di computo, markup incluso) contro i
+ * `massimale_*` del computo; servizi contro le opere/eventuali che il
+ * generatore ha proposto; imponibile contro il limite complessivo del
+ * computo (minimo CHECK1/CHECK2). Ognuno oltre il proprio limite impedisce
  * l'emissione, salvo scavalco registrato con motivo.
  */
-export function verificaLimiti(f: Fattura): Controllo[] {
+export function verificaLimiti(f: Fattura, computo?: Computo | null): Controllo[] {
   const controlli: Controllo[] = [];
   // Le righe legate a una voce del computo: i servizi al 10 % e — da R17 —
   // le spese di documentazione, che sono un bene al 22 %. Il limite della
-  // voce si verifica su tutte…
+  // voce si verifica su tutte, riga per riga.
   const conVoce = f.righe.filter(r => r.tipo === "servizio" || r.voceComputoCodice != null);
   for (const r of conVoce) {
     if (r.limiteCent != null && r.importoCent > r.limiteCent) {
@@ -752,37 +779,65 @@ export function verificaLimiti(f: Fattura): Controllo[] {
     }
   }
 
-  // …ma nel confronto della prestazione complessiva entra solo ciò che sta
-  // nel blocco prestazioni: una riga al 22 % è nei beni (R17).
-  const servizi = conVoce.filter(r => r.aliquota !== 22);
+  // Un blocco oltre il proprio limite: stessa forma per i tre confronti
+  // (R25), errore a meno di scavalco registrato — allora avviso col motivo.
+  const controlloBlocco = (codice: string, testo: string, importoCent: number, limiteCent: number) => {
+    if (importoCent <= limiteCent) return;
+    controlli.push(
+      f.scavalcoLimiti
+        ? { codice, esito: "avviso", messaggio: `${testo} — scavalcato: ${f.scavalcoMotivo ?? "senza motivo indicato"}.` }
+        : { codice, esito: "errore", messaggio: `${testo}.` }
+    );
+  };
 
-  // Il confronto ha senso solo se il computo ha davvero proposto delle
-  // voci con un limite: senza, il termine di paragone sarebbe zero e ogni
-  // prestazione sembrerebbe fuori limite. Ma nemmeno si può dire che i
-  // limiti siano rispettati: non sono stati verificati, e va detto
-  // (Ruling R8) — un «ok» qui sarebbe una rassicurazione falsa.
-  const conLimite = servizi.filter(r => r.limiteCent != null);
-  if (conLimite.length === 0) {
+  // Il confronto ha senso solo se il computo è arrivato con le sue voci:
+  // senza, il termine di paragone sarebbe zero e ogni blocco sembrerebbe
+  // fuori limite. Ma nemmeno si può dire che i limiti siano rispettati: non
+  // sono stati verificati, e va detto (Ruling R8) — un «ok» qui sarebbe una
+  // rassicurazione falsa.
+  if (!computo) {
     controlli.push({
       codice: "limiti_non_verificati",
       esito: "avviso",
       messaggio: "Limiti non verificati: computo assente o senza voci proposte.",
     });
   } else {
-    const prestazione = servizi.reduce((s, r) => s + r.importoCent, 0) + f.markupCent;
-    const limite = conLimite.reduce((s, r) => s + (r.limiteCent ?? 0), 0);
-    if (prestazione > limite) {
-      const testo = `Le prestazioni in fattura (€ ${euro(prestazione)}) superano il limite del computo (€ ${euro(limite)})`;
-      controlli.push(
-        f.scavalcoLimiti
-          ? {
-              codice: "limite_totale",
-              esito: "avviso",
-              messaggio: `${testo} — scavalcato: ${f.scavalcoMotivo ?? "senza motivo indicato"}.`,
-            }
-          : { codice: "limite_totale", esito: "errore", messaggio: `${testo}.` }
-      );
-    }
+    // Prodotti (R25): beni senza voce di computo — righe del contratto e
+    // righe manuali (R18), la spesa di documentazione ne ha una ed esce —
+    // più il markup, contro l'Allegato A (CHECK1, i `massimale_*`).
+    const prodottiCent =
+      f.righe.filter(r => r.tipo === "bene" && r.voceComputoCodice == null).reduce((s, r) => s + r.importoCent, 0) +
+      f.markupCent;
+    const massimaleCent = computo.voci
+      .filter(v => v.gruppo === "prodotti" && v.codice.startsWith("massimale_"))
+      .reduce((s, v) => s + v.limiteCent, 0);
+    controlloBlocco(
+      "limite_prodotti",
+      `Beni e markup (€ ${euro(prodottiCent)}) superano il massimale dei prodotti (€ ${euro(massimaleCent)})`,
+      prodottiCent,
+      massimaleCent
+    );
+
+    // Servizi (manuali compresi) contro le sole voci opere/eventuali che il
+    // generatore ha davvero proposto: stesso insieme di `servizioProposto`
+    // (altri_servizi e spese di documentazione esclusi, come in bozza).
+    const serviziCent = f.righe.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
+    const opereCent = computo.voci.filter(servizioProposto).reduce((s, v) => s + v.limiteCent, 0);
+    controlloBlocco(
+      "limite_servizi",
+      `I servizi (€ ${euro(serviziCent)}) superano i limiti delle opere (€ ${euro(opereCent)})`,
+      serviziCent,
+      opereCent
+    );
+
+    // Imponibile complessivo contro il limite del computo (minimo fra
+    // CHECK1 e CHECK2).
+    controlloBlocco(
+      "limite_totale",
+      `L'imponibile (€ ${euro(f.imponibileCent)}) supera il limite del computo (€ ${euro(computo.limiteCent)})`,
+      f.imponibileCent,
+      computo.limiteCent
+    );
   }
 
   if (f.markupCent < 0) {
@@ -880,7 +935,7 @@ export async function validaPerEmissione(
   // Stessa ragione della guardia sul computo qui sopra (Ruling R14): i
   // limiti del computo non si applicano a una nota di credito.
   if (fattura.tipo !== "nota_credito") {
-    controlli.push(...verificaLimiti(fattura));
+    controlli.push(...verificaLimiti(fattura, await computoPerLimiti(sedeId, fattura)));
   }
   return { fattura, controlli, emettibile: !controlli.some(c => c.esito === "errore") };
 }
