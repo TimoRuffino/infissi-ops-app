@@ -177,17 +177,19 @@ export function costruisciClienteFic(s: ClienteSnapshot): ClienteFicInput {
     e_invoice: true,
   } satisfies Omit<ClienteFicInput, "type">;
 
-  if (s.tipo === "privato") {
-    const parti = s.nome.trim().split(/\s+/);
-    const cognome = parti[0] ?? "";
+  const parti = s.nome.trim().split(/\s+/).filter(Boolean);
+  if (s.tipo === "privato" && parti.length >= 2) {
     return {
       ...base,
       type: "person",
-      last_name: cognome,
+      last_name: parti[0],
       first_name: parti.slice(1).join(" "),
       vat_number: s.partitaIva,
     };
   }
+  // Un privato registrato con una parola sola non si può spezzare: FiC
+  // rifiuta una `person` senza nome proprio, e un'anagrafica indivisa
+  // vale più di una creazione respinta a metà emissione.
   return { ...base, type: "company", vat_number: s.partitaIva };
 }
 
@@ -281,6 +283,48 @@ export function costruisciDocumentoFic(
   return documento;
 }
 
+/**
+ * Appaia i pagamenti FiC alle scadenze del CRM per indice: `fix_payments`
+ * può ricalcolare gli importi, non riordinare la lista che gli abbiamo
+ * mandato. Tocca solo le scadenze ancora senza `ficPaymentId`, così una
+ * ripresa ripara quello che manca invece di riscrivere quello che c'è.
+ *
+ * Se i due elenchi non hanno la stessa lunghezza il collegamento resta
+ * parziale: non è un errore che ferma l'emissione (la fattura su FiC è
+ * quella giusta), ma va detto, o i pagamenti registrati su FiC non
+ * torneranno mai su tutte le scadenze del CRM.
+ */
+async function appaiaPagamenti(
+  repository: FattureRepository,
+  sedeId: number,
+  fattura: Fattura,
+  pagamenti: DocumentoFicCreato["payments_list"]
+): Promise<{ fattura: Fattura; appaiate: number; problema: string | null }> {
+  let appaiate = 0;
+  for (const [i, pagamento] of pagamenti.entries()) {
+    const scadenza = fattura.scadenze[i];
+    if (!scadenza) break;
+    if (scadenza.ficPaymentId != null) continue;
+    await repository.aggiornaScadenza({
+      sedeId,
+      fatturaId: fattura.id,
+      numero: scadenza.numero,
+      patch: { ficPaymentId: pagamento.id },
+    });
+    appaiate++;
+  }
+  const problema =
+    pagamenti.length === fattura.scadenze.length
+      ? null
+      : `FiC ha restituito ${pagamenti.length} scadenze, il CRM ne ha ${fattura.scadenze.length}: verifica il piano di pagamento.`;
+  return {
+    fattura:
+      appaiate > 0 ? (await repository.perId(sedeId, fattura.id))! : fattura,
+    appaiate,
+    problema,
+  };
+}
+
 /** «127» + «/2026» dalla numerazione FiC, o «127/2026» dall'anno della data. */
 function numeroDocumento(doc: DocumentoFicCreato, now: Date): string {
   if (doc.numeration) return `${doc.number}${doc.numeration}`;
@@ -304,9 +348,11 @@ export async function emettiFattura(
   const now = input.now?.() ?? new Date();
   const dryRun = input.dryRun ?? sdiDryRun;
   const client = input.client ?? creaClientFicEmissione();
-  const archivia = input.storage?.putFile ?? putFile;
   const allineaTimeline = input.timeline ?? allineaTimelineAlBoard;
   const passi: EsitoPasso[] = [];
+  // Quello che non ferma l'emissione ma va detto: finisce in `eiErrore`
+  // a fine giro e nei messaggi di stop dei passi 4 e 5.
+  const problemi: string[] = [];
   const segna = (
     passo: PassoEmissione,
     esito: EsitoPasso["esito"],
@@ -360,19 +406,22 @@ export async function emettiFattura(
     throw new Error("NOT_FOUND: Commessa non trovata.");
   }
   const config = await repository.config(input.sedeId);
+
+  // Blocco ottimistico solo alla partenza: da `in_emissione` in poi i
+  // passi sono idempotenti per stato e una ripresa non deve pretendere di
+  // nuovo la revisione (Ruling R1). Prima del contesto FiC: una richiesta
+  // già superata non deve nemmeno far rinnovare un token.
+  if (fattura.stato === "bozza" && fattura.revisione !== input.revisione) {
+    throw new Error(
+      "CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica."
+    );
+  }
+
   // Azienda e token prima di toccare lo stato: senza collegamento FiC la
   // fattura non deve nemmeno passare a «in_emissione».
   const ctx = await (input.contesto ?? contestoFicPerSede)(input.sedeId);
 
   if (fattura.stato === "bozza") {
-    // Blocco ottimistico solo alla partenza: da `in_emissione` in poi i
-    // passi sono idempotenti per stato e una ripresa non deve pretendere
-    // di nuovo la revisione (Ruling R1).
-    if (fattura.revisione !== input.revisione) {
-      throw new Error(
-        "CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica."
-      );
-    }
     fattura = await repository.aggiornaStato({
       sedeId: input.sedeId,
       id: fattura.id,
@@ -470,11 +519,40 @@ export async function emettiFattura(
   let documento: DocumentoFicCreato | null = null;
 
   if (fattura.ficDocumentId != null) {
-    segna("documento_fic", "saltato", `già creato (#${fattura.ficDocumentId})`);
+    const gia = `già creato (#${fattura.ficDocumentId})`;
     if (confrontoDaFare) {
+      // Il `saltato` si scrive solo dopo che la rilettura è riuscita: se
+      // fallisce, `bloccante` ha già segnato l'errore e non deve restare
+      // anche un secondo esito per lo stesso passo.
       documento = await bloccante("documento_fic", () =>
         client.leggiDocumento(ctx, fattura.ficDocumentId!)
       );
+      // Ripresa dopo un'interruzione: le scadenze rimaste senza
+      // `ficPaymentId` si riappaiano qui, non aspettano la prossima
+      // fattura.
+      const appaiamento = await appaiaPagamenti(
+        repository,
+        input.sedeId,
+        fattura,
+        documento.payments_list
+      );
+      fattura = appaiamento.fattura;
+      if (appaiamento.problema) problemi.push(appaiamento.problema);
+      segna(
+        "documento_fic",
+        "saltato",
+        [
+          gia,
+          appaiamento.appaiate > 0
+            ? `${appaiamento.appaiate} scadenze riappaiate`
+            : null,
+          appaiamento.problema,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      );
+    } else {
+      segna("documento_fic", "saltato", gia);
     }
   } else {
     documento = await bloccante("documento_fic", async () => {
@@ -501,25 +579,25 @@ export async function emettiFattura(
         },
         now,
       });
-      // Pagamenti appaiati per indice: `fix_payments` può ricalcolarli,
-      // ma l'ordine resta quello delle scadenze inviate.
-      for (const [i, pagamento] of creato.payments_list.entries()) {
-        const scadenza = fattura.scadenze[i];
-        if (!scadenza) break;
-        await repository.aggiornaScadenza({
-          sedeId: input.sedeId,
-          fatturaId: fattura.id,
-          numero: scadenza.numero,
-          patch: { ficPaymentId: pagamento.id },
-        });
-      }
-      fattura = (await repository.perId(input.sedeId, fattura.id))!;
+      const appaiamento = await appaiaPagamenti(
+        repository,
+        input.sedeId,
+        fattura,
+        creato.payments_list
+      );
+      fattura = appaiamento.fattura;
+      if (appaiamento.problema) problemi.push(appaiamento.problema);
       await eventoDi(fattura.id, "creata_fic", {
         ficDocumentId: creato.id,
         numero,
         amount_gross: creato.amount_gross,
+        scadenzeAppaiate: appaiamento.appaiate,
       });
-      segna("documento_fic", "fatto", numero);
+      segna(
+        "documento_fic",
+        "fatto",
+        [numero, appaiamento.problema].filter(Boolean).join(" · ")
+      );
       return creato;
     });
   }
@@ -553,7 +631,7 @@ export async function emettiFattura(
       fattura = await repository.aggiornaStato({
         sedeId: input.sedeId,
         id: fattura.id,
-        patch: { eiErrore: testo },
+        patch: { eiErrore: [...problemi, testo].join(" ") },
         now,
       });
       await eventoDi(fattura.id, "errore_totali", { nostri, fic });
@@ -574,9 +652,11 @@ export async function emettiFattura(
   const ficDocumentId = fattura.ficDocumentId!;
 
   // ── 5. verifica dell'XML ──────────────────────────────────────────────
-  const giaInviata = fattura.stato === "inviata" || fattura.inviataDryRun;
-  if (giaInviata) {
-    segna("xml", "saltato", "già inviata");
+  // Si salta solo dopo l'invio vero: dopo un giro in dry-run l'XML si
+  // riverifica: è una GET senza effetti, e all'accensione dell'invio
+  // reale il documento potrebbe non essere più quello di allora.
+  if (fattura.stato === "inviata") {
+    segna("xml", "saltato", "già inviata allo SdI");
   } else {
     const verifica = await bloccante("xml", () =>
       client.verificaXml(ctx, ficDocumentId)
@@ -586,7 +666,7 @@ export async function emettiFattura(
       fattura = await repository.aggiornaStato({
         sedeId: input.sedeId,
         id: fattura.id,
-        patch: { eiErrore: testo },
+        patch: { eiErrore: [...problemi, testo].join(" ") },
         now,
       });
       await eventoDi(fattura.id, "xml_errore", { errori: verifica.errori });
@@ -635,7 +715,7 @@ export async function emettiFattura(
     now: () => now,
   });
   fattura = archivio.fattura;
-  const problemi = [...archivio.problemi];
+  problemi.push(...archivio.problemi);
   passi.push(...archivio.passi);
 
   // ── 9. timeline ───────────────────────────────────────────────────────
@@ -650,14 +730,15 @@ export async function emettiFattura(
     segna("timeline", "errore", messaggio(errore));
   }
 
-  if (problemi.length > 0) {
-    fattura = await repository.aggiornaStato({
-      sedeId: input.sedeId,
-      id: fattura.id,
-      patch: { eiErrore: problemi.join(" ") },
-      now,
-    });
-  }
+  // Sempre scritto, anche quando non c'è niente da dire: un archivio
+  // ritentato con successo deve cancellare l'errore del giro precedente,
+  // non lasciarlo lì a spaventare chi legge la fattura.
+  fattura = await repository.aggiornaStato({
+    sedeId: input.sedeId,
+    id: fattura.id,
+    patch: { eiErrore: problemi.length > 0 ? problemi.join(" ") : null },
+    now,
+  });
 
   return { fattura, passi };
 }

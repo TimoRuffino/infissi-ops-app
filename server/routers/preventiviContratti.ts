@@ -766,6 +766,11 @@ export async function registraDocumentoFatturaCrm(args: {
       "[preventiviContratti] storage put fallito per la fattura, fallback base64 inline:",
       e
     );
+    // Un record ha esattamente una delle due forme: se i byte tornano
+    // inline, la chiave (e il checksum) del giro precedente non devono
+    // restare a indicare un file che non è più quello del record.
+    doc.storageKey = null;
+    doc.checksum = null;
     doc.dataBase64 = args.pdf.toString("base64");
   }
 
