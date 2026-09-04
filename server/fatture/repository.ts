@@ -121,6 +121,8 @@ export type FattureRepository = {
   perId(sedeId: number, id: number): Promise<Fattura | null>;
   perCommessa(sedeId: number, commessaId: number): Promise<Fattura[]>; // più recente prima
   perFicDocumentId(sedeId: number, ficDocumentId: number): Promise<Fattura | null>;
+  /** Le fatture della sede il cui `ficDocumentId` è in elenco, senza righe e SENZA tetto: la mappa CRM↔FiC del sync deve coprirle tutte (Ruling R37). */
+  perFicDocumentIds(sedeId: number, ficDocumentIds: number[]): Promise<Fattura[]>;
   lista(filtro: FiltroFatture): Promise<Fattura[]>; // senza righe (voci vuote) per le liste
   daSondare(): Promise<
     Array<Pick<Fattura, "id" | "sedeId" | "ficDocumentId" | "stato" | "inviataDryRun">>
@@ -254,6 +256,14 @@ export function createMemoryFattureRepository(): FattureRepository {
       return clona(
         [...fatture.values()].find(f => f.sedeId === sedeId && f.ficDocumentId === ficDocumentId) ?? null
       );
+    },
+    async perFicDocumentIds(sedeId, ficDocumentIds) {
+      if (ficDocumentIds.length === 0) return [];
+      const cercati = new Set(ficDocumentIds);
+      return [...fatture.values()]
+        .filter(f => f.sedeId === sedeId && f.ficDocumentId != null && cercati.has(f.ficDocumentId))
+        .sort((a, b) => b.id - a.id)
+        .map(f => ({ ...clona(f), righe: [], riepilogo: [], scadenze: [] }));
     },
     async lista({ sedeId, stati, tipo, limite }) {
       return [...fatture.values()]
@@ -769,6 +779,17 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       if (!rows[0]) return null;
       const figli = await caricaFigli(Number(rows[0].id));
       return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
+    },
+    async perFicDocumentIds(sedeId, ficDocumentIds) {
+      if (ficDocumentIds.length === 0) return [];
+      await ensureSchema();
+      // Nessun LIMIT: chi chiama ha già ristretto la domanda agli id che
+      // gli servono (Ruling R37). Niente figli, come `lista`: la mappa
+      // CRM↔FiC guarda solo testata, totale e commessa.
+      const rows = await sql`SELECT * FROM fatture
+        WHERE sede_id = ${sedeId} AND fic_document_id = ANY(${ficDocumentIds}::bigint[])
+        ORDER BY id DESC`;
+      return rows.map(row => rowToFattura(row, [], [], []));
     },
     async lista({ sedeId, stati, tipo, limite }) {
       await ensureSchema();

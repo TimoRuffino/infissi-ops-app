@@ -20,7 +20,7 @@ import {
   type DocumentoEmessoFicInput,
 } from "./ficFatture";
 import { ensureFicInvoiceAttachments } from "./ficAllegati";
-import { segnalaTotaliDiversi } from "./fattureInCloud";
+import { collegamentiCrmPerFic, segnalaTotaliDiversi } from "./fattureInCloud";
 import {
   _resetFattureRepositoryForTests,
   getFattureRepository,
@@ -486,5 +486,73 @@ describe("segnalaTotaliDiversi: avviso quando FiC e CRM non dicono la stessa cif
     expect(esito).toEqual({ segnalate: 1, errori: 1 });
     expect(await repo.eventi(sedeId, fOk.id)).toHaveLength(1);
     expect(await repo.eventi(sedeId, fRotta.id)).toEqual([]);
+  });
+});
+
+describe("collegamentiCrmPerFic: la mappa CRM↔FiC copre tutte le fatture del giro", () => {
+  // Ruling R37: la mappa nasceva da `lista({ sedeId, stati })`, che si
+  // ferma a 200 righe ordinate per id DESC. Con più di 200 fatture emesse
+  // in una sede, le più VECCHIE uscivano dalla mappa: al sync successivo
+  // sarebbero tornate «nessuno», ricandidate al match automatico e a un
+  // secondo download del PDF. Ora la lettura è per ficDocumentId, senza
+  // tetto: chiede solo i documenti che questo giro sta davvero upsertando.
+  it("con 201 fatture in memoria anche la più vecchia resta collegata (commessaMatch crm)", async () => {
+    _resetFattureRepositoryForTests();
+    const repo = getFattureRepository();
+    const sedeId = 952;
+    const now = new Date("2026-09-04T09:00:00Z");
+    const primoFicId = 952_001;
+    const ids: number[] = [];
+    for (let i = 0; i < 201; i++) {
+      const ficDocumentId = primoFicId + i;
+      await repo.crea({
+        fattura: fatturaCrmPersist({ sedeId, commessaId: 10 + i, ficDocumentId, totaleCent: 122_000 }),
+        righe: [],
+        riepilogo: [],
+        scadenze: [],
+        now,
+      });
+      ids.push(ficDocumentId);
+    }
+
+    const mappa = await collegamentiCrmPerFic(sedeId, ids);
+
+    expect(mappa.size).toBe(201);
+    // La più vecchia: quella che il tetto di 200 tagliava via.
+    expect(mappa.get(primoFicId)).toMatchObject({ commessaId: 10, totaleCent: 122_000 });
+
+    upsertDocumentiEmessi([rigaFic(primoFicId)], sedeId, null, mappa);
+    const f = trova(sedeId, primoFicId);
+    expect(f.commessaMatch).toBe("crm");
+    expect(f.commessaId).toBe(10);
+  });
+
+  it("chiede solo gli id del giro, salta le fatture di un'altra sede e gli stati non emessi", async () => {
+    _resetFattureRepositoryForTests();
+    const repo = getFattureRepository();
+    const sedeId = 953;
+    const now = new Date("2026-09-04T09:00:00Z");
+    const emessa = await repo.crea({
+      fattura: fatturaCrmPersist({ sedeId, ficDocumentId: 953_001 }),
+      righe: [], riepilogo: [], scadenze: [], now,
+    });
+    // Stessa sede, ancora in emissione: il documento su FiC può esistere
+    // ma la fattura non è ancora quella che il sync deve collegare.
+    await repo.crea({
+      fattura: fatturaCrmPersist({ sedeId, stato: "in_emissione", ficDocumentId: 953_002 }),
+      righe: [], riepilogo: [], scadenze: [], now,
+    });
+    // Altra sede: non deve comparire nemmeno chiedendone l'id.
+    await repo.crea({
+      fattura: fatturaCrmPersist({ sedeId: sedeId + 1, ficDocumentId: 953_003 }),
+      righe: [], riepilogo: [], scadenze: [], now,
+    });
+
+    const mappa = await collegamentiCrmPerFic(sedeId, [953_001, 953_002, 953_003, 953_999]);
+
+    expect([...mappa.keys()]).toEqual([953_001]);
+    expect(mappa.get(953_001)!.fatturaId).toBe(emessa.id);
+    // Nessun id da chiedere: nessuna query, mappa vuota.
+    expect((await collegamentiCrmPerFic(sedeId, [])).size).toBe(0);
   });
 });

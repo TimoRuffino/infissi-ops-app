@@ -66,6 +66,26 @@ describe("repository fatture (memoria)", () => {
     expect(await repo.eventi(2, f.id)).toEqual([]);
   });
 
+  // Ruling R37: la mappa CRM↔FiC del sync non ha un tetto di 200 righe.
+  it("perFicDocumentIds legge per id, senza limite e isolando la sede", async () => {
+    const ids: number[] = [];
+    for (let i = 0; i < 201; i++) {
+      const f = await repo.crea({ fattura: fattura(), righe: [riga(1)], riepilogo: [], scadenze: [], now: ora });
+      await repo.aggiornaStato({ sedeId: 1, id: f.id, patch: { stato: "emessa", ficDocumentId: 6000 + i }, now: ora });
+      ids.push(6000 + i);
+    }
+    const altraSede = await repo.crea({ fattura: fattura(2), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({ sedeId: 2, id: altraSede.id, patch: { ficDocumentId: 6999 }, now: ora });
+
+    const trovate = await repo.perFicDocumentIds(1, [...ids, 6999, 12345]);
+    expect(trovate).toHaveLength(201);
+    expect(trovate.map(f => f.ficDocumentId)).toContain(6000);
+    expect(trovate.map(f => f.ficDocumentId)).not.toContain(6999);
+    // Come `lista`: niente righe nel risultato.
+    expect(trovate.every(f => f.righe.length === 0)).toBe(true);
+    expect(await repo.perFicDocumentIds(1, [])).toEqual([]);
+  });
+
   it("config: default poi salvataggio per sede", async () => {
     const c = await repo.config(1);
     expect(c.metodoPagamento).toBe("MP05");

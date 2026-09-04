@@ -127,6 +127,27 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     expect(senzaLease.revisione).toBe(2);
   });
 
+  // Ruling R37: `fic_document_id = ANY(...)`, nessun LIMIT — la mappa
+  // CRM↔FiC del sync deve coprire tutte le fatture chieste, anche oltre
+  // le 200 righe di `lista`.
+  it("perFicDocumentIds legge per id, senza limite e isolando la sede", async () => {
+    const ids: number[] = [];
+    for (let i = 0; i < 201; i++) {
+      const f = await repo.crea({ fattura: fattura(), righe: [riga(1)], riepilogo: [], scadenze: [], now: ora });
+      await repo.aggiornaStato({ sedeId: SEDE_A, id: f.id, patch: { stato: "emessa", ficDocumentId: 6000 + i }, now: ora });
+      ids.push(6000 + i);
+    }
+    const altraSede = await repo.crea({ fattura: fattura(SEDE_B), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({ sedeId: SEDE_B, id: altraSede.id, patch: { ficDocumentId: 6999 }, now: ora });
+
+    const trovate = await repo.perFicDocumentIds(SEDE_A, [...ids, 6999, 12345]);
+    expect(trovate).toHaveLength(201);
+    expect(trovate.map(f => f.ficDocumentId)).toContain(6000);
+    expect(trovate.map(f => f.ficDocumentId)).not.toContain(6999);
+    expect(trovate.every(f => f.righe.length === 0)).toBe(true);
+    expect(await repo.perFicDocumentIds(SEDE_A, [])).toEqual([]);
+  });
+
   it("config: default poi salvataggio per sede", async () => {
     const c = await repo.config(SEDE_A);
     expect(c.metodoPagamento).toBe("MP05");

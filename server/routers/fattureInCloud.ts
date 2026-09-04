@@ -1,6 +1,9 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
+// Solo il tipo (nessun import a runtime: il repository fatture resta
+// dietro un `await import` per non creare un ciclo con questo modulo).
+import type { StatoFattura } from "@shared/fatturazione/tipi";
 import { adminProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import {
@@ -573,6 +576,68 @@ export async function segnalaTotaliDiversi(
   return { segnalate, errori: esiti.length - segnalate };
 }
 
+/** Gli stati in cui una fattura CRM è davvero uscita verso FiC: prima non c'è niente da collegare, dopo (annullata) non c'è più. */
+const STATI_FATTURA_SU_FIC: StatoFattura[] = [
+  "emessa",
+  "inviata",
+  "consegnata",
+  "scartata",
+  "rifiutata",
+  "mancata_consegna",
+];
+
+/**
+ * Gli id dei documenti emessi arrivati da FiC in questo giro di sync
+ * (fatture e note di credito): l'unico insieme per cui serve sapere se
+ * esiste una fattura CRM corrispondente.
+ */
+function idsDocumentiEmessi(
+  risultati: readonly PromiseSettledResult<FicPageResult>[]
+): number[] {
+  const ids = new Set<number>();
+  for (const risultato of risultati) {
+    if (risultato.status !== "fulfilled") continue;
+    for (const row of risultato.value.rows) {
+      const id = Number((row as any)?.id);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * La mappa `ficDocumentId` → fattura CRM per gli id chiesti (Ruling R37).
+ *
+ * Nasce da una lettura per id, non da `lista`: quella si ferma a 200
+ * righe ordinate per id DESC, e in una sede con più di 200 fatture emesse
+ * le più vecchie sparivano dalla mappa — al sync successivo sarebbero
+ * tornate «nessuno», ricandidate al match automatico e a un secondo
+ * download del PDF che il CRM ha già archiviato. Qui non c'è tetto:
+ * l'insieme è già ristretto ai documenti di questo giro.
+ */
+export async function collegamentiCrmPerFic(
+  sedeId: number,
+  ficDocumentIds: number[]
+): Promise<Map<number, CollegamentoCrmFic>> {
+  const collegamenti = new Map<number, CollegamentoCrmFic>();
+  if (ficDocumentIds.length === 0) return collegamenti;
+  const { getFattureRepository } = await import("../fatture/repository");
+  const fattureCrm = await getFattureRepository().perFicDocumentIds(
+    sedeId,
+    ficDocumentIds
+  );
+  for (const fatturaCrm of fattureCrm) {
+    if (fatturaCrm.ficDocumentId == null) continue;
+    if (!STATI_FATTURA_SU_FIC.includes(fatturaCrm.stato)) continue;
+    collegamenti.set(fatturaCrm.ficDocumentId, {
+      commessaId: fatturaCrm.commessaId,
+      fatturaId: fatturaCrm.id,
+      totaleCent: fatturaCrm.totaleCent,
+    });
+  }
+  return collegamenti;
+}
+
 // ── Name handling (same CF-validated split used by the manual migration) ────
 function stripAcc(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -901,30 +966,13 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
     // Le fatture FiC il cui id coincide con una fattura già emessa dal CRM
     // (piano 2) nascono collegate: la mappa si legge PRIMA dell'upsert,
     // perché è quella che decide se una riga nuova nasce «crm» invece che
-    // «nessuno». `lista` senza `tipo` prende sia fatture sia note di
-    // credito: entrambe passano per la stessa emissione e hanno un
-    // ficDocumentId.
-    const { getFattureRepository } = await import("../fatture/repository");
-    const fattureCrm = await getFattureRepository().lista({
+    // «nessuno». Si chiedono solo gli id dei documenti emessi arrivati in
+    // QUESTO giro — fatture e note di credito insieme, entrambe passano
+    // per la stessa emissione e hanno un ficDocumentId.
+    const collegamentiCrm = await collegamentiCrmPerFic(
       sedeId,
-      stati: [
-        "emessa",
-        "inviata",
-        "consegnata",
-        "scartata",
-        "rifiutata",
-        "mancata_consegna",
-      ],
-    });
-    const collegamentiCrm = new Map<number, CollegamentoCrmFic>();
-    for (const fatturaCrm of fattureCrm) {
-      if (fatturaCrm.ficDocumentId == null) continue;
-      collegamentiCrm.set(fatturaCrm.ficDocumentId, {
-        commessaId: fatturaCrm.commessaId,
-        fatturaId: fatturaCrm.id,
-        totaleCent: fatturaCrm.totaleCent,
-      });
-    }
+      idsDocumentiEmessi([fattureResult, noteResult])
+    );
     const righeEmesseFic: DocumentoEmessoFicInput[] = [];
 
     const processaEmessi = (

@@ -2571,7 +2571,10 @@ in questa sezione. `git log --oneline 9afaf4c..HEAD` conta 44 commit.
   di `client/src/lib/euro.ts`, nessun hex locale.
 - Sync FiC esistente: `server/routers/ficFatture.ts` collega da sé un
   documento FiC il cui id combacia con `fatture.fic_document_id`
-  (`commessaMatch: "crm"`, mai match automatico né secondo PDF); il worker
+  (`commessaMatch: "crm"`, mai match automatico né secondo PDF; la mappa
+  la costruisce `collegamentiCrmPerFic` in `fattureInCloud.ts` leggendo
+  `perFicDocumentIds` — solo gli id del giro, nessun tetto di 200, R37);
+  il worker
   di sync allegati (`server/routers/ficAllegati.ts`) salta il ridownload —
   il PDF è già nel fascicolo da `registraDocumentoFatturaCrm` all'emissione.
 - Tars: nessuno strumento nuovo (v. `docs/tars/matrice-azioni-tars.md`).
