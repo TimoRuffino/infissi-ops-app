@@ -17,6 +17,7 @@ import { kvSql } from "../_core/persistence";
 import {
   FATTURAZIONE_CONFIG_DEFAULT,
   type Aliquota,
+  type ClienteSnapshot,
   type EventoFattura,
   type Fattura,
   type FatturazioneConfig,
@@ -28,6 +29,7 @@ import {
   type StatoFattura,
   type TipoFattura,
 } from "@shared/fatturazione/tipi";
+import { normalizzaSnapshot } from "./cliente";
 
 export type FatturaPersist = Omit<
   Fattura,
@@ -147,6 +149,12 @@ export function createMemoryFattureRepository(): FattureRepository {
     const f = fatture.get(id);
     return f && f.sedeId === sedeId ? f : null;
   };
+  // Lo snapshot che arriva dal chiamante (o da un fascicolo vecchio
+  // rimesso in circolo) può non avere i campi aggiunti dopo: si completa
+  // in scrittura, così in memoria non esiste mai una fattura con uno
+  // snapshot a metà. Postgres fa lo stesso in lettura (rowToFatturaParziale).
+  const conSnapshot = <T extends { clienteSnapshot?: ClienteSnapshot | null }>(patch: T): T =>
+    "clienteSnapshot" in patch ? { ...patch, clienteSnapshot: normalizzaSnapshot(patch.clienteSnapshot) } : patch;
   // Un patch parziale con una chiave presente ma `undefined` deve valere
   // come "non toccare questo campo", non come "azzeralo": Object.assign
   // copierebbe comunque quella chiave (copia per presenza, non per
@@ -198,7 +206,7 @@ export function createMemoryFattureRepository(): FattureRepository {
     async crea({ fattura, righe, riepilogo, scadenze, now }) {
       const id = prossimoId++;
       const f: Fattura = {
-        ...clona(fattura),
+        ...conSnapshot(clona(fattura)),
         id,
         revisione: 1,
         createdAt: now,
@@ -258,7 +266,7 @@ export function createMemoryFattureRepository(): FattureRepository {
       if (f.revisione !== revisioneAttesa) {
         throw new Error("CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica.");
       }
-      Object.assign(f, clona(senzaUndefined(patch)), {
+      Object.assign(f, conSnapshot(clona(senzaUndefined(patch))), {
         revisione: f.revisione + 1,
         updatedAt: now,
         righe: righeDa(id, righe),
@@ -270,7 +278,7 @@ export function createMemoryFattureRepository(): FattureRepository {
     async aggiornaStato({ sedeId, id, patch, now }) {
       const f = trova(sedeId, id);
       if (!f) throw new Error("NOT_FOUND: Fattura non trovata.");
-      Object.assign(f, clona(senzaUndefined(patch)), { updatedAt: now });
+      Object.assign(f, conSnapshot(clona(senzaUndefined(patch))), { updatedAt: now });
       return clona(f);
     },
     async aggiornaScadenza({ sedeId, fatturaId, numero, patch }) {
@@ -319,7 +327,11 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     ficDocumentId: row.fic_document_id == null ? null : Number(row.fic_document_id),
     numero: row.numero ?? null,
     data: row.data == null ? null : dataIso(row.data),
-    clienteSnapshot: row.cliente_snapshot ?? null,
+    // Le fatture scritte prima di un campo nuovo dello snapshot (es.
+    // `praticaEdilizia`) tornano dal JSONB senza quel campo: `normalizzaSnapshot`
+    // lo riempie col default invece di lasciare un `undefined` che il tipo
+    // dichiara obbligatorio.
+    clienteSnapshot: normalizzaSnapshot(row.cliente_snapshot),
     pattuitoTipo: row.pattuito_tipo,
     pattuitoCent: Number(row.pattuito_cent),
     imponibileCent: Number(row.imponibile_cent),

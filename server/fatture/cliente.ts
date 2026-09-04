@@ -14,6 +14,35 @@ function praticaEdiliziaDi(valore: unknown): PraticaEdilizia {
 }
 
 /**
+ * Lo snapshot com'è uscito dall'archivio. È un blob JSONB scritto da
+ * versioni precedenti del CRM: i campi aggiunti dopo (`praticaEdilizia`)
+ * lì dentro non ci sono, e il tipo li dichiara obbligatori. Questo è il
+ * backfill in lettura — riempie i buchi con i default di
+ * `snapshotCliente`, senza toccare quello che è già scritto (niente
+ * trim, niente maiuscole: una fotografia non si ritocca a posteriori).
+ */
+export function normalizzaSnapshot(salvato: unknown): ClienteSnapshot | null {
+  if (salvato == null || typeof salvato !== "object") return null;
+  const s = salvato as Partial<ClienteSnapshot>;
+  return {
+    clienteId: s.clienteId ?? null,
+    nome: s.nome ?? "",
+    tipo: s.tipo ?? "privato",
+    codiceFiscale: s.codiceFiscale ?? null,
+    partitaIva: s.partitaIva ?? null,
+    indirizzo: s.indirizzo ?? "",
+    cap: s.cap ?? "",
+    citta: s.citta ?? "",
+    provincia: s.provincia ?? "",
+    email: s.email ?? null,
+    pec: s.pec ?? null,
+    codiceDestinatario: s.codiceDestinatario ?? "0000000",
+    ficEntityId: s.ficEntityId ?? null,
+    praticaEdilizia: praticaEdiliziaDi(s.praticaEdilizia),
+  };
+}
+
+/**
  * Il nome del cliente segue la convenzione del CRM (requisiti §5.2, come
  * `clienteDisplay` in `server/routers/commesse.ts`): per aziende,
  * condomini ed enti la denominazione sta indivisa in `cognome` e `nome` è

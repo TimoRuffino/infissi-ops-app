@@ -18,6 +18,7 @@ const clienteSnapshot = {
   clienteId: 501, nome: "Mario Rossi", tipo: "privato" as const, codiceFiscale: "RSSMRA80A01H501U",
   partitaIva: null, indirizzo: "Via Roma 1", cap: "54100", citta: "Massa", provincia: "MS",
   email: "mario.rossi@example.com", pec: null, codiceDestinatario: "0000000", ficEntityId: null,
+  praticaEdilizia: "nessuna" as const,
 };
 
 describe("repository fatture (memoria)", () => {
@@ -76,6 +77,24 @@ describe("repository fatture (memoria)", () => {
     expect((await repo.config(2)).iban).toBeNull();
     expect((await repo.config(2)).speseDocumentazioneCent).toBe(15000);
     expect(salvata.updatedAt).toBeInstanceOf(Date);
+  });
+
+  // Le fatture scritte prima che lo snapshot avesse `praticaEdilizia`
+  // (JSONB già in archivio) devono rileggersi complete: il campo torna
+  // col suo default, non `undefined`.
+  it("uno snapshot senza praticaEdilizia si completa con «nessuna»", async () => {
+    const { praticaEdilizia: _tolto, ...storico } = clienteSnapshot;
+    const f = await repo.crea({
+      fattura: { ...fattura(), clienteSnapshot: storico as typeof clienteSnapshot },
+      righe: [], riepilogo: [], scadenze: [], now: ora,
+    });
+    expect(f.clienteSnapshot).toEqual(clienteSnapshot);
+    expect((await repo.perId(1, f.id))?.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
+
+    const dopoStato = await repo.aggiornaStato({
+      sedeId: 1, id: f.id, patch: { clienteSnapshot: storico as typeof clienteSnapshot }, now: ora,
+    });
+    expect(dopoStato.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
   });
 
   it("lista filtra per stato e tipo, più recente prima", async () => {

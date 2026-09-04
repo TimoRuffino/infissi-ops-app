@@ -22,6 +22,7 @@ const clienteSnapshot = {
   clienteId: 501, nome: "Mario Rossi", tipo: "privato" as const, codiceFiscale: "RSSMRA80A01H501U",
   partitaIva: null, indirizzo: "Via Roma 1", cap: "54100", citta: "Massa", provincia: "MS",
   email: "mario.rossi@example.com", pec: null, codiceDestinatario: "0000000", ficEntityId: null,
+  praticaEdilizia: "nessuna" as const,
 };
 
 describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
@@ -94,6 +95,23 @@ describe.skipIf(!conDatabase)("repository fatture (PostgreSQL)", () => {
     expect((await repo.config(SEDE_B)).iban).toBeNull();
     expect((await repo.config(SEDE_B)).speseDocumentazioneCent).toBe(15000);
     expect(salvata.updatedAt).toBeInstanceOf(Date);
+  });
+
+  // Stessa garanzia della suite in memoria, ma sul JSONB vero: una riga
+  // scritta senza `praticaEdilizia` torna dal database col default.
+  it("uno snapshot senza praticaEdilizia si completa con «nessuna» in rilettura", async () => {
+    const { praticaEdilizia: _tolto, ...storico } = clienteSnapshot;
+    const f = await repo.crea({
+      fattura: { ...fattura(), clienteSnapshot: storico as typeof clienteSnapshot },
+      righe: [], riepilogo: [], scadenze: [], now: ora,
+    });
+    expect(f.clienteSnapshot).toEqual(clienteSnapshot);
+    const riletta = await repo.perId(SEDE_A, f.id);
+    expect(riletta?.clienteSnapshot).toEqual(clienteSnapshot);
+    expect(riletta?.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
+    // Anche dalla lista, che passa dallo stesso mapper.
+    const inLista = (await repo.lista({ sedeId: SEDE_A })).find(x => x.id === f.id);
+    expect(inLista?.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
   });
 
   it("lista filtra per stato e tipo, più recente prima", async () => {

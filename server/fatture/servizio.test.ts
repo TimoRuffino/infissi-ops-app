@@ -630,6 +630,47 @@ describe("aggiornaBozza", () => {
     expect(codici(esito.controlli)).not.toContain("limite_riga");
   });
 
+  it("R18: con lo storno in fattura il servizio manuale resta prima di storno e riaddebito", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    // Markup positivo: B (855487) supera la prestazione (447500), quindi la
+    // coppia storno/riaddebito compare davvero in fattura.
+    const conStorno = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: 1,
+      actorUserId: ATTORE,
+      modifica: { riequilibraBeniAMarkupCent: 100000 },
+      ...dip(),
+    });
+    expect(conStorno.fattura.stornoCent).toBeGreaterThan(0);
+    expect(conStorno.fattura.righe.some(r => r.tipo === "storno_bs")).toBe(true);
+
+    const esito = await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: conStorno.fattura.revisione,
+      actorUserId: ATTORE,
+      modifica: {
+        righeAggiunte: [
+          { tipo: "servizio", descrizione: "Sigillature extra", importoCent: 5000, aliquota: 10, beneSignificativo: false },
+        ],
+      },
+      ...dip(),
+    });
+    const f = esito.fattura;
+    const indice = f.righe.findIndex(r => r.descrizione === "Sigillature extra");
+    expect(indice).toBeGreaterThanOrEqual(0);
+    expect(f.righe[indice].tipo).toBe("servizio");
+    // In coda ai servizi: storno e riaddebito lo seguono, non lo precedono.
+    expect(f.righe[indice + 1].tipo).toBe("storno_bs");
+    expect(f.righe[indice + 2].tipo).toBe("riaddebito_bs");
+    expect(f.righe.map(r => r.tipo).indexOf("storno_bs")).toBeGreaterThan(indice);
+    expect(f.righe.filter(r => r.tipo === "servizio").at(-1)!.descrizione).toBe("Sigillature extra");
+    expect(f.stornoCent).toBe(conStorno.fattura.stornoCent);
+    expect(f.markupCent).toBe(95000);
+  });
+
   it("R18: non si cancellano le righe del contratto, quelle del computo e le derivate", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
@@ -916,6 +957,7 @@ describe("validaPerEmissione", () => {
       pec: null,
       codiceDestinatario: "0000000",
       ficEntityId: null,
+      praticaEdilizia: "nessuna",
     };
     const persist: FatturaPersist = {
       sedeId: SEDE,
@@ -1000,6 +1042,7 @@ describe("validaPerEmissione", () => {
       pec: null,
       codiceDestinatario: "0000000",
       ficEntityId: null,
+      praticaEdilizia: "nessuna",
     };
     const persist: FatturaPersist = {
       sedeId: SEDE,
