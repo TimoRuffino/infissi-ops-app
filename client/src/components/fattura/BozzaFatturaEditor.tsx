@@ -372,6 +372,8 @@ export default function BozzaFatturaEditor({
   const f = dettaglio.data.fattura;
   const gruppi = raggruppaRighe(f.righe);
   const controlli = validazioni.data?.controlli ?? [];
+  const [mostraConfronto, setMostraConfronto] = useState(false);
+  const confronto = trpc.fatture.confrontaConFic.useQuery({ id: fatturaId }, { enabled: mostraConfronto, retry: false });
   const { errori, avvisi } = riepilogoControlli(controlli);
   // Controlli non arrivati non vuol dire «tutto a posto»: senza il loro
   // esito l'emissione resta chiusa e il pannello lo dice, invece di
@@ -921,6 +923,42 @@ export default function BozzaFatturaEditor({
                   Lo scavalco resta scritto nel registro della fattura, con il
                   motivo.
                 </p>
+              </div>
+            )}
+          </DataSurface>
+
+          {/* Studio 05/09/2026: la bozza contro la fattura vera della stessa
+              commessa su Fatture in Cloud, voce per voce. A richiesta: una
+              lettura su FiC per confronto. */}
+          <DataSurface density="compact" tone="sunken" title="Fattura vera a confronto">
+            {!mostraConfronto ? (
+              <Button type="button" variant="outline" className="min-h-11" onClick={() => setMostraConfronto(true)}>
+                Confronta con Fatture in Cloud
+              </Button>
+            ) : confronto.isPending ? (
+              <p className="text-sm text-text-2">Leggo la fattura su Fatture in Cloud…</p>
+            ) : confronto.isError ? (
+              <p className="text-sm text-danger">{confronto.error.message}</p>
+            ) : !confronto.data?.fic ? (
+              <p className="text-sm text-text-2">Nessuna fattura di questo cliente su Fatture in Cloud negli ultimi 180 giorni.</p>
+            ) : (
+              <div className="space-y-2 min-w-0">
+                <p className="text-xs text-text-3">
+                  Fattura {confronto.data.fic.numero} del {confronto.data.fic.data}
+                  {confronto.data.fic.collegata ? " (collegata a questa commessa)" : " (stesso cliente, non collegata)"} · lordo {formatCent(confronto.data.fic.lordoCent)}
+                </p>
+                <dl className="space-y-1 text-sm">
+                  {confronto.data.voci.filter(v => v.crmCent !== 0 || v.ficCent !== 0).map(v => (
+                    <div key={v.voce} className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-baseline min-w-0">
+                      <dt className="min-w-0 truncate text-text-2">{v.etichetta}</dt>
+                      <dd className="tabular-nums">{formatCent(v.crmCent)}</dd>
+                      <dd className={`tabular-nums ${v.deltaCent === 0 ? "text-text-3" : v.deltaCent > 0 ? "text-success" : "text-warning"}`}>
+                        {formatCent(v.ficCent)}{v.deltaCent !== 0 ? ` (${v.deltaCent > 0 ? "+" : "−"}${formatCent(Math.abs(v.deltaCent))})` : ""}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="text-xs text-text-3">Colonne: bozza · fattura vera (scarto). {confronto.data.nonClassificate.length > 0 ? `Righe non classificate: ${confronto.data.nonClassificate.join("; ")}` : ""}</p>
               </div>
             )}
           </DataSurface>

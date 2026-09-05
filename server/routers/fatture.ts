@@ -17,7 +17,10 @@ import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
 import { getFile } from "../_core/fileStorage";
-import { emettiFattura } from "../fatture/emissione";
+import { contestoFicPerSede, emettiFattura } from "../fatture/emissione";
+import { creaClientFicEmissione } from "../fic/emissione";
+import { classificaRigheFic, confrontaLati, latoCrm } from "../fatture/confronto";
+import { ficFatture } from "./ficFatture";
 import { creaNotaCredito } from "../fatture/notaCredito";
 import { getFattureRepository } from "../fatture/repository";
 import { sdiDryRun } from "../fatture/dryRun";
@@ -398,6 +401,48 @@ export const fattureRouter = router({
           clienteNome: f.clienteSnapshot?.nome ?? null,
         };
       });
+    }),
+
+  /**
+   * Bozza (o fattura) del CRM contro la fattura vera della stessa commessa
+   * su Fatture in Cloud, voce per voce (studio 05/09/2026): si impara caso
+   * per caso senza rifare l'analisi a mano. La fattura FiC è quella
+   * collegata alla commessa oppure, se manca, quella dello stesso cliente
+   * con un lordo vicino negli ultimi 180 giorni. Solo lettura.
+   */
+  confrontaConFic: procedura
+    .input(z.object({ id: z.number().int() }))
+    .query(async ({ input, ctx }) => {
+      assicuraInterruttore("limiti");
+      const sedeId = sedeCorrente(ctx);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "fatture.confrontaConFic",
+        capability: "fattura.read",
+        resourceType: "fattura",
+        resource: { sedeId },
+        legacyAllowed: "capability",
+      });
+      const letto = await leggiFattura(sedeId, input.id);
+      if (!letto) throw new TRPCError({ code: "NOT_FOUND", message: "Fattura non trovata." });
+      const f = letto.fattura;
+      const parole = (s: string) => s.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, " ").trim().split(" ").filter(Boolean).sort().join(" ");
+      const nome = parole(f.clienteSnapshot?.nome ?? "");
+      const finestra = Date.now() - 180 * 86_400_000;
+      const candidate = ficFatture
+        .filter((x: any) => (x.sedeId ?? 1) === sedeId && x.tipo === "invoice" && !x.ignorata && x.id !== f.ficDocumentId)
+        .filter((x: any) => x.commessaId === f.commessaId || (nome && parole(x.clienteNome) === nome && Date.parse(x.data) >= finestra && Math.abs(x.importoLordo * 100 - f.totaleCent) <= f.totaleCent * 0.3))
+        .sort((a: any, b: any) => (b.commessaId === f.commessaId ? 1 : 0) - (a.commessaId === f.commessaId ? 1 : 0) || String(b.data).localeCompare(String(a.data)));
+      const scelta = candidate[0];
+      if (!scelta) return { fic: null as null, voci: [], nonClassificate: [] as string[] };
+      const ficCtx = await contestoFicPerSede(sedeId);
+      const righe = await creaClientFicEmissione().leggiRigheDocumento(ficCtx, Number(scelta.id));
+      const latoFic = classificaRigheFic(righe);
+      return {
+        fic: { id: Number(scelta.id), numero: String(scelta.numero ?? ""), data: String(scelta.data ?? ""), lordoCent: Math.round(scelta.importoLordo * 100), collegata: scelta.commessaId === f.commessaId },
+        voci: confrontaLati(latoCrm(f), latoFic),
+        nonClassificate: latoFic.nonClassificate,
+      };
     }),
 
   documento: procedura
