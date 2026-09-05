@@ -181,6 +181,35 @@ describe("arricchisciDaLayoutWnd", () => {
     expect(soloEsc.pattuitoTipo.valore).toBe("imponibile");
   });
 
+  // C1/P3-R9: i controlli sono derivati dai numeri, e i numeri qui cambiano.
+  it("ricalcola i controlli sui valori nuovi e conserva quelli non derivabili", () => {
+    const conIva = arricchisciDaLayoutWnd(PAGINE_WND, proposta, { ivaDescrizione: "IVA 10%", troncato: false });
+    // Prima dell'arricchimento il pattuito non c'era e i prezzi nemmeno.
+    expect(proposta.controlli.find(c => c.codice === "pattuito")?.esito).toBe("errore");
+    expect(proposta.controlli.find(c => c.codice === "righe_senza_prezzo")?.esito).toBe("avviso");
+    // Dopo: pattuito valorizzato, nessun controllo lo smentisce.
+    expect(conIva.pattuitoCent.valore).toBe(1549472);
+    expect(conIva.controlli.find(c => c.codice === "pattuito")).toBeUndefined();
+    expect(conIva.controlli.find(c => c.codice === "righe_senza_prezzo")).toBeUndefined();
+    // La somma delle righe lette (12.136,11) non copre l'imponibile (14.086,11):
+    // il documento ha anche coprifili, maniglie e posa che il modello non ha letto.
+    const somma = conIva.controlli.find(c => c.codice === "righe_vs_pattuito");
+    expect(somma?.esito).toBe("avviso");
+    expect(somma?.messaggio).toContain("14086,11");
+    // Il controllo del cliente non è derivabile dai numeri: resta.
+    expect(conIva.controlli.find(c => c.codice === "cliente_citato")?.esito).toBe("ok");
+    // Un solo controllo per codice: l'arricchimento non li accumula.
+    const codici = conIva.controlli.map(c => c.codice);
+    expect(new Set(codici).size).toBe(codici.length);
+  });
+
+  it("senza descrizione dell'IVA la somma delle righe non si verifica, e lo dice", () => {
+    const arricchitaSenzaIva = arricchisciDaLayoutWnd(PAGINE_WND, proposta);
+    const somma = arricchitaSenzaIva.controlli.find(c => c.codice === "righe_vs_pattuito");
+    expect(somma?.esito).toBe("avviso");
+    expect(somma?.messaggio).toContain("IVA mista");
+  });
+
   it("non tocca la proposta quando il layout non è quello", () => {
     const proposta = costruisciProposta(ESITO_INCERTO, { ...CONTESTO, pagine: PAGINE_WORD }, false);
     expect(arricchisciDaLayoutWnd(PAGINE_WORD, proposta)).toBe(proposta);

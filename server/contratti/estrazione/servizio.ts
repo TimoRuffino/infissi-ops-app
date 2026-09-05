@@ -293,7 +293,13 @@ async function eseguiEstrazioneCorpo(
 
   let proposta = costruisciProposta(esitoModello.esito, contestoMappa, esitoModello.troncato);
   if (riconosceLayoutWnd(esitoParser.pagine)) {
-    proposta = arricchisciDaLayoutWnd(esitoParser.pagine, proposta);
+    // I numeri del layout riscrivono misure, prezzi, pattuito e rate: i
+    // controlli si ricalcolano di conseguenza (P3-R9) e per farlo servono
+    // l'IVA letta dal modello e il troncamento di questa lettura.
+    proposta = arricchisciDaLayoutWnd(esitoParser.pagine, proposta, {
+      ivaDescrizione: esitoModello.esito.pattuito.ivaDescrizione,
+      troncato: esitoModello.troncato,
+    });
   }
 
   const creata = await repo.crea({

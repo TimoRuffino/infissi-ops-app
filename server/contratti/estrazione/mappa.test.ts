@@ -12,7 +12,8 @@
 // frammenti citati dall'esito finto: le evidenze si verificano sul testo.
 
 import { describe, expect, it } from "vitest";
-import { tariffeAttive } from "../../computo/tariffe";
+import type { CategoriaRiga, ZonaClimatica } from "@shared/limiti/tipi";
+import { prodottiPer, tariffeAttive } from "../../computo/tariffe";
 import {
   abbinaOscuranti,
   accessoriDaEtichette,
@@ -23,7 +24,7 @@ import {
   tipologiaDei,
   type ContestoMappa,
 } from "./mappa";
-import type { EsitoModello } from "./schema";
+import type { EsitoModello, TipoProdotto } from "./schema";
 
 const TARIFFE = tariffeAttive();
 
@@ -490,9 +491,10 @@ describe("tipologiaDei", () => {
 
   it("distingue scorrevole alzante, complanare e telaio fisso", () => {
     expect(tipologiaDei(TARIFFE, "serramento_pvc", { tipoProdotto: "fisso", nAnte: 0, descrizione: "Fisso PVC" }, null).codice).toBe("C25077-a");
+    // P3-R15: a parità vince la voce SENZA «> 1,3 W/mqK» (C25080, non C25079).
     expect(
       tipologiaDei(TARIFFE, "serramento_pvc", { tipoProdotto: "scorrevole", nAnte: 2, descrizione: "Scorrevole alzante PVC" }, null).codice
-    ).toBe("C25079");
+    ).toBe("C25080");
   });
 
   it("le categorie senza voce DEI non ricevono codice né avvertenza", () => {
@@ -511,6 +513,128 @@ describe("tipologiaDei", () => {
     );
     expect(scelta.codice).toBe("C15078-a");
     expect(scelta.avvertenza).toContain("più voci DEI possibili");
+  });
+});
+
+// ── C2/I4: la natura del serramento e il foglio del catalogo (P3-R10, P3-R15) ─
+
+describe("tipologiaDei — scorrevoli, portefinestre e fogli (P3-R10, P3-R15)", () => {
+  it("la portafinestra scorrevole complanare prende la voce scorrevole, non quella a battente", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "portafinestra", nAnte: 2, descrizione: "Portafinestra scorrevole complanare in PVC a 2 ante" },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-g");
+  });
+
+  it("lo scorrevole dichiarato finestra resta finestra e preferisce la voce migliore", () => {
+    expect(
+      tipologiaDei(
+        TARIFFE,
+        "serramento_pvc",
+        { tipoProdotto: "scorrevole", nAnte: 2, descrizione: "Finestra scorrevole complanare in PVC" },
+        null
+      ).codice
+    ).toBe("C25077-f");
+  });
+
+  it("lo scorrevole senza finestra né portafinestra nel testo lo dichiara", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "scorrevole", nAnte: 2, descrizione: "Scorrevole complanare in PVC bianco" },
+      null
+    );
+    expect(scelta.avvertenza).toContain("finestra o portafinestra non indicato");
+  });
+
+  it("quando nessuna voce ha la natura descritta lo dichiara invece di tacere", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "portafinestra", nAnte: 1, descrizione: "Portafinestra scorrevole alzante in PVC" },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-g");
+    expect(scelta.avvertenza).toContain("alzante");
+  });
+
+  it("il legno-alluminio in zona D usa il foglio legno-alluminio, non quello alluminio-legno", () => {
+    expect(
+      tipologiaDei(
+        TARIFFE,
+        "serramento_legno_alluminio",
+        { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra 2 ante in legno-alluminio" },
+        "D"
+      ).codice
+    ).toBe("C25102-c");
+    expect(
+      tipologiaDei(
+        TARIFFE,
+        "serramento_legno_alluminio",
+        { tipoProdotto: "scorrevole", nAnte: 2, descrizione: "Portafinestra scorrevole alzante in legno-alluminio" },
+        "D"
+      ).codice
+    ).toBe("C25106-c");
+  });
+
+  // Sonda esaustiva: ogni voce serramento del seed (Velux escluse: non hanno
+  // un tipoProdotto del modello) deve essere raggiungibile da almeno una
+  // combinazione plausibile di tipo, ante e zona con la sua stessa
+  // descrizione. Le uniche escluse sono quelle che una regola DICHIARATA
+  // mette sempre in secondo piano.
+  it("ogni voce serramento del catalogo è raggiungibile, tranne le duplicate dichiarate", () => {
+    const CATEGORIA: Record<string, CategoriaRiga> = {
+      pvc: "serramento_pvc",
+      alluminio: "serramento_alluminio",
+      legno: "serramento_legno",
+      legno_alluminio: "serramento_legno_alluminio",
+      alluminio_legno: "serramento_legno_alluminio",
+    };
+    const TIPI: TipoProdotto[] = ["finestra", "portafinestra", "scorrevole", "fisso"];
+    const ZONE: Array<ZonaClimatica | null> = ["A", "B", "C", "D", "E", "F", null];
+    const voci = prodottiPer(TARIFFE, "serramento").filter(p => p.famiglia !== "velux");
+    const raggiunti = new Set<string>();
+    for (const voce of voci) {
+      const categoria = CATEGORIA[voce.famiglia];
+      for (const tipoProdotto of TIPI) {
+        for (const zona of ZONE) {
+          for (const nAnte of [0, 1, 2, 3, 4]) {
+            const codice = tipologiaDei(TARIFFE, categoria, { tipoProdotto, nAnte, descrizione: voce.nome }, zona).codice;
+            if (codice) raggiunti.add(codice);
+          }
+        }
+      }
+    }
+    const mancanti = voci.filter(v => !raggiunti.has(v.codice)).map(v => v.codice).sort();
+    expect(voci).toHaveLength(116);
+    expect(mancanti).toEqual([
+      // Trasmittanza peggiore: a parità la scelta va alla voce migliore (P3-R15),
+      // queste restano una scelta a mano dell'operatore.
+      "C25076-f",
+      "C25076-g",
+      "C25079",
+      // Foglio ALLUMINIO-LEGNO dove il foglio LEGNO-ALLUMINIO copre la stessa
+      // zona e la stessa forma: il materiale dichiarato è `legno_alluminio` e
+      // vince il suo foglio (P3-R15). Restano raggiungibili le zone A, B e C
+      // (che il foglio LEGNO-ALLUMINIO non copre) e le portefinestre a 1 anta
+      // (che lì non esistono: C15058-d, C15059-d).
+      "C15058-a",
+      "C15058-b",
+      "C15058-c",
+      "C15058-e",
+      "C15059-a",
+      "C15059-b",
+      "C15059-c",
+      "C15059-e",
+      "C15062-a",
+      "C15062-b",
+      "C15062-c",
+      "C15063-a",
+      "C15063-b",
+    ].sort());
   });
 });
 
@@ -534,6 +658,47 @@ describe("oscuranteDei", () => {
 
   it("scuri: unica famiglia legno, forma dal nome", () => {
     expect(oscuranteDei(TARIFFE, "scuro", "legno", true, 2, false)).toBe("C25068-d");
+  });
+});
+
+// ── C3: il materiale dell'oscurante si legge DOPO la parola che lo nomina ───
+
+describe("oscurante integrato della riga (P3-R11)", () => {
+  function propostaConOscurante(descrizione: string): ReturnType<typeof costruisciProposta> {
+    return costruisciProposta(
+      esito({
+        righe: [
+          riga({
+            descrizione,
+            tipoProdotto: "finestra",
+            nAnte: 1,
+            larghezzaMm: 900,
+            altezzaMm: 1200,
+            prezzoTotale: 1200,
+            oscuranteAbbinato: "persiana",
+            lamelleOrientabili: false,
+            frammento: descrizione,
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: [descrizione] },
+      false
+    );
+  }
+
+  it("legge il materiale della persiana dal suo pezzo di testo, non da tutta la riga", () => {
+    const riga0 = propostaConOscurante("Finestra 1 anta in PVC con persiana in alluminio senza lamelle orientabili").righe[0];
+    expect(riga0.oscuranteIntegrato.valore).toBe("persiana");
+    expect(riga0.oscuranteTipologia.valore).toBe("C15079-a");
+    expect(riga0.oscuranteTipologia.daVerificare).toBe(false);
+    expect(riga0.avvertenze).toEqual([]);
+  });
+
+  it("con due materiali nella riga e nessuno sull'oscurante propone il PVC dichiarandolo", () => {
+    const riga0 = propostaConOscurante("Finestra 1 anta in PVC con maniglia in alluminio e persiana").righe[0];
+    expect(riga0.oscuranteTipologia.valore).toBe("C25081-a");
+    expect(riga0.oscuranteTipologia.daVerificare).toBe(true);
+    expect(riga0.avvertenze.join(" ")).toContain("materiale dell'oscurante non indicato");
   });
 });
 

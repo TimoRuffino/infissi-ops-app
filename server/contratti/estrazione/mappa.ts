@@ -93,6 +93,39 @@ function materialeDelTesto(descrizione: string): Materiale | null {
   return null;
 }
 
+/** Tutti i materiali citati nel testo, senza precedenze: serve a capire se la riga ne cita più d'uno. */
+function materialiCitati(testo: string): Materiale[] {
+  const trovati = new Set<Materiale>();
+  if (/legno\s*[-/ ]?\s*allumin|allumin\s*[-/ ]?\s*legno/.test(testo)) trovati.add("legno_alluminio");
+  else {
+    if (/allumin/.test(testo)) trovati.add("alluminio");
+    if (/legno/.test(testo)) trovati.add("legno");
+  }
+  if (/konfortline|etrum|\bwnd\b|pvc/.test(testo)) trovati.add("pvc");
+  if (/acciaio/.test(testo)) trovati.add("acciaio");
+  return [...trovati];
+}
+
+/** Le parole con cui il documento nomina l'oscurante: da lì in poi si parla di lui. */
+const PAROLA_OSCURANTE = /persian|tapparell|scur|avvolgibil|oscurant/;
+
+/**
+ * P3-R11: il materiale dell'oscurante si cerca nel testo che VIENE DOPO la
+ * parola che lo nomina — «finestra in PVC con persiana in alluminio» è una
+ * persiana di alluminio, non di PVC. Se lì non c'è e la riga cita un solo
+ * materiale vale quello; altrimenti si propone il PVC dichiarandolo
+ * (`indovinato`), mai in silenzio.
+ */
+function materialeOscuranteDelTesto(descrizione: string): { materiale: Materiale; indovinato: boolean } {
+  const testo = normalizzaTesto(descrizione);
+  const trovata = PAROLA_OSCURANTE.exec(testo);
+  const dalSegmento = trovata ? materialeDelTesto(testo.slice(trovata.index)) : null;
+  if (dalSegmento != null) return { materiale: dalSegmento, indovinato: false };
+  const citati = materialiCitati(testo);
+  if (citati.length === 1) return { materiale: citati[0], indovinato: false };
+  return { materiale: "pvc", indovinato: true };
+}
+
 /**
  * Materiale della riga: quello dichiarato dal modello, oppure — se dice
  * «sconosciuto» — quello dedotto dalla descrizione (marchi di profili in PVC
@@ -190,26 +223,96 @@ function famigliaDedotta(t: Tariffe, gruppo: GruppoProdotto, descrizione: string
   return parziali.length === 1 ? parziali[0] : null;
 }
 
-function parolaChiaveCompatibile(nome: string, tipo: TipoProdotto, descrizione: string): boolean {
+/**
+ * Come si apre il serramento. Il catalogo lo dice nel nome della voce, il
+ * documento nella descrizione: qui c'è un solo vocabolario per entrambi.
+ * («scorrev» e non «scorrevole» perché il seed scrive anche «scorrevale».)
+ */
+type NaturaSerramento = "battente" | "complanare" | "alzante" | "telaio_fisso";
+
+const ETICHETTA_NATURA: Record<NaturaSerramento, string> = {
+  battente: "a battente",
+  complanare: "scorrevole complanare",
+  alzante: "scorrevole alzante",
+  telaio_fisso: "a telaio fisso",
+};
+
+/** Natura dichiarata dal nome della voce DEI. */
+function naturaDelNome(nome: string): NaturaSerramento {
   const n = normalizzaTesto(nome);
-  const scorrevole = n.includes("scorrevole");
-  const telaioFisso = n.includes("telaio fisso");
-  if (tipo === "scorrevole") {
-    if (!scorrevole) return false;
-    return normalizzaTesto(descrizione).includes("alzante") ? n.includes("alzante") : n.includes("complanare");
-  }
-  if (tipo === "fisso") return telaioFisso;
-  return !scorrevole && !telaioFisso;
+  if (n.includes("telaio fisso")) return "telaio_fisso";
+  if (/scorrev/.test(n)) return n.includes("alzante") ? "alzante" : "complanare";
+  return "battente";
+}
+
+/**
+ * P3-R10: la natura si decide dal tipo del modello E dalla descrizione. Il
+ * modello marca «portafinestra» anche una portafinestra scorrevole: senza
+ * leggere il testo l'intero foglio degli scorrevoli resterebbe irraggiungibile.
+ */
+function naturaRichiesta(tipo: TipoProdotto, descrizione: string): NaturaSerramento {
+  if (tipo === "fisso") return "telaio_fisso";
+  const testo = normalizzaTesto(descrizione);
+  if (testo.includes("telaio fisso")) return "telaio_fisso";
+  const scorrevole = tipo === "scorrevole" || /scorrev|alzante|complanare/.test(testo);
+  if (!scorrevole) return "battente";
+  return /alzante/.test(testo) ? "alzante" : "complanare";
+}
+
+/**
+ * P3-R10: finestra o portafinestra. Il tipo del modello decide quando lo
+ * dice; per `scorrevole` (che non distingue le due forme) decide la
+ * descrizione, e `null` significa «non indicato»: si considerano entrambe e
+ * lo si dichiara, invece di scegliere la finestra in silenzio.
+ */
+function portafinestraRichiesta(tipo: TipoProdotto, descrizione: string): boolean | null {
+  if (tipo === "portafinestra") return true;
+  if (tipo !== "scorrevole") return false;
+  const testo = normalizzaTesto(descrizione);
+  if (/portafinestra|porta\s*-?\s*finestra|\bpf\b/.test(testo)) return true;
+  if (/finestra/.test(testo)) return false;
+  return null;
+}
+
+/** Il nome promette una trasmittanza peggiore («> 1,3 W/mqK»): stessa voce, prestazione inferiore. */
+function trasmittanzaPeggiore(nome: string): boolean {
+  return />\s*1,3/.test(normalizzaTesto(nome));
+}
+
+/**
+ * P3-R15: a parità di filtri vince (1) la voce senza «> 1,3», (2) quella del
+ * foglio del materiale dichiarato (legno-alluminio prima di alluminio-legno),
+ * (3) il codice. Prima di questo ordine il tie-break per codice sceglieva
+ * sistematicamente la trasmittanza peggiore e il foglio sbagliato.
+ */
+function perPreferenza(famigliaPreferita: string | null): (a: Prodotto, b: Prodotto) => number {
+  return (a, b) => {
+    const peggiore = Number(trasmittanzaPeggiore(a.nome)) - Number(trasmittanzaPeggiore(b.nome));
+    if (peggiore !== 0) return peggiore;
+    if (famigliaPreferita != null) {
+      const foglio = Number(b.famiglia === famigliaPreferita) - Number(a.famiglia === famigliaPreferita);
+      if (foglio !== 0) return foglio;
+    }
+    return perCodice(a, b);
+  };
+}
+
+/** Restringe i candidati solo se qualcuno sopravvive: un filtro non svuota mai il catalogo. */
+function restringi(candidati: Prodotto[], test: (p: Prodotto) => boolean): Prodotto[] {
+  const filtrati = candidati.filter(test);
+  return filtrati.length > 0 ? filtrati : candidati;
 }
 
 /**
  * Codice DEI del prodotto della riga (D-B). Serramenti: si filtra per
- * famiglia, portafinestra, parola chiave (scorrevole/alzante/complanare,
- * telaio fisso) e zona climatica, poi si PREFERISCE il numero di ante letto
- * dal modello; se nessuna voce ha quelle ante si resta sulle altre e lo si
- * dichiara. Righe autonome (persiane, tapparelle, cassonetti…): prima voce
- * della famiglia dedotta. Un solo candidato → codice certo; più candidati →
- * il primo, con avvertenza; nessuno → `null` con avvertenza.
+ * famiglia e zona climatica, poi si PREFERISCONO la forma (finestra o
+ * portafinestra), la natura (battente, scorrevole complanare o alzante,
+ * telaio fisso) e il numero di ante; ogni preferenza che non trova voci
+ * lascia il catalogo dov'era e si dichiara in un'avvertenza, invece di
+ * svuotare la scelta. Righe autonome (persiane, tapparelle, cassonetti…):
+ * prima voce della famiglia dedotta. Un solo candidato → codice certo; più
+ * candidati → il primo per preferenza, con avvertenza; nessuno → `null` con
+ * avvertenza.
  */
 export function tipologiaDei(
   t: Tariffe,
@@ -246,27 +349,45 @@ function tipologiaSerramento(
   zona: ZonaClimatica | null
 ): { codice: string | null; avvertenza: string | null } {
   const ammesse = famiglieSerramento(categoria);
-  const portafinestra = r.tipoProdotto === "portafinestra";
-  let candidati = prodottiPer(t, "serramento", famiglia, zona)
-    .filter(p => ammesse == null || ammesse.includes(p.famiglia))
-    .filter(p => (p.portafinestra ?? false) === portafinestra)
-    .filter(p => parolaChiaveCompatibile(p.nome, r.tipoProdotto, r.descrizione));
+  const natura = naturaRichiesta(r.tipoProdotto, r.descrizione);
+  const portafinestra = portafinestraRichiesta(r.tipoProdotto, r.descrizione);
+  const avvertenze: Array<string | null> = [];
 
+  let candidati = prodottiPer(t, "serramento", famiglia, zona).filter(
+    p => ammesse == null || ammesse.includes(p.famiglia)
+  );
   if (candidati.length === 0) {
     const dettaglio = zona ? `${r.tipoProdotto}, zona ${zona}` : r.tipoProdotto;
     return { codice: null, avvertenza: `nessuna voce DEI per ${categoria} (${dettaglio})` };
   }
 
+  if (portafinestra == null) avvertenze.push("scorrevole: finestra o portafinestra non indicato");
+  else candidati = restringi(candidati, p => (p.portafinestra ?? false) === portafinestra);
+
+  // Natura esatta; se il catalogo non ha quella variante (una portafinestra
+  // alzante in PVC, per dire) si ripiega sull'altro scorrevole prima che sul
+  // battente, e la differenza finisce in un'avvertenza.
+  const perNatura = candidati.filter(p => naturaDelNome(p.nome) === natura);
+  if (perNatura.length > 0) candidati = perNatura;
+  else if (natura === "complanare" || natura === "alzante") {
+    candidati = restringi(candidati, p => naturaDelNome(p.nome) === "complanare" || naturaDelNome(p.nome) === "alzante");
+  }
+
   const ante = r.nAnte > 0 ? r.nAnte : 1;
   const conAnte = candidati.filter(p => (p.nAnte ?? 0) === ante);
-  let avvertenzaAnte: string | null = null;
   if (conAnte.length > 0) candidati = conAnte;
-  else avvertenzaAnte = `nessuna voce DEI a ${ante} ante`;
+  else avvertenze.push(`nessuna voce DEI a ${ante} ante`);
 
-  const ordinati = [...candidati].sort(perCodice);
+  const ordinati = [...candidati].sort(perPreferenza(ammesse?.[0] ?? null));
   const scelto = ordinati[0];
-  const avvertenzaScelta = ordinati.length > 1 ? `più voci DEI possibili: scelta ${scelto.codice}` : null;
-  return { codice: scelto.codice, avvertenza: unisci(avvertenzaAnte, avvertenzaScelta) };
+  const naturaScelta = naturaDelNome(scelto.nome);
+  if (naturaScelta !== natura) {
+    avvertenze.push(
+      `la descrizione dice ${ETICHETTA_NATURA[natura]}, la voce scelta è ${ETICHETTA_NATURA[naturaScelta]}`
+    );
+  }
+  if (ordinati.length > 1) avvertenze.push(`più voci DEI possibili: scelta ${scelto.codice}`);
+  return { codice: scelto.codice, avvertenza: unisci(...avvertenze) };
 }
 
 /** Il nome del prodotto promette lamelle/stecche orientabili (e non il contrario). */
@@ -546,7 +667,10 @@ function costruisciRiga(
   const materiale = materialeEffettivo(r);
   const categoria = categoriaPer(r.tipoProdotto, materiale) ?? "altro";
   const evidenza = verificaEvidenza(pagine, r.pagina, r.frammento);
-  const portafinestra = r.tipoProdotto === "portafinestra";
+  // P3-R10: la forma vale anche per gli accessori (soglia ribassata) e per
+  // l'oscurante; uno scorrevole che il testo dice portafinestra è una
+  // portafinestra.
+  const portafinestra = portafinestraRichiesta(r.tipoProdotto, r.descrizione) ?? false;
   const avvertenze: string[] = [];
 
   if (TIPI_SERRAMENTO.includes(r.tipoProdotto) && !MATERIALI_SERRAMENTO.includes(materiale)) {
@@ -561,10 +685,14 @@ function costruisciRiga(
   if (tipologia.avvertenza) avvertenze.push(tipologia.avvertenza);
 
   const oscurante: OscuranteIntegrato | null = r.oscuranteAbbinato === "nessuno" ? null : r.oscuranteAbbinato;
-  const materialeOscurante = materialeDelTesto(r.descrizione) ?? "pvc";
-  const oscuranteTipologia = oscurante
-    ? oscuranteDei(tariffe, oscurante, materialeOscurante, portafinestra, r.nAnte, r.lamelleOrientabili)
-    : null;
+  const materialeOscurante = oscurante ? materialeOscuranteDelTesto(r.descrizione) : null;
+  const oscuranteTipologia =
+    oscurante && materialeOscurante
+      ? oscuranteDei(tariffe, oscurante, materialeOscurante.materiale, portafinestra, r.nAnte, r.lamelleOrientabili)
+      : null;
+  if (materialeOscurante?.indovinato) {
+    avvertenze.push("materiale dell'oscurante non indicato: verificato come PVC");
+  }
   if (oscurante != null && oscuranteTipologia == null) {
     avvertenze.push(`nessuna voce DEI per l'oscurante (${oscurante})`);
   }
@@ -585,7 +713,10 @@ function costruisciRiga(
     prezzoTotCent: campo<number | null>(prezzo, evidenza, { daVerificare: prezzo == null || evidenza == null }),
     oscuranteIntegrato: campo<OscuranteIntegrato | null>(oscurante, evidenza),
     oscuranteTipologia: campo<string | null>(oscuranteTipologia, evidenza, {
-      daVerificare: (oscurante != null && oscuranteTipologia == null) || evidenza == null,
+      daVerificare:
+        (oscurante != null && (oscuranteTipologia == null || materialeOscurante?.indovinato === true)) ||
+        evidenza == null,
+      nota: materialeOscurante?.indovinato ? "materiale dell'oscurante verificato come PVC" : null,
     }),
     accessori,
     // D-F: coprifili, maniglie e simili non sono beni significativi, anche se
@@ -644,6 +775,105 @@ function aliquotaUnica(descrizione: string | null): number | null {
   if (trovate.size !== 1) return null;
   const [aliquota] = [...trovate];
   return aliquota === 10 || aliquota === 22 ? aliquota : null;
+}
+
+/**
+ * I controlli che si RICAVANO dai numeri della proposta. Gli altri
+ * (`cliente_citato`, `codice_fiscale`, `zona_cantiere`, `zona_da_cliente`,
+ * `rate_somma`) confrontano il documento con il CRM: non si possono
+ * ricalcolare da una proposta e vanno conservati.
+ */
+const CONTROLLI_DERIVATI: readonly string[] = [
+  "pattuito",
+  "righe_vs_pattuito",
+  "righe_senza_misure",
+  "righe_senza_prezzo",
+  "nessuna_riga",
+  "documento_troncato",
+];
+
+/**
+ * P3-R9: i controlli derivabili, ricalcolati sui valori che la proposta ha
+ * ADESSO. Serve a `costruisciProposta` e, dopo, a chiunque riscriva quei
+ * valori (l'arricchimento dal layout WnD): senza questo passaggio la
+ * proposta finirebbe per dire «pattuito non trovato» accanto a un pattuito
+ * valorizzato. I controlli non derivabili già presenti restano com'erano.
+ */
+export function costruisciControlli(
+  proposta: PropostaContratto,
+  opzioni: { ivaDescrizione: string | null; troncato: boolean }
+): ControlloProposta[] {
+  const controlli = proposta.controlli.filter(c => !CONTROLLI_DERIVATI.includes(c.codice));
+  const { righe } = proposta;
+
+  if (proposta.pattuitoCent.valore == null) {
+    controlli.push({ codice: "pattuito", esito: "errore", messaggio: "pattuito non trovato nel documento" });
+  }
+  if (righe.length === 0) {
+    controlli.push({ codice: "nessuna_riga", esito: "errore", messaggio: "nessuna riga di prodotto riconosciuta" });
+  }
+
+  // P3-R1: somma righe + posa contro l'imponibile; dal lordo si scorpora solo
+  // con una aliquota unica dichiarata, altrimenti il controllo si salta.
+  const sommaRighe = righe.reduce((s, r) => s + (r.prezzoTotCent.valore ?? 0), 0) + (proposta.posaCent.valore ?? 0);
+  if (proposta.pattuitoCent.valore != null) {
+    const aliquota = proposta.pattuitoTipo.valore === "lordo" ? aliquotaUnica(opzioni.ivaDescrizione) : null;
+    const imponibile =
+      proposta.pattuitoTipo.valore === "imponibile"
+        ? proposta.pattuitoCent.valore
+        : aliquota != null
+          ? Math.round(proposta.pattuitoCent.valore / (1 + aliquota / 100))
+          : null;
+    if (imponibile == null) {
+      controlli.push({
+        codice: "righe_vs_pattuito",
+        esito: "avviso",
+        messaggio: "IVA mista o non indicata: somma righe non verificabile",
+      });
+    } else {
+      const scarto = Math.abs(sommaRighe - imponibile);
+      controlli.push(
+        scarto > SCARTO_MASSIMO_CENT
+          ? {
+              codice: "righe_vs_pattuito",
+              esito: "avviso",
+              messaggio: `somma righe € ${euroTesto(sommaRighe)} contro imponibile € ${euroTesto(imponibile)}`,
+            }
+          : {
+              codice: "righe_vs_pattuito",
+              esito: "ok",
+              messaggio: `somma righe e posa in linea con il pattuito (€ ${euroTesto(imponibile)})`,
+            }
+      );
+    }
+  }
+
+  const senzaMisure = righe.filter(
+    r => r.categoria.valore.startsWith("serramento_") && (r.larghezzaMm.valore == null || r.altezzaMm.valore == null)
+  ).length;
+  if (senzaMisure > 0) {
+    controlli.push({
+      codice: "righe_senza_misure",
+      esito: "avviso",
+      messaggio: `${senzaMisure} serramenti senza misure: completale prima di applicare`,
+    });
+  }
+  const senzaPrezzo = righe.filter(r => r.prezzoTotCent.valore == null).length;
+  if (senzaPrezzo > 0) {
+    controlli.push({
+      codice: "righe_senza_prezzo",
+      esito: "avviso",
+      messaggio: `${senzaPrezzo} righe senza prezzo`,
+    });
+  }
+  if (opzioni.troncato) {
+    controlli.push({
+      codice: "documento_troncato",
+      esito: "avviso",
+      messaggio: "documento troppo lungo: alcune pagine non sono state lette",
+    });
+  }
+  return controlli;
 }
 
 /**
@@ -726,8 +956,6 @@ export function costruisciProposta(
   } else if (esito.pattuito.totaleImponibile != null) {
     pattuitoCent = campo<number | null>(euroToCent(esito.pattuito.totaleImponibile), evPattuito);
     pattuitoTipo = campo<PattuitoTipo | null>("imponibile", evPattuito);
-  } else {
-    controlli.push({ codice: "pattuito", esito: "errore", messaggio: "pattuito non trovato nel documento" });
   }
 
   // ── Rate ─────────────────────────────────────────────────────────────────
@@ -797,69 +1025,7 @@ export function costruisciProposta(
   });
   const riferimento = campo<string | null>(esito.riferimento?.trim() || null, null, { daVerificare: true });
 
-  // ── Controlli (P3-R1) ────────────────────────────────────────────────────
-  if (righe.length === 0) {
-    controlli.push({ codice: "nessuna_riga", esito: "errore", messaggio: "nessuna riga di prodotto riconosciuta" });
-  }
-  const sommaRighe = righe.reduce((s, r) => s + (r.prezzoTotCent.valore ?? 0), 0) + (posaCent ?? 0);
-  if (pattuitoCent.valore != null) {
-    const aliquota = pattuitoTipo.valore === "lordo" ? aliquotaUnica(esito.pattuito.ivaDescrizione) : null;
-    const imponibile =
-      pattuitoTipo.valore === "imponibile"
-        ? pattuitoCent.valore
-        : aliquota != null
-          ? Math.round(pattuitoCent.valore / (1 + aliquota / 100))
-          : null;
-    if (imponibile == null) {
-      controlli.push({
-        codice: "righe_vs_pattuito",
-        esito: "avviso",
-        messaggio: "IVA mista o non indicata: somma righe non verificabile",
-      });
-    } else {
-      const scarto = Math.abs(sommaRighe - imponibile);
-      controlli.push(
-        scarto > SCARTO_MASSIMO_CENT
-          ? {
-              codice: "righe_vs_pattuito",
-              esito: "avviso",
-              messaggio: `somma righe € ${euroTesto(sommaRighe)} contro imponibile € ${euroTesto(imponibile)}`,
-            }
-          : {
-              codice: "righe_vs_pattuito",
-              esito: "ok",
-              messaggio: `somma righe e posa in linea con il pattuito (€ ${euroTesto(imponibile)})`,
-            }
-      );
-    }
-  }
-  const senzaMisure = righe.filter(
-    r => r.categoria.valore.startsWith("serramento_") && (r.larghezzaMm.valore == null || r.altezzaMm.valore == null)
-  ).length;
-  if (senzaMisure > 0) {
-    controlli.push({
-      codice: "righe_senza_misure",
-      esito: "avviso",
-      messaggio: `${senzaMisure} serramenti senza misure: completale prima di applicare`,
-    });
-  }
-  const senzaPrezzo = righe.filter(r => r.prezzoTotCent.valore == null).length;
-  if (senzaPrezzo > 0) {
-    controlli.push({
-      codice: "righe_senza_prezzo",
-      esito: "avviso",
-      messaggio: `${senzaPrezzo} righe senza prezzo`,
-    });
-  }
-  if (troncato) {
-    controlli.push({
-      codice: "documento_troncato",
-      esito: "avviso",
-      messaggio: "documento troppo lungo: alcune pagine non sono state lette",
-    });
-  }
-
-  return {
+  const proposta: PropostaContratto = {
     righe,
     pattuitoCent,
     pattuitoTipo,
@@ -880,5 +1046,10 @@ export function costruisciProposta(
     note: esito.note.trim() || null,
     controlli,
     avvertenze,
+  };
+
+  return {
+    ...proposta,
+    controlli: costruisciControlli(proposta, { ivaDescrizione: esito.pattuito.ivaDescrizione, troncato }),
   };
 }

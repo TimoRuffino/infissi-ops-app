@@ -16,6 +16,7 @@ import type { EvidenzaEstratta, PropostaContratto, RigaProposta } from "@shared/
 import { euroToCent } from "@shared/euroCent";
 import type { PattuitoTipo, RataContratto } from "@shared/limiti/tipi";
 import { campo, normalizzaTesto } from "./evidenze";
+import { costruisciControlli } from "./mappa";
 
 /** Le due etichette che identificano il layout: la tabella e la sua intestazione. */
 const ETICHETTA_RIEPILOGO = "riepilogo costi";
@@ -220,10 +221,17 @@ function pattuitoDaTotali(
  * (una riga sola per blocco: due «Finestra 2 ante» identiche restano
  * distinte perché i blocchi si consumano in ordine). Se il layout non è
  * quello, la proposta torna indietro identica.
+ *
+ * P3-R9: riscritti misure, prezzi, pattuito e rate, i controlli derivabili si
+ * RICALCOLANO (`costruisciControlli`), altrimenti resterebbero quelli della
+ * lettura precedente — «pattuito non trovato» sopra un pattuito valorizzato.
+ * `ivaDescrizione` arriva dall'esito del modello: senza di essa lo scorporo
+ * dal lordo non si fa e il controllo lo dichiara.
  */
 export function arricchisciDaLayoutWnd(
   pagine: readonly string[],
-  proposta: PropostaContratto
+  proposta: PropostaContratto,
+  opzioni?: { ivaDescrizione?: string | null; troncato?: boolean }
 ): PropostaContratto {
   if (!riconosceLayoutWnd(pagine)) return proposta;
 
@@ -250,7 +258,7 @@ export function arricchisciDaLayoutWnd(
   const pattuito = pattuitoDaTotali(pagine);
   const rate = rateDaTermini(pagine);
 
-  return {
+  const arricchita: PropostaContratto = {
     ...proposta,
     righe,
     pattuitoCent: pattuito
@@ -260,5 +268,13 @@ export function arricchisciDaLayoutWnd(
       ? campo<PattuitoTipo | null>(pattuito.tipo, pattuito.evidenza, { daVerificare: false })
       : proposta.pattuitoTipo,
     rate: rate ? campo(rate.rate, rate.evidenza, { daVerificare: false }) : proposta.rate,
+  };
+
+  return {
+    ...arricchita,
+    controlli: costruisciControlli(arricchita, {
+      ivaDescrizione: opzioni?.ivaDescrizione ?? null,
+      troncato: opzioni?.troncato ?? false,
+    }),
   };
 }
