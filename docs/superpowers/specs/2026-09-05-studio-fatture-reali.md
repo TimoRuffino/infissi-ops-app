@@ -61,6 +61,8 @@ contratto e si è confrontato con la fattura reale, riga per riga
 | D | Ricerca del cliente su Fatture in Cloud con `q=<codice fiscale>` nudo → HTTP 422 «Invalid query syntax»: la prima emissione reale si è fermata in «in emissione» | query `tax_code = '…'` (o `vat_number = '…'` per 11 cifre), apici raddoppiati |
 | E | Una fattura «in emissione» senza documento FiC non aveva alcuna azione in UI | pulsante «Riprendi emissione» (capability `fattura.emit`): i passi sono idempotenti |
 | F | Stampa: condizioni di pagamento ripetute (dicitura + piè di pagina di sede) | il piè di pagina non si stampa se ripete il corpo |
+| G | Numerazione FiC: nella configurazione c'era «2026», che Fatture in Cloud rifiuta (HTTP 422 «data.numeration format is invalid»); tutte le 131 fatture 2026 usano la numerazione predefinita (vuota) | `numerazioneFicValida`: si manda solo una numerazione nella forma «/A»; la configurazione accetta vuoto o «/…»; nota nel pannello. Il valore «2026» va svuotato a mano in Impostazioni → Fatturazione |
+| H | Un'emissione ferma prima del documento FiC non si poteva annullare | «Annulla emissione» (capability `fattura.draft`) quando manca `ficDocumentId`; con il documento creato restano «Riprendi» e la nota di credito |
 
 ## 4. Aperto
 

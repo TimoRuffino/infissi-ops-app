@@ -537,7 +537,9 @@ export default function FatturazioneConfigPanel() {
             <p className="text-xs text-text-3">
               {numerazioni.length > 0
                 ? "Elenco letto da Fatture in Cloud con la verifica dei permessi."
-                : "Verifica i permessi per scegliere fra le numerazioni di Fatture in Cloud."}
+                : "Verifica i permessi per scegliere fra le numerazioni di Fatture in Cloud."}{" "}
+              Vuoto = numerazione predefinita (quella delle fatture 2026); una numerazione
+              alternativa inizia con «/», es. /A. L'anno non è una numerazione.
             </p>
           </div>
 

@@ -28,6 +28,7 @@ import NotaCreditoDialog, {
 } from "@/components/fattura/NotaCreditoDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   Table,
   TableBody,
@@ -115,12 +116,15 @@ export default function FatturaEmessaView({
   fatturaId,
   puoNotaCredito,
   puoEmettere = false,
+  puoModificare = false,
   onApriFattura,
   onCambiato,
 }: {
   commessaId: number;
   fatturaId: number;
   puoNotaCredito: boolean;
+  /** Con `fattura.draft`: un'emissione ferma prima del documento FiC si può annullare come una bozza. */
+  puoModificare?: boolean;
   /** Con `fattura.emit`: un'emissione interrotta («in emissione» senza documento FiC) si riprende da qui. */
   puoEmettere?: boolean;
   /** La nota di credito nasce in bozza: la tab passa subito su di lei. */
@@ -163,6 +167,18 @@ export default function FatturaEmessaView({
       void utils.fatture.byId.invalidate({ id: fatturaId });
       void utils.fatture.perCommessa.invalidate({ commessaId });
       toast.success(`Emissione ripresa: ${esito.fattura.stato}`);
+      onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const [confermaAnnulla, setConfermaAnnulla] = useState(false);
+  const annulla = trpc.fatture.annullaBozza.useMutation({
+    onSuccess: () => {
+      void utils.fatture.byId.invalidate({ id: fatturaId });
+      void utils.fatture.perCommessa.invalidate({ commessaId });
+      setConfermaAnnulla(false);
+      toast.success("Emissione annullata: la commessa torna da fatturare");
       onCambiato?.();
     },
     onError: e => toast.error(e.message),
@@ -219,6 +235,8 @@ export default function FatturaEmessaView({
   // di una fattura senza documento FiC è una `PRECONDIZIONE` sicura.
   const puoSondare = f.ficDocumentId != null && STATI_SONDABILI.has(stato);
   const puoRiprendere = puoEmettere && stato === "in_emissione";
+  // Senza documento su FiC non c'è nulla fuori dal CRM: si può annullare.
+  const puoAnnullare = puoModificare && stato === "in_emissione" && f.ficDocumentId == null;
   const puoStornare =
     puoNotaCredito && f.tipo === "fattura" && STATI_STORNABILI.has(stato);
   const annullataIl =
@@ -305,6 +323,17 @@ export default function FatturaEmessaView({
               {riprendi.isPending ? "Riprendo…" : "Riprendi emissione"}
             </Button>
           )}
+          {puoAnnullare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-danger hover:text-danger hover:bg-danger-soft"
+              disabled={annulla.isPending}
+              onClick={() => setConfermaAnnulla(true)}
+            >
+              Annulla emissione
+            </Button>
+          )}
           {puoSondare && (
             <Button
               variant="outline"
@@ -331,6 +360,7 @@ export default function FatturaEmessaView({
             !f.xmlStorageKey &&
             !puoSondare &&
             !puoRiprendere &&
+            !puoAnnullare &&
             !puoStornare && (
               <span className="text-xs text-text-3">
                 Nessuna azione disponibile in questo stato.
@@ -539,6 +569,16 @@ export default function FatturaEmessaView({
         </aside>
       </div>
 
+      <ConfirmDialog
+        open={confermaAnnulla}
+        onOpenChange={setConfermaAnnulla}
+        title="Annullare l'emissione?"
+        description="Su Fatture in Cloud non è stato creato nessun documento: la fattura torna annullata e la commessa rientra fra quelle da fatturare."
+        confirmLabel="Annulla emissione"
+        cancelLabel="Resta"
+        busy={annulla.isPending}
+        onConfirm={() => annulla.mutate({ id: f.id, motivo: "Emissione interrotta prima del documento FiC" })}
+      />
       <NotaCreditoDialog
         open={dialogoNota}
         onOpenChange={setDialogoNota}

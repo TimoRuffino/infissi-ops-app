@@ -1489,4 +1489,18 @@ describe("annullaBozza", () => {
       annullaBozza({ sedeId: ALTRA_SEDE, id: fattura.id, actorUserId: ATTORE, motivo: null, ...dip() })
     ).rejects.toThrow("NOT_FOUND: Fattura non trovata.");
   });
+
+  it("un'emissione ferma prima del documento FiC si annulla; con il documento creato no", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await repository.aggiornaStato({ sedeId: SEDE, id: fattura.id, patch: { stato: "in_emissione", eiErrore: "cliente_fic: HTTP 422" }, now: ora });
+    const annullata = await annullaBozza({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, motivo: "ripartiamo", ...dip() });
+    expect(annullata.stato).toBe("annullata");
+
+    const { fattura: seconda } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await repository.aggiornaStato({ sedeId: SEDE, id: seconda.id, patch: { stato: "in_emissione", ficDocumentId: 987654 }, now: ora });
+    await expect(
+      annullaBozza({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, motivo: null, ...dip() })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
+  });
 });

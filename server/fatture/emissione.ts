@@ -250,6 +250,12 @@ function voceDaRiga(
   return voce;
 }
 
+/** «/A», «/B»…: la forma delle numerazioni alternative di FiC; tutto il resto vale come predefinita (null). */
+export function numerazioneFicValida(valore: string | null | undefined): string | null {
+  const v = (valore ?? "").trim();
+  return /^\/[A-Za-z0-9._-]{1,19}$/.test(v) ? v : null;
+}
+
 export function costruisciDocumentoFic(
   f: Fattura,
   config: FatturazioneConfig,
@@ -284,7 +290,12 @@ export function costruisciDocumentoFic(
     show_payments: true,
     show_payment_method: true,
   };
-  if (config.numerazioneFic) documento.numeration = config.numerazioneFic;
+  // Le numerazioni di Fatture in Cloud iniziano con «/» («/A»); vuoto è la
+  // numerazione predefinita, quella di tutte le fatture 2026. Un valore
+  // diverso (es. l'anno «2026») FiC lo rifiuta con HTTP 422 «data.numeration
+  // format is invalid»: meglio non mandarlo che fermare l'emissione.
+  const numerazione = numerazioneFicValida(config.numerazioneFic);
+  if (numerazione) documento.numeration = numerazione;
   return documento;
 }
 

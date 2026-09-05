@@ -3684,7 +3684,12 @@ per i test sulla proposta grezza), beni non significativi al 10 % sulla
 riga, `beneSignificativoDefault` ristretto ai serramenti/porte, ricerca
 cliente FiC con `tax_code = '…'` (prima HTTP 422 e fattura ferma in «in
 emissione»), pulsante «Riprendi emissione», piè di pagina della stampa non
-duplicato. Dati grezzi con nomi dei clienti solo nello scratchpad di
+duplicato; poi (seconda prova dal vivo) numerazione FiC mandata solo
+nella forma «/A» (in configurazione c'era «2026»: FiC risponde 422) e
+«Annulla emissione» per una fattura ferma prima del documento FiC.
+ATTENZIONE runbook: la commessa usata per la prova ha già la fattura vera
+su FiC collegata a un'altra commessa dello stesso cliente: emettere da lì
+creerebbe un doppione. Dati grezzi con nomi dei clienti solo nello scratchpad di
 sessione, mai nel repo. Verifica browser: in sospeso.
 
 ## 12. Debito aperto prioritario

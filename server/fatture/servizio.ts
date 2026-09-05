@@ -982,7 +982,17 @@ export async function annullaBozza(
 ): Promise<Fattura> {
   const repository = repo(input);
   const now = adesso(input);
-  await bozzaModificabile(repository, input.sedeId, input.id);
+  // Una fattura ferma «in emissione» prima di aver creato il documento su
+  // Fatture in Cloud (es. errore nella ricerca del cliente) non ha lasciato
+  // nulla fuori: si può annullare come una bozza. Con il documento creato no:
+  // la strada è «Riprendi emissione» (passi idempotenti) o la nota di credito.
+  const corrente = await repository.perId(input.sedeId, input.id);
+  if (!corrente) throw new Error("NOT_FOUND: Fattura non trovata.");
+  if (corrente.stato === "in_emissione" && corrente.ficDocumentId == null) {
+    // ok: niente da proteggere
+  } else {
+    await bozzaModificabile(repository, input.sedeId, input.id);
+  }
   const annullata = await repository.aggiornaStato({
     sedeId: input.sedeId,
     id: input.id,

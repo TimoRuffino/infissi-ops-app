@@ -33,7 +33,14 @@ const patchConfigSchema = z.object({
   banca: z.string().max(80).nullable().optional(),
   intestatario: z.string().max(120).nullable().optional(),
   metodoPagamento: z.string().regex(/^MP\d{2}$/).optional(),
-  numerazioneFic: z.string().max(20).nullable().optional(),
+  // Vuoto = numerazione predefinita; le alternative di FiC iniziano con «/» (es. /A). «2026» non è una numerazione: FiC lo rifiuta.
+  numerazioneFic: z
+    .string()
+    .trim()
+    .max(20)
+    .refine(v => v === "" || /^\/[A-Za-z0-9._-]{1,19}$/.test(v), "la numerazione è vuota (predefinita) oppure inizia con «/», es. /A")
+    .nullable()
+    .optional(),
   paymentAccountIdFic: z.number().int().nullable().optional(),
   dicituraFooter: z.string().max(500).nullable().optional(),
   speseDocumentazioneCent: z.number().int().min(0).optional(),

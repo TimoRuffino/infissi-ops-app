@@ -1250,13 +1250,21 @@ describe("costruisciDocumentoFic", () => {
     const { fattura } = await bozzaEmettibile();
     const documento = costruisciDocumentoFic(
       fattura,
-      { ...CONFIG_COMPLETA(), paymentAccountIdFic: null, numerazioneFic: "B" },
+      { ...CONFIG_COMPLETA(), paymentAccountIdFic: null, numerazioneFic: "/B" },
       1,
       "COM-2026-001",
       "2026-09-04"
     );
     expect(documento.payments_list[0].payment_account).toBeUndefined();
-    expect(documento.numeration).toBe("B");
+    expect(documento.numeration).toBe("/B");
+  });
+
+  it("una numerazione che non è una numerazione FiC (es. l'anno) non viene mandata: FiC la rifiuterebbe con 422", async () => {
+    const { fattura } = await bozzaEmettibile();
+    for (const valore of ["2026", "B", " ", null]) {
+      const documento = costruisciDocumentoFic(fattura, { ...CONFIG_COMPLETA(), numerazioneFic: valore }, 1, "COM-2026-001", "2026-09-04");
+      expect(documento.numeration, `numerazione ${JSON.stringify(valore)}`).toBeUndefined();
+    }
   });
 });
 
