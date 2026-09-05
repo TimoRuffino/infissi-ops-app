@@ -91,6 +91,7 @@ const cercaClienti: StrumentoTars = {
         denominazione: denominazione(c),
         tipo: c.tipo ?? "privato",
         citta: c.citta ?? null,
+        provincia: c.provincia ?? null,
         archiviato: Boolean(c.archivedAt),
         commesseCollegate: Array.isArray(c.commesseIds)
           ? c.commesseIds.length
@@ -205,6 +206,7 @@ const leggiCliente: StrumentoTars = {
           residenza: {
             indirizzo: cliente.indirizzo ?? null,
             citta: cliente.citta ?? null,
+            provincia: cliente.provincia ?? null,
             cap: cliente.cap ?? null,
           },
           sedeLavori: {

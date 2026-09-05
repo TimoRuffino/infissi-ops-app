@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import ProvinciaSelect from "@/components/clienti/ProvinciaSelect";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -210,6 +211,7 @@ export default function CommessaDetail() {
     codiceFiscale: "",
     partitaIva: "",
     cap: "",
+    provincia: "",
     // Contact + address — currently duplicated across cliente and commessa.
     // The edit dialog writes both on save so the user doesn't have to care.
     indirizzo: "",
@@ -432,6 +434,7 @@ export default function CommessaDetail() {
       codiceFiscale: cl?.codiceFiscale ?? "",
       partitaIva: cl?.partitaIva ?? "",
       cap: cl?.cap ?? "",
+      provincia: cl?.provincia ?? "",
       indirizzo: c.indirizzo ?? cl?.indirizzo ?? "",
       citta: c.citta ?? cl?.citta ?? "",
       telefono: c.telefono ?? cl?.telefono ?? "",
@@ -460,6 +463,7 @@ export default function CommessaDetail() {
           codiceFiscale: editForm.codiceFiscale || undefined,
           partitaIva: editForm.partitaIva || undefined,
           cap: editForm.cap || undefined,
+          provincia: editForm.provincia || null,
           telefono: editForm.telefono || undefined,
           email: editForm.email || undefined,
           indirizzo: editForm.indirizzo || undefined,
@@ -1624,6 +1628,13 @@ export default function CommessaDetail() {
                 <Input
                   value={editForm.indirizzo}
                   onChange={(e) => setEditForm({ ...editForm, indirizzo: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Provincia</Label>
+                <ProvinciaSelect
+                  value={editForm.provincia}
+                  onChange={provincia => setEditForm({ ...editForm, provincia })}
                 />
               </div>
               <div className="grid grid-cols-[1fr_110px] gap-3">

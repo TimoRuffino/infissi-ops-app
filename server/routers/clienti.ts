@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { normalizzaProvincia } from "@shared/fatturazione/fiscale";
+import { siglaProvincia } from "@shared/province";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
@@ -48,6 +50,10 @@ export function backfillCliente(c: any): void {
   if (c.pec === undefined) c.pec = null;
   if (c.codiceDestinatario === undefined) c.codiceDestinatario = null;
   if (c.ficEntityId === undefined) c.ficEntityId = null;
+  // Provincia della residenza/sede legale (05/09/2026): finché il campo non
+  // esiste la si ricava dalla convenzione «Città (TO)» già usata dalla
+  // fattura; da qui in poi la fattura legge il campo.
+  if (c.provincia === undefined) c.provincia = siglaProvincia(normalizzaProvincia(c.citta));
 }
 
 const _store = persistedStore<any>("clienti", (items) => {
@@ -104,6 +110,7 @@ export function createClienteFromSync(data: {
   indirizzo?: string | null;
   citta?: string | null;
   cap?: string | null;
+  provincia?: string | null;
 }) {
   const now = new Date();
   const cliente = {
@@ -119,6 +126,7 @@ export function createClienteFromSync(data: {
     indirizzo: data.indirizzo ?? null,
     citta: data.citta ?? null,
     cap: data.cap ?? null,
+    provincia: siglaProvincia(data.provincia) ?? siglaProvincia(normalizzaProvincia(data.citta)),
     commesseIds: [],
     createdAt: now,
     updatedAt: now,
@@ -152,6 +160,12 @@ const codiceDestinatarioSchema = z
   .toUpperCase()
   .regex(/^[A-Z0-9]{7}$/, "il codice destinatario SdI ha 7 caratteri alfanumerici");
 
+const provinciaSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine(v => siglaProvincia(v) != null, "provincia non in elenco (sigla di due lettere)");
+
 // ── Creazione cliente ───────────────────────────────────────────────────────
 
 const creaClienteInput = z.object({
@@ -171,6 +185,9 @@ const creaClienteInput = z.object({
   indirizzo: z.string().optional(),
   citta: z.string().optional(),
   cap: z.string().optional(),
+  // Sigla della provincia (menu a tendina dell'anagrafica): due lettere in
+  // elenco, oppure vuota.
+  provincia: provinciaSchema.optional(),
   // Work-site address — what the commessa cares about. Falls back to
   // residenza when not provided.
   indirizzoLavoro: z.string().optional(),
@@ -230,6 +247,7 @@ export async function creaCliente(
     pec: input.pec ?? null,
     codiceDestinatario: input.codiceDestinatario ?? null,
     ficEntityId: input.ficEntityId ?? null,
+    provincia: input.provincia ?? siglaProvincia(normalizzaProvincia(input.citta)),
     detrazione: input.detrazione ?? false,
     tipoDetrazione: input.tipoDetrazione ?? null,
     interesseFinanziamento: input.interesseFinanziamento ?? false,
@@ -421,6 +439,7 @@ export const clientiRouter = router({
               indirizzo: dati.indirizzo ?? null,
               citta: dati.citta ?? null,
               cap: dati.cap ?? null,
+              provincia: siglaProvincia(dati.provincia) ?? siglaProvincia(normalizzaProvincia(dati.citta)),
               note: dati.note ?? null,
               // Import massivo: nessun proprietario. Assegnarli tutti a chi
               // preme il bottone riempirebbe la sua coda di centinaia di
@@ -481,6 +500,7 @@ export const clientiRouter = router({
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         cap: z.string().optional(),
+        provincia: provinciaSchema.nullable().optional(),
         indirizzoLavoro: z.string().optional(),
         cittaLavoro: z.string().optional(),
         capLavoro: z.string().optional(),

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import ProvinciaSelect from "@/components/clienti/ProvinciaSelect";
 import {
   Select,
   SelectContent,
@@ -104,6 +105,7 @@ const emptyForm = {
   indirizzo: "",
   citta: "",
   cap: "",
+  provincia: "",
   // Indirizzo lavoro — what commessa uses
   indirizzoLavoro: "",
   cittaLavoro: "",
@@ -217,6 +219,7 @@ export default function ClientiList() {
       partitaIva: form.partitaIva || undefined,
       indirizzo: form.indirizzo || undefined,
       citta: form.citta || undefined,
+      provincia: form.provincia || undefined,
       cap: form.cap || undefined,
       indirizzoLavoro:
         (lavoroSame ? form.indirizzo : form.indirizzoLavoro) || undefined,
@@ -1014,6 +1017,13 @@ export default function ClientiList() {
                   <Input
                     value={form.citta}
                     onChange={e => setForm({ ...form, citta: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Provincia</Label>
+                  <ProvinciaSelect
+                    value={form.provincia}
+                    onChange={provincia => setForm({ ...form, provincia })}
                   />
                 </div>
               </div>

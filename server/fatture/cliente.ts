@@ -73,7 +73,9 @@ export function snapshotCliente(
     indirizzo: String(cliente?.indirizzo ?? commessa.indirizzo ?? "").trim(),
     cap: String(cliente?.cap ?? "").trim(),
     citta: citta.replace(/\s*\([A-Za-z]{2}\)\s*$/, ""),
-    provincia: normalizzaProvincia(citta) ?? "",
+    // Il campo dell'anagrafica (menu a tendina) vince; la convenzione
+    // «Città (TO)» resta il fallback per i record mai aggiornati.
+    provincia: normalizzaProvincia(cliente?.provincia) ?? normalizzaProvincia(citta) ?? "",
     email: cliente?.email ?? null,
     pec: cliente?.pec ?? null,
     // "0000000" è il recapito SdI dei privati senza PEC: assente non è un

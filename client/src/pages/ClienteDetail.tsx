@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import ProvinciaSelect from "@/components/clienti/ProvinciaSelect";
 import {
   Select,
   SelectContent,
@@ -419,7 +420,7 @@ export default function ClienteDetail() {
     };
 
     const resRow = c!.indirizzo
-      ? `${c!.indirizzo}${c!.cap ? `, ${c!.cap}` : ""}${c!.citta ? ` ${c!.citta}` : ""}`
+      ? `${c!.indirizzo}${c!.cap ? `, ${c!.cap}` : ""}${c!.citta ? ` ${c!.citta}` : ""}${c!.provincia ? ` (${c!.provincia})` : ""}`
       : "—";
     const lavRow =
       c!.indirizzoLavoro || c!.cittaLavoro
@@ -583,6 +584,7 @@ export default function ClienteDetail() {
       indirizzo: c!.indirizzo ?? "",
       citta: c!.citta ?? "",
       cap: c!.cap ?? "",
+      provincia: c!.provincia ?? "",
       indirizzoLavoro: c!.indirizzoLavoro ?? "",
       cittaLavoro: c!.cittaLavoro ?? "",
       capLavoro: c!.capLavoro ?? "",
@@ -1324,6 +1326,13 @@ export default function ClienteDetail() {
                       }
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label>Provincia</Label>
+                    <ProvinciaSelect
+                      value={editForm.provincia}
+                      onChange={provincia => setEditForm({ ...editForm, provincia })}
+                    />
+                  </div>
                 </div>
                 {/* Lavoro */}
                 <div className="space-y-3 rounded-[var(--radius-control)] border border-border-soft p-3">
@@ -1569,6 +1578,8 @@ export default function ClienteDetail() {
                       telefono: editForm.telefono || undefined,
                       email: editForm.email || undefined,
                       codiceFiscale: editForm.codiceFiscale || undefined,
+                      // `null` svuota la provincia: `undefined` la lascerebbe com'è.
+                      provincia: editForm.provincia || null,
                       partitaIva: editForm.partitaIva || undefined,
                       detrazione: editForm.detrazione,
                       tipoDetrazione:

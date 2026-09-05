@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { controlliCliente, snapshotCliente } from "./cliente";
 
 describe("snapshotCliente", () => {
+  it("la provincia dell'anagrafica vince sulla sigla in coda alla città", () => {
+    const s = snapshotCliente({ id: 3, nome: "Mario", cognome: "Rossi", tipo: "privato", citta: "Sarzana (SP)", provincia: "ge" } as any, {});
+    expect(s.provincia).toBe("GE");
+    const senza = snapshotCliente({ id: 3, nome: "Mario", cognome: "Rossi", tipo: "privato", citta: "Sarzana", provincia: null } as any, {});
+    expect(senza.provincia).toBe("");
+  });
+
   it("privato senza PEC → codice destinatario 0000000, provincia dalla città", () => {
     const s = snapshotCliente({ id: 3, tipo: "privato", nome: "Mario", cognome: "Rossi", codiceFiscale: "RSSMRA85T10A562S", indirizzo: "Via Alta 80", cap: "19038", citta: "Sarzana (SP)" }, {});
     expect(s).toMatchObject({ clienteId: 3, nome: "Rossi Mario", provincia: "SP", codiceDestinatario: "0000000", pec: null, ficEntityId: null });

@@ -9,6 +9,7 @@
 // Le regole di riconoscimento sono le stesse che il sync FiC usa già
 // (`normKey`, `COMPANY_RE`, `splitPersona`): due strade diverse per gli
 // stessi dati devono decidere allo stesso modo, altrimenti l'import crea
+import { siglaProvincia } from "@shared/province";
 // proprio i doppioni che il sync evitava.
 
 export type RigaImport = {
@@ -36,6 +37,7 @@ export type ClienteEsistente = {
   telefono?: string | null;
   indirizzo?: string | null;
   citta?: string | null;
+  provincia?: string | null;
   cap?: string | null;
   note?: string | null;
 };
@@ -223,6 +225,7 @@ export type DipendenzeImport = {
     indirizzo?: string;
     citta?: string;
     cap?: string;
+    provincia?: string;
     note?: string;
   }) => number;
   /** Scrive i campi mancanti su un cliente già presente. */
@@ -351,6 +354,7 @@ export function importaClienti(
         forse("indirizzo", riga.indirizzo);
         forse("citta", riga.comune);
         forse("cap", riga.cap);
+        forse("provincia", siglaProvincia(riga.provincia) ?? "");
         forse("partitaIva", riga.partitaIva ? normFiscale(riga.partitaIva, true) : "");
         forse("codiceFiscale", cf);
       }
@@ -402,6 +406,7 @@ export function importaClienti(
         indirizzo: riga.indirizzo || undefined,
         citta: riga.comune || undefined,
         cap: riga.cap || undefined,
+        provincia: riga.provincia || undefined,
         note: [riga.referente ? `Referente: ${riga.referente}` : "", riga.note]
           .filter(Boolean)
           .join(" · ") || undefined,

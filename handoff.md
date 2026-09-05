@@ -3643,6 +3643,19 @@ nel banner e uno nel tab, con destinazioni diverse sulla stessa schermata
 a 1440) è stato ratificato come comportamento voluto, non un difetto:
 P4-R10.
 
+**Provincia del cliente a menu (05/09/2026 sera, dopo il primo test dal
+vivo della bozza fattura).** Il controllo «Provincia del cliente mancante»
+ricavava la sigla solo dalla convenzione «Città (TO)». Ora l'anagrafica ha
+il campo `provincia` (sigla di due lettere, elenco `shared/province.ts`,
+107 province e città metropolitane, SU al posto di CI/VS): menu a tendina
+«Provincia» in Nuovo cliente, Modifica cliente e nel pannello cliente della
+commessa (`client/src/components/clienti/ProvinciaSelect.tsx`); zod
+`provinciaSchema` su create/update (`null` svuota); backfill in `onLoad`
+dalla città «(TO)» per i record vecchi; `snapshotCliente` preferisce il
+campo e tiene la città come fallback; import CSV (colonna «provincia») e
+sync FiC popolano il campo; Tars lo espone accanto alla città. Verifica
+browser del menu: in sospeso (login demo).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

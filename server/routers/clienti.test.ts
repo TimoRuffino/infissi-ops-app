@@ -198,7 +198,17 @@ describe("recapito della fattura elettronica", () => {
       assegnatoA: 7,
       sedeId: 1,
       archivedAt: null,
+      provincia: null,
     });
+
+    // La provincia si ricava dalla convenzione «Città (SP)» dei record vecchi;
+    // una sigla scritta resta com'è e una città senza sigla dà null.
+    const conSigla: any = { id: 3, citta: "Sarzana (sp)" };
+    backfillCliente(conSigla);
+    expect(conSigla.provincia).toBe("SP");
+    const scritta: any = { id: 4, citta: "Sarzana (SP)", provincia: "GE" };
+    backfillCliente(scritta);
+    expect(scritta.provincia).toBe("GE");
 
     const gia: any = {
       id: 2,
