@@ -75,14 +75,30 @@ function statoDalDiCommessa(commessa: { id: number; updatedAt: unknown }): strin
   }
   if (piuRecente) return piuRecente;
   const updatedAt = commessa.updatedAt;
-  if (updatedAt instanceof Date) return updatedAt.toISOString();
+  // Ruling P4-R4: niente più `toISOString()` grezzo (il giorno UTC
+  // dell'istante) — si riduce subito al giorno di calendario Europe/Rome,
+  // la stessa unità già usata dal ramo `piuRecente` sopra e da `giorniTra`.
+  if (updatedAt instanceof Date) return istanteComeLocale(updatedAt).slice(0, 10);
   return typeof updatedAt === "string" ? updatedAt : null;
 }
 
-/** Giorni di calendario interi (Europe/Rome) tra `dataIso` e `adesso`. */
+/**
+ * Giorni di calendario interi (Europe/Rome) tra `dataIso` e `adesso`.
+ *
+ * Ruling P4-R4: entrambi i lati passano da `istanteComeLocale` prima dello
+ * `.slice(0,10)`. Prima, `dataIso` veniva tagliato grezzo (giorno UTC)
+ * mentre `adesso` passava già da `istanteComeLocale` (giorno Roma): tra le
+ * 22 e le 24 UTC i due giorni divergono di uno (a Roma è già il giorno
+ * dopo) e il conteggio sballava di ±1. `dataIso` può essere una data pura
+ * `YYYY-MM-DD` (dagli step di timeline) o un istante ISO completo (dal
+ * fallback `updatedAt`, ora anch'esso ridotto a un giorno più sopra): in
+ * entrambi i casi `new Date(...)` lo ancora a mezzanotte UTC o all'istante
+ * esatto, e uno spostamento di sole 1-2 ore verso Roma non attraversa mai
+ * la mezzanotte di un'altra volta.
+ */
 function giorniTra(dataIso: string, adesso: Date): number {
   const epoca = (yyyyMmDd: string) => Date.parse(`${yyyyMmDd}T00:00:00Z`);
-  const giorno = dataIso.slice(0, 10);
+  const giorno = istanteComeLocale(new Date(dataIso)).slice(0, 10);
   const oggi = istanteComeLocale(adesso).slice(0, 10);
   return Math.round((epoca(oggi) - epoca(giorno)) / 86_400_000);
 }

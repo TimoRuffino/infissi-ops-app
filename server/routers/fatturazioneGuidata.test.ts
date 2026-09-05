@@ -7,9 +7,12 @@
 // store delle commesse è un modulo condiviso per tutto il file, e senza
 // questa scelta un elenco «della sede» di un test vedrebbe anche le
 // commesse create da un test precedente nello stesso processo.
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
+import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import { salvaContratto } from "../contratti/servizio";
 import { getClientiStore } from "./clienti";
 import { creaCommessa, getCommessaById } from "./commesse";
 import { ficFatture, type FatturaFic } from "./ficFatture";
@@ -171,7 +174,9 @@ describe("router fatturazioneGuidata", () => {
     const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
     const elenco = await direzione.fatturazioneGuidata.daFare();
 
-    expect(elenco.map((c) => c.commessaId)).not.toContain(id);
+    // Sede esclusiva a questo test: l'unica commessa creata qui è esclusa,
+    // quindi l'elenco non è solo "senza id" ma vuoto del tutto.
+    expect(elenco).toHaveLength(0);
   });
 
   it("(c) una bozza CRM resta in elenco (fatturaStato bozza); una volta emessa la commessa esce", async () => {
@@ -194,6 +199,10 @@ describe("router fatturazioneGuidata", () => {
     expect(riga).toBeDefined();
     expect(riga?.fatturaStato).toBe("bozza");
     expect(riga?.passi.fattura).toBe("in_corso");
+    // La bozza è un importo vero (il totale della fattura in lavorazione),
+    // non una stima dal pattuito: fatturaPrevistaCent la rispecchia diretta.
+    expect(riga?.fatturaPrevistaCent).toBe(100000);
+    expect(riga?.fatturaPrevistaStima).toBe(false);
 
     await repo.aggiornaStato({
       sedeId,
@@ -276,6 +285,118 @@ describe("router fatturazioneGuidata", () => {
     const elenco = await direzione.fatturazioneGuidata.daFare();
 
     expect(elenco.map((c) => c.commessaId)).toEqual([vecchia, recente]);
-    expect(elenco[0].giorniNelloStato).toBeGreaterThan(elenco[1].giorniNelloStato ?? 0);
+    // Non solo l'ordine: i giorni contati devono essere quelli veri, non
+    // un valore qualunque che capiti a rispettare la disuguaglianza.
+    expect(elenco[0].giorniNelloStato).toBe(66);
+    expect(elenco[1].giorniNelloStato).toBe(5);
+  });
+
+  it("(h) giorniNelloStato conta il giorno di calendario Europe/Rome, non quello UTC (Ruling P4-R4)", async () => {
+    const sedeId = 9108;
+    const id = await commessaDiProva(sedeId);
+    (getCommessaById(id) as any).stato = "aggiornamento_contratto";
+
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+
+    try {
+      vi.useFakeTimers();
+
+      // 23:30 UTC del 4 settembre è già l'1:30 del 5 a Roma (CEST, +2): con
+      // updatedAt esattamente 5 giorni prima alla stessa ora UTC, il giorno
+      // di calendario Roma dista comunque 5 giorni, non 6 come prima della
+      // fix (che prendeva il giorno UTC di updatedAt e il giorno Roma di
+      // adesso, disallineati proprio in questa finestra 22-24 UTC).
+      const adesso = new Date("2026-09-04T23:30:00.000Z");
+      (getCommessaById(id) as any).updatedAt = new Date(adesso.getTime() - 5 * 86_400_000);
+      vi.setSystemTime(adesso);
+      const elenco = await direzione.fatturazioneGuidata.daFare();
+      expect(elenco.find((c) => c.commessaId === id)?.giorniNelloStato).toBe(5);
+
+      // Controllo a mezzogiorno, lontano da qualunque confine di giorno:
+      // stessa differenza reale di 5 giorni, stesso risultato — la fix non
+      // cambia il conteggio nel caso già corretto prima.
+      const mezzogiorno = new Date("2026-09-04T12:00:00.000Z");
+      (getCommessaById(id) as any).updatedAt = new Date(mezzogiorno.getTime() - 5 * 86_400_000);
+      vi.setSystemTime(mezzogiorno);
+      const elencoMezzogiorno = await direzione.fatturazioneGuidata.daFare();
+      expect(elencoMezzogiorno.find((c) => c.commessaId === id)?.giorniNelloStato).toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("(i) contratto strutturato reale (salvaContratto): pattuito lordo diretto, imponibile maggiorato del 10% e dichiarato stima", async () => {
+    const pattuitoCent = 1_549_472;
+    const riga: RigaContrattoInput = {
+      categoria: "serramento_pvc",
+      tipologia: "finestra_2_ante",
+      oscuranteIntegrato: null,
+      oscuranteTipologia: null,
+      descrizione: "Finestra",
+      quantita: 2,
+      larghezzaMm: 1660,
+      altezzaMm: 1540,
+      misuraDei: null,
+      prezzoUnitCent: null,
+      prezzoTotCent: 300000,
+      beneSignificativo: true,
+      accessori: [],
+      note: null,
+      origine: "manuale",
+      evidenza: null,
+    };
+    const contrattoDi = (pattuitoTipo: "lordo" | "imponibile"): ContrattoInput => ({
+      pattuitoCent,
+      pattuitoTipo,
+      posaInclusa: true,
+      notePosa: null,
+      comuneCantiere: "Sarzana",
+      zonaManuale: false,
+      piano: 2,
+      distanzaKm: 18,
+      detrazioneTipo: "ristrutturazione",
+      detrazioneImmobile: "prima_casa",
+      detrazionePct: null,
+      dataFirma: "2026-09-01",
+      rate: [],
+      origine: "manuale",
+      documentoId: null,
+      opzioniComputo: OPZIONI_COMPUTO_DEFAULT,
+    });
+
+    const sedeId = 9109;
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+
+    const idLordo = await commessaDiProva(sedeId);
+    (getCommessaById(idLordo) as any).stato = "aggiornamento_contratto";
+    await salvaContratto({
+      sedeId,
+      commessaId: idLordo,
+      actorUserId: 1,
+      contratto: contrattoDi("lordo"),
+      righe: [riga],
+    });
+    const rigaLordo = await direzione.fatturazioneGuidata.passi({ commessaId: idLordo });
+    expect(rigaLordo.pattuitoCent).toBe(pattuitoCent);
+    expect(rigaLordo.pattuitoTipo).toBe("lordo");
+    expect(rigaLordo.passi.contratto).toBe("fatto");
+    expect(rigaLordo.fatturaPrevistaCent).toBe(pattuitoCent);
+    expect(rigaLordo.fatturaPrevistaStima).toBe(false);
+
+    const idImponibile = await commessaDiProva(sedeId);
+    (getCommessaById(idImponibile) as any).stato = "aggiornamento_contratto";
+    await salvaContratto({
+      sedeId,
+      commessaId: idImponibile,
+      actorUserId: 1,
+      contratto: contrattoDi("imponibile"),
+      righe: [riga],
+    });
+    const rigaImponibile = await direzione.fatturazioneGuidata.passi({ commessaId: idImponibile });
+    expect(rigaImponibile.pattuitoCent).toBe(pattuitoCent);
+    expect(rigaImponibile.pattuitoTipo).toBe("imponibile");
+    expect(rigaImponibile.passi.contratto).toBe("fatto");
+    expect(rigaImponibile.fatturaPrevistaCent).toBe(Math.round(pattuitoCent * 1.1));
+    expect(rigaImponibile.fatturaPrevistaStima).toBe(true);
   });
 });
