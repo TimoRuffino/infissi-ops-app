@@ -274,7 +274,7 @@ export const fattureRouter = router({
     }),
 
   emetti: procedura
-    .input(z.object({ id: z.number().int(), revisione: z.number().int() }))
+    .input(z.object({ id: z.number().int(), revisione: z.number().int(), ignoraDoppione: z.boolean().optional() }))
     .mutation(async ({ input, ctx }) => {
       assicuraInterruttore("limiti");
       const sedeId = sedeCorrente(ctx);
@@ -287,7 +287,7 @@ export const fattureRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return await emettiFattura({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione });
+        return await emettiFattura({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione, ignoraDoppione: input.ignoraDoppione === true });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
       }

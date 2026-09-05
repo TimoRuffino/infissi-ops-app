@@ -235,6 +235,9 @@ export default function FatturaEmessaView({
   // di una fattura senza documento FiC è una `PRECONDIZIONE` sicura.
   const puoSondare = f.ficDocumentId != null && STATI_SONDABILI.has(stato);
   const puoRiprendere = puoEmettere && stato === "in_emissione";
+  // L'emissione si è fermata sull'anti-doppione: solo chi può emettere decide di andare avanti lo stesso.
+  const fermaSuDoppione = puoRiprendere && f.ficDocumentId == null && (f.eiErrore ?? "").startsWith("doppione_fic:");
+  const [confermaDoppione, setConfermaDoppione] = useState(false);
   // Senza documento su FiC non c'è nulla fuori dal CRM: si può annullare.
   const puoAnnullare = puoModificare && stato === "in_emissione" && f.ficDocumentId == null;
   const puoStornare =
@@ -321,6 +324,17 @@ export default function FatturaEmessaView({
             >
               <RefreshCw className="h-4 w-4 mr-1" />
               {riprendi.isPending ? "Riprendo…" : "Riprendi emissione"}
+            </Button>
+          )}
+          {fermaSuDoppione && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={riprendi.isPending}
+              onClick={() => setConfermaDoppione(true)}
+            >
+              Emetti comunque
             </Button>
           )}
           {puoAnnullare && (
@@ -569,6 +583,19 @@ export default function FatturaEmessaView({
         </aside>
       </div>
 
+      <ConfirmDialog
+        open={confermaDoppione}
+        onOpenChange={setConfermaDoppione}
+        title="Emettere comunque?"
+        description="Su Fatture in Cloud c'è già una fattura dello stesso cliente e dello stesso importo. Vai avanti solo se hai verificato che è davvero un'altra fattura: questa ne crea una nuova."
+        confirmLabel="Emetti comunque"
+        cancelLabel="Resta"
+        busy={riprendi.isPending}
+        onConfirm={() => {
+          setConfermaDoppione(false);
+          riprendi.mutate({ id: f.id, revisione: f.revisione, ignoraDoppione: true });
+        }}
+      />
       <ConfirmDialog
         open={confermaAnnulla}
         onOpenChange={setConfermaAnnulla}

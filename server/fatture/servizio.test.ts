@@ -1463,6 +1463,28 @@ describe("leggiFattura e fatturePerCommessa", () => {
   });
 });
 
+describe("validaPerEmissione — doppione sospetto dalle fatture FiC sincronizzate", () => {
+  it("stesso cliente e stesso lordo su un'altra commessa → avviso, non errore; stessa commessa, importo diverso o fattura vecchia → niente", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const fic = (righe: any[]) => ({ ...dip(), ficFattureDellaSede: async () => righe });
+    const nome = fattura.clienteSnapshot!.nome.split(" ").reverse().join(" ");
+    const lordo = fattura.totaleCent / 100;
+
+    const con = await validaPerEmissione(SEDE, fattura.id, fic([{ numero: "129", data: "2026-09-01", clienteNome: nome, importoLordo: lordo + 0.5, commessaId: 999 }]));
+    const sospetto = con.controlli.find(c => c.codice === "doppione_fic_sospetto");
+    expect(sospetto?.esito).toBe("avviso");
+    expect(sospetto?.messaggio).toContain("129");
+
+    const stessa = await validaPerEmissione(SEDE, fattura.id, fic([{ numero: "129", data: "2026-09-01", clienteNome: nome, importoLordo: lordo, commessaId }]));
+    expect(stessa.controlli.some(c => c.codice === "doppione_fic_sospetto")).toBe(false);
+    const diverso = await validaPerEmissione(SEDE, fattura.id, fic([{ numero: "130", data: "2026-09-01", clienteNome: nome, importoLordo: lordo + 50, commessaId: null }]));
+    expect(diverso.controlli.some(c => c.codice === "doppione_fic_sospetto")).toBe(false);
+    const vecchia = await validaPerEmissione(SEDE, fattura.id, fic([{ numero: "12", data: "2025-01-10", clienteNome: nome, importoLordo: lordo, commessaId: null }]));
+    expect(vecchia.controlli.some(c => c.codice === "doppione_fic_sospetto")).toBe(false);
+  });
+});
+
 describe("annullaBozza", () => {
   it("solo una bozza si annulla; evento «annullata» con il motivo", async () => {
     const { commessaId } = await scenario127();

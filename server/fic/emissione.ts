@@ -19,6 +19,23 @@ export type ContestoFic = {
   signal?: AbortSignal;
 };
 
+export type DocumentoFicSintesi = {
+  id: number;
+  number: number | null;
+  numeration: string | null;
+  date: string | null;
+  entityId: number | null;
+  entityName: string;
+  amountGross: number;
+};
+
+export type RigaDocumentoFic = {
+  descrizione: string;
+  quantita: number;
+  prezzoUnit: number;
+  aliquota: number | null;
+};
+
 export type ClienteFicInput = {
   name: string;
   type: "person" | "company";
@@ -108,6 +125,10 @@ export type ClientFicEmissione = {
     ctx: ContestoFic,
     documentId: number
   ): Promise<DocumentoFicCreato & { ei_status: string | null }>;
+  /** Le fatture emesse da una data in poi (intestazione e cliente): serve al blocco anti-doppione prima di creare un documento. */
+  cercaDocumenti(ctx: ContestoFic, dal: string): Promise<DocumentoFicSintesi[]>;
+  /** Le righe di un documento emesso (fieldset detailed): serve al confronto bozza ↔ fattura vera. */
+  leggiRigheDocumento(ctx: ContestoFic, documentId: number): Promise<RigaDocumentoFic[]>;
   verificaXml(
     ctx: ContestoFic,
     documentId: number
@@ -245,6 +266,50 @@ async function leggiDocumento(
     { method: "GET" }
   );
   return normalizzaDocumento(data?.data);
+}
+
+async function cercaDocumenti(ctx: ContestoFic, dal: string): Promise<DocumentoFicSintesi[]> {
+  const righe: DocumentoFicSintesi[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const query = new URLSearchParams({
+      type: "invoice",
+      per_page: "100",
+      page: String(page),
+      sort: "-date",
+      fields: "id,number,numeration,date,entity,amount_gross",
+      q: `date >= '${dal.replace(/'/g, "")}'`,
+    });
+    const data = await richiestaFic(ctx, `/c/${ctx.companyId}/issued_documents?${query.toString()}`, { method: "GET" });
+    const chunk: any[] = Array.isArray(data?.data) ? data.data : [];
+    for (const d of chunk) {
+      righe.push({
+        id: Number(d?.id),
+        number: d?.number == null ? null : Number(d.number),
+        numeration: d?.numeration ?? null,
+        date: d?.date ?? null,
+        entityId: d?.entity?.id == null ? null : Number(d.entity.id),
+        entityName: String(d?.entity?.name ?? ""),
+        amountGross: Number(d?.amount_gross ?? 0),
+      });
+    }
+    if (chunk.length < 100) break;
+  }
+  return righe;
+}
+
+async function leggiRigheDocumento(ctx: ContestoFic, documentId: number): Promise<RigaDocumentoFic[]> {
+  const data = await richiestaFic(
+    ctx,
+    `/c/${ctx.companyId}/issued_documents/${documentId}?fieldset=detailed`,
+    { method: "GET" }
+  );
+  const items: any[] = Array.isArray(data?.data?.items_list) ? data.data.items_list : [];
+  return items.map(i => ({
+    descrizione: `${String(i?.name ?? "").trim()} ${String(i?.description ?? "").trim()}`.trim(),
+    quantita: Number(i?.qty ?? 1) || 1,
+    prezzoUnit: Number(i?.net_price ?? 0),
+    aliquota: i?.vat?.value == null ? null : Number(i.vat.value),
+  }));
 }
 
 // ── e-fattura ───────────────────────────────────────────────────────────
@@ -394,6 +459,8 @@ export function creaClientFicEmissione(): ClientFicEmissione {
     creaCliente,
     creaDocumento,
     leggiDocumento,
+    cercaDocumenti,
+    leggiRigheDocumento,
     verificaXml,
     inviaEInvoice,
     scaricaXml,

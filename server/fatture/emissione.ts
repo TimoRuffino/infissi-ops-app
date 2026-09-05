@@ -38,8 +38,7 @@ import {
   type ClientFicEmissione,
   type ContestoFic,
   type DocumentoFicCreato,
-  type DocumentoFicInput,
-} from "../fic/emissione";
+  type DocumentoFicInput, type DocumentoFicSintesi } from "../fic/emissione";
 import { getClienteById, saveClientiStore } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { accessTokenFic, getCfg } from "../routers/fattureInCloud";
@@ -58,6 +57,7 @@ import { iso, validaPerEmissione } from "./servizio";
 export type PassoEmissione =
   | "validazione"
   | "cliente_fic"
+  | "doppione_fic"
   | "documento_fic"
   | "confronto_totali"
   | "xml"
@@ -90,6 +90,33 @@ export type DipendenzeEmissione = {
   contesto?: (sedeId: number) => Promise<ContestoFic>;
   timeline?: typeof allineaTimelineAlBoard;
 };
+
+/** Finestra dell'anti-doppione: le fatture FiC più vecchie non contano. */
+export const GIORNI_DOPPIONE = 120;
+
+function nomeNormalizzato(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, " ").trim().split(" ").sort().join(" ");
+}
+
+/**
+ * Stesso cliente (id FiC, o nome con le stesse parole in qualsiasi ordine:
+ * «Rossi Mario» e «Mario Rossi») e stesso lordo a 1 € vicino: è quasi
+ * certamente la stessa fattura. Il primo trovato basta.
+ */
+export function trovaDoppioneFic(
+  candidati: DocumentoFicSintesi[],
+  ricerca: { ficEntityId: number | null; nome: string; totaleCent: number }
+): DocumentoFicSintesi | null {
+  const nome = nomeNormalizzato(ricerca.nome);
+  for (const c of candidati) {
+    const stessoCliente =
+      (ricerca.ficEntityId != null && c.entityId === ricerca.ficEntityId) ||
+      (nome.length > 0 && nomeNormalizzato(c.entityName) === nome);
+    if (!stessoCliente) continue;
+    if (Math.abs(Math.round(c.amountGross * 100) - ricerca.totaleCent) <= 100) return c;
+  }
+  return null;
+}
 
 /** Gli stati da cui l'emissione può partire o ripartire. */
 const STATI_DI_PARTENZA = new Set<Fattura["stato"]>([
@@ -358,6 +385,8 @@ export async function emettiFattura(
     id: number;
     actorUserId: number | null;
     revisione: number;
+    /** «Emetti comunque»: l'operatore ha verificato che la fattura simile su FiC è un'altra fattura. */
+    ignoraDoppione?: boolean;
   } & DipendenzeEmissione
 ): Promise<{ fattura: Fattura; passi: EsitoPasso[] }> {
   const repository = repo(input);
@@ -551,6 +580,39 @@ export async function emettiFattura(
   const confrontoDaFare = fattura.stato === "in_emissione";
   let documento: DocumentoFicCreato | null = null;
   let creato: DocumentoFicCreato | null = null;
+
+  // ── 2b. anti-doppione ──────────────────────────────────────────────────
+  // Prima di creare un documento su Fatture in Cloud si guarda se ne esiste
+  // già uno dello stesso cliente e dello stesso importo (a 1 € vicino) negli
+  // ultimi 120 giorni: il caso reale è una commessa doppia dello stesso
+  // cliente con la fattura vera collegata all'altra. Il dry-run non
+  // protegge (salta solo l'invio allo SdI, il documento nasce lo stesso).
+  // Se FiC non risponde il controllo si salta, dichiarandolo: non è lui a
+  // decidere se si fattura. «Emetti comunque» (`ignoraDoppione`) lo scavalca.
+  if (fattura.ficDocumentId == null && !input.ignoraDoppione) {
+    await bloccante("doppione_fic", async () => {
+      let candidati: DocumentoFicSintesi[];
+      try {
+        candidati = await client.cercaDocumenti(ctx, iso(new Date(now.getTime() - GIORNI_DOPPIONE * 86_400_000)));
+      } catch (errore) {
+        segna("doppione_fic", "saltato", `Fatture in Cloud non ha risposto: ${messaggio(errore)}`);
+        return;
+      }
+      const doppione = trovaDoppioneFic(candidati, {
+        ficEntityId: ficEntityId ?? null,
+        nome: fattura.clienteSnapshot?.nome ?? "",
+        totaleCent: fattura.totaleCent,
+      });
+      if (doppione) {
+        throw new Error(
+          `DOPPIONE_FIC: su Fatture in Cloud esiste già la fattura ${doppione.number ?? "?"}${doppione.numeration ?? ""} del ${doppione.date ?? "?"} per ${doppione.entityName} di € ${doppione.amountGross.toFixed(2)}. Se è la stessa, annulla questa; se è davvero un'altra, «Emetti comunque».`
+        );
+      }
+      segna("doppione_fic", "fatto", `${candidati.length} fatture controllate`);
+    });
+  } else if (fattura.ficDocumentId == null) {
+    segna("doppione_fic", "saltato", "scavalcato dall'operatore");
+  }
 
   if (fattura.ficDocumentId == null) {
     creato = await bloccante("documento_fic", async () => {

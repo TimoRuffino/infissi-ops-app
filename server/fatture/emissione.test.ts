@@ -33,8 +33,7 @@ import {
   costruisciDocumentoFic,
   emettiFattura,
   noteFattura,
-  type DipendenzeEmissione,
-} from "./emissione";
+  type DipendenzeEmissione, GIORNI_DOPPIONE, trovaDoppioneFic } from "./emissione";
 import {
   createMemoryFattureRepository,
   type FattureRepository,
@@ -248,6 +247,8 @@ const PDF_FINTO = Buffer.from("%PDF-1.4 finto\n%%EOF\n", "utf-8");
 function copioneFelice(f: Fattura, over: Copione = {}): Copione {
   return {
     cercaClienti: async () => [],
+    cercaDocumenti: async () => [],
+    leggiRigheDocumento: async () => [],
     creaCliente: async () => ({ id: FIC_ENTITY_NUOVO }),
     creaDocumento: async () => documentoFicDa(f),
     verificaXml: async () => ({ success: true, errori: [] }),
@@ -345,17 +346,19 @@ describe("emettiFattura", () => {
     expect(metodi(b.registro)).toEqual([
       "cercaClienti",
       "creaCliente",
+      "cercaDocumenti",
       "creaDocumento",
       "verificaXml",
       "inviaEInvoice",
       "scaricaXml",
       "scaricaPdf",
     ]);
-    expect(b.registro[3].body).toMatchObject({ documentId: FIC_DOCUMENT_ID });
-    expect(b.registro[4].body).toMatchObject({
+    // Indici: cercaClienti, creaCliente, cercaDocumenti (anti-doppione), creaDocumento, verificaXml…
+    expect(b.registro[4].body).toMatchObject({ documentId: FIC_DOCUMENT_ID });
+    expect(b.registro[5].body).toMatchObject({
       opzioni: { dry_run: true },
     });
-    expect((b.registro[2].body as any).opzioni).toEqual({ fix_payments: true });
+    expect((b.registro[3].body as any).opzioni).toEqual({ fix_payments: true });
 
     // Dry-run: la fattura resta «emessa» e porta il segno del giro di prova.
     const f = esito.fattura;
@@ -431,6 +434,7 @@ describe("emettiFattura", () => {
     expect(esito.passi.map(p => [p.passo, p.esito])).toEqual([
       ["validazione", "fatto"],
       ["cliente_fic", "fatto"],
+      ["doppione_fic", "fatto"],
       ["documento_fic", "fatto"],
       ["confronto_totali", "fatto"],
       ["xml", "fatto"],
@@ -530,6 +534,7 @@ describe("emettiFattura", () => {
     expect(metodi(b.registro)).toEqual([
       "cercaClienti",
       "creaCliente",
+      "cercaDocumenti",
       "creaDocumento",
     ]);
     expect(await tipiEvento(SEDE, fattura.id)).toEqual([
@@ -547,6 +552,7 @@ describe("emettiFattura", () => {
     expect(primo.passi.map(p => [p.passo, p.esito])).toEqual([
       ["validazione", "fatto"],
       ["cliente_fic", "fatto"],
+      ["doppione_fic", "fatto"],
       ["documento_fic", "fatto"],
       ["confronto_totali", "errore"],
     ]);
@@ -1350,5 +1356,51 @@ describe("noteFattura", () => {
     );
     expect(testo).toContain("Calcolo limite massimo spesa");
     expect(testo.trimEnd().endsWith("Grazie per la fiducia.")).toBe(true);
+  });
+});
+
+describe("anti-doppione (studio 05/09/2026: commessa doppia dello stesso cliente)", () => {
+  const simile = (totaleCent: number, over: Partial<{ entityId: number | null; entityName: string; amountGross: number; date: string }> = {}) => ({
+    id: 555, number: 129, numeration: "", date: "2026-09-01", entityId: null, entityName: "Rossi Mario", amountGross: totaleCent / 100, ...over,
+  });
+
+  it("trovaDoppioneFic: stesso cliente (id o nome in qualsiasi ordine) e lordo a 1 € vicino", () => {
+    const cand = [simile(1442000, { entityName: "Mario Rossi", amountGross: 14420.5 })];
+    expect(trovaDoppioneFic(cand, { ficEntityId: null, nome: "Rossi Mario", totaleCent: 1442000 })?.id).toBe(555);
+    expect(trovaDoppioneFic(cand, { ficEntityId: null, nome: "Rossi Mario", totaleCent: 1442000 + 250 })).toBeNull();
+    expect(trovaDoppioneFic(cand, { ficEntityId: null, nome: "Bianchi Anna", totaleCent: 1442000 })).toBeNull();
+    expect(trovaDoppioneFic([simile(100, { entityId: 7, entityName: "altro", amountGross: 1 })], { ficEntityId: 7, nome: "", totaleCent: 100 })?.id).toBe(555);
+    expect(GIORNI_DOPPIONE).toBe(120);
+  });
+
+  it("si ferma prima del documento con DOPPIONE_FIC e resta «in emissione»; «Emetti comunque» riparte da lì", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const b = banco(copioneFelice(fattura, { cercaDocumenti: async () => [simile(fattura.totaleCent)] }));
+    await expect(
+      emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip })
+    ).rejects.toThrow("DOPPIONE_FIC");
+    const ferma = (await repository.perId(SEDE, fattura.id))!;
+    expect(ferma.stato).toBe("in_emissione");
+    expect(ferma.ficDocumentId).toBeNull();
+    expect(ferma.eiErrore).toMatch(/^doppione_fic: DOPPIONE_FIC/);
+    expect(metodi(b.registro)).not.toContain("creaDocumento");
+
+    const esito = await emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: ferma.revisione, ignoraDoppione: true, ...b.dip });
+    expect(esito.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID);
+    expect(esito.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "saltato" });
+    expect(metodi(b.registro)).toContain("creaDocumento");
+  });
+
+  it("senza fatture simili va avanti; se Fatture in Cloud non risponde il controllo si salta dichiarandolo", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const ok = banco(copioneFelice(fattura, { cercaDocumenti: async () => [simile(fattura.totaleCent, { entityName: "Bianchi Anna" })] }));
+    const esito = await emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...ok.dip });
+    expect(esito.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "fatto" });
+
+    const { fattura: seconda } = await bozzaEmettibile();
+    const giu = banco(copioneFelice(seconda, { cercaDocumenti: async () => { throw new Error("HTTP 500"); } }));
+    const esito2 = await emettiFattura({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, revisione: seconda.revisione, ...giu.dip });
+    expect(esito2.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "saltato" });
+    expect(esito2.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID);
   });
 });

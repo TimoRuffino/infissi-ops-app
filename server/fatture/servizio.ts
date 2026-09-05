@@ -45,6 +45,8 @@ export type Dipendenze = {
   repository?: FattureRepository;
   /** Solo per i test: `false` fa nascere la bozza grezza (beni a contratto, servizi ai limiti) invece di quella bilanciata. */
   bilanciaBozza?: boolean;
+  /** Le fatture FiC sincronizzate della sede (default: lo store): per l'avviso di doppione in validazione. */
+  ficFattureDellaSede?: (sedeId: number) => Promise<Array<{ numero: string; data: string; clienteNome: string; importoLordo: number; commessaId: number | null; ficId?: number | null; id?: number }>>;
 };
 
 export type ModificaBozza = {
@@ -972,7 +974,40 @@ export async function validaPerEmissione(
   if (fattura.tipo !== "nota_credito") {
     controlli.push(...verificaLimiti(fattura, await computoPerLimiti(sedeId, fattura)));
   }
+
+  // Doppione sospetto: una fattura FiC già sincronizzata dello stesso cliente
+  // e dello stesso lordo (a 1 € vicino) collegata a un'altra commessa. Qui è
+  // un avviso, così l'operatore lo vede in bozza; il blocco vero, con la
+  // lettura dal vivo di Fatture in Cloud, sta nell'emissione (`doppione_fic`).
+  if (fattura.tipo !== "nota_credito" && fattura.ficDocumentId == null) {
+    const sospetto = await doppioneSospetto(sedeId, fattura, dip);
+    if (sospetto) avviso("doppione_fic_sospetto", sospetto);
+  }
   return { fattura, controlli, emettibile: !controlli.some(c => c.esito === "errore") };
+}
+
+async function doppioneSospetto(sedeId: number, fattura: Fattura, dip?: Dipendenze): Promise<string | null> {
+  const leggi = dip?.ficFattureDellaSede ?? (async (sede: number) => {
+    const { ficFatture } = await import("../routers/ficFatture");
+    return ficFatture.filter((f: any) => (f.sedeId ?? 1) === sede && f.tipo === "invoice" && !f.ignorata);
+  });
+  const nome = parole(fattura.clienteSnapshot?.nome ?? "");
+  if (!nome) return null;
+  const finestra = 120 * 86_400_000;
+  const oggi = adesso(dip).getTime();
+  for (const f of await leggi(sedeId)) {
+    if (f.commessaId != null && f.commessaId === fattura.commessaId) continue;
+    if (parole(f.clienteNome) !== nome) continue;
+    if (Math.abs(Math.round(f.importoLordo * 100) - fattura.totaleCent) > 100) continue;
+    const quando = Date.parse(f.data);
+    if (Number.isFinite(quando) && oggi - quando > finestra) continue;
+    return `Su Fatture in Cloud c'è già la fattura ${f.numero} del ${f.data} per ${f.clienteNome} di € ${euro(Math.round(f.importoLordo * 100))}${f.commessaId != null ? ", collegata a un'altra commessa" : ""}: controlla di non fatturare due volte.`;
+  }
+  return null;
+}
+
+function parole(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, " ").trim().split(" ").filter(Boolean).sort().join(" ");
 }
 
 // ── Annullamento ────────────────────────────────────────────────────────

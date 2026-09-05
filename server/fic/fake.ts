@@ -39,6 +39,14 @@ export function creaClientFicFinto(
         ? copione.cercaClienti(ctx, q)
         : nonPrevisto("cercaClienti");
     },
+    async cercaDocumenti(ctx, dal) {
+      registra("cercaDocumenti", dal, { dal });
+      return copione.cercaDocumenti ? copione.cercaDocumenti(ctx, dal) : [];
+    },
+    async leggiRigheDocumento(ctx, documentId) {
+      registra("leggiRigheDocumento", String(documentId), { documentId });
+      return copione.leggiRigheDocumento ? copione.leggiRigheDocumento(ctx, documentId) : [];
+    },
     async creaCliente(ctx, cliente) {
       registra("creaCliente", "", cliente);
       return copione.creaCliente
