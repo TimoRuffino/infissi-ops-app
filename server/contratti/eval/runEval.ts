@@ -215,7 +215,17 @@ export async function eseguiEvalContratti(opzioni?: {
 
   const esiti: EsitoCasoContratto[] = [];
   for (const caso of casi) {
-    esiti.push(await eseguiCasoContratto(caso, { ocrDisponibile: disponibilitaOcrLocale.disponibile, providerReale, modello }));
+    // Un caso che esplode (provider, parser) non ferma gli altri: resta nel
+    // report come saltato, con il motivo nelle note.
+    try {
+      esiti.push(await eseguiCasoContratto(caso, { ocrDisponibile: disponibilitaOcrLocale.disponibile, providerReale, modello }));
+    } catch (errore: any) {
+      esiti.push({
+        nome: caso.nome, descrizione: caso.descrizione, saltato: true, tempoMs: 0, esitoParser: "-", parserUsato: null, pagine: 0,
+        fonteEsito: null, layoutWndRiconosciuto: null, layoutWndCorretto: null, campi: {}, controlliAttesiMancanti: [], controlliInattesi: [],
+        note: [`errore: ${String(errore?.message ?? errore)}`],
+      });
+    }
   }
 
   const eseguiti = esiti.filter(esito => !esito.saltato);

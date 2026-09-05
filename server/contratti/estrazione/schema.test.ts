@@ -124,9 +124,9 @@ describe("schemaEsitoModello — accetta il valido, rifiuta il resto", () => {
     expect(schemaEsitoModello.safeParse(grezzo).success).toBe(false);
   });
 
-  it("rifiuta pagina 0", () => {
+  it("rifiuta una pagina negativa", () => {
     const grezzo = clona(esitoValido);
-    grezzo.righe[0].pagina = 0;
+    grezzo.righe[0].pagina = -1;
     expect(schemaEsitoModello.safeParse(grezzo).success).toBe(false);
   });
 
@@ -259,5 +259,14 @@ describe("il JSON Schema e il tipo EsitoModello hanno le stesse chiavi", () => {
     confronta(schema.properties.rate.items.required, esitoValido.rate[0]);
     confronta(schema.properties.cantiere.required, esitoValido.cantiere);
     confronta(schema.properties.cliente.required, esitoValido.cliente);
+  });
+});
+
+describe("evidenza senza fonte (prova dal vivo 05/09/2026)", () => {
+  it("pagina 0 = «nessuna evidenza»: la lettura passa; una pagina negativa no", () => {
+    const senzaCantiere = { ...esitoValido, cantiere: { ...esitoValido.cantiere, pagina: 0 } };
+    expect(schemaEsitoModello.safeParse(senzaCantiere).error?.issues ?? []).toEqual([]);
+    const negativa = { ...esitoValido, cantiere: { ...esitoValido.cantiere, pagina: -1 } };
+    expect(schemaEsitoModello.safeParse(negativa).success).toBe(false);
   });
 });

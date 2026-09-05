@@ -94,8 +94,10 @@ describe("eval lettura del contratto — framework (piano 3, Task 9)", { timeout
     }
   });
 
-  it("senza casi-reali/ (gitignored, vuota in questo commit) nessun caso reale viene eseguito né saltato per errore", async () => {
+  it("i casi reali (casi-reali/, gitignored) ci sono solo se qualcuno li ha messi: senza cartella nessuno, con la cartella uno per sottocartella", async () => {
     const r = await risultato();
-    expect(r.casi.some(c => c.nome.startsWith("reale-"))).toBe(false);
+    const { readdir } = await import("node:fs/promises");
+    const cartelle = await readdir(new URL("./casi-reali/", import.meta.url)).catch(() => [] as string[]);
+    expect(r.casi.filter(c => c.nome.startsWith("reale-")).length).toBe(cartelle.length);
   });
 });

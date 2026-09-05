@@ -76,3 +76,25 @@ contratto e si è confrontato con la fattura reale, riga per riga
   significative vanno corrette a mano (checkbox) prima della bozza.
 - La bozza in «in emissione» sulla commessa reale di settembre va ripresa
   dopo il deploy con «Riprendi emissione» (o annullata e rifatta).
+
+## 5. Seconda tornata (05/09 notte): anti-doppione, confronto, banco di prova
+
+| # | Cosa | Esito |
+|---|---|---|
+| I | **Anti-doppione all'emissione**: prima di creare il documento su FiC si leggono le fatture degli ultimi 120 giorni; stesso cliente (id FiC o nome) e stesso lordo a 1 € vicino → la fattura resta «in emissione» con `DOPPIONE_FIC`; «Emetti comunque» (fattura.emit) scavalca; se FiC non risponde il controllo si salta dichiarandolo. In bozza lo stesso sospetto è l'avviso `doppione_fic_sospetto` dalle fatture già sincronizzate | fatto, con test |
+| L | **Confronto bozza ↔ fattura vera** (`fatture.confrontaConFic`, pannello «Fattura vera a confronto» nell'editor): la fattura FiC collegata alla commessa (o dello stesso cliente con lordo vicino) letta con le righe e messa a confronto voce per voce con le regole dello studio (`server/fatture/confronto.ts`) | fatto, con test |
+| M | **Banco di prova della lettura del contratto dal vivo**: tre contratti WnD veri (127, 129, 130) in `server/contratti/eval/casi-reali/` (gitignored) con la verità scritta a mano dai PDF; runner `scripts/eval-contratti-reali.ts` con il modello vero (serve un PostgreSQL per il ledger dei costi) | fatto; risultati sotto |
+
+**Risultati del banco di prova (modello reale, 3 contratti, 111 campi giudicati):**
+
+| Contratto | Campi corretti | Cosa manca |
+|---|---|---|
+| 127 (3 serramenti, coprifili, accessorio) | 24/25 | comune del cantiere non proposto (il contratto non lo dice: il giudizio è severo) |
+| 130 (4 serramenti, 2 coprifili, posa a parte) | 29/29 | — |
+| 129 (5 serramenti, 7 persiane dentro una riga generica, coprifili) | 42/57 | il blocco delle persiane, scritto in prosa nella descrizione, esce con ordine e numero di righe diversi da una lettura all'altra (12 o 13 righe); i cinque serramenti in tabella sono tutti giusti |
+
+Totale: 95 su 111 campi (86 %); sui blocchi tabellari del layout WnD 100 %, l'incertezza è tutta nel testo libero.
+
+**Due difetti trovati solo dal vivo, mai dai test:**
+- lo schema strict rifiutava `pagina: 0`, che il modello usa per «nessuna fonte» (cantiere assente): la lettura intera andava persa (`ESTRAZIONE_RISPOSTA_INVALIDA`). Ora lo 0 vale «nessuna evidenza» e il campo resta da verificare;
+- con l'IVA al 22 % nel preventivo la commercialista tiene a volte il lordo (129) e a volte l'imponibile (130): non si indovina dal documento. Il layout propone il lordo (D-G) e segna pattuito e tipo come **da confermare** quando «IVA Beni / Totale IVA Esc.» supera il 15 %.

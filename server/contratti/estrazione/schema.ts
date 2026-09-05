@@ -62,7 +62,12 @@ export type DetrazioneModello = (typeof DETRAZIONI_MODELLO)[number];
 // dove ha guardato). Stessa coppia di server/contratti/servizio.ts
 // (`evidenza: { pagina, frammento }`): pagina intera da 1, frammento fino
 // a 300 caratteri, nessun limite inferiore (una citazione corta è lecita).
-const pagina = z.number().int().min(1);
+// Prova dal vivo del 05/09/2026 (tre contratti WnD veri): con lo schema
+// strict il modello, quando un gruppo non ha una fonte (cantiere assente),
+// risponde `pagina: 0` invece di inventare una pagina — e `min(1)` buttava
+// via l'intera lettura. Lo 0 vale «nessuna evidenza»: `verificaEvidenza`
+// lo tratta come pagina inesistente (campo da verificare), il resto passa.
+const pagina = z.number().int().min(0);
 const frammento = z.string().max(300);
 
 const rigaEsitoSchema = z

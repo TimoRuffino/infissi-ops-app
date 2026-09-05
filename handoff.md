@@ -3689,7 +3689,20 @@ nella forma «/A» (in configurazione c'era «2026»: FiC risponde 422) e
 «Annulla emissione» per una fattura ferma prima del documento FiC.
 ATTENZIONE runbook: la commessa usata per la prova ha già la fattura vera
 su FiC collegata a un'altra commessa dello stesso cliente: emettere da lì
-creerebbe un doppione. Dati grezzi con nomi dei clienti solo nello scratchpad di
+creerebbe un doppione. Seconda tornata (notte): anti-doppione
+all'emissione (`doppione_fic`, «Emetti comunque»), avviso
+`doppione_fic_sospetto` in bozza, confronto bozza ↔ fattura vera
+(`fatture.confrontaConFic`, `server/fatture/confronto.ts`), banco di prova
+dal vivo della lettura del contratto (`scripts/eval-contratti-reali.ts`,
+casi in `server/contratti/eval/casi-reali/` gitignored: 95/111 campi, 100 %
+sui blocchi tabellari WnD), schema strict che accetta `pagina: 0` (prima
+buttava via la lettura), pattuito lordo/imponibile «da confermare» con IVA
+22 % nel preventivo. Runbook della prova: PostgreSQL locale per il ledger
+(`docker run … postgres:16`), `EVAL_CONTRATTI_REALE=on TARS_PROVIDER=openai
+FLAG_TARS=on FLAG_CONTRATTO_ESTRAZIONE=on FLAG_DOCUMENT_INTELLIGENCE=on` +
+budget `TARS_*` + `OPENAI_API_KEY`; la chiave della launch config demo è
+scaduta (401), quella di produzione va presa da Railway solo per la durata
+della prova. Dati grezzi con nomi dei clienti solo nello scratchpad di
 sessione, mai nel repo. Verifica browser: in sospeso.
 
 ## 12. Debito aperto prioritario

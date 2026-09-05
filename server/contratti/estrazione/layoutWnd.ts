@@ -31,6 +31,8 @@ const RIGA_COSTI =
   /^(.+?)\s+([\d.,]+)\s*€\s+([\d.,]+)\s*€\s+(\d+)\s+([\d.,]+)\s*€\s*\(\s*[\d.,]+\s*%\s*\)\s+([\d.,]+)\s*€$/;
 const TOTALE_INCLUSA = /Totale\s+IVA\s+Incl[a-zA-Z.]*\s+([\d.,]+)/i;
 const TOTALE_ESCLUSA = /Totale\s+IVA\s+Esc[a-zA-Z.]*\s+([\d.,]+)/i;
+/** «IVA Beni 1.036,81 €» oppure «IVA Beni quota (10%) 1.408,61 €»: l'imposta sui beni del riepilogo. */
+const IVA_BENI = /IVA\s+Beni(?:\s+quota)?(?:\s*\(\d+%\))?\s+([\d.,]+)/i;
 const TERMINI_PAGAMENTO = /Termini\s+di\s+pagamento\s*:?\s*(.+)$/i;
 /**
  * La riga che dichiara l'aliquota («IVA 10%», «Totale IVA 10%»): l'IVA deve
@@ -239,7 +241,19 @@ function ivaDescrizioneDalLayout(pagine: readonly string[]): string | null {
 
 function pattuitoDaTotali(
   pagine: readonly string[]
-): { cent: number; tipo: PattuitoTipo; evidenza: EvidenzaEstratta } | null {
+): { cent: number; tipo: PattuitoTipo; evidenza: EvidenzaEstratta; ambiguo: boolean } | null {
+  // Studio delle fatture reali (05/09/2026, tre contratti WnD): quando il
+  // preventivo calcola l'IVA sui beni al 22 % (niente agevolazione nel
+  // prezzo) la commercialista a volte tiene fisso il lordo (la fattura al
+  // 10 % alza l'imponibile) e a volte l'imponibile (il cliente paga meno):
+  // è una scelta commerciale, non si indovina dal documento. Il rapporto
+  // «IVA Beni» / «Totale IVA Esc.» sopra il 15 % segnala il caso: il pattuito
+  // resta il lordo (D-G) ma va confermato dall'operatore.
+  const esclusa = cercaRiga(pagine, TOTALE_ESCLUSA);
+  const ivaBeni = cercaRiga(pagine, IVA_BENI);
+  const imponibile = esclusa ? numeroItaliano(esclusa.gruppi[1]) : null;
+  const imposta = ivaBeni ? numeroItaliano(ivaBeni.gruppi[1]) : null;
+  const ambiguo = imponibile != null && imponibile > 0 && imposta != null && imposta / imponibile > 0.15;
   // D-G: il totale IVA inclusa è il pattuito; l'imponibile vale solo quando
   // il documento non mostra il lordo.
   for (const [regex, tipo] of [
@@ -250,7 +264,7 @@ function pattuitoDaTotali(
     if (!trovata) continue;
     const valore = numeroItaliano(trovata.gruppi[1]);
     if (valore == null) continue;
-    return { cent: euroToCent(valore), tipo, evidenza: { pagina: trovata.pagina, frammento: frammento(trovata.riga) } };
+    return { cent: euroToCent(valore), tipo, evidenza: { pagina: trovata.pagina, frammento: frammento(trovata.riga) }, ambiguo };
   }
   return null;
 }
@@ -302,10 +316,10 @@ export function arricchisciDaLayoutWnd(
     ...proposta,
     righe,
     pattuitoCent: pattuito
-      ? campo<number | null>(pattuito.cent, pattuito.evidenza, { daVerificare: false })
+      ? campo<number | null>(pattuito.cent, pattuito.evidenza, { daVerificare: pattuito.ambiguo })
       : proposta.pattuitoCent,
     pattuitoTipo: pattuito
-      ? campo<PattuitoTipo | null>(pattuito.tipo, pattuito.evidenza, { daVerificare: false })
+      ? campo<PattuitoTipo | null>(pattuito.tipo, pattuito.evidenza, { daVerificare: pattuito.ambiguo })
       : proposta.pattuitoTipo,
     rate: rate ? campo(rate.rate, rate.evidenza, { daVerificare: false }) : proposta.rate,
   };

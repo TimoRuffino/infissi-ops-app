@@ -232,6 +232,26 @@ const RIGHE_WND_CON_PERSIANA = [
   "Totale IVA Esc. 3.000,00 €",
 ];
 
+describe("arricchisciDaLayoutWnd — lordo o imponibile dall'IVA del preventivo (studio 05/09/2026)", () => {
+  const conIva = (rigaIva: string) => [PAGINE_WND[0], PAGINE_WND[1].replace("Totale IVA Esc. 14.086,11 €", `Totale IVA Esc. 14.086,11 €\n${rigaIva}`)];
+
+  it("IVA sui beni al 22 % nel preventivo → resta il lordo (D-G) ma lordo/imponibile va confermato: la commercialista sceglie caso per caso", () => {
+    const pagine = conIva("IVA Beni 3.098,94 €");
+    const arricchita = arricchisciDaLayoutWnd(pagine, costruisciProposta(ESITO_INCERTO, { ...CONTESTO, pagine }, false));
+    expect(arricchita.pattuitoTipo.valore).toBe("lordo");
+    expect(arricchita.pattuitoCent.valore).toBe(1549472);
+    expect(arricchita.pattuitoTipo.daVerificare).toBe(true);
+    expect(arricchita.pattuitoCent.daVerificare).toBe(true);
+  });
+
+  it("IVA agevolata al 10 % già nel preventivo → lordo senza dubbi", () => {
+    const pagine = conIva("IVA Beni quota (10%) 1.408,61 €");
+    const arricchita = arricchisciDaLayoutWnd(pagine, costruisciProposta(ESITO_INCERTO, { ...CONTESTO, pagine }, false));
+    expect(arricchita.pattuitoTipo.valore).toBe("lordo");
+    expect(arricchita.pattuitoTipo.daVerificare).toBe(false);
+  });
+});
+
 describe("arricchisciDaLayoutWnd — oscurante abbinato (P3-R36)", () => {
   const pagine = [RIGHE_WND_CON_PERSIANA.join("\n")];
   const esitoConPersiana: EsitoModello = {
