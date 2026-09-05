@@ -162,6 +162,21 @@ Operativi:
 ### 5.3 Comportamenti del Cliente
 - Lista clienti con ricerca testuale, filtro per tipo, filtro "solo le mie".
 - Scheda cliente con tabs: **Commesse**, **Interventi**, **Ticket**, **Garanzie** — ognuno ha un pulsante **+** per creare l'entità collegata.
+- **Creazione cliente e prima commessa in un passo** (04/09/2026). Il dialog
+  «Nuovo cliente» chiude con **«Crea cliente e commessa»**: una sola mutation
+  `clienti.createConCommessa` (stesso input di `clienti.create`, risposta
+  `{ cliente, commessa }`) crea il cliente e la sua prima commessa in
+  `preventivo`, che eredita indirizzo di lavoro (fallback residenza),
+  telefono, email e assegnatario. Al successo si apre la commessa nuova.
+  - La capability `commessa.create` è verificata **prima** di scrivere: chi
+    può creare clienti ma non commesse non resta con un cliente orfano.
+  - Sotto resta **«Crea solo il cliente»**; senza `commessa.create` il
+    pulsante torna a essere il solo «Crea cliente» di prima.
+  - Nessuna regola duplicata: `commesse.create` e `clienti.create` passano
+    dalle stesse funzioni di dominio `creaCommessa` e `creaCliente`. Non è
+    una transazione atomica sui due store: un cliente senza commessa resta
+    uno stato valido, e la commessa può fallire solo sulla policy, che è
+    controllata prima.
 - **Cascade su update.** Modificando nome/cognome o un campo di contatto/indirizzo del cliente, il server propaga il valore a tutte le commesse linkate (solo dove il valore della commessa coincideva con il valore precedente del cliente, così le override manuali non vengono sovrascritte).
 - Eliminazione cliente disponibile (con conferma) ma SCONSIGLIATA in presenza di commesse linkate.
 - **Scheda PDF** stampabile dall'header (vedi §42) e bottone **WhatsApp** accanto al telefono (vedi §41).
@@ -236,6 +251,18 @@ Quando una commessa entra nello stato `produzione`:
 - Filtri: search testuale (codice, cliente, città), stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
 - Ordinata per `createdAt` desc.
 - Risposta **non include** `prodotti` né `pagamenti` (ottimizzazione bandwidth/render). Include però `prodottiSintesi` (nome + quantità per riga) e `nPagamenti` (conteggio degli acconti), che alimentano rispettivamente la colonna Prodotti e la proposta della rata successiva nella pagina Pagamenti.
+
+### 6.8 Schede della scheda commessa
+Sotto il corpo della commessa: **File e documenti**, **Prodotti**,
+**Interventi**, **Anomalie**, **Ticket**, ognuna col proprio conteggio.
+
+- **Ticket** (04/09/2026): i ticket post-vendita aperti su questa commessa,
+  con categoria, priorità, stato, oggetto e descrizione. Il filtro è del
+  server (`ticket.list` per `commessaId`, con lo scope di sede); la scheda
+  li mostra soltanto. La lavorazione — assegnazione, solleciti,
+  pianificazione — resta nella coda `/ticket`, raggiungibile con il pulsante
+  «Apri» di ogni riga. Prima un ticket collegato a una commessa si vedeva
+  solo dalla coda post-vendita e dalla scheda cliente.
 
 ---
 
@@ -532,7 +559,16 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 
 ---
 
-## 17. Garanzie (`/garanzie`, direzione‑only)
+## 17. Garanzie (dominio senza pagina propria)
+
+**La pagina `/garanzie` è stata rimossa il 04/09/2026** su richiesta della
+direzione. Il dominio resta intero: le garanzie si leggono e si registrano
+dalla **scheda cliente**, che le raccoglie per tutte le sue commesse ed era
+già la superficie d'uso reale. `garanzieRouter` continua ad alimentare le
+notifiche di scadenza, il Centro Azioni e il backup Drive. La rotta
+`/garanzie` sopravvive come redirect verso `/clienti`, così le notifiche e i
+segnalibri già salvati non atterrano su un 404.
+
 - Tipi: `prodotto, posa, accessorio, vetro, altro`.
 - Campi: `commessaId, aperturaId?, tipo, descrizione, fornitore?, dataInizio, durataMesi, dataScadenza, stato, documentoRif?, note?`.
 - `dataScadenza` calcolata server‑side da `dataInizio + durataMesi`.
@@ -548,7 +584,26 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 
 ---
 
-## 19. Fornitori (`/fornitori`, direzione‑only)
+## 19. Fornitori (dominio senza pagina propria)
+
+**La pagina `/fornitori` è stata rimossa il 04/09/2026**, confermando la
+candidatura alla rimozione già registrata. In produzione il modulo contava
+zero ordini, zero proposte e zero analisi documentali: la pagina non copriva
+lavoro vivo.
+
+Il **dominio resta e non è opzionale**: `fornitoriRouter` è dipendenza di una
+quindicina di moduli server — il costo del margine che nasce dalla conferma
+d'ordine (§54.7), la Document Intelligence (§19.4, §54.6) e buona parte di
+Tars (briefing, fascicoli, versioni, strumenti). Rimuoverlo romperebbe il
+margine, non un'interfaccia. Restano quindi validi i contratti dati qui
+sotto; ciò che non esiste più è la loro UI dedicata. La rotta `/fornitori`
+sopravvive come redirect verso `/commesse`.
+
+Conseguenza dichiarata: senza quella pagina non c'è più una superficie per
+creare o modificare a mano anagrafiche fornitore, ordini e listini, né per
+approvare le proposte della Document Intelligence. Se quel lavoro tornerà
+necessario, va ricollocato dove nasce — la scheda commessa — con una
+decisione registrata.
 
 ### 19.1 Anagrafica fornitore
 - Campi: `ragioneSociale, partitaIva, indirizzo?, citta?, telefono?, email?, categoria, referenteCommerciale?, scontistica?, note?, attivo`.
@@ -667,6 +722,10 @@ stessa su cui poggerà il futuro agente:
 - UI nella scheda ordine (`/fornitori`): pannello «Proposte dall'analisi»
   con stato, evidenza, motivazione ed effetto esatto; la generazione parte
   dal run di analisi («Proponi l'aggiornamento della data di consegna»).
+  **Rimossa il 04/09/2026 con la pagina Fornitori** (§19): il gateway
+  `proposteRouter` e la generazione restano server-side, ma non hanno più
+  una superficie di approvazione. Le proposte di Tars restano decidibili
+  dalla pagina `/tars`.
 
 **OCR locale per le scansioni (29/08/2026, quarta slice).** Tesseract 5
 eseguito in locale (`server/documenti/ocr.ts`): nessun servizio cloud,
@@ -1092,6 +1151,13 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.35 (04/09/2026)** - **Semplificazioni chieste dalla direzione: meno passi, meno doppioni, meno pagine.** Cinque interventi di una sessione sola.
+  **(1) Cliente e prima commessa in un passo** (§5.3): il dialog «Nuovo cliente» chiude con «Crea cliente e commessa» e apre la commessa appena creata. Nuova `clienti.createConCommessa` (stesso input di `clienti.create`, risposta `{ cliente, commessa }`) che verifica `commessa.create` PRIMA di scrivere — chi può creare clienti ma non commesse non resta con un cliente orfano — e fa nascere la commessa in `preventivo` con indirizzo di lavoro (fallback residenza), telefono, email e assegnatario ereditati. Sotto resta «Crea solo il cliente»; senza la capability il pulsante torna «Crea cliente». `commesse.create` e `clienti.create` passano ora dalle stesse funzioni di dominio `creaCommessa`/`creaCliente`: nessuna regola duplicata.
+  **(2) Timeline: via «Invio Fattura al Cliente»** (§35): emettere la fattura significa già mandarla, e lo step restava aperto per sempre falsando la percentuale. 18 → 17 passi.
+  **(3) Timeline: ordine fornitore fuso nella conferma** (§35): per chi lavora è lo stesso gesto. 17 → 16 passi. Sopravvive **«Conferma Ordine Fornitore (allegato)»**, perché è il documento che porta il costo imponibile del margine (§54.7) e che il gate di `da_ordinare` richiede; **con lei si sposta la milestone verso `produzione`**, quindi la commessa avanza quando il fornitore ha risposto, non quando l'ordine è partito. La migrazione di `onLoad` diventa `migraStepTimeline`, funzione pura esportata e testata che impara la **fusione**: dove l'ordine era spuntato e la conferma no, la spunta si travasa con data, esecutore e nota (una commessa già ordinata non si ritrova il passo riaperto); se erano spuntati entrambi vince la conferma e le due note si uniscono. Idempotente: uno store già allineato non viene riscritto a ogni avvio.
+  **(4) Ordine e conferma: un tipo di documento solo** (§8, §9): il gate mostrava due pastiglie — una verde e una arancione — per un documento solo, e faceva sembrare mancante qualcosa che c'era. In realtà il gate usa `.some` (bastava uno dei due) e anche la ricerca Tars delle conferme mancanti li accettava indifferentemente: erano già sinonimi ovunque contasse. `ordine` esce da `DOC_TIPI`, il gate di `da_ordinare` chiede solo `conferma_ordine`, la regola di classificazione per «ordine / purchase order / PO 123» confluisce nella conferma, `migraTipiDocumento` riporta i documenti già archiviati. Causa vera del «continuo a vederlo»: la lista dei tipi era **duplicata a mano** nel client sotto un commento che dichiarava il contrario, e le due copie erano già divergenti nelle etichette — ora vive in `shared/docTipi.ts` (`DOC_TIPI`, `DOC_TIPO_LABEL`, `docTipoLabel()` per i record storici) con una guardia che impedisce di ricrearne una seconda. Non toccato `confrontoOrdine.ts`, che confronta la conferma con l'**ordine strutturato** del modulo Fornitori, non col PDF.
+  **(5) Via le pagine Fornitori e Garanzie** (§17, §19): superfici di sola direzione fuori dalla navigazione, raggiunte dall'hub Impostazioni; per `/fornitori` è la conferma della candidatura alla rimozione già registrata. Rimossi `pages/FornitoriList.tsx`, `pages/GaranzieList.tsx` e `components/fornitori/` (`AnalisiConfermaOrdine`, `ProposteOrdine`, montati solo lì); tolte le voci dall'hub e dalla `shellPresentation`; il contratto di rotta passa a `kind: "redirect"` e le guardie di direzione scendono da sei a quattro. Le rotte restano come **redirect** (`/garanzie` → `/clienti`, `/fornitori` → `/commesse`) con lo stesso `LegacyRedirect` di `/produzione`: notifiche e segnalibri già salvati non finiscono su un 404 muto. **I domini restano interi**: `fornitoriRouter` è dipendenza di una quindicina di moduli server (costo del margine dalla conferma, Document Intelligence, briefing/fascicoli/versioni/strumenti di Tars) e toglierlo avrebbe rotto il margine, non una pagina; le garanzie restano leggibili e registrabili dalla scheda cliente, dove stavano già. In produzione il modulo fornitori contava zero ordini, zero proposte e zero analisi (diagnosi del 02/09). Link riportati dove il lavoro è rimasto: notifiche di garanzia in scadenza e Dashboard puntano alla scheda del cliente ricavata dalla commessa; i fallback Tars/briefing su `/fornitori` vanno a `/commesse`.
+  **Trasversale**: i ticket collegati a una commessa si vedono ora **dentro la commessa** (§6.8), con una scheda «Ticket (n)» accanto ad Anomalie; il router non è cambiato (`ticket.list` accettava già `commessaId` e applicava lo scope di sede), mancava la lettura — ed è nato `server/routers/ticket.test.ts`, che prima non esisteva. Residuo dichiarato: `warrantyExpiryTone` e `warrantyExpiryLabel` in `client/src/lib/supportQueue.ts` restano senza consumatori (li usava solo la pagina rimossa), tenuti e non cancellati. Debito segnalato e non toccato: la notifica di assegnazione di un ticket punta a `/post-vendita?ticket=<id>`, rotta che non esiste.
 - **v5.34 (04/09/2026)** - **Le conferme d'ordine si leggono davvero, e Tars non si arrende** (§54.7, §54.8; piano `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, tranche 4–8). **Mattina** («è ancora troppo stupido»: la conferma BT Glass per De Petris letta senza importi e con il fornitore sbagliato): il testo dei PDF nativi è ricostruito dalla GEOMETRIA dei frammenti (`documenti/testoPdf.ts`, parser `pdf-testo-nativo` 2.0.0: righe vere, celle separate da tre spazi, valori sotto le etichette); estrattore conferme 1.1.0 (imponibile anche per aritmetica dell'IVA, «Imposta» come IVA, importi solo con decimali, «IVA esclusa» → il totale è l'imponibile, numero mai una data, fornitore mai agente/banca/destinatario, «vs. riferimento» nella cella accanto o sotto, colonna «Consegna»); merce 1.2.0 a celle; riscontro con un carattere di tolleranza sul cognome; lo store `fic_pagamenti_links` registrato dopo il bootstrap non salvava mai (import statico + store tardivi che si caricano da soli); una rilettura corregge i costi nati dalla regola e mai toccati a mano (`modificatoAMano`), la conferma aggiornata dello stesso ordine sostituisce la vecchia, il CAP non è un riferimento. Corpus di 15 conferme reali (fuori dal repo): 5 nativi giusti, 8 scansioni su 10 leggibili con l'OCR. **Tarda mattina**: foto (jpeg/png/webp) via tesseract; **lettura visiva** — quando l'OCR manca, fallisce o legge poco e male, il modello TRASCRIVE le pagine riga per riga (`documenti/letturaVisiva.ts`, 150 dpi, al più 8 pagine, pagina bianca = pagina vuota) e il testo passa dagli stessi estrattori (il modello non decide); a pagamento dietro governor e ledger (classe `lettura_documenti`, `FLAG_LETTURA_VISIVA` fail-closed acceso in Railway, `TARS_MODEL_VISIONE` default interattivo), solo con un'identità (worker con utente di sistema, `leggi_conferma_ordine` 1.3.0 e `registra_costo_fornitore` con l'utente della chat), mai in upload o smistamento; turni con immagini nel contratto provider (`openai/corpo.ts`); PDF con più conferme (Bertolotto) letti a sezioni, costo = somma degli imponibili solo se ogni sezione ha il suo. **Pomeriggio** («Tars non fa proposte, è tutto fermo, idem le conferme ordine; non deve arrendersi, deve essere sicuro e molto più attivo»), diagnosi in produzione con sonde in sola lettura: analisi viva ma con posti sprecati in «registra a mano»; smistamento vivo (49 mail/giorno) senza proposte perché i candidati nascevano solo dalla mail; 60 PDF «da conferma» in 120 giorni, 57 non archiviati, 52 in mail senza commessa (il fornitore scrive il SUO numero nella mail, il nostro cliente solo dentro il PDF); follow-up preventivi morto ogni mezz'ora su 42P18 (parametro nullo senza tipo). Fatto: (1) **la commessa si cerca DENTRO la conferma** (`tars/documenti/ricercaCommessaNelDocumento.ts`) e il detector, il worker delle conferme certe e lo smistamento la usano (§54.7); (2) analisi: `archivia_allegato_comunicazione` eseguibile con un click dalle proposte (mai `confermaSenzaRiscontro`), fotografia con comunicazione e `allegatoIndex`, prompt analisi-v9 (conferme senza costo leggibile = un punto, mai proposte; posti riempiti con azioni eseguibili); (3) follow-up: cast `::bigint` sul promemoria esistente, errori isolati per commessa, contratto PostgreSQL (`reminders/repository.pg.test.ts`) — primo giro: 33 solleciti; (4) prompt interattivo v12: «non ti arrendi» (rileggere con OCR e modello, cercare per cognome, telefono e comunicazioni prima di dire «non posso») e «sicurezza» (conclusioni senza attenuazioni, niente «vuoi che proceda?»); (5) quattro giri di taratura del riscontro in produzione, un deploy per classe di falsi positivi: la via dell'azienda, i nomi propri sparsi, le località e i cognomi diffusi nei nomi degli enti, le date lette come numeri d'ordine. Registro azioni 1.21.0 (`cerca_conferme_ordine_mancanti` 1.1.0, `leggi_conferma_ordine` 1.3.0). Suite 206 file / 1875 test; eval 16/16.
 - **v5.33 (03/09/2026)** - **Tars operativo T1–T6 e il costo fornitore dalla conferma d'ordine.** **T1** strumenti: `cerca_comunicazioni` (anche per sole cifre del telefono), `cerca_fatture`, `cerca_documenti`, `collega_fattura_commessa` (R1, stessa procedura del router), `sposta_documento` (R1, il gate segue il documento). **T2** fotografia 1.1.0 sul lavoro vero: preventivi fermi 7/30 giorni, gate documentali mancanti, fatture non collegate o da riconciliare, mail senza risposta da 24 ore, ticket senza assegnatario; moduli vuoti fuori (sezione Perimetro). **T3** proposte eseguibili: `PropostaAnalisi.azione {strumento, input}` verificata in fase di analisi E al click contro il catalogo di chi clicca, whitelist chiusa, ledger R1 con `runId` deterministico (doppio click riusa), `tars.eseguiPropostaAnalisi`, «Esegui» / «Scarta» / «Chiedi a Tars» nel board. **T4** agenda: `leggi_agenda` (eventi Google in sola lettura), `sposta_intervento`, `segna_intervento_fatto` (transizione consigliata, la commessa non avanza di nascosto), `pianifica_intervento` 1.1.0 con squadra; tipi evento 4→8 (`TIPI_INTERVENTO` unica fonte); `migra_calendario_google` (direzione, anteprima e migrazione degli ultimi due mesi più il corrente, dedupe per uid). **T5** follow-up preventivi (`server/tars/followup/`): sollecito a 7 giorni di silenzio reale come promemoria all'assegnatario con la bozza del messaggio (dedupe per `canonicalKey`), a 30 giorni caso «perso?» nel Centro Azioni. **T6** destinatari (`tars/destinatari.ts`): ogni proposta nasce con un destinatario deterministico (amministrazione per i temi amministrativi, chi ha in carico il ticket o la commessa, altrimenti direzione); la direzione vede tutto. **Transizioni libere**: lo stato di arrivo qualsiasi, un passaggio alla volta, ognuno annullabile; lo scavalco del gate solo su richiesta esplicita dell'utente (registrato, mai dall'Undo). **Costo fornitore dalla conferma** (§54.7): regola di dominio deterministica — quando un documento `conferma_ordine` entra nel fascicolo la commessa registra in `costi[]` l'IMPONIBILE letto (mai lo scorporo dell'IVA), la merce entra a magazzino «Da ordinare», il documento ricorda l'esito in `letturaCosto`; worker `costoDaConfermaWorker` per le conferme già archiviate; le conferme CERTE (mail collegata + nome di conferma) si archiviano da sole (`confermeAutoArchivio`, `origine: "automatico"`); registro delle conferme d'ordine in `/conferme-ordine`; `registra_costo_fornitore` (R1) solo per rimettere un costo tolto a mano, ancorato all'imponibile letto. Notte del 04/09 (caso Giacomazzi): una conferma entra da sola SOLO se il suo testo cita la commessa (`documenti/riscontroCommessa.ts`) e non è una copia (`duplicato`); rilettura 1.2.0 ritira costo e merce delle archiviazioni senza riscontro («È di questa commessa» per confermare a mano); settimana di approntamento ≠ consegna; `FLAG_OCR=on` in Railway. Hotfix: «Operatività ridotta» su ogni conversazione nuova, `INPUT_NON_VALIDO` con i vincoli Zod al modello, link server 404, fotografia che leggeva `i.data` invece di `dataPianificata`. D1 ordini fornitore SOSPESA dalla direzione.
 - **v5.32 (02/09/2026)** - **Analisi azienda e sintesi giornaliera di Tars** (fase successiva del piano smistamento; mandato «non sta analizzando l'azienda … deve proporre»). Modulo `server/tars/analisi/` dietro `FLAG_TARS_ANALISI_AZIENDA` (fail-closed, richiede `FLAG_TARS_PROACTIVE`): fotografia deterministica della sede (commesse attive per stato e ferme da più tempo, casi aperti del Centro Azioni, osservazioni, pattern, smistamento, ticket, interventi della settimana, proposte documentali; senza importi, ogni fatto con riferimenti di entità e link) → sintesi del modello a output JSON strict (`TARS_MODEL_ANALISI`, default `gpt-5.6-sol`, classe di costo `analisi_azienda`): sintesi, punti (rischio/anomalia/andamento/opportunità con priorità), proposte con la frase da dire a Tars per eseguirle, domande alla direzione; verifica deterministica (entità solo dalla fotografia, importi scrubbati, limiti), fallback deterministico senza provider. Una analisi per sede al giorno dalle 06:00 Roma (worker ogni 5 minuti), registro `tars_analisi_azienda`, rigenerazione manuale. Endpoint `tars.analisiAzienda` / `tars.analisiAziendaRigenera` (direzione). UI `/tars` (ridisegnata la sera stessa: selettore Chat / Proposte / Registro in testa, Proposte come coda di decisioni a righe a tutta larghezza — titolo, destinazione in evidenza, chip di sicurezza, Approva/Rifiuta grandi, dettagli a richiesta, filtri — e Registro a colonne): «Analisi di oggi» nel pannello contesto e nello stato vuoto, gruppo «Dall'analisi dell'azienda» nelle Proposte con «Chiedi a Tars» (precompila la chat: nessuna mutazione nasce dall'analisi). Fuori taglio: dati economici, invio via mail, storico fra giorni.
