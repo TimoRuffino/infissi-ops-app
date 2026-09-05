@@ -102,10 +102,16 @@ export type Coefficienti = {
   controtelaiMinMq: number;
   /** Aliquota IVA agevolata del preventivo (0,10): stima l'imponibile da un pattuito lordo. */
   ivaAgevolata: number;
-  avvolgibileExtraL: number;
-  avvolgibileExtraLOffset: number;
-  avvolgibileExtraH: number;
-  avvolgibileExtraHOffset: number;
+  /**
+   * Maggiorazione del telo dell'avvolgibile (CHECK2 BS), una volta per riga:
+   * `extraLarghezza × (L + offsetLarghezza) + extraAltezza × (H + offsetAltezza)`,
+   * L e H in metri. Il cassonetto aggiunge 25 cm di telo su tutta la larghezza,
+   * le guide 5 cm su tutta l'altezza: i due coefficienti non sono intercambiabili.
+   */
+  avvolgibileExtraLarghezza: number;
+  avvolgibileExtraLarghezzaOffset: number;
+  avvolgibileExtraAltezza: number;
+  avvolgibileExtraAltezzaOffset: number;
 };
 
 export type RegolaDetrazione = {

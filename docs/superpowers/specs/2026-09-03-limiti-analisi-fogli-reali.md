@@ -56,9 +56,15 @@ Osservazioni che cambiano il piano:
 
 Ogni formula è stata ricalcolata a mano sui tre casi. Notazione: `n.x` =
 pezzi, `mq.x` = metri quadri del gruppo `x` (chiavi di `aggregati.ts`:
-serramenti, cassonetti, porteBlindate, portoncini, serrTapp, serrPers,
-serrScuri, portoncinoPers, tapparelle, persiane, scuri, veneziane, tende,
-pergole, zanzariere, legno, legnoTapp, legnoPers, legnoScuri).
+serramenti, cassonetti, cassonettiB, porteBlindate, portoncini, serrTapp,
+serrPers, serrScuri, portoncinoPers, tapparelle, persiane, scuri, veneziane,
+tende, pergole, zanzariere, legno, legnoTapp, legnoPers, legnoScuri).
+`cassonettiB` (T9/Z9) è il cassonetto scritto nel blocco B, cioè venduto
+insieme al serramento: la riga lo dichiara con `oscuranteIntegrato` (la
+tapparella che ospita, già prezzata sulla riga del serramento, quindi senza
+`oscuranteTipologia` propria). Cambia solo il massimale: ovunque conti il
+prodotto — rilievo, rimozione tapparelle, smaltimento, tiro, posa — i
+cassonetti dei due blocchi si sommano.
 
 ### 2.1 Aggregati e tempi (Calcolo Automatici L7…BD11, Tempi)
 
@@ -68,21 +74,23 @@ pergole, zanzariere, legno, legnoTapp, legnoPers, legnoScuri).
 - `larghezzaM` (Q13) = Σ L × quantità dei soli serramenti (blocchi A, B, E,
   F) — 127: 10,17; 129: 7,19; 130: 7,24.
 - Ore tiro (Tempi F14) = 0,5 × serramenti + 0,25 × (serrTapp + cassonetti +
-  tapparelle + legnoTapp) + 0,25 × (serrPers + persiane + legnoPers +
+  cassonettiB + tapparelle + legnoTapp) + 0,25 × (serrPers + persiane + legnoPers +
   portoncinoPers) + 0,25 × (serrScuri + scuri + legnoScuri) + ⅓ + 0,5 ×
   porteBlindate + 0,5 × (portoncini + portoncinoPers) + 0,25 × (veneziane +
   zanzariere) + 1 × tende + 2 × pergole. 129: 8 × 0,5 + 7 × 0,25 + ⅓ = 6,0833.
-- Ore posa (Tempi O12) = 3 × serramenti + 1 × cassonetti + 1,5 × oscuranti
-  (soli e abbinati) + 1,5 × (veneziane + zanzariere) + 4 × tende + 16 ×
-  pergole + 3 × porteBlindate + 3 × portoncini. 129: 24 + 10,5 = 34,5.
+- Ore posa (Tempi O12) = 3 × serramenti + 1 × (cassonetti + cassonettiB) +
+  1,5 × oscuranti (soli e abbinati) + 1,5 × (veneziane + zanzariere) + 4 ×
+  tende + 16 × pergole + 3 × porteBlindate + 3 × portoncini. L6 non include
+  T9: la tapparella del cassonetto abbinato non si posa una seconda volta.
+  129: 24 + 10,5 = 34,5.
 - Giornate = `ROUNDUP(orePosa / 8)`.
 
 ### 2.2 CHECK1, prodotti e opere (CHECK1 H6:H43)
 
 | Cella | Voce | Formula | Verifica |
 |---|---|---|---|
-| H6 | massimale A | `E6 × (mq blocco A + mq legno)` | 129: 780 × 0,73 = 569,40 |
-| H7 | massimale B | `E7 × (mq blocco B + mq legno+oscuranti)` | 129: 900 × 12,5854 = 11.326,86 |
+| H6 | massimale A | `E6 × (mq blocco A + mq legno)`: serramenti, **cassonetti soli**, porte blindate, portoncini | 129: 780 × 0,73 = 569,40 |
+| H7 | massimale B | `E7 × (mq blocco B + mq legno+oscuranti)`: serramenti con oscurante, **cassonetti abbinati (T9/Z9)**, portoncini con persiana | 129: 900 × 12,5854 = 11.326,86 |
 | H8 | massimale C | `E8 × (mq oscuranti soli + schermature)` | — |
 | H11/H13/H14/H17/H18 | controtelai | `prezzo × misura`, acciaio/misto: `min 1,2 mq` | — |
 | H22 | rilievo al pezzo | `60,17 × (nA/8 + nLegno/8 + serrTapp/4 + legnoTapp/4 + serrPers/4 + legnoPers/4 + cassonettiB/8 + legnoScuri/4 + serrScuri/8 + nC/8 + cassonettiLegno/8 + nD/8 + portoncinoPers/8 + 1)` | 129: (1/8 + 7/4 + 1) × 60,17 = 172,99 |
@@ -92,7 +100,7 @@ pergole, zanzariere, legno, legnoTapp, legnoPers, legnoScuri).
 | H26 | protezione | `36,5 × ½ × (serramenti + legno + serrTapp + serrPers + serrScuri + porteBlindate + portoncini + tapparelle + persiane + scuri + legnoTapp + legnoPers + legnoScuri + portoncinoPers)` | 129: 4 × 36,5 = 146 |
 | H27 | rimozione serramenti | `20,22 × (mq.serramenti + mq.legno + 2·mq.serrPers + mq.serrTapp + mq.serrScuri + mq.persiane + mq.scuri + mq.tapparelle + mq.porteBlindate + mq.portoncini + 2·mq.legnoPers + mq.legnoTapp + mq.legnoScuri + 2·mq.portoncinoPers)` | 129: 20,22 × 25,9008 = 523,71 |
 | H28 | rimozione tapparelle | `26,97 × (mq.serrTapp + mq.cassonettiB + mq.tapparelle + mq.cassonetti + mq.legnoTapp + mq.cassonettiLegno)` | — |
-| H29 | smaltimento | **`150 + 104,69 × 0,1 × mqSerr + 0,35 × mqCass + 0,05 × mqOsc + 100 × 0,025 × mqSerrOneri + 0,015 × mqCass + 0,0125 × mqOscOneri`** — la precedenza del foglio moltiplica 104,69 e 100 SOLO per il primo addendo. Si riproduce così. `mqSerr` = serramenti + legno + serrTapp + serrPers + serrScuri + legnoTapp + legnoPers + legnoScuri + porteBlindate + portoncini + portoncinoPers; `mqOsc` = serrTapp + serrPers + serrScuri + tapparelle + persiane + scuri; `mqSerrOneri` = mqSerr − legnoTapp − legnoPers − legnoScuri; `mqOscOneri` = mqOsc + legnoTapp + legnoPers + legnoScuri | 129: 150 + 139,40 + 0,63 + 33,29 + 0,16 = 323,47; 130: 330,72; 127: 416,69 |
+| H29 | smaltimento | **`150 + 104,69 × 0,1 × mqSerr + 0,35 × mqCass + 0,05 × mqOsc + 100 × 0,025 × mqSerrOneri + 0,015 × mqCass + 0,0125 × mqOscOneri`** — la precedenza del foglio moltiplica 104,69 e 100 SOLO per il primo addendo. Si riproduce così. `mqSerr` = serramenti + legno + serrTapp + serrPers + serrScuri + legnoTapp + legnoPers + legnoScuri + porteBlindate + portoncini + portoncinoPers; `mqOsc` = serrTapp + serrPers + serrScuri + tapparelle + persiane + scuri; `mqCass` = cassonetti + cassonettiB; `mqSerrOneri` = mqSerr − legnoTapp − legnoPers − legnoScuri; `mqOscOneri` = mqOsc + legnoTapp + legnoPers + legnoScuri | 129: 150 + 139,40 + 0,63 + 33,29 + 0,16 = 323,47; 130: 330,72; 127: 416,69 |
 | H30 | trasporto | `2 × km × 0,7 × giornate` | 129: 2 × 12 × 0,7 × 5 = 84 |
 | H31 | tiro al piano | `2 × 36,5 × oreTiro × (piano > 4 ? 1,3 : 1)` | 129: 444,08 |
 | H32 | assistenza muraria | `44,13 × larghezzaM` | 129: 317,29 |
@@ -118,7 +126,7 @@ gli accessori marcati «Sì». Regole per sotto-blocco (formula del `Total`):
 | Serramenti PVC/alluminio (A, B) | `prezzo × mq_riga`, con **minimo 1 mq sul totale della riga** (`I = IF(0<mq<1, 1, mq)`), non per pezzo | pellicolatura `15 % × prezzo × mq`; incollaggio `120 × nAnte × q`; soglia ribassata PF `100 × q` (solo portefinestre); coprifili 80/100 `1,65 / 3,45 €/m × perimetro × q` con perimetro = `L + 2H` per portefinestre, `2(L + H)` per finestre; ribalta `70 × q` (per pezzo, non per anta); alluminio: percentuali `× prezzo × mq`, ribalta alluminio `70 × q` |
 | Serramenti legno / legno-alluminio (E, F) | `prezzo × mq` **senza minimo** | percentuali `× prezzo × q` (per pezzo), ribalta `70 × q` |
 | Cassonetti (A, B) | prezzo **a pezzo** scelto dalla classe di mq per pezzo: `<0,51 → 100×40; <0,71 → 150×40; <0,91 → 200×40; <1,11 → 250×40; altrimenti 300×40` (famiglie fino/oltre 110 mm; monoblocco per fascia mq) | pellicolatura `19 % × prezzo × q`; traverso `45 × q` |
-| Avvolgibili (B, C, F) | `prezzo × max(1,8; mqAvv)`, `mqAvv = mq_riga + 0,05 × (L + 0,25) + 0,25 × (H + 0,05)` (L, H in metri; la maggiorazione è per riga, non per pezzo) | motori `176/198/225,5/247,5 × q` |
+| Avvolgibili (B, C, F) | `prezzo × max(1,8; mqAvv)`, `mqAvv = mq_riga + 0,25 × (L + 0,05) + 0,05 × (H + 0,25)` (L, H in metri; la maggiorazione è per riga, non per pezzo): il cassonetto aggiunge 25 cm di telo su tutta la **larghezza**, le guide 5 cm su tutta l'**altezza** | motori `176/198/225,5/247,5 × q` |
 | Persiane (B, C, F) | `prezzo × mq_riga` (mq del serramento, **senza minimo**) | PVC: pellicolatura `19 % × prezzo × q`, serratura `163 × q`, cardini cappotto `6 × q × 2`; legno: percentuali `× prezzo × q`, laccature a pezzo; alluminio: anodizzazione naturale 3 %, elettrocolore 4 %, colori speciali 4 %, effetto legno 8 %, cardini 180 mm 3 % (1 anta) / 4 % (2 ante) — tutte `× prezzo × q` |
 | Scuri legno | `prezzo × mq` | douglas 28 %, rovere 33 % `× prezzo × q`; bianco 46, RAL 50 `× q` |
 | Portoncini | `prezzo × mq` | pellicolatura `15 % × prezzo × mq`; soglia `120` **una volta per riga** |

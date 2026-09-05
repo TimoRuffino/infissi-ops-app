@@ -59,7 +59,10 @@ describe("tariffe limiti", () => {
     expect(voceOpera(t, "piattaforma")).toMatchObject({ prezzo: 517.92, gruppo: "eventuali", inclusaDefault: false });
     expect(() => voceOpera(t, "non_esiste" as any)).toThrow("OPERA_SCONOSCIUTA");
     expect(t.coefficienti.smaltimentoMcSerramento).toBe(0.1);
-    expect(t.coefficienti.avvolgibileExtraL).toBe(0.05);
+    expect(t.coefficienti.avvolgibileExtraLarghezza).toBe(0.25);
+    expect(t.coefficienti.avvolgibileExtraLarghezzaOffset).toBe(0.05);
+    expect(t.coefficienti.avvolgibileExtraAltezza).toBe(0.05);
+    expect(t.coefficienti.avvolgibileExtraAltezzaOffset).toBe(0.25);
     expect(t.coefficienti.ivaAgevolata).toBe(0.1);
     expect(voceControtelaio(t, "C15145-a")).toMatchObject({ unita: "mq", minimoMq: 1.2 });
   });

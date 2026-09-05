@@ -5766,10 +5766,10 @@
   "altriServiziPct": 0.02,
   "controtelaiMinMq": 1.2,
   "ivaAgevolata": 0.1,
-  "avvolgibileExtraL": 0.05,
-  "avvolgibileExtraLOffset": 0.25,
-  "avvolgibileExtraH": 0.25,
-  "avvolgibileExtraHOffset": 0.05
+  "avvolgibileExtraLarghezza": 0.25,
+  "avvolgibileExtraLarghezzaOffset": 0.05,
+  "avvolgibileExtraAltezza": 0.05,
+  "avvolgibileExtraAltezzaOffset": 0.25
  },
  "detrazioni": [
   {

@@ -51,6 +51,22 @@ describe("aggregati del computo", () => {
     expect(a.righeSenzaMisure).toBe(0);
   });
 
+  it("il cassonetto venduto col serramento sta nella chiave del blocco B, ma nei tempi resta un cassonetto", () => {
+    const solo = aggrega([r("cassonetto", 2, 1200, 300)], coeff);
+    const abbinato = aggrega([r("cassonetto", 2, 1200, 300, "tapparella")], coeff);
+    expect(solo.n.cassonetti).toBe(2);
+    expect(solo.n.cassonettiB).toBe(0);
+    expect(abbinato.n.cassonetti).toBe(0);
+    expect(abbinato.n.cassonettiB).toBe(2);
+    expect(abbinato.mq.cassonettiB).toBeCloseTo(0.72, 4);
+    // A e B si separano solo nel massimale (T9/Z9 contro L8/R8): tiro, posa e
+    // totali sommano i cassonetti dei due blocchi allo stesso modo.
+    expect(abbinato.oreTiro).toBe(solo.oreTiro);
+    expect(abbinato.orePosa).toBe(solo.orePosa);
+    expect(abbinato.nTotale).toBe(solo.nTotale);
+    expect(abbinato.mqTotale).toBe(solo.mqTotale);
+  });
+
   it("conta come «senza misure» solo le righe aggregate con mq 0, non i controtelai", () => {
     const a = aggrega([r("persiana", 1, null, null)], coeff);
     expect(a.n.persiane).toBe(1);

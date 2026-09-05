@@ -7,7 +7,8 @@ import type { Coefficienti } from "./tariffe";
 
 export type ChiaveAggregato =
   | "serramenti"      // L7/R7   block A, PVC/alluminio senza oscurante
-  | "cassonetti"      // L8/R8 (+T9/Z9)
+  | "cassonetti"      // L8/R8   blocco A, cassonetto venduto da solo
+  | "cassonettiB"     // T9/Z9   blocco B, cassonetto venduto col serramento
   | "porteBlindate"   // L9/R9
   | "portoncini"      // L10/R10
   | "serrTapp"        // T7/Z7
@@ -44,7 +45,7 @@ export type Aggregati = {
 };
 
 const CHIAVI: ChiaveAggregato[] = [
-  "serramenti", "cassonetti", "porteBlindate", "portoncini", "serrTapp", "serrPers",
+  "serramenti", "cassonetti", "cassonettiB", "porteBlindate", "portoncini", "serrTapp", "serrPers",
   "serrScuri", "portoncinoPers", "tapparelle", "persiane", "scuri", "veneziane", "tende",
   "pergole", "zanzariere", "legno", "legnoTapp", "legnoPers", "legnoScuri",
 ];
@@ -62,7 +63,10 @@ export function chiaveDi(r: RigaAggregabile): ChiaveAggregato | null {
     return o === "tapparella" ? "legnoTapp" : o === "persiana" ? "legnoPers" : o === "scuro" ? "legnoScuri" : "legno";
   }
   switch (r.categoria) {
-    case "cassonetto": return "cassonetti";
+    // Un cassonetto venduto insieme al serramento sta nel blocco B del foglio
+    // (T9/Z9) e pesa nel massimale B: lo dichiara `oscuranteIntegrato`, cioè
+    // la tapparella che ospita, già prezzata sulla riga del serramento.
+    case "cassonetto": return o ? "cassonettiB" : "cassonetti";
     case "porta_blindata": return "porteBlindate";
     case "portoncino": return o === "persiana" ? "portoncinoPers" : "portoncini";
     case "tapparella": return "tapparelle";
@@ -101,7 +105,9 @@ export function aggrega(
 
   // Tempi!C4..C13 → ore di tiro al piano (F14)
   const serramentiTutti = n.serramenti + n.serrTapp + n.serrPers + n.serrScuri + n.legno + n.legnoTapp + n.legnoPers + n.legnoScuri;
-  const tapparelleECassonetti = n.serrTapp + n.cassonetti + n.tapparelle + n.legnoTapp;
+  // I cassonetti dei blocchi A e B pesano insieme, qui e in tutte le opere
+  // (rimozione tapparelle, smaltimento, posa): li separa solo il massimale.
+  const tapparelleECassonetti = n.serrTapp + n.cassonetti + n.cassonettiB + n.tapparelle + n.legnoTapp;
   const persianeTutte = n.serrPers + n.persiane + n.legnoPers + n.portoncinoPers;
   const scuriTutti = n.serrScuri + n.scuri + n.legnoScuri;
   const oreTiro =
@@ -116,11 +122,12 @@ export function aggrega(
     n.tende * coeff.oreTiro.tenda +
     n.pergole * coeff.oreTiro.pergola;
 
-  // Tempi!L4..L11 → ore di posa (O12)
+  // Tempi!L4..L11 → ore di posa (O12). L6 non include T9: la tapparella del
+  // cassonetto abbinato non si posa una seconda volta come oscurante.
   const oscurantiTutti = n.tapparelle + n.persiane + n.scuri + n.serrTapp + n.serrPers + n.serrScuri + n.legnoTapp + n.legnoPers + n.legnoScuri + n.portoncinoPers;
   const orePosa =
     serramentiTutti * coeff.orePosa.serramento +
-    n.cassonetti * coeff.orePosa.cassonetto +
+    (n.cassonetti + n.cassonettiB) * coeff.orePosa.cassonetto +
     oscurantiTutti * coeff.orePosa.oscurante +
     (n.veneziane + n.zanzariere) * coeff.orePosa.schermatura +
     n.tende * coeff.orePosa.tenda +

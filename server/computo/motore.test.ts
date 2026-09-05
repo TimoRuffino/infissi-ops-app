@@ -108,8 +108,11 @@ describe("motore limiti — casi limite", () => {
   it("tapparella abbinata: mq maggiorati con minimo 1,8 e motore a pezzo", () => {
     const r: RigaMotore = { categoria: "serramento_pvc", tipologia: "C25077-c", oscuranteIntegrato: "tapparella", oscuranteTipologia: "C25089-a", descrizione: "con tapparella", quantita: 1, larghezzaMm: 1200, altezzaMm: 1400, mq: 1.68, misuraDei: null, prezzoTotCent: 100000, beneSignificativo: true, accessori: [{ codice: "avvolgibile.C25091-d", quantita: 1 }] };
     const e = calcolaLimiti([r], parametri, t);
-    // 589,57 × 1,68 = 990,48; tapparella: mq 1,68 + 0,05 × 1,45 + 0,25 × 1,45 = 2,115 → 111,11 × 2,115 = 235,00; motore 176
-    expect(Math.abs(voce(e, "dei_riga_1").limiteCent - euroToCent(990.4776 + 234.99765 + 176))).toBeLessThanOrEqual(1);
+    // 589,57 × 1,68 = 990,48; tapparella: il cassonetto aggiunge 25 cm di telo
+    // su tutta la LARGHEZZA e le guide 5 cm su tutta l'ALTEZZA, quindi
+    // mq 1,68 + 0,05 × (1,40 + 0,25) + 0,25 × (1,20 + 0,05) = 2,075
+    // → 111,11 × 2,075 = 230,55; motore 176.
+    expect(Math.abs(voce(e, "dei_riga_1").limiteCent - euroToCent(990.4776 + 230.55325 + 176))).toBeLessThanOrEqual(1);
     expect(voce(e, "massimale_B").limiteCent).toBe(euroToCent(900 * 1.68));
   });
 
@@ -182,6 +185,26 @@ describe("motore limiti — casi limite", () => {
     const e = calcolaLimiti([r], parametri, t); // 1,05 mq/pezzo cade nel buco tra le classi monoblocco
     expect(voce(e, "dei_riga_1")).toMatchObject({ limiteCent: euroToCent(547.32), dettaglio: expect.objectContaining({ voceScelta: "C15080-a" }) });
     expect(e.avvertenze.join(" ")).toMatch(/nessuna classe di cassonetto copre 1\.05 mq\/pezzo/i);
+  });
+
+  it("un cassonetto abbinato al serramento pesa nel massimale B, non in A", () => {
+    // Blocco B del foglio: `oscuranteIntegrato` dichiara l'abbinamento (T9/Z9),
+    // la tapparella che il cassonetto ospita è già prezzata sulla riga del
+    // serramento — quindi nessuna seconda voce DEI e nessun fail-closed.
+    const abbinato: RigaMotore = { ...cassonetto, oscuranteIntegrato: "tapparella", oscuranteTipologia: null };
+    const inA = calcolaLimiti([cassonetto], parametri, t);
+    const inB = calcolaLimiti([abbinato], parametri, t);
+    expect(voce(inA, "massimale_A").limiteCent).toBe(euroToCent(780 * 1.2));
+    expect(voce(inA, "massimale_B").limiteCent).toBe(0);
+    expect(voce(inB, "massimale_A").limiteCent).toBe(0);
+    expect(voce(inB, "massimale_B").limiteCent).toBe(euroToCent(900 * 1.2));
+    expect(inB.esito).toBe("ok");
+    // Tutto il resto somma i cassonetti A e B nello stesso gruppo: rilievo al
+    // pezzo (1/8), rimozione tapparelle, smaltimento, tiro, posa, e la voce DEI
+    // resta quella del solo cassonetto.
+    for (const codice of ["rilievo_pezzo", "rimozione_tapparelle", "smaltimento", "tiro_piano", "posa", "protezione", "dime", "dei_riga_1"]) {
+      expect(voce(inB, codice).limiteCent, codice).toBe(voce(inA, codice).limiteCent);
+    }
   });
 
   it("una misura DEI mancante vale zero, dichiarato: controtelaio e cassonetto a metro", () => {

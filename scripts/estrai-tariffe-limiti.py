@@ -391,8 +391,11 @@ coefficienti = {
     "controtelaiMinMq": 1.2,
     # IVA agevolata (10 %) usata per stimare l'imponibile da un pattuito lordo prima della fattura.
     "ivaAgevolata": 0.10,
-    # Avvolgibili (CHECK2 BS): mq = mq serramento + 0,05 × (L + 0,25) + 0,25 × (H + 0,05), minimo 1,8 mq
-    "avvolgibileExtraL": 0.05, "avvolgibileExtraLOffset": 0.25, "avvolgibileExtraH": 0.25, "avvolgibileExtraHOffset": 0.05,
+    # Avvolgibili (CHECK2 BS): mq = mq serramento + 0,25 × (L + 0,05) + 0,05 × (H + 0,25),
+    # minimo 1,8 mq — il cassonetto aggiunge 25 cm di telo su tutta la larghezza,
+    # le guide 5 cm su tutta l'altezza.
+    "avvolgibileExtraLarghezza": 0.25, "avvolgibileExtraLarghezzaOffset": 0.05,
+    "avvolgibileExtraAltezza": 0.05, "avvolgibileExtraAltezzaOffset": 0.25,
 }
 # Aliquote per anno di firma. `percentualeDetrazione` prende la riga con
 # l'anno più alto <= anno della firma: senza il 2025 un contratto firmato in

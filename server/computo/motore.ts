@@ -32,6 +32,7 @@ import {
   voceControtelaio,
   voceOpera,
   type Accessorio,
+  type Coefficienti,
   type Prodotto,
   type Tariffe,
 } from "./tariffe";
@@ -67,6 +68,21 @@ export type EsitoMotore = {
 };
 
 const arrotonda = (n: number, d = 3) => Math.round(n * 10 ** d) / 10 ** d;
+
+/**
+ * Mq del telo di un avvolgibile (CHECK2 BS): i mq della riga più il cassonetto,
+ * che aggiunge 25 cm di telo su tutta la LARGHEZZA, e le guide, 5 cm su tutta
+ * l'ALTEZZA. La maggiorazione è una volta per riga, non per pezzo, come nel
+ * foglio; il minimo di fatturazione della voce si applica dopo.
+ */
+function mqAvvolgibile(mq: number, l: number, h: number, c: Coefficienti): number {
+  if (mq <= 0) return 0;
+  return (
+    mq +
+    c.avvolgibileExtraLarghezza * (l / 1000 + c.avvolgibileExtraLarghezzaOffset) +
+    c.avvolgibileExtraAltezza * (h / 1000 + c.avvolgibileExtraAltezzaOffset)
+  );
+}
 
 /** Perimetro per i coprifili (CHECK2 colonne T/W): portefinestre L + 2H, finestre 2(L + H). Metri. */
 function perimetroM(p: Prodotto, l: number, h: number): number {
@@ -155,9 +171,7 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
       break;
     }
     case "avvolgibile": {
-      const mqAvv = mq > 0
-        ? mq + c.avvolgibileExtraL * (l / 1000 + c.avvolgibileExtraLOffset) + c.avvolgibileExtraH * (h / 1000 + c.avvolgibileExtraHOffset)
-        : 0; // BS: maggiorazione una volta per riga, come il foglio
+      const mqAvv = mqAvvolgibile(mq, l, h, c);
       mqEff = p.minimoMq && mqAvv > 0 && mqAvv < p.minimoMq ? p.minimoMq : mqAvv;
       euro = p.prezzo * mqEff;
       break;
@@ -200,8 +214,15 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
   dettaglio.base = arrotonda(euro, 2);
 
   // Oscurante abbinato (blocco B/F): prodotto DEI a sé, × mq del serramento (senza minimo) o formula avvolgibile.
+  // Eccezione del cassonetto: nel blocco B `oscuranteIntegrato` dice a quale
+  // gruppo appartiene la riga (massimale B), non che qui vada prezzata una
+  // seconda tapparella — quella è già la voce DEI della riga del serramento, e
+  // il foglio fa lo stesso (la colonna «Limite Costo» di quella riga è il solo
+  // cassonetto). Su ogni altro gruppo un oscurante senza voce DEI resta
+  // fail-closed: CHECK2 non calcolabile.
   let po: Prodotto | null = null;
-  if (r.oscuranteIntegrato) {
+  const cassonettoAbbinato = p.gruppo === "cassonetto" && r.oscuranteTipologia == null;
+  if (r.oscuranteIntegrato && !cassonettoAbbinato) {
     const gruppoOsc = gruppoPerOscurante(r.oscuranteIntegrato);
     po = r.oscuranteTipologia ? prodotto(t, r.oscuranteTipologia) : null;
     if (!po || po.gruppo !== gruppoOsc) {
@@ -210,7 +231,7 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
     }
     let mqOsc = mq;
     if (po.gruppo === "avvolgibile") {
-      const mqAvv = mq > 0 ? mq + c.avvolgibileExtraL * (l / 1000 + c.avvolgibileExtraLOffset) + c.avvolgibileExtraH * (h / 1000 + c.avvolgibileExtraHOffset) : 0;
+      const mqAvv = mqAvvolgibile(mq, l, h, c);
       mqOsc = po.minimoMq && mqAvv > 0 && mqAvv < po.minimoMq ? po.minimoMq : mqAvv;
     }
     const euroOsc = po.prezzo * mqOsc;
@@ -255,8 +276,10 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
 
   // ── Prodotti, CHECK1 righe 6–8: massimale(zona) × mq del gruppo ──────────
   // H6 = E6 × (SERRAMENTI!H59 + EU59); H7 = E7 × (AM59 + GJ59); H8 = E8 × (CW59 + EK59).
+  // I mq del massimale sono quelli del BLOCCO in cui sta la riga: un cassonetto
+  // venduto col serramento è scritto nel blocco B e pesa 900 €/mq, non 780.
   const mqA = a.mq.serramenti + a.mq.cassonetti + a.mq.porteBlindate + a.mq.portoncini + a.mq.legno;
-  const mqB = a.mq.serrTapp + a.mq.serrPers + a.mq.serrScuri + a.mq.portoncinoPers + a.mq.legnoTapp + a.mq.legnoPers + a.mq.legnoScuri;
+  const mqB = a.mq.serrTapp + a.mq.serrPers + a.mq.serrScuri + a.mq.cassonettiB + a.mq.portoncinoPers + a.mq.legnoTapp + a.mq.legnoPers + a.mq.legnoScuri;
   const mqC = a.mq.tapparelle + a.mq.persiane + a.mq.scuri + a.mq.veneziane + a.mq.tende + a.mq.pergole + a.mq.zanzariere;
   if (!p.zona) {
     incompleto = true;
@@ -310,17 +333,20 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
   const n = a.n;
   const mq = a.mq;
   const nA = n.serramenti + n.cassonetti + n.porteBlindate + n.portoncini;          // SERRAMENTI!C59
+  // I cassonetti del blocco B (T9/Z9) escono dal massimale A ma restano
+  // cassonetti ovunque conti il prodotto: rilievo, rimozione, smaltimento.
+  const mqCassonetti = mq.cassonetti + mq.cassonettiB;                                // R8 + Z9
   const nE = n.legno;                                                                 // EP59
   const nC = n.tapparelle + n.persiane + n.scuri;                                     // CR59
   const nD = n.veneziane + n.tende + n.pergole + n.zanzariere;                        // EF59
   const serramentiTutti = n.serramenti + n.legno + n.serrTapp + n.serrPers + n.serrScuri + n.legnoTapp + n.legnoPers + n.legnoScuri;
-  const oreRilievoPezzo = nA / 8 + nE / 8 + n.serrTapp / 4 + n.legnoTapp / 4 + n.serrPers / 4 + n.legnoPers / 4 + n.legnoScuri / 4 + n.serrScuri / 8 + nC / 8 + nD / 8 + n.portoncinoPers / 8 + 1; // H22
+  const oreRilievoPezzo = nA / 8 + nE / 8 + n.serrTapp / 4 + n.legnoTapp / 4 + n.serrPers / 4 + n.legnoPers / 4 + n.cassonettiB / 8 + n.legnoScuri / 4 + n.serrScuri / 8 + nC / 8 + nD / 8 + n.portoncinoPers / 8 + 1; // H22
   const oreRilievoForo = serramentiTutti / 3 + 1;                                     // H23
   const oreProgettazione = a.nTotale / 2;                                            // H24
   const oreSviluppo = a.nTotale / 6 + 1 / 2;                                         // H25
   const oreProtezione = 0.5 * (n.serramenti + n.legno + n.serrTapp + n.serrPers + n.serrScuri + n.porteBlindate + n.portoncini + n.tapparelle + n.persiane + n.scuri + n.legnoTapp + n.legnoPers + n.legnoScuri + n.portoncinoPers); // H26
   const mqRimozioneSerr = mq.serramenti + mq.legno + 2 * mq.serrPers + mq.serrTapp + mq.serrScuri + mq.persiane + mq.scuri + mq.tapparelle + mq.porteBlindate + mq.portoncini + 2 * mq.legnoPers + mq.legnoTapp + mq.legnoScuri + 2 * mq.portoncinoPers; // H27
-  const mqRimozioneTapp = mq.serrTapp + mq.cassonetti + mq.tapparelle + mq.legnoTapp; // H28
+  const mqRimozioneTapp = mq.serrTapp + mqCassonetti + mq.tapparelle + mq.legnoTapp; // H28
   const mqSerrSmalt = mq.serramenti + mq.legno + mq.serrTapp + mq.serrPers + mq.serrScuri + mq.legnoTapp + mq.legnoPers + mq.legnoScuri + mq.porteBlindate + mq.portoncini + mq.portoncinoPers;
   const mqOscSmalt = mq.serrTapp + mq.serrPers + mq.serrScuri + mq.tapparelle + mq.persiane + mq.scuri;
   const mqSerrOneri = mqSerrSmalt - mq.legnoTapp - mq.legnoPers - mq.legnoScuri;
@@ -329,10 +355,10 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
   const smaltimento =
     coeff.smaltimentoBaseEuro +
     coeff.smaltimentoEuroMc * coeff.smaltimentoMcSerramento * mqSerrSmalt +
-    coeff.smaltimentoMcCassonetto * mq.cassonetti +
+    coeff.smaltimentoMcCassonetto * mqCassonetti +
     coeff.smaltimentoMcOscurante * mqOscSmalt +
     coeff.smaltimentoEuroOnere * coeff.smaltimentoOnereSerramento * mqSerrOneri +
-    coeff.smaltimentoOnereCassonetto * mq.cassonetti +
+    coeff.smaltimentoOnereCassonetto * mqCassonetti +
     coeff.smaltimentoOnereOscurante * mqOscOneri;
   const maggiorazione = p.piano != null && p.piano > coeff.maggiorazionePianoOltre ? coeff.maggiorazionePiano : 1; // H31
   if (p.distanzaKm == null) avvertenze.push("Distanza dal magazzino mancante: il limite del trasporto è zero.");
@@ -361,7 +387,7 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
   opera("protezione", oreProtezione, prezzo("protezione") * oreProtezione, { ore: arrotonda(oreProtezione) });
   opera("rimozione_serramenti", mqRimozioneSerr, prezzo("rimozione_serramenti") * mqRimozioneSerr, { mq: arrotonda(mqRimozioneSerr, 4) });
   opera("rimozione_tapparelle", mqRimozioneTapp, prezzo("rimozione_tapparelle") * mqRimozioneTapp, { mq: arrotonda(mqRimozioneTapp, 4) });
-  opera("smaltimento", 1, smaltimento, { mqSerramenti: arrotonda(mqSerrSmalt, 4), mqCassonetti: arrotonda(mq.cassonetti, 4), mqOscuranti: arrotonda(mqOscSmalt, 4), base: coeff.smaltimentoBaseEuro });
+  opera("smaltimento", 1, smaltimento, { mqSerramenti: arrotonda(mqSerrSmalt, 4), mqCassonetti: arrotonda(mqCassonetti, 4), mqOscuranti: arrotonda(mqOscSmalt, 4), base: coeff.smaltimentoBaseEuro });
   opera("trasporto", p.distanzaKm ?? 0, p.distanzaKm == null ? 0 : 2 * p.distanzaKm * coeff.euroKm * a.giornatePosa, { km: p.distanzaKm ?? 0, giornate: a.giornatePosa, orePosa: arrotonda(a.orePosa) }); // H30
   opera("tiro_piano", a.oreTiro, coeff.installatori * prezzo("tiro_piano") * a.oreTiro * maggiorazione, { ore: arrotonda(a.oreTiro), piano: p.piano ?? 0, maggiorazione }); // H31
   opera("assistenza_muraria", a.larghezzaM, prezzo("assistenza_muraria") * a.larghezzaM, { metri: arrotonda(a.larghezzaM) }); // H32

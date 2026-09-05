@@ -343,13 +343,17 @@ def leggi_righe(wb, dia):
                 dia.nome_non_mappato("categoria", prodotto["codice"],
                                      f"gruppo {prodotto['gruppo']}/{prodotto.get('famiglia')}")
                 continue
-            if blocco == "B" and prodotto["gruppo"] == "cassonetto":
-                dia.avvisa(f"riga {r}: cassonetto dentro il blocco B — il foglio lo conta nel "
-                           f"massimale B, il motore lo mette sempre in A")
-
             descrizione = prodotto["nome"]
             if oscurante_tipo:
                 descrizione = f"{descrizione} + {oscurante_tipo}"
+            if blocco == "B" and prodotto["gruppo"] == "cassonetto" and not oscurante_tipo:
+                # Il foglio conta questo cassonetto nel massimale B (T9/Z9). Il
+                # motore riconosce il blocco dall'oscurante dichiarato sulla
+                # riga: è la tapparella che il cassonetto ospita, già prezzata
+                # sulla riga del serramento e quindi senza voce DEI propria
+                # (`oscuranteTipologia` resta vuota). La descrizione resta
+                # quella del cassonetto.
+                oscurante_tipo = "tapparella"
             righe.append({
                 "_riga": r, "_blocco": blocco, "_deiFoglio": dal_foglio.get("dei"),
                 "categoria": categoria,
