@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente del checkout (05/09/2026).
-**Versione:** 5.36 - Fatturazione dal contratto e lettura del contratto PDF (piani 1-3 dietro flag; fixture d'oro dai fogli reali). Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Versione:** 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -185,6 +185,21 @@ Operativi:
 ### 5.3 Comportamenti del Cliente
 - Lista clienti con ricerca testuale, filtro per tipo, filtro "solo le mie".
 - Scheda cliente con tabs: **Commesse**, **Interventi**, **Ticket**, **Garanzie** — ognuno ha un pulsante **+** per creare l'entità collegata.
+- **Creazione cliente e prima commessa in un passo** (04/09/2026). Il dialog
+  «Nuovo cliente» chiude con **«Crea cliente e commessa»**: una sola mutation
+  `clienti.createConCommessa` (stesso input di `clienti.create`, risposta
+  `{ cliente, commessa }`) crea il cliente e la sua prima commessa in
+  `preventivo`, che eredita indirizzo di lavoro (fallback residenza),
+  telefono, email e assegnatario. Al successo si apre la commessa nuova.
+  - La capability `commessa.create` è verificata **prima** di scrivere: chi
+    può creare clienti ma non commesse non resta con un cliente orfano.
+  - Sotto resta **«Crea solo il cliente»**; senza `commessa.create` il
+    pulsante torna a essere il solo «Crea cliente» di prima.
+  - Nessuna regola duplicata: `commesse.create` e `clienti.create` passano
+    dalle stesse funzioni di dominio `creaCommessa` e `creaCliente`. Non è
+    una transazione atomica sui due store: un cliente senza commessa resta
+    uno stato valido, e la commessa può fallire solo sulla policy, che è
+    controllata prima.
 - **Cascade su update.** Modificando nome/cognome o un campo di contatto/indirizzo del cliente, il server propaga il valore a tutte le commesse linkate (solo dove il valore della commessa coincideva con il valore precedente del cliente, così le override manuali non vengono sovrascritte).
 - Eliminazione cliente disponibile (con conferma) ma SCONSIGLIATA in presenza di commesse linkate.
 - **Scheda PDF** stampabile dall'header (vedi §42) e bottone **WhatsApp** accanto al telefono (vedi §41).
@@ -256,9 +271,23 @@ Quando una commessa entra nello stato `produzione`:
 - **Elimina** — operazione distruttiva. Conferma esplicita. Dovrebbe essere usata solo per errori di inserimento.
 
 ### 6.7 Lista commesse
-- Filtri: search testuale (codice, cliente, città), stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
+- Filtri: search testuale, stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
+- **Ricerca allargata (03/09/2026)**: codice, cliente, email, indirizzo, città, **telefono**. Regole condivise in `server/_core/ricerca.ts` con la lista clienti, la palette ⌘K e la ricerca del calendario (§12.2-quater) — tre superfici, una regola sola. L'anagrafica vera impone due cose che il confronto fra stringhe non fa: (1) i numeri li scrivono persone diverse («+39 340 1234567», «340-1234567», «00393401234567») e chi cerca ne digita una forma qualsiasi, quindi si confrontano le sole cifre più la forma internazionale — sotto 4 cifre non è una ricerca, e una stringa con lettere non pesca fra i telefoni, così «Via Roma 1234» non diventa un numero; (2) i nomi italiani hanno gli accenti e chi cerca non li mette, quindi il confronto avviene senza diacritici **da entrambi i lati** («forli» trova «Forlì»).
+- Per i clienti la ricerca copre anche i due ordini nome/cognome, indirizzo di residenza e di lavoro, CAP, codice fiscale, partita IVA e nomi/email/telefoni dei referenti.
 - Ordinata per `createdAt` desc.
 - Risposta **non include** `prodotti` né `pagamenti` (ottimizzazione bandwidth/render). Include però `prodottiSintesi` (nome + quantità per riga) e `nPagamenti` (conteggio degli acconti), che alimentano rispettivamente la colonna Prodotti e la proposta della rata successiva nella pagina Pagamenti.
+
+### 6.8 Schede della scheda commessa
+Sotto il corpo della commessa: **File e documenti**, **Prodotti**,
+**Interventi**, **Anomalie**, **Ticket**, ognuna col proprio conteggio.
+
+- **Ticket** (04/09/2026): i ticket post-vendita aperti su questa commessa,
+  con categoria, priorità, stato, oggetto e descrizione. Il filtro è del
+  server (`ticket.list` per `commessaId`, con lo scope di sede); la scheda
+  li mostra soltanto. La lavorazione — assegnazione, solleciti,
+  pianificazione — resta nella coda `/ticket`, raggiungibile con il pulsante
+  «Apri» di ogni riga. Prima un ticket collegato a una commessa si vedeva
+  solo dalla coda post-vendita e dalla scheda cliente.
 
 ---
 
@@ -367,6 +396,7 @@ schema dei dati esposti agli operatori.
 - Una transizione **in avanti** verifica che esista almeno un documento con uno dei tipi richiesti dallo stato CORRENTE (`REQUIRED_DOC_TIPI_PER_STATO`).
 - Conta solo se il documento è stato caricato **mentre la commessa era in quello stato** (campo `statoAtUpload`), così un preventivo non può soddisfare un gate diverso.
 - Per i documenti legacy senza `statoAtUpload`, fallback permissivo: il tipo è sufficiente.
+- **Correzione 03/09/2026** — il gate segnalava mancante un documento che era nel fascicolo. `statoAtUpload` registra lo stato al momento del caricamento, ma un documento caricato in uno stato **precedente** a quello che lo richiede lo soddisfa comunque: la fattura caricata prima di arrivare a `fatture_pagamento` è la stessa fattura. `primoStatoUtilePerGate` risale gli stati a ritroso dal corrente fino al primo che richiede quel tipo, e accetta ogni caricamento avvenuto da lì in poi. La regola vive in una funzione sola (`tipoSoddisfaGate` / `statoHasRequiredDoc`) usata sia dal gate sia dall'indicatore UI, che prima la duplicavano.
 
 ### 9.2 Stati daily reminder
 Per gli stati `aggiornamento_contratto`, `fatture_pagamento`, `da_ordinare` viene generata anche una notifica giornaliera (vedi §25.2) anche oltre la soglia di priorità.
@@ -437,23 +467,55 @@ Le frecce **Avanza** seguono lo stesso doc gate. Errore `DOC_GATE_BLOCKED:` → 
 
 ## 12. Calendario / Planning (`/planning`)
 
-### 12.1 Viste
-- **Mese** *(default)* — griglia 6×7 (la sesta settimana è renderizzata solo se il mese vi sconfina); oggi evidenziato con pill primary; giorni fuori mese e weekend attenuati; chip evento pieni (colore per tipo, testo bianco) con ora + nome cliente; overflow "+N altri" apre la vista giorno.
-- **Settimana** — 7 colonne lun–dom; weekend leggermente attenuati.
-- **Giorno** — singola colonna.
+### 12.1 Viste (riprogettate 03/09/2026)
+- **Mese** *(default)* — griglia 6×7 (la sesta settimana solo se il mese vi sconfina). Sotto il numero del giorno una **barretta di carico** dice quanto è occupata la giornata sulle ore lavorative, con le sovrapposizioni contate una volta sola (due squadre in contemporanea riempiono la giornata una volta, non due). Fino a 4 voci per cella, poi "+N altri" apre la vista giorno. **Sabato e domenica occupano colonne più strette** (0,62fr contro 1fr): quasi sempre vuote, e la larghezza serve ai feriali.
+- **Settimana** e **Giorno** — **griglia oraria**, non più elenchi. L'altezza di un blocco **è** la sua durata; i lavori in contemporanea stanno affiancati; i buchi si vedono perché sono buchi. Riga "adesso" su oggi, aggiornata ogni minuto. Fascia **«senza orario»** in cima per gli eventi senza ora (tipicamente gli all-day importati da Google). In vista Giorno il blocco è largo quanto la pagina, quindi il contenuto sta su una riga sola e anche una mezz'ora dice esecutore e indirizzo.
 Ordine switcher: Mese · Settimana · Giorno.
 
-### 12.2 Tipi di intervento
-`rilievo, posa, assistenza, altro`. Colori dedicati per tipo.
+**Finestra oraria.** Di base la giornata lavorativa 07:00–19:00, non la mezzanotte: dodici ore di griglia vuota renderebbero illeggibile un intervento delle 15. Se qualcosa cade fuori la finestra si allarga fino a contenerlo, arrotondata all'ora. Una sola finestra per tutte e sette le colonne: assi diversi non sarebbero confrontabili, ed è il confronto il motivo per cui si guarda la settimana.
 
-### 12.3 Card intervento (joined info)
-Ogni card mostra:
-- Ora inizio – ora fine.
-- Tipo intervento.
-- **Nome + cognome** del cliente (lookup commessa → cliente).
-- **Indirizzo** (fallback `intervento.indirizzo → commessa.indirizzo → cliente.indirizzoLavoro → cliente.indirizzo`).
-- Note brevi.
-- Stato (`pianificato` di default).
+**Sovrapposizioni.** I blocchi che si toccano formano un gruppo (anche in catena: A tocca B, B tocca C) e condividono la larghezza; una colonna liberata si riusa invece di allargare tutto. La larghezza minima è **metà colonna**: a due colonne la divisione in parti uguali dà già il 50% e i blocchi non si toccano, da tre in su si accavallano a cascata con l'ultimo (il più corto) davanti — a parti uguali sarebbero 40px in una colonna da 160, cioè righelli colorati senza testo.
+
+**Durata minima visiva** 30 minuti: un intervento di dieci minuti disegnato a dieci minuti sarebbe una riga di due pixel, illeggibile e impossibile da cliccare. L'orario esatto si legge nel blocco.
+
+L'aritmetica sta in `client/src/lib/grigliaOraria.ts`, separata dal disegno e provata da sola (40 casi): nessun blocco sparisce con una fine prima dell'inizio o un'ora mancante, due blocchi della stessa colonna non si sovrappongono mai, nessuno esce dai bordi.
+
+**Scroll.** Un contenitore solo — quello della pagina. La griglia sta alta quanto le sue ore e non scorre per conto suo: due contenitori annidati significano che la rotella sposta quello sbagliato. Le intestazioni (nomi dei giorni in settimana, LUN…DOM nel mese) si **agganciano sotto la barra del periodo**, la cui altezza è misurata a runtime perché cambia quando i controlli vanno a capo. La barra del periodo è agganciata **solo da `lg` in su**: sotto è alta 195px e bloccherebbe un quarto dello schermo mentre si scorre l'agenda.
+
+### 12.2 Tipi di intervento
+`rilievo, posa, assistenza, consegna, appuntamento, riunione, ferie, altro` (otto dal 03/09/2026: la migrazione Google porta anche consegne, riunioni e ferie). Catalogo unico in `client/src/lib/calendario.ts` (`CALENDARI`) e in `shared/interventi.ts`; le etichette a schermo vengono da lì e non sono riscritte per pagina.
+
+**Il colore del tipo è una barra piena a sinistra del blocco**, non solo il fondo. I quattro fondi tenui originali stavano a distanza RGB 10–24 l'uno dall'altro e tutti all'82–86% di luminosità: il contrasto del testo era a norma (5,0–7,4) ma i fondi erano indistinguibili di sfuggita, che è l'unico modo in cui si guarda un calendario. La barra satura si riconosce senza leggere, ed è uguale in tutte e tre le viste e nell'agenda mobile.
+
+### 12.2-bis Chi esegue: squadra o tecnico
+Un rilievo lo fa un **tecnico dei rilievi** (utente con ruolo `tecnico_rilievi`); posa, assistenza e consegna una **squadra di posa**. Sono due insiemi di persone diversi, quindi due campi diversi (`squadraId`, `tecnicoId`).
+
+La regola vive in `shared/interventi.ts` (`esecutorePerTipo`) perché la applicano sia il server sia la Dashboard: il server normalizza a ogni scrittura — un rilievo conserva il tecnico e lascia andare la squadra, e una posa che diventa rilievo perde la squadra invece di restare assegnata a chi quel lavoro non lo farà — e la Dashboard la usa per decidere cosa è davvero scoperto. Due copie avrebbero prodotto (e avevano prodotto) un elenco che chiede di assegnare qualcuno a un lavoro già assegnato.
+
+Il form mostra il campo giusto secondo il tipo. Lo strumento Tars `sposta_intervento` accetta `tecnicoId` e **rifiuta esplicitamente** l'accoppiata sbagliata invece di lasciarla cadere in silenzio: il dominio scarterebbe il campo e Tars risponderebbe «spostato» con un'assegnazione inesistente.
+
+### 12.2-ter Titolo dell'appuntamento
+Ordine: **cliente collegato → campo `titolo` → prima riga della nota → tipo**.
+
+Il campo `titolo` esiste dal 03/09/2026 perché metà degli appuntamenti reali non ha un cliente collegato (inseriti al volo) e senza di esso il blocco diceva due volte il tipo — «ALTRO Altro». La migrazione Google lo popola con il titolo dell'evento; per le righe già importate lo estrae il backfill in `onLoad` dalla nota, che ha forma `Importato dal calendario Google «<calendario>»: <titolo>`. La nota resta intatta: è la traccia della provenienza, semplicemente non è un titolo. Quando il chip dice già il tipo, un titolo che ripete il tipo viene taciuto.
+
+### 12.2-quater Ricerca (03/09/2026)
+Campo nella barra del calendario, fra il periodo e «Nuovo appuntamento». `interventi.cerca({ q, limite })` cerca **in tutte le date**, non nel periodo mostrato: filtrare il mese aperto sarebbe un filtro, non una ricerca, perché si cerca proprio quello che non si vede. Ogni risultato porta la sua data; aprirlo sposta il periodo e apre la scheda (`/planning?intervento=<id>`), anche a mesi di distanza.
+
+Campi cercati: cliente (in entrambi gli ordini nome/cognome), titolo, nota, indirizzo dell'intervento o della commessa, città, codice commessa, esecutore, tipo con l'etichetta a schermo. Regole condivise con clienti e commesse (`server/_core/ricerca.ts`): senza accenti da entrambi i lati, numeri confrontati per sole cifre più la forma internazionale. Risultati ordinati per **distanza da oggi**, annullati esclusi, sede-scoped (un appuntamento di un'altra sede non esiste).
+
+### 12.3 Contenuto del blocco (per spazio disponibile)
+Le tre viste condividono una sola forma di voce (`VoceGriglia`), decisa una volta in `Planning.tsx`: prima ogni vista rileggeva l'intervento a modo suo e lo stesso appuntamento diceva il tipo nella settimana e lo taceva nel mese.
+
+Quanto se ne mostra dipende dall'altezza e dalla larghezza reali del blocco, non dal tipo di vista:
+- **Una riga** (mezz'ora, ~24px) — ora d'inizio e nome **sulla stessa riga**: impilati, il nome verrebbe tagliato e si vedrebbe che c'è qualcosa ma non chi.
+- **Due righe** (~40px) — intervallo orario, chip del tipo, nome.
+- **Tre righe** (~86px) — più esecutore e indirizzo.
+- **Blocco stretto** (larghezza < 60%) — sparisce l'ora di fine (dieci caratteri su venti disponibili, al nome non ne restava nessuno: la fine si legge dall'altezza, che è la durata) e le righe secondarie si accorciano togliendo le parti che si ripetono su ogni riga — il caposquadra e la città della sede.
+
+Indirizzo con fallback `intervento.indirizzo → commessa.indirizzo → cliente.indirizzoLavoro → cliente.indirizzo`. Lo **stato si mostra solo se diverso da `pianificato`**: era lo stato del 100% degli appuntamenti e ripeterlo su ogni riga era una riga sprecata. Testo completo sempre nel tooltip e nell'`aria-label`.
+
+In vista Settimana con quattro appuntamenti sovrapposti la colonna è ~150px, divisa in due fa 75px, e un nome lungo si tronca: è un limite fisico, non un difetto. Nome intero nel tooltip e nella vista Giorno.
 
 ### 12.4 Dialog dettagli appuntamento
 In modalità modifica, sopra al form, viene mostrato un blocco di sintesi joined:
@@ -481,8 +543,11 @@ Un intervento può essere collegato a una delle entità: `commessa`, `ticket`, `
 ### 12.9 Eventi Google (overlay read‑only)
 Gli eventi importati dai calendari Google (vedi §38.2) compaiono in tutte e tre le viste, ordinati per ora insieme agli appuntamenti CRM ma **in sola lettura**: stile distinto (badge GOOGLE + lucchetto, bordo sinistro nel colore della sorgente), nessun drag/edit/delete. Il click apre un dialog dettagli (data, orario/tutto il giorno, luogo, calendario di origine). Una legenda sopra la griglia elenca le sorgenti attive.
 
-### 12.10 Card intervento (restyle v4)
-Chip tipo pieno (POSA/RILIEVO/ASSISTENZA/ALTRO) su sfondo tinta + bordo sinistro 4 px nel colore del tipo; ora in mono grassetto. Nel dialog di modifica, accanto al telefono, è presente il bottone **WhatsApp** con messaggio di conferma appuntamento precompilato (vedi §41).
+### 12.10 Agenda mobile (< `lg`)
+Sotto `lg` resta l'elenco per giorno, non la griglia. Dal 03/09/2026 la card è passata da ~230px a ~77px **senza perdere un campo**: barra del tipo come sul desktop, stato solo se notevole, esecutore e indirizzo su una riga sola con le parti ripetute accorciate (caposquadra, città della sede) invece che tagliate a metà parola. Nel dialog di modifica, accanto al telefono, è presente il bottone **WhatsApp** con messaggio di conferma appuntamento precompilato (vedi §41).
+
+### 12.11 Apertura da fuori
+`/planning?intervento=<id>` sposta il periodo sulla data dell'appuntamento e apre la scheda. Il salto avviene una volta sola per id, così chiudere la scheda non la riapre; se la query del periodo è ancora in volo si aspetta che l'intervento ci sia. Usato dalla ricerca (§12.2-quater) e da «Da fare oggi» (§26.2).
 
 ---
 
@@ -555,7 +620,16 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 
 ---
 
-## 17. Garanzie (`/garanzie`, direzione‑only)
+## 17. Garanzie (dominio senza pagina propria)
+
+**La pagina `/garanzie` è stata rimossa il 04/09/2026** su richiesta della
+direzione. Il dominio resta intero: le garanzie si leggono e si registrano
+dalla **scheda cliente**, che le raccoglie per tutte le sue commesse ed era
+già la superficie d'uso reale. `garanzieRouter` continua ad alimentare le
+notifiche di scadenza, il Centro Azioni e il backup Drive. La rotta
+`/garanzie` sopravvive come redirect verso `/clienti`, così le notifiche e i
+segnalibri già salvati non atterrano su un 404.
+
 - Tipi: `prodotto, posa, accessorio, vetro, altro`.
 - Campi: `commessaId, aperturaId?, tipo, descrizione, fornitore?, dataInizio, durataMesi, dataScadenza, stato, documentoRif?, note?`.
 - `dataScadenza` calcolata server‑side da `dataInizio + durataMesi`.
@@ -571,7 +645,26 @@ Pagina unificata che gestisce due entità correlate ma distinte.
 
 ---
 
-## 19. Fornitori (`/fornitori`, direzione‑only)
+## 19. Fornitori (dominio senza pagina propria)
+
+**La pagina `/fornitori` è stata rimossa il 04/09/2026**, confermando la
+candidatura alla rimozione già registrata. In produzione il modulo contava
+zero ordini, zero proposte e zero analisi documentali: la pagina non copriva
+lavoro vivo.
+
+Il **dominio resta e non è opzionale**: `fornitoriRouter` è dipendenza di una
+quindicina di moduli server — il costo del margine che nasce dalla conferma
+d'ordine (§54.7), la Document Intelligence (§19.4, §54.6) e buona parte di
+Tars (briefing, fascicoli, versioni, strumenti). Rimuoverlo romperebbe il
+margine, non un'interfaccia. Restano quindi validi i contratti dati qui
+sotto; ciò che non esiste più è la loro UI dedicata. La rotta `/fornitori`
+sopravvive come redirect verso `/commesse`.
+
+Conseguenza dichiarata: senza quella pagina non c'è più una superficie per
+creare o modificare a mano anagrafiche fornitore, ordini e listini, né per
+approvare le proposte della Document Intelligence. Se quel lavoro tornerà
+necessario, va ricollocato dove nasce — la scheda commessa — con una
+decisione registrata.
 
 ### 19.1 Anagrafica fornitore
 - Campi: `ragioneSociale, partitaIva, indirizzo?, citta?, telefono?, email?, categoria, referenteCommerciale?, scontistica?, note?, attivo`.
@@ -690,6 +783,10 @@ stessa su cui poggerà il futuro agente:
 - UI nella scheda ordine (`/fornitori`): pannello «Proposte dall'analisi»
   con stato, evidenza, motivazione ed effetto esatto; la generazione parte
   dal run di analisi («Proponi l'aggiornamento della data di consegna»).
+  **Rimossa il 04/09/2026 con la pagina Fornitori** (§19): il gateway
+  `proposteRouter` e la generazione restano server-side, ma non hanno più
+  una superficie di approvazione. Le proposte di Tars restano decidibili
+  dalla pagina `/tars`.
 
 **OCR locale per le scansioni (29/08/2026, quarta slice).** Tesseract 5
 eseguito in locale (`server/documenti/ocr.ts`): nessun servizio cloud,
@@ -951,13 +1048,14 @@ retry. Cambio sede e logout azzerano la cache prima di cambiare principal.
 ### 26.2 "Da fare oggi" — feed azioni personalizzato
 - **Scope**: direzione vede tutta la sede (etichetta "Tutta la sede"); gli altri solo le proprie commesse (`assegnatoA`, fallback `createdBy`) — etichetta "Le tue attività".
 - Fonti, ordinate per urgenza e cap a 8 voci:
-  1. Interventi di **oggi senza squadra** (CTA "Apri calendario").
+  1. Lavoro di **oggi senza nessuno che lo faccia** (CTA "Apri appuntamento", che porta all'evento e non alla pagina). La condizione è `senzaEsecutore` di `shared/interventi.ts`, la stessa funzione che il server applica scrivendo: un rilievo col tecnico assegnato **non** è scoperto (per un rilievo la squadra è vuota per costruzione), e ferie, riunioni e appuntamenti non chiedono nessuno — non sono lavoro da mandare a qualcuno. Prima la condizione guardava solo `squadraId` e segnalava lavoro già assegnato: un elenco che segnala cose fatte insegna a ignorarlo. L'etichetta segue il tipo: «Assegna il tecnico» per un rilievo, «Assegna la squadra» per il resto. Titolo con lo stesso ordine del calendario (§12.2-ter).
   2. Commesse **urgenti** / ticket urgenti / garanzie scadute.
   3. **Da incassare** — residuo pagamenti nelle fasi finali. L'importo compare solo per chi ha `pagamento.read` (il server lo omette agli altri, che leggono «Da incassare il saldo», §37.5).
   4. **Consegne da confermare** (CTA "Conferma consegna").
   5. Ticket aperti sulle proprie commesse.
   6. Garanzie in scadenza 30 gg (direzione/amministrazione).
 - Stato vuoto esplicito: "Niente da fare per ora …" con icona verde (la card non sparisce).
+- **Responsive**: sotto `sm` la riga diventa colonna e il pulsante va sotto a tutta larghezza. A 320px il pulsante prendeva 157px dei 320 e al titolo restava «Ass…», col codice commessa spezzato su tre righe.
 
 ### 26.3 KPI principali
 Cards Commesse attive, Urgenze, Consegne da confermare, Ticket aperti (+ Interventi settimana). Zero = card "spenta" non cliccabile; >0 = accent bar + navigazione alla lista filtrata. Polling live.
@@ -1033,6 +1131,13 @@ per id e revisione.
 
 Il refresh token Google del backup è inoltre **specchiato su file** (`data/backup-oauth.json`, mode 600, gitignored) così i riavvii senza DATABASE_URL non scollegano Drive; la riga DB, quando presente, ha precedenza.
 
+### 28.1-bis Pool di connessioni e scrittura del blob (03/09/2026)
+- **`DB_POOL_MAX`** (default **20**, tetto 50, valori assurdi ignorati). Era 5 per diciotto moduli più i lavori di fondo: le richieste aspettavano il proprio turno in fila dietro i worker, e si vedeva — `tars.smistamentoProposte` 5734 ms, `chat.nonLetti` 2278, `commesse.list` 1020. Dopo il cambio quasi tutte sono scese sotto la soglia di segnalazione.
+- **La scrittura atomica serializza una volta sola.** Congelava ogni collezione con `JSON.parse(JSON.stringify(items))` prima del BEGIN — la fotografia immutabile serve, un `await` fra due store non deve poter osservare revisioni diverse degli array vivi — ma poi passava l'oggetto a `tx.json()`, che lo serializzava di nuovo: tre passate sincrone sugli stessi megabyte per scrivere una cosa sola. Ora la stringa **è** la fotografia e va in colonna così com'è.
+- Il cast si scrive **`::text::jsonb`**, non `::jsonb`. Senza il `::text` di mezzo postgres-js deduce che il parametro è jsonb e codifica la stringa *come* stringa JSON: in colonna finisce `"[...]"` invece di `[...]`. È già successo (v. la migrazione di riparazione in `server/chat/store.ts`); il contratto delle tre forme è fissato su PostgreSQL vero in `server/_core/jsonbSnapshot.pg.test.ts`, che prova anche il percorso pericoloso — `saveStoresAtomically` sugli store registrati — perché una regressione lì non darebbe un test rosso, darebbe una colonna di stringhe jsonb da riparare a posteriori.
+
+**Resta fuori** il costo di fondo: serializzare l'intera collezione per salvare un record cambiato. Non è una svista, è la forma dell'archivio (una riga JSONB per collezione), e cambiarla è una decisione.
+
 ### 28.2 Lifecycle
 - **Bootstrap.** All'avvio `bootstrapAll()` legge ogni raccolta. Tre stati possibili per la singola key:
   - `firstBoot = true`: nessuna row presente → callback `onLoad` può popolare seed.
@@ -1080,6 +1185,21 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 29.4 Empty states
 - Tutte le pagine principali hanno empty state esplicito con istruzioni sul prossimo passo.
 
+### 29.5 Mascotte Tars
+Undici clip WebM con canale alfa in `client/public/mascotte/` (~4,2 MB): due in loop (`idle` — che è una **camminata sul posto**, la posa di riposo — e `indica`) e nove siparietti a colpo singolo, fra cui il cartello «FATTURARE».
+
+**Selezione a mazzo mescolato** (`client/src/lib/mascotteTars.ts`, logica pura e testabile): un giro contiene ogni siparietto una volta più tre copie del cartello, mescolato; finito il giro se ne prepara un altro, e il primo del nuovo giro non ripete l'ultimo del precedente. Così nessuna clip si ripete finché non sono passate tutte, il cartello esce ~27% delle volte contro il ~9% degli altri, e non c'è mai una ripetizione consecutiva. Verificato su 200k estrazioni.
+
+Pausa fra un siparietto e l'altro **4–10 s** (era 20–45): con la posa di riposo che è una camminata, una pausa lunga faceva sembrare che la mascotte camminasse e basta. Le due clip successive sono precaricate, così non c'è stacco fra l'una e l'altra.
+
+### 29.6 Sovrapposizioni dentro la cornice
+La shell desktop è una card centrata (`#root`: `width: calc(100% - 32px)`, `max-width: var(--shell-larghezza-max)` = 1728px, `margin: 16px auto` sopra 1200px). Quello che galleggia sopra la pagina deve restare **dentro quella cornice**, non ai bordi della finestra: su un monitor largo la mascotte usciva dalla card, e i toast facevano lo stesso. La striscia della mascotte replica la scatola della card (`w-[calc(100%-2rem)] max-w-[var(--shell-larghezza-max)] mx-auto`) e i toast sono spostati di `max(16px, (100vw - larghezza-max) / 2)`.
+
+### 29.7 `position: sticky` e antenati che ritagliano
+Uno `sticky` non può sporgere oltre un antenato con `overflow: hidden`: scorre via col resto, **in silenzio, senza errori**. È il muro contro cui è morto il primo tentativo di agganciare le intestazioni del calendario, che stanno dentro un `DataSurface` — il quale ritaglia per tenere gli angoli arrotondati. Il pattern ha ora una prop **`clip`** (default `true`): chi la spegne si arrotonda i bordi per conto suo. Regola generale: prima di aggiungere uno `sticky`, verificare la catena di antenati, e **misurarlo** invece di dedurlo — sembrava funzionare per coincidenza.
+
+Nota correlata: un contenitore di scroll non deve essere `display: flex`. I figli di un flex si restringono per impostazione predefinita, quindi il contenuto collassa all'altezza disponibile invece di traboccare: `scrollHeight` uguale a `clientHeight`, nessuno scroll, e ogni `sticky` interno che non aggancia mai.
+
 ---
 
 ## 30. Errori e telemetria
@@ -1091,6 +1211,21 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 30.2 Logging
 - Tutto il logging della persistenza passa da `console.log/warn/error` con prefisso `[persistence]`.
 - I save e i load mostrano sempre il conteggio degli elementi per raccolta.
+
+### 30.3 Dove si perde il tempo (`server/_core/osservabilita.ts`, 03/09/2026)
+In locale ogni endpoint della dashboard sta sotto il millisecondo: se dall'altra parte si aspettano secondi, l'attesa non è nel calcolo della singola procedura. Tre misure la distinguono, con soglie alte di proposito perché queste righe devono restare rare e leggibili, e senza mai dati del cliente dentro — solo il nome della procedura, che è già pubblico nel contratto tRPC:
+
+| riga | soglia | dice |
+|---|---|---|
+| `[lento] procedura=X ms=… esito=…` | 500 ms | la procedura ha lavorato a lungo |
+| `[passo] <nome> ms=…` | 300 ms | quale pezzo dentro una procedura lunga |
+| `[coda] loop bloccato ms=…` | 250 ms | il processo era fermo su altro (Node ha un thread solo: qualunque tratto sincrono mette in coda tutte le richieste in arrivo) |
+
+`misura(nome, azione)` cronometra un tratto e rilancia l'errore; `avviaSondaLoop()` campiona il ritardo del ciclo di eventi ogni 500 ms ed è idempotente.
+
+**Latenza verso il database.** Misurato dai log di produzione il 03/09/2026: ogni round trip verso Postgres costa **~147,4 ms**. Le durate delle procedure sono multipli interi esatti di quel numero su endpoint indipendenti fra loro, con resti sotto i 3 ms — 590 = 4×, 738 = 5×, 885 = 6×, 1179 = 8×, 1326 = 9×, 2066 = 14×. `DATABASE_URL` usa già l'host interno, quindi non è il proxy pubblico; la causa più probabile è che i due servizi Railway stiano in **regioni diverse** (147 ms è circa un Europa↔America), **non verificato** perché la CLI non espone la regione.
+
+Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round trip* — batch, filtri in SQL, join — non rendere più veloce il codice. Ed è anche il tetto: nessun endpoint può scendere sotto qualche round trip finché i due servizi non sono vicini. Prima di ottimizzare un endpoint lento, dividere i millisecondi per 147: il risultato è quante domande fa al database, ed è quello il numero da abbassare.
 
 ---
 
@@ -1169,10 +1304,32 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
-- **v5.36 (05/09/2026)** - **Fixture d'oro del motore limiti dai fogli reali, due bug corretti, piano 4 pianificato** (Ruling R22 del piano 2). Su `feature/fixture-limiti-reali` (commit `5690958`, `f7b713b`, `eced152`, `528a59c`, `ea06ec2`), **non ancora integrato su `main`**. Nuovo `scripts/harvest-fixture-limiti.py`: un solo comando trasforma una copia compilata del foglio «CALCOLO NUOVI LIMITI» in un caso d'oro **anonimo** (legge misure, codici DEI, prezzi di riga, totali e le celle di CHECK1; **non** legge nominativo, indirizzo e comune; il foglio non entra mai nel repository, il caso si chiama come dice `--nome`; un prodotto ignoto ferma lo script invece di indovinare). `server/computo/__fixtures__/casi-reali.json` passa da 3 a **20 casi**: **13 verdi al centesimo**, **7 saltati** col motivo scritto nel campo `salta` di ciascuno — divergenze capite e dichiarate, non tolleranza allargata. L'harvest ha trovato e corretto due bug del motore: **H1**, la maggiorazione dell'avvolgibile abbinato aveva larghezza e altezza scambiate (coefficienti rinominati `avvolgibileExtraLarghezza`/`avvolgibileExtraAltezza`, stesso valore, dimensione giusta); **H2**, un cassonetto venduto insieme al serramento (blocco B del foglio) pesava nel massimale A invece che in B — nuova chiave `cassonettiB` in `aggregati.ts`, che si somma ad A ovunque conti il prodotto (rilievo, rimozione tapparelle, smaltimento, tiro, posa) e non fa posare due volte la tapparella che ospita. **H7** chiuso: il form dichiara l'oscurante abbinato anche su una riga cassonetto e le avvertenze «oscurante senza voce DEI» non scattano più su un cassonetto abbinato senza tipologia propria. Parcheggiate in attesa di direzione o commercialista **H3-H6** (veneziane a pezzo o a mq, cinque fogli su un'edizione precedente del listino DEI, inclusione «solo fatturato» che `OpzioniComputo` non sa rappresentare, doppio prezzo dell'avvolgibile PVC nello stesso foglio); un settimo caso resta fuori senza decisioni da prendere (riga «serramento + persiana» senza prodotto persiana: CHECK2 non calcolabile, fail-closed per progetto). Manca ancora un foglio reale con serramenti in legno. Stesso giorno: **spec e piano del piano 4 «Fatturazione guidata»** (§58, commit `1e5f51d`), scritti e approvati ma **non implementati**, e questo PRD portato a 5.36 con le sezioni §55-§58. Suite: 234 file passati e 9 saltati, **2.350 test passati e 50 saltati** (i saltati sono le suite `*.pg.test.ts`, che girano solo con `DATABASE_URL`, più i 7 casi d'oro dichiarati).
-- **v5.35 (05/09/2026)** - **Lettura del contratto PDF** su `main` (piano 3 di 3, 9 task, `docs/superpowers/plans/2026-09-04-lettura-contratto.md`; tip `d7e0ab5`), dietro il nuovo interruttore fail-closed `FLAG_CONTRATTO_ESTRAZIONE`, che richiede anche `FLAG_LIMITI` e un provider Tars reale (classe di costo `document_intelligence`, modello `TARS_MODEL_ESTRAZIONE_CONTRATTO`). §57. Il modello legge il PDF del contratto firmato e **propone** righe, pattuito, posa, rate e cantiere; nulla viene salvato senza revisione umana. Schema JSON **strict** (`estrazione/schema.ts`, nullable come union con `null`) con `SCHEMA_JSON_ESTRAZIONE` come proiezione dello zod, mai il contrario; input a pagine intere fra marcatori neutralizzati (un documento non può fingere una pagina che non esiste), un solo ritentativo, prompt versionato `1.0.0` con l'impronta della configurazione OCR nella chiave di riuso. Il riuso si decide **prima** di estrarre il testo (OCR e lettura visiva costano) e `estraiTestoDocumento` è chiamato senza lettura visiva: una scansione illeggibile è un errore esplicito, mai una spesa silenziosa. **Mappatura deterministica** (`estrazione/mappa.ts`, il pezzo più delicato): codici DEI **solo dal catalogo**, ogni valore con `{valore, evidenza, daVerificare, nota}` e l'evidenza verificata sul testo vero; natura scorrevole/alzante decisa dal sostantivo più vicino, con l'apertura esplicita del serramento che prevale e lo dichiara; materiale per posizione (primo nominato, avvertenza se più d'uno); oscuranti autonomi fusi nel serramento solo a misure uguali (±10 mm) e pezzi sufficienti, altrimenti righe a sé con avvertenza; accessori solo da etichette note; posa per parole chiave solo su righe senza misure. Arricchimento facoltativo dal layout WnD (riconoscimento su «Riepilogo Costi», poi totali e termini di pagamento) che riscrive numeri con evidenza certa senza cancellare la quota dell'oscurante già fusa. `contratto_estrazioni` idempotente per documento e versione di prompt; `applicaEstrazione` scrive **solo** tramite `salvaContratto`, con stato e timeline in try/catch (un loro errore è un'avvertenza, mai un contratto scomparso); `eseguiEstrazioneContratto` è fail-closed da solo, non si fida del router. Router `estrazioniContratto` (`stato`, `esegui`, `applica`, `scarta`) con sede verificata anche sullo scarto; nessuna capability nuova (riusa `contratto.read`/`contratto.manage`). UI: dialog «Leggi il contratto» con evidenze, note del lettore e revisione inline; «Compila a mano» sempre disponibile quando la lettura non è configurata. Eval `pnpm eval:contratti` su tre fixture sintetiche (WnD, Word, scansione) senza rete, chiamata reale solo con `EVAL_CONTRATTI_REALE=on` **e** provider realmente disponibile; `server/contratti/eval/casi-reali/` resta vuota, quindi l'eval misura parser e mappatura, non l'accuratezza reale del modello. Ruling P3-R1…P3-R42 nel ledger del piano. `pnpm check` pulito; suite 234 file passati e 9 saltati (243), **2.332 test passati e 43 saltati** (2.375); build con l'unico avviso noto (`dist/index.js` 3,1 MB). Fuori taglio: nessuno strumento Tars, nessun formato diverso dal PDF, nessuna applicazione automatica.
-- **v5.34 (04/09/2026)** - **Fatturazione dal contratto** su `main` (piano 2 di 3, 18 task, `docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`; `4104e27` porta gli interruttori `letturaVisiva` e `fatturazione` insieme), dietro il nuovo interruttore fail-closed `FLAG_FATTURAZIONE`, che richiede `FLAG_LIMITI` sullo stesso ambiente (verificato per handler). §56. Dal contratto strutturato e dal computo nasce la bozza, che il CRM emette su Fatture in Cloud, archivia e segue. **6 tabelle** (`fatturazione_config`, `fatture`, `fattura_righe`, `fattura_riepilogo_iva`, `fattura_scadenze`, `fattura_eventi`) con blocco ottimistico su `revisione` e immutabilità da `in_emissione` in poi. **Risolutore** puro (G pattuito, B beni significativi, N altri beni, S servizi, M markup derivato; 10 % su 2P e 22 % su B−P quando B > P) verificato al centesimo su tre fatture reali del 2026, con «Riequilibra i beni» ad arrotondamento cumulativo (somma esatta al target, righe mai negative, scarto ≤ 1 centesimo a riga) perché la prassi della commercialista è abbassare i beni, non tagliare i servizi. **Generatore**: righe bene al 22 % dal contratto, servizi al 10 % dai limiti (arrotondati all'euro, mai per eccesso), markup, coppia storno/riaddebito, **spese di documentazione come bene al 22 %** (default 150,00 € per sede, fuori da entrambi i blocchi dei limiti), diciture con manutenzione straordinaria e pratica edilizia, scadenze **50/40/10** a 0/60/75/90 giorni col resto sull'ultima, righe manuali in bozza (max 20 per operazione). **Limiti verificati per tre blocchi separati** — prodotti+markup contro i massimali, servizi contro le opere proposte, imponibile contro il minore fra CHECK1/CHECK2 — mai come un totale unico; termine di paragone a zero = avviso `limiti_non_verificati`, mai un «ok» di comodo. Lo scavalco richiede una **seconda** autorizzazione con `fattura.emit` e un motivo, controllato nel servizio. **Emissione** idempotente per passo (validazione → cliente FiC → documento → confronto totali → XML → invio → archivio → documento nel fascicolo → timeline) con **lease** compare-and-swap su stato e revisione: due «Emetti» sovrapposti danno `CONFLITTO` al secondo prima di toccare FiC, mai due numeri. Invio SdI in prova con `FATTURAZIONE_SDI_DRY_RUN` (variabile di tutto il deployment, accesa finché non vale `off`): stato «Emessa (prova SdI)», ma FiC numera davvero. **Sonda** ogni 15 minuti in un solo processo: legge `ei_status`, recupera l'archivio mancante, riappaia le scadenze scollegate a ogni giro, non ritenta mai l'invio. **Nota di credito** totale o parziale sulla stessa pipeline, specchio esatto dell'origine con intestazione «Accredito su ns. fattura n. X del Y». Sync FiC: un documento il cui id combacia con `fatture.ficDocumentId` nasce collegato (`commessaMatch: "crm"`), senza match automatico né secondo PDF, e non si può ricollegare a mano a un'altra commessa. Capability `fattura.read` (amministrazione, commerciale, direzione) e `fattura.draft`/`emit`/`credit_note` (amministrazione, direzione). UI: tab «Fattura» della commessa, pannello Fatturazione in Impostazioni → Contabilità (scope FiC di scrittura, «Verifica permessi», IBAN col modulo 97), sezione «Fatture emesse dal CRM» in Cassa. Tars: nessuno strumento nuovo, ma il fascicolo mostra una riga per fattura **senza mai un importo** e senza ripetere l'errore SdI parola per parola. Ruling di piano nel ledger (`Ruling R…`, fino a R40 citati in `handoff.md`); runbook della prima fattura reale in `handoff.md`. `pnpm check` pulito; suite 210 file passati e 7 saltati (217), **2.018 test passati e 32 saltati** (2.050). Fuori ambito v1: fatture libere, acconti, IVA al 4 %, B2B senza contratto.
-- **v5.33 (04/09/2026)** - **Contratto strutturato e computo dei limiti di spesa** su `main` (piano 1 di 3, 16 task, merge `9afaf4c`), dietro il nuovo interruttore fail-closed `FLAG_LIMITI`. §55. Il contratto smette di essere un elenco libero di prodotti e diventa un documento con righe misurate e prezzate (`commessa_contratti`, `commessa_righe`), da cui il motore ricalcola i limiti ammessi dalla detrazione (`computi`, `computo_voci`). **Motore puro** `server/computo/motore.ts` verificato al centesimo su tre commesse reali chiuse nel 2026 col foglio «CALCOLO NUOVI LIMITI» compilato a mano: aggregati per gruppo, ore di tiro e posa, CHECK1 (massimali per zona e mq + controtelai + opere), CHECK2 (prezzi DEI riga per riga), limite = minore dei due, esito «incompleto» quando una riga non ha voce DEI. Le stranezze del foglio si riproducono per scelta (minimo 1 mq sul totale della riga e solo per PVC/alluminio, precedenza degli operatori dello smaltimento, ribalta a pezzo, incollaggio ad anta, soglia del portoncino una volta per riga): sono fatti contabili già accettati, cambiarli è una decisione di direzione. Catalogo seed `shared/limiti/tariffe-seed.json` (342 prodotti, 74 accessori, 22 controtelai, 19 opere) rigenerato da `scripts/estrai-tariffe-limiti.py` — il foglio del listino non entra mai nel repository — e `shared/limiti/comuni-zona.json` (8.104 comuni, Tabella A del DPR 412/93, sigle di provincia del 1993) letto come import statico: nessun caricamento manuale al deploy. **Gate**: `richiedeComputo` blocca **solo** `aggiornamento_contratto → fatture_pagamento`; lo scavalco è lo stesso «Procedi comunque» del board e resta nel registro come `gateScavalcato: "documentale" | "computo"`; Tars vede lo stesso gate, lo rivaluta a ogni tappa e senza scavalco si ferma dicendo che manca il **computo**, non un file. **UI**: tab «Contratto» al posto di «Prodotti», tab «Limiti», banner di stato, badge «da contratto · {pattuitoTipo}» in Pagamenti, pannello Tariffe in sola lettura in Impostazioni. Salvando, `applicaPattuitoDaContratto` allinea pattuito e piano rate senza toccare le rate già incassate. Capability nuove: `contratto.read` (condivisa da tutti i ruoli), `contratto.manage` e `computo.run` (amministrazione, commerciale, direzione), `tariffe.manage` (solo direzione); il client legge il proprio set da `trpc.permessi.mie`, senza duplicare stringhe. `pnpm check` pulito; suite 170 file, **1.591 test passati e 23 saltati** (le `*.pg.test.ts` girano solo con `DATABASE_URL`: eseguite a parte contro PostgreSQL 16 locale, tutte verdi). Fuori taglio: tariffe modificabili dalla UI con validità (D10), fatturazione (v5.34) e lettura automatica del contratto (v5.35).
+- **v5.40 (05/09/2026)** - **Fixture d'oro del motore limiti dai fogli reali, due bug corretti, piano 4 pianificato** (Ruling R22 del piano 2). Su `feature/fixture-limiti-reali` (commit `5690958`, `f7b713b`, `eced152`, `528a59c`, `ea06ec2`), **non ancora integrato su `main`**. Nuovo `scripts/harvest-fixture-limiti.py`: un solo comando trasforma una copia compilata del foglio «CALCOLO NUOVI LIMITI» in un caso d'oro **anonimo** (legge misure, codici DEI, prezzi di riga, totali e le celle di CHECK1; **non** legge nominativo, indirizzo e comune; il foglio non entra mai nel repository, il caso si chiama come dice `--nome`; un prodotto ignoto ferma lo script invece di indovinare). `server/computo/__fixtures__/casi-reali.json` passa da 3 a **20 casi**: **13 verdi al centesimo**, **7 saltati** col motivo scritto nel campo `salta` di ciascuno — divergenze capite e dichiarate, non tolleranza allargata. L'harvest ha trovato e corretto due bug del motore: **H1**, la maggiorazione dell'avvolgibile abbinato aveva larghezza e altezza scambiate (coefficienti rinominati `avvolgibileExtraLarghezza`/`avvolgibileExtraAltezza`, stesso valore, dimensione giusta); **H2**, un cassonetto venduto insieme al serramento (blocco B del foglio) pesava nel massimale A invece che in B — nuova chiave `cassonettiB` in `aggregati.ts`, che si somma ad A ovunque conti il prodotto (rilievo, rimozione tapparelle, smaltimento, tiro, posa) e non fa posare due volte la tapparella che ospita. **H7** chiuso: il form dichiara l'oscurante abbinato anche su una riga cassonetto e le avvertenze «oscurante senza voce DEI» non scattano più su un cassonetto abbinato senza tipologia propria. Parcheggiate in attesa di direzione o commercialista **H3-H6** (veneziane a pezzo o a mq, cinque fogli su un'edizione precedente del listino DEI, inclusione «solo fatturato» che `OpzioniComputo` non sa rappresentare, doppio prezzo dell'avvolgibile PVC nello stesso foglio); un settimo caso resta fuori senza decisioni da prendere (riga «serramento + persiana» senza prodotto persiana: CHECK2 non calcolabile, fail-closed per progetto). Manca ancora un foglio reale con serramenti in legno. Stesso giorno: **spec e piano del piano 4 «Fatturazione guidata»** (§58, commit `1e5f51d`), scritti e approvati ma **non implementati**, e questo PRD portato a 5.40 con le sezioni §55-§58. Suite: 234 file passati e 9 saltati, **2.350 test passati e 50 saltati** (i saltati sono le suite `*.pg.test.ts`, che girano solo con `DATABASE_URL`, più i 7 casi d'oro dichiarati).
+- **v5.39 (05/09/2026)** - **Lettura del contratto PDF** su `main` (piano 3 di 3, 9 task, `docs/superpowers/plans/2026-09-04-lettura-contratto.md`; tip `d7e0ab5`), dietro il nuovo interruttore fail-closed `FLAG_CONTRATTO_ESTRAZIONE`, che richiede anche `FLAG_LIMITI` e un provider Tars reale (classe di costo `document_intelligence`, modello `TARS_MODEL_ESTRAZIONE_CONTRATTO`). §57. Il modello legge il PDF del contratto firmato e **propone** righe, pattuito, posa, rate e cantiere; nulla viene salvato senza revisione umana. Schema JSON **strict** (`estrazione/schema.ts`, nullable come union con `null`) con `SCHEMA_JSON_ESTRAZIONE` come proiezione dello zod, mai il contrario; input a pagine intere fra marcatori neutralizzati (un documento non può fingere una pagina che non esiste), un solo ritentativo, prompt versionato `1.0.0` con l'impronta della configurazione OCR nella chiave di riuso. Il riuso si decide **prima** di estrarre il testo (OCR e lettura visiva costano) e `estraiTestoDocumento` è chiamato senza lettura visiva: una scansione illeggibile è un errore esplicito, mai una spesa silenziosa. **Mappatura deterministica** (`estrazione/mappa.ts`, il pezzo più delicato): codici DEI **solo dal catalogo**, ogni valore con `{valore, evidenza, daVerificare, nota}` e l'evidenza verificata sul testo vero; natura scorrevole/alzante decisa dal sostantivo più vicino, con l'apertura esplicita del serramento che prevale e lo dichiara; materiale per posizione (primo nominato, avvertenza se più d'uno); oscuranti autonomi fusi nel serramento solo a misure uguali (±10 mm) e pezzi sufficienti, altrimenti righe a sé con avvertenza; accessori solo da etichette note; posa per parole chiave solo su righe senza misure. Arricchimento facoltativo dal layout WnD (riconoscimento su «Riepilogo Costi», poi totali e termini di pagamento) che riscrive numeri con evidenza certa senza cancellare la quota dell'oscurante già fusa. `contratto_estrazioni` idempotente per documento e versione di prompt; `applicaEstrazione` scrive **solo** tramite `salvaContratto`, con stato e timeline in try/catch (un loro errore è un'avvertenza, mai un contratto scomparso); `eseguiEstrazioneContratto` è fail-closed da solo, non si fida del router. Router `estrazioniContratto` (`stato`, `esegui`, `applica`, `scarta`) con sede verificata anche sullo scarto; nessuna capability nuova (riusa `contratto.read`/`contratto.manage`). UI: dialog «Leggi il contratto» con evidenze, note del lettore e revisione inline; «Compila a mano» sempre disponibile quando la lettura non è configurata. Eval `pnpm eval:contratti` su tre fixture sintetiche (WnD, Word, scansione) senza rete, chiamata reale solo con `EVAL_CONTRATTI_REALE=on` **e** provider realmente disponibile; `server/contratti/eval/casi-reali/` resta vuota, quindi l'eval misura parser e mappatura, non l'accuratezza reale del modello. Ruling P3-R1…P3-R42 nel ledger del piano. `pnpm check` pulito; suite 234 file passati e 9 saltati (243), **2.332 test passati e 43 saltati** (2.375); build con l'unico avviso noto (`dist/index.js` 3,1 MB). Fuori taglio: nessuno strumento Tars, nessun formato diverso dal PDF, nessuna applicazione automatica.
+- **v5.38 (04/09/2026)** - **Fatturazione dal contratto** su `main` (piano 2 di 3, 18 task, `docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`; `4104e27` porta gli interruttori `letturaVisiva` e `fatturazione` insieme), dietro il nuovo interruttore fail-closed `FLAG_FATTURAZIONE`, che richiede `FLAG_LIMITI` sullo stesso ambiente (verificato per handler). §56. Dal contratto strutturato e dal computo nasce la bozza, che il CRM emette su Fatture in Cloud, archivia e segue. **6 tabelle** (`fatturazione_config`, `fatture`, `fattura_righe`, `fattura_riepilogo_iva`, `fattura_scadenze`, `fattura_eventi`) con blocco ottimistico su `revisione` e immutabilità da `in_emissione` in poi. **Risolutore** puro (G pattuito, B beni significativi, N altri beni, S servizi, M markup derivato; 10 % su 2P e 22 % su B−P quando B > P) verificato al centesimo su tre fatture reali del 2026, con «Riequilibra i beni» ad arrotondamento cumulativo (somma esatta al target, righe mai negative, scarto ≤ 1 centesimo a riga) perché la prassi della commercialista è abbassare i beni, non tagliare i servizi. **Generatore**: righe bene al 22 % dal contratto, servizi al 10 % dai limiti (arrotondati all'euro, mai per eccesso), markup, coppia storno/riaddebito, **spese di documentazione come bene al 22 %** (default 150,00 € per sede, fuori da entrambi i blocchi dei limiti), diciture con manutenzione straordinaria e pratica edilizia, scadenze **50/40/10** a 0/60/75/90 giorni col resto sull'ultima, righe manuali in bozza (max 20 per operazione). **Limiti verificati per tre blocchi separati** — prodotti+markup contro i massimali, servizi contro le opere proposte, imponibile contro il minore fra CHECK1/CHECK2 — mai come un totale unico; termine di paragone a zero = avviso `limiti_non_verificati`, mai un «ok» di comodo. Lo scavalco richiede una **seconda** autorizzazione con `fattura.emit` e un motivo, controllato nel servizio. **Emissione** idempotente per passo (validazione → cliente FiC → documento → confronto totali → XML → invio → archivio → documento nel fascicolo → timeline) con **lease** compare-and-swap su stato e revisione: due «Emetti» sovrapposti danno `CONFLITTO` al secondo prima di toccare FiC, mai due numeri. Invio SdI in prova con `FATTURAZIONE_SDI_DRY_RUN` (variabile di tutto il deployment, accesa finché non vale `off`): stato «Emessa (prova SdI)», ma FiC numera davvero. **Sonda** ogni 15 minuti in un solo processo: legge `ei_status`, recupera l'archivio mancante, riappaia le scadenze scollegate a ogni giro, non ritenta mai l'invio. **Nota di credito** totale o parziale sulla stessa pipeline, specchio esatto dell'origine con intestazione «Accredito su ns. fattura n. X del Y». Sync FiC: un documento il cui id combacia con `fatture.ficDocumentId` nasce collegato (`commessaMatch: "crm"`), senza match automatico né secondo PDF, e non si può ricollegare a mano a un'altra commessa. Capability `fattura.read` (amministrazione, commerciale, direzione) e `fattura.draft`/`emit`/`credit_note` (amministrazione, direzione). UI: tab «Fattura» della commessa, pannello Fatturazione in Impostazioni → Contabilità (scope FiC di scrittura, «Verifica permessi», IBAN col modulo 97), sezione «Fatture emesse dal CRM» in Cassa. Tars: nessuno strumento nuovo, ma il fascicolo mostra una riga per fattura **senza mai un importo** e senza ripetere l'errore SdI parola per parola. Ruling di piano nel ledger (`Ruling R…`, fino a R40 citati in `handoff.md`); runbook della prima fattura reale in `handoff.md`. `pnpm check` pulito; suite 210 file passati e 7 saltati (217), **2.018 test passati e 32 saltati** (2.050). Fuori ambito v1: fatture libere, acconti, IVA al 4 %, B2B senza contratto.
+- **v5.37 (04/09/2026)** - **Contratto strutturato e computo dei limiti di spesa** su `main` (piano 1 di 3, 16 task, merge `9afaf4c`), dietro il nuovo interruttore fail-closed `FLAG_LIMITI`. §55. Il contratto smette di essere un elenco libero di prodotti e diventa un documento con righe misurate e prezzate (`commessa_contratti`, `commessa_righe`), da cui il motore ricalcola i limiti ammessi dalla detrazione (`computi`, `computo_voci`). **Motore puro** `server/computo/motore.ts` verificato al centesimo su tre commesse reali chiuse nel 2026 col foglio «CALCOLO NUOVI LIMITI» compilato a mano: aggregati per gruppo, ore di tiro e posa, CHECK1 (massimali per zona e mq + controtelai + opere), CHECK2 (prezzi DEI riga per riga), limite = minore dei due, esito «incompleto» quando una riga non ha voce DEI. Le stranezze del foglio si riproducono per scelta (minimo 1 mq sul totale della riga e solo per PVC/alluminio, precedenza degli operatori dello smaltimento, ribalta a pezzo, incollaggio ad anta, soglia del portoncino una volta per riga): sono fatti contabili già accettati, cambiarli è una decisione di direzione. Catalogo seed `shared/limiti/tariffe-seed.json` (342 prodotti, 74 accessori, 22 controtelai, 19 opere) rigenerato da `scripts/estrai-tariffe-limiti.py` — il foglio del listino non entra mai nel repository — e `shared/limiti/comuni-zona.json` (8.104 comuni, Tabella A del DPR 412/93, sigle di provincia del 1993) letto come import statico: nessun caricamento manuale al deploy. **Gate**: `richiedeComputo` blocca **solo** `aggiornamento_contratto → fatture_pagamento`; lo scavalco è lo stesso «Procedi comunque» del board e resta nel registro come `gateScavalcato: "documentale" | "computo"`; Tars vede lo stesso gate, lo rivaluta a ogni tappa e senza scavalco si ferma dicendo che manca il **computo**, non un file. **UI**: tab «Contratto» al posto di «Prodotti», tab «Limiti», banner di stato, badge «da contratto · {pattuitoTipo}» in Pagamenti, pannello Tariffe in sola lettura in Impostazioni. Salvando, `applicaPattuitoDaContratto` allinea pattuito e piano rate senza toccare le rate già incassate. Capability nuove: `contratto.read` (condivisa da tutti i ruoli), `contratto.manage` e `computo.run` (amministrazione, commerciale, direzione), `tariffe.manage` (solo direzione); il client legge il proprio set da `trpc.permessi.mie`, senza duplicare stringhe. `pnpm check` pulito; suite 170 file, **1.591 test passati e 23 saltati** (le `*.pg.test.ts` girano solo con `DATABASE_URL`: eseguite a parte contro PostgreSQL 16 locale, tutte verdi). Fuori taglio: tariffe modificabili dalla UI con validità (D10), fatturazione (v5.38) e lettura automatica del contratto (v5.39).
+- **v5.36 (03/09/2026, documentata il 05/09)** — **Calendario riprogettato, prestazioni misurate in produzione, e chi esegue un intervento.** Sei mandati della direzione in sequenza, tutti verificati con misure e non a occhio.
+
+  **Prestazioni.** Strumentazione prima delle correzioni (`server/_core/osservabilita.ts`: `[lento]` a 500 ms, `[passo]` a 300, `[coda]` a 250) e poi lettura dei log Railway. Il collo principale era il **pool di connessioni a 5** per diciotto moduli più i worker: alzato a 20 (`DB_POOL_MAX`, tetto 50), `tars.smistamentoProposte` 5734→sotto soglia, `chat.nonLetti` 2278→719, `commesse.list` 1020→sparita. `tars.briefing` restava a 10 s con un problema suo: i quattro passi indipendenti erano quattro `await` in fila (ora `Promise.all`, si paga il più lungo e non la somma) e due erano N+1 seriali — lo smistamento leggeva fino a 190 comunicazioni una alla volta (ora `getComunicazioniByIds` in una domanda; il controllo «ha già avuto risposta?» a blocchi), e `allCases` si portava a casa l'intero storico dei casi cento righe per pagina per poi buttare via i risolti in memoria (ora il filtro per stato va in SQL). Totale 10,1 s → 3,9 s. Scrittura JSONB atomica da tre passate sincrone a una (`::text::jsonb`, contratto fissato su PostgreSQL vero); cache statica (`assets` immutabile un anno, `index.html` e il service worker mai); `commesse.byPriorita` da 1027 kB a 184 kB con proiezione esplicita dei campi; React Query `staleTime` 15 s invece di 0; rimozione ottimistica delle proposte approvate. **Scoperta di fondo**: ogni round trip verso Postgres costa **~147 ms** — le durate residue sono multipli interi esatti su endpoint indipendenti (590 = 4×, 1179 = 8×, 2066 = 14×). Con quella latenza il lavoro utile è togliere round trip, non velocizzare il codice; la causa probabile è che i due servizi Railway stiano in regioni diverse, **non verificato**. Vedi §30.3.
+
+  **Calendario (§12).** Settimana e Giorno da elenchi a **griglia oraria**: l'altezza di un blocco è la sua durata, i sovrapposti stanno affiancati, i buchi si vedono. Il tipo diventa una **barra piena e satura** a sinistra — i quattro fondi tenui stavano a distanza RGB 10–24 e tutti alla stessa luminosità, indistinguibili di sfuggita. Il mese guadagna una barretta di carico per giornata, quattro voci per cella e weekend stretti. Tolto il rumore che costava righe: «pianificato» ripetuto su ogni voce, la X di eliminazione sempre aperta. Agenda mobile da 230px a 77px per card senza perdere un campo. Ricerca degli appuntamenti **su tutte le date** (`interventi.cerca`, sede-scoped, ordinata per distanza da oggi) e apertura da fuori con `/planning?intervento=<id>`. Tre correzioni successive su segnalazione: **scroll** (due contenitori annidati in settimana/giorno, intestazioni che scorrevano via, barra che su mobile bloccava 195px di 812), **dati veri** (metà appuntamenti senza cliente collegato mostravano due volte il tipo; il testo centrato in verticale in blocchi alti; i sovrapposti a parti uguali che diventavano righelli muti) e **titolo degli importati** (la nota della migrazione Google comincia con 60 caratteri di provenienza identici: ogni appuntamento si chiamava uguale — ora il titolo è un campo suo, con backfill in `onLoad` per le righe già importate).
+
+  **Chi esegue (§12.2-bis).** Un rilievo lo fa un tecnico dei rilievi, non una squadra di posa: nuovo campo `tecnicoId`, regola in `shared/interventi.ts` applicata sia dal server sia dalla Dashboard, form che cambia campo con il tipo, strumento Tars `sposta_intervento` che **rifiuta** l'accoppiata sbagliata invece di lasciarla cadere in silenzio. Di conseguenza «Da fare oggi» non segnala più come scoperto un rilievo già assegnato, né chiede di assegnare una squadra alle ferie di qualcuno, e il suo pulsante porta all'appuntamento e non alla pagina.
+
+  **Altro.** Gate documentale che chiedeva un documento già nel fascicolo (un caricamento avvenuto in uno stato precedente a quello che lo richiede lo soddisfa: `primoStatoUtilePerGate`, §9.1). Ricerca clienti e commesse allargata a numero, mail, indirizzo e città con regole condivise (§6.7). Mascotte: mazzo mescolato senza ripetizioni e pausa 4–10 s (§29.5); quello che galleggia sopra la pagina resta dentro la cornice della card su monitor larghi (§29.6). Lettore email riprogettato e **allegati apribili** con rotta autenticata e sede-scoped (§51.6).
+
+  **Due lezioni registrate** (§29.7): uno `sticky` muore in silenzio dentro un antenato che ritaglia — `DataSurface` ha ora una prop `clip` — e un contenitore di scroll non deve essere `display: flex`, perché i figli si restringono e il contenuto non trabocca mai. Entrambe scoperte misurando dopo che il codice *sembrava* giusto.
+
+  Suite 167 file / 1637 test.
+- **v5.35 (04/09/2026)** - **Semplificazioni chieste dalla direzione: meno passi, meno doppioni, meno pagine.** Cinque interventi di una sessione sola.
+  **(1) Cliente e prima commessa in un passo** (§5.3): il dialog «Nuovo cliente» chiude con «Crea cliente e commessa» e apre la commessa appena creata. Nuova `clienti.createConCommessa` (stesso input di `clienti.create`, risposta `{ cliente, commessa }`) che verifica `commessa.create` PRIMA di scrivere — chi può creare clienti ma non commesse non resta con un cliente orfano — e fa nascere la commessa in `preventivo` con indirizzo di lavoro (fallback residenza), telefono, email e assegnatario ereditati. Sotto resta «Crea solo il cliente»; senza la capability il pulsante torna «Crea cliente». `commesse.create` e `clienti.create` passano ora dalle stesse funzioni di dominio `creaCommessa`/`creaCliente`: nessuna regola duplicata.
+  **(2) Timeline: via «Invio Fattura al Cliente»** (§35): emettere la fattura significa già mandarla, e lo step restava aperto per sempre falsando la percentuale. 18 → 17 passi.
+  **(3) Timeline: ordine fornitore fuso nella conferma** (§35): per chi lavora è lo stesso gesto. 17 → 16 passi. Sopravvive **«Conferma Ordine Fornitore (allegato)»**, perché è il documento che porta il costo imponibile del margine (§54.7) e che il gate di `da_ordinare` richiede; **con lei si sposta la milestone verso `produzione`**, quindi la commessa avanza quando il fornitore ha risposto, non quando l'ordine è partito. La migrazione di `onLoad` diventa `migraStepTimeline`, funzione pura esportata e testata che impara la **fusione**: dove l'ordine era spuntato e la conferma no, la spunta si travasa con data, esecutore e nota (una commessa già ordinata non si ritrova il passo riaperto); se erano spuntati entrambi vince la conferma e le due note si uniscono. Idempotente: uno store già allineato non viene riscritto a ogni avvio.
+  **(4) Ordine e conferma: un tipo di documento solo** (§8, §9): il gate mostrava due pastiglie — una verde e una arancione — per un documento solo, e faceva sembrare mancante qualcosa che c'era. In realtà il gate usa `.some` (bastava uno dei due) e anche la ricerca Tars delle conferme mancanti li accettava indifferentemente: erano già sinonimi ovunque contasse. `ordine` esce da `DOC_TIPI`, il gate di `da_ordinare` chiede solo `conferma_ordine`, la regola di classificazione per «ordine / purchase order / PO 123» confluisce nella conferma, `migraTipiDocumento` riporta i documenti già archiviati. Causa vera del «continuo a vederlo»: la lista dei tipi era **duplicata a mano** nel client sotto un commento che dichiarava il contrario, e le due copie erano già divergenti nelle etichette — ora vive in `shared/docTipi.ts` (`DOC_TIPI`, `DOC_TIPO_LABEL`, `docTipoLabel()` per i record storici) con una guardia che impedisce di ricrearne una seconda. Non toccato `confrontoOrdine.ts`, che confronta la conferma con l'**ordine strutturato** del modulo Fornitori, non col PDF.
+  **(5) Via le pagine Fornitori e Garanzie** (§17, §19): superfici di sola direzione fuori dalla navigazione, raggiunte dall'hub Impostazioni; per `/fornitori` è la conferma della candidatura alla rimozione già registrata. Rimossi `pages/FornitoriList.tsx`, `pages/GaranzieList.tsx` e `components/fornitori/` (`AnalisiConfermaOrdine`, `ProposteOrdine`, montati solo lì); tolte le voci dall'hub e dalla `shellPresentation`; il contratto di rotta passa a `kind: "redirect"` e le guardie di direzione scendono da sei a quattro. Le rotte restano come **redirect** (`/garanzie` → `/clienti`, `/fornitori` → `/commesse`) con lo stesso `LegacyRedirect` di `/produzione`: notifiche e segnalibri già salvati non finiscono su un 404 muto. **I domini restano interi**: `fornitoriRouter` è dipendenza di una quindicina di moduli server (costo del margine dalla conferma, Document Intelligence, briefing/fascicoli/versioni/strumenti di Tars) e toglierlo avrebbe rotto il margine, non una pagina; le garanzie restano leggibili e registrabili dalla scheda cliente, dove stavano già. In produzione il modulo fornitori contava zero ordini, zero proposte e zero analisi (diagnosi del 02/09). Link riportati dove il lavoro è rimasto: notifiche di garanzia in scadenza e Dashboard puntano alla scheda del cliente ricavata dalla commessa; i fallback Tars/briefing su `/fornitori` vanno a `/commesse`.
+  **Trasversale**: i ticket collegati a una commessa si vedono ora **dentro la commessa** (§6.8), con una scheda «Ticket (n)» accanto ad Anomalie; il router non è cambiato (`ticket.list` accettava già `commessaId` e applicava lo scope di sede), mancava la lettura — ed è nato `server/routers/ticket.test.ts`, che prima non esisteva. Residuo dichiarato: `warrantyExpiryTone` e `warrantyExpiryLabel` in `client/src/lib/supportQueue.ts` restano senza consumatori (li usava solo la pagina rimossa), tenuti e non cancellati. Debito segnalato e non toccato: la notifica di assegnazione di un ticket punta a `/post-vendita?ticket=<id>`, rotta che non esiste.
+- **v5.34 (04/09/2026)** - **Le conferme d'ordine si leggono davvero, e Tars non si arrende** (§54.7, §54.8; piano `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, tranche 4–8). **Mattina** («è ancora troppo stupido»: la conferma BT Glass per De Petris letta senza importi e con il fornitore sbagliato): il testo dei PDF nativi è ricostruito dalla GEOMETRIA dei frammenti (`documenti/testoPdf.ts`, parser `pdf-testo-nativo` 2.0.0: righe vere, celle separate da tre spazi, valori sotto le etichette); estrattore conferme 1.1.0 (imponibile anche per aritmetica dell'IVA, «Imposta» come IVA, importi solo con decimali, «IVA esclusa» → il totale è l'imponibile, numero mai una data, fornitore mai agente/banca/destinatario, «vs. riferimento» nella cella accanto o sotto, colonna «Consegna»); merce 1.2.0 a celle; riscontro con un carattere di tolleranza sul cognome; lo store `fic_pagamenti_links` registrato dopo il bootstrap non salvava mai (import statico + store tardivi che si caricano da soli); una rilettura corregge i costi nati dalla regola e mai toccati a mano (`modificatoAMano`), la conferma aggiornata dello stesso ordine sostituisce la vecchia, il CAP non è un riferimento. Corpus di 15 conferme reali (fuori dal repo): 5 nativi giusti, 8 scansioni su 10 leggibili con l'OCR. **Tarda mattina**: foto (jpeg/png/webp) via tesseract; **lettura visiva** — quando l'OCR manca, fallisce o legge poco e male, il modello TRASCRIVE le pagine riga per riga (`documenti/letturaVisiva.ts`, 150 dpi, al più 8 pagine, pagina bianca = pagina vuota) e il testo passa dagli stessi estrattori (il modello non decide); a pagamento dietro governor e ledger (classe `lettura_documenti`, `FLAG_LETTURA_VISIVA` fail-closed acceso in Railway, `TARS_MODEL_VISIONE` default interattivo), solo con un'identità (worker con utente di sistema, `leggi_conferma_ordine` 1.3.0 e `registra_costo_fornitore` con l'utente della chat), mai in upload o smistamento; turni con immagini nel contratto provider (`openai/corpo.ts`); PDF con più conferme (Bertolotto) letti a sezioni, costo = somma degli imponibili solo se ogni sezione ha il suo. **Pomeriggio** («Tars non fa proposte, è tutto fermo, idem le conferme ordine; non deve arrendersi, deve essere sicuro e molto più attivo»), diagnosi in produzione con sonde in sola lettura: analisi viva ma con posti sprecati in «registra a mano»; smistamento vivo (49 mail/giorno) senza proposte perché i candidati nascevano solo dalla mail; 60 PDF «da conferma» in 120 giorni, 57 non archiviati, 52 in mail senza commessa (il fornitore scrive il SUO numero nella mail, il nostro cliente solo dentro il PDF); follow-up preventivi morto ogni mezz'ora su 42P18 (parametro nullo senza tipo). Fatto: (1) **la commessa si cerca DENTRO la conferma** (`tars/documenti/ricercaCommessaNelDocumento.ts`) e il detector, il worker delle conferme certe e lo smistamento la usano (§54.7); (2) analisi: `archivia_allegato_comunicazione` eseguibile con un click dalle proposte (mai `confermaSenzaRiscontro`), fotografia con comunicazione e `allegatoIndex`, prompt analisi-v9 (conferme senza costo leggibile = un punto, mai proposte; posti riempiti con azioni eseguibili); (3) follow-up: cast `::bigint` sul promemoria esistente, errori isolati per commessa, contratto PostgreSQL (`reminders/repository.pg.test.ts`) — primo giro: 33 solleciti; (4) prompt interattivo v12: «non ti arrendi» (rileggere con OCR e modello, cercare per cognome, telefono e comunicazioni prima di dire «non posso») e «sicurezza» (conclusioni senza attenuazioni, niente «vuoi che proceda?»); (5) quattro giri di taratura del riscontro in produzione, un deploy per classe di falsi positivi: la via dell'azienda, i nomi propri sparsi, le località e i cognomi diffusi nei nomi degli enti, le date lette come numeri d'ordine. Registro azioni 1.21.0 (`cerca_conferme_ordine_mancanti` 1.1.0, `leggi_conferma_ordine` 1.3.0). Suite 206 file / 1875 test; eval 16/16.
+- **v5.33 (03/09/2026)** - **Tars operativo T1–T6 e il costo fornitore dalla conferma d'ordine.** **T1** strumenti: `cerca_comunicazioni` (anche per sole cifre del telefono), `cerca_fatture`, `cerca_documenti`, `collega_fattura_commessa` (R1, stessa procedura del router), `sposta_documento` (R1, il gate segue il documento). **T2** fotografia 1.1.0 sul lavoro vero: preventivi fermi 7/30 giorni, gate documentali mancanti, fatture non collegate o da riconciliare, mail senza risposta da 24 ore, ticket senza assegnatario; moduli vuoti fuori (sezione Perimetro). **T3** proposte eseguibili: `PropostaAnalisi.azione {strumento, input}` verificata in fase di analisi E al click contro il catalogo di chi clicca, whitelist chiusa, ledger R1 con `runId` deterministico (doppio click riusa), `tars.eseguiPropostaAnalisi`, «Esegui» / «Scarta» / «Chiedi a Tars» nel board. **T4** agenda: `leggi_agenda` (eventi Google in sola lettura), `sposta_intervento`, `segna_intervento_fatto` (transizione consigliata, la commessa non avanza di nascosto), `pianifica_intervento` 1.1.0 con squadra; tipi evento 4→8 (`TIPI_INTERVENTO` unica fonte); `migra_calendario_google` (direzione, anteprima e migrazione degli ultimi due mesi più il corrente, dedupe per uid). **T5** follow-up preventivi (`server/tars/followup/`): sollecito a 7 giorni di silenzio reale come promemoria all'assegnatario con la bozza del messaggio (dedupe per `canonicalKey`), a 30 giorni caso «perso?» nel Centro Azioni. **T6** destinatari (`tars/destinatari.ts`): ogni proposta nasce con un destinatario deterministico (amministrazione per i temi amministrativi, chi ha in carico il ticket o la commessa, altrimenti direzione); la direzione vede tutto. **Transizioni libere**: lo stato di arrivo qualsiasi, un passaggio alla volta, ognuno annullabile; lo scavalco del gate solo su richiesta esplicita dell'utente (registrato, mai dall'Undo). **Costo fornitore dalla conferma** (§54.7): regola di dominio deterministica — quando un documento `conferma_ordine` entra nel fascicolo la commessa registra in `costi[]` l'IMPONIBILE letto (mai lo scorporo dell'IVA), la merce entra a magazzino «Da ordinare», il documento ricorda l'esito in `letturaCosto`; worker `costoDaConfermaWorker` per le conferme già archiviate; le conferme CERTE (mail collegata + nome di conferma) si archiviano da sole (`confermeAutoArchivio`, `origine: "automatico"`); registro delle conferme d'ordine in `/conferme-ordine`; `registra_costo_fornitore` (R1) solo per rimettere un costo tolto a mano, ancorato all'imponibile letto. Notte del 04/09 (caso Giacomazzi): una conferma entra da sola SOLO se il suo testo cita la commessa (`documenti/riscontroCommessa.ts`) e non è una copia (`duplicato`); rilettura 1.2.0 ritira costo e merce delle archiviazioni senza riscontro («È di questa commessa» per confermare a mano); settimana di approntamento ≠ consegna; `FLAG_OCR=on` in Railway. Hotfix: «Operatività ridotta» su ogni conversazione nuova, `INPUT_NON_VALIDO` con i vincoli Zod al modello, link server 404, fotografia che leggeva `i.data` invece di `dataPianificata`. D1 ordini fornitore SOSPESA dalla direzione.
 - **v5.32 (02/09/2026)** - **Analisi azienda e sintesi giornaliera di Tars** (fase successiva del piano smistamento; mandato «non sta analizzando l'azienda … deve proporre»). Modulo `server/tars/analisi/` dietro `FLAG_TARS_ANALISI_AZIENDA` (fail-closed, richiede `FLAG_TARS_PROACTIVE`): fotografia deterministica della sede (commesse attive per stato e ferme da più tempo, casi aperti del Centro Azioni, osservazioni, pattern, smistamento, ticket, interventi della settimana, proposte documentali; senza importi, ogni fatto con riferimenti di entità e link) → sintesi del modello a output JSON strict (`TARS_MODEL_ANALISI`, default `gpt-5.6-sol`, classe di costo `analisi_azienda`): sintesi, punti (rischio/anomalia/andamento/opportunità con priorità), proposte con la frase da dire a Tars per eseguirle, domande alla direzione; verifica deterministica (entità solo dalla fotografia, importi scrubbati, limiti), fallback deterministico senza provider. Una analisi per sede al giorno dalle 06:00 Roma (worker ogni 5 minuti), registro `tars_analisi_azienda`, rigenerazione manuale. Endpoint `tars.analisiAzienda` / `tars.analisiAziendaRigenera` (direzione). UI `/tars` (ridisegnata la sera stessa: selettore Chat / Proposte / Registro in testa, Proposte come coda di decisioni a righe a tutta larghezza — titolo, destinazione in evidenza, chip di sicurezza, Approva/Rifiuta grandi, dettagli a richiesta, filtri — e Registro a colonne): «Analisi di oggi» nel pannello contesto e nello stato vuoto, gruppo «Dall'analisi dell'azienda» nelle Proposte con «Chiedi a Tars» (precompila la chat: nessuna mutazione nasce dall'analisi). Fuori taglio: dati economici, invio via mail, storico fra giorni.
 - **v5.31 (02/09/2026)** - **Tars libero** (mandato direzione: «deve leggere tutto, capire tutto e poter fare tutto; quando serve chiede, quando è sicuro fa da solo; se l'ha fatto Tars viene segnalato; sezione proposte sulla pagina Tars»). Policy in `CLAUDE.md` «Agente AI» e piano `docs/superpowers/plans/2026-09-02-tars-libero.md`. **A**: catalogo = tutto l'autorizzato per capability/sede/flag (niente potatura per superficie/intento), niente classificatori deterministici al posto del modello, ambiguità come hint nel contesto, chiarimenti letti contro i candidati, nessuna autorità derivata dal testo (gli strumenti verificano sede/archiviazione/state machine/gate/versione da soli), prompt v9. **B**: 13 strumenti R1 di scrittura (`strumenti/scrittura.ts`: crea/aggiorna cliente; crea/aggiorna/archivia/ripristina commessa; aggiorna/chiudi ticket; pianifica intervento; collega/classifica/segna gestita comunicazione; risolvi caso) che eseguono la stessa procedura del router con il contesto server dell'utente (stesse capability e `authorizeCoreOperation`), registro azioni 1.10.0 = 44 azioni. **C**: pagina `/tars` con schede Chat / Proposte / Registro; endpoint `tars.proposte` (gateway documentale aperto in sede) e `tars.registroAzioni` (ledger R1: strumento, esito, «Tars per <utente>», entità toccate, annullabile). Conferma umana solo per importi, cancellazioni definitive, effetti esterni o su altre sedi. **Smistamento D7**: collegamento automatico anche dal modello quando la commessa indicata con confidenza alta è l'unico candidato commessa (punteggio ≥ 30, rivale a ≥ 20 punti, non archiviata) — le proposte «unica commessa attiva della cliente» erano inutili; `VERSIONE_SMISTAMENTO` 1.2.0 riesamina le aperte. **D8**: `archiviaAllegatoComunicazione` non duplica un file già nel fascicolo (SHA-256; legacy nome+dimensione), per smistamento, strumento R1 e lettore mail. Fuori taglio: conferme pendenti dei turni nella sezione Proposte, Undo dal Registro, analisi azienda/sintesi giornaliera.
 - **v5.30 (02/09/2026)** - Tars SMISTAMENTO delle comunicazioni (mandato direzione: «un cervello operativo non deve farsi scappare niente»). Nuovo motore `server/tars/smistamento/` dietro `FLAG_TARS_SMISTAMENTO` (fail-closed, richiede `FLAG_TARS_COMMUNICATIONS` + `FLAG_TARS_PROACTIVE` + PostgreSQL): ogni comunicazione in ingresso viene smistata entro un minuto — candidati deterministici spiegabili (codice commessa, stesso filo già collegato, mittente originale degli inoltri interni, telefoni, cognomi/ragioni sociali con esclusione del personale), analisi col modello a output strutturato (categoria chiusa, urgenza, riepilogo senza importi, risposta attesa, azione suggerita, collegamento SOLO fra i candidati, tipo documento per allegato), effetti deterministici: collegamento automatico SOLO se certo (D1) senza toccare lo stato della comunicazione, archiviazione automatica degli allegati riconosciuti solo su comunicazioni collegate (D2: modello e regole concordi o confidenza alta; immagini solo da WhatsApp sopra 30 KB; `vietaRiassegnazione`, idempotente per sourceRef, reversibile dal fascicolo), triage sulle colonne legacy `categoria`/`tars_riepilogo`/`tars_istruzione` (che tornano ad avere un consumatore), proposta a un click per tutto il resto. Registro `tars_smistamento` (esito, proposta, tentativi, errori); worker ogni 60 s per sede (recenti prima; modello entro 90 giorni, oltre solo deterministico; oltre 365 giorni escluso); segnali `comunicazione_decisione`/`comunicazione_risposta` nel Centro Azioni; sezione `smistamento` del briefing (da decidere, da rispondere, urgenti, contatori); endpoint `tars.smistamentoStato/PerComunicazione/Proposte/Decidi/Riesamina` (decisione con `commessa.update_operational`, doppia decisione = CONFLICT; approvazione = collegamento manuale «approvato da <nome>» + archiviazione). Contratto provider esteso con `formatoJson` (Responses `text.format json_schema strict`); classe di costo `smistamento` (modello `TARS_MODEL_SMISTAMENTO`, default `gpt-5.6-terra`). UI: banner Tars nel lettore email con Collega/No, liste nella Situazione (Dashboard) e nel pannello contesto di `/tars`. Fuori taglio: analisi azienda su dati reali e sintesi giornaliera, pagina Centro Azioni, UI osservazioni/panorama/miglioramenti. Stesso giorno: **chiarificazione robusta** (la risposta a «Quale intendi» accetta progressivo, codice, ordinale e nome; valvola dopo due risposte non riconosciute; massimo quattro candidati persistiti — prima un quinto candidato faceva perdere il contesto) e **strumento R1 `crea_ticket`** (post-vendita, commessa dal contesto verificato o esplicita, `ticket.create`, 31 azioni a registro). Suite 136 file / 1395 test.
@@ -1911,9 +2068,21 @@ invio WhatsApp o Email in questa fase.
 
 ### 51.6 Workspace Email
 Email offre code Da gestire, Nuovi lead, Gestite ed Escluse, ricerca e lettore
-operativo con classificazione, collegamento, allegati e corpo. Nel dettaglio
-il corpo completo precede gli allegati; in lista l'anteprima usa due righe e
-badge testuali per allegati, collegamento e stato. Eliminare dal CRM non tocca
+operativo con classificazione, collegamento, allegati e corpo. In lista
+l'anteprima usa due righe e badge testuali per allegati, collegamento e stato.
+
+**Lettore riprogettato il 03/09/2026.** Intestazione, azioni, collegamento e
+riquadro Tars erano tutti fissi: ~500px in cima, e al testo del messaggio ne
+restavano ~170 in fondo, tagliati a metà frase — si leggeva l'analisi di Tars
+e non la mail che l'aveva generata. Ora c'è **un contenitore di scroll solo**:
+intestazione, collegamento e analisi scorrono via insieme al testo, e resta
+agganciata la sola barra delle azioni, che porta con sé l'oggetto per non
+perdere il filo di quale mail si sta leggendo. Il contenitore è un blocco e
+non un flex, per la ragione in §29.7.
+
+**Gli allegati precedono il corpo**: sono spesso il motivo per cui la mail è
+arrivata (un preventivo, una fattura) e in fondo a un messaggio lungo non si
+trovavano. Eliminare dal CRM non tocca
 la casella IMAP: la riga diventa un tombstone per evitare una re-importazione.
 
 Su desktop da 1280 px la lista ha una larghezza stabile e il lettore occupa
@@ -1922,7 +2091,19 @@ lista senza cambiare messaggio, filtri o URL; `Mostra elenco email` ripristina
 la vista affiancata. Sotto 1280 px elenco e lettore non vengono compressi in
 due colonne: si mostra una vista alla volta con ritorno esplicito all'elenco.
 Corpo e allegati usano contenitori distinti: il testo resta entro una misura
-leggibile. Mittente, indirizzi, collegamenti CRM e nomi degli allegati sono
+leggibile.
+
+**Allegati apribili (03/09/2026).** `GET /api/comunicazioni/:id/allegati/:indice`
+serve il file al browser, `?download=1` per lo scaricamento. Prima l'allegato
+si vedeva elencato con nome e peso e non si poteva aprire: il server sapeva già
+leggerlo (`leggiAllegatoRaw` lo prende dallo storage, o lo ripesca da IMAP o da
+Meta), mancava solo la rotta. Stesso guscio dei documenti di commessa: sessione
+obbligatoria, **sede dal contesto e mai dall'URL**, richieste cross-site
+rifiutate prima dell'autenticazione (il cookie viaggerebbe lo stesso), nome del
+file codificato RFC 5987, `Cache-Control: private, no-store` perché è posta di
+un cliente. Un allegato non recuperabile risponde **410 con il motivo**, non
+500: lo storage locale non li conserva e Meta scarta i media dopo ~30 giorni —
+è normale, non un guasto del CRM. Mittente, indirizzi, collegamenti CRM e nomi degli allegati sono
 sempre accessibili nel dettaglio tramite testo a capo, senza ellissi
 distruttive. Nessuna modalità introduce scroll orizzontale globale.
 
@@ -2224,11 +2405,15 @@ L1 lavorano in shadow; L2 e L3 non sono implementati.
 
 ### 54.6 Document Intelligence — comprensione dei documenti
 
-> Stato: la **prima slice è implementata** — analisi deterministica delle
-> conferme d'ordine PDF con testo nativo, comportamento corrente documentato
-> in §19.4. Tutto il resto di questa sezione (OCR, visione, altri formati,
-> collegamento assistito, azioni proposte, dataset di valutazione) resta da
-> costruire secondo il piano in
+> Stato (04/09/2026): per le **conferme d'ordine** la pipeline è viva in
+> produzione e descritta in §54.7 — testo nativo per geometria, OCR locale,
+> lettura visiva col modello, più conferme in un file, riscontro della
+> commessa nel testo, ricerca della commessa fra tutte le commesse vive,
+> archiviazione automatica delle certe, costo e merce dal documento,
+> registro. §19.4 resta la prima slice (analisi dalla scheda ordine).
+> Restano da costruire: altri formati (Word, Excel, XML, ZIP), il confronto
+> con l'ordine originario (D1 ordini sospesa dalla direzione), il dataset
+> di valutazione anonimizzato — piano in
 > `docs/reports/d7-document-intelligence-piano.md`.
 
 Decisione della direzione del 28/08/2026 (dossier §13, D7): la comprensione
@@ -2328,6 +2513,210 @@ evidenze, estrattore conferme, candidati di match, confronto, caso
 operativo) si decideranno studiando il modello dati esistente — documenti
 §8, allegati comunicazioni §51, ordini fornitore §19 — senza creare una
 seconda fonte di verità.
+
+### 54.7 Conferme d'ordine — dal documento al fascicolo, al costo e al magazzino (03–04/09/2026)
+
+Stato: **implementato e in produzione** (piano
+`docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, tranche 1–8;
+memoria delle letture in `Documento.letturaCosto`, versione corrente
+`1.8.0`). Mandato della direzione (03/09): «è essenziale che Tars vada alla
+ricerca delle conf. ordine dove mancano nelle commesse; se è sicuro può
+collegarle in automatico, se ha dubbi deve chiedere conferma»; (04/09):
+«Tars deve controllare sempre anche il riferimento all'interno della conf.
+ordine», «le conferme ordine sono ferme, non deve arrendersi».
+
+**Regola di dominio (deterministica, `server/commesse/costoDaConferma.ts`).**
+- Quando un documento di tipo `conferma_ordine` entra nel fascicolo di una
+  commessa (upload, archiviazione da mail, riclassificazione, spostamento,
+  archiviazione automatica) il sistema DEVE leggerne il testo e registrare in
+  `costi[]` l'**imponibile** dichiarato dal documento (`costi[].documentoId`
+  lega il costo al file); cancellare o riclassificare il documento toglie il
+  costo. Senza imponibile dichiarato NON si scorpora l'IVA per stima: la
+  scheda commessa e la fotografia di Tars dicono «registra a mano».
+- La stessa lettura scrive la **merce in arrivo** a magazzino (righe con
+  `documentoId`, stato «Da ordinare»; senza righe riconosciute una riga sola
+  da completare). Settimana di approntamento ≠ data di consegna.
+- Un file con **più conferme** (riquadri totali distinti) si legge a sezioni:
+  un costo solo, pari alla somma degli imponibili, SOLO se ogni sezione ha il
+  suo; altrimenti «registra a mano» con il motivo. «TOTALE ORDINE» prevale
+  sui parziali di listino.
+- **Duplicati**: la stessa conferma inviata più volte (stesso riferimento
+  d'ordine nel nome o nel testo, oppure stesso imponibile, fornitore e data)
+  non produce un secondo costo; la conferma aggiornata dello stesso ordine
+  sostituisce la vecchia. Le date non sono mai riferimenti d'ordine.
+- Un costo nato dalla regola e mai toccato a mano (`modificatoAMano`) viene
+  corretto da una rilettura più precisa; un costo modificato a mano non si
+  tocca. Il worker `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per
+  giro, `COSTO_DA_CONFERMA_WORKER=off` per spegnerlo) rilegge le conferme
+  quando cambia la versione della lettura.
+
+**Lettura del testo (`server/documenti/parserRegistry.ts`).** La cascata è
+una sola per tutto il CRM: (1) PDF nativo con il testo ricostruito dalla
+GEOMETRIA dei frammenti (`testoPdf.ts`: righe vere, celle separate da tre
+spazi, valori allineati sotto le etichette); (2) foto jpeg/png/webp e PDF
+scansionati con l'**OCR locale** (tesseract, `FLAG_OCR`); (3) **lettura
+visiva**: quando l'OCR manca, fallisce o legge poco e male, il modello
+trascrive le pagine riga per riga (`letturaVisiva.ts`, 150 dpi, al più 8
+pagine, una pagina bianca è una pagina vuota) e il testo trascritto passa
+dagli stessi estrattori deterministici — il modello non decide niente.
+La visione costa: passa dal governor e dal ledger (classe
+`lettura_documenti`), dietro `FLAG_LETTURA_VISIVA` (fail-closed), parte SOLO
+con un'identità (worker con utente di sistema, strumenti della chat con
+l'utente), mai nel percorso di una richiesta HTTP di upload o smistamento;
+modello `TARS_MODEL_VISIONE` (default: quello interattivo). Word, Excel e
+formati non supportati producono lo stato esplicito `non_leggibile`.
+
+**Estrazione (`estrazioneConferma.ts` 1.1.0, `estrazioneMerce.ts` 1.2.0).**
+Fornitore (intestazione, firma in calce, dominio del mittente; mai agente,
+banca o destinatario), numero e data della conferma (un numero non è mai una
+data), «vostro riferimento» (cella accanto o sotto l'etichetta), date o
+settimane di consegna, totale, **imponibile** (esplicito, o per aritmetica
+dell'IVA quando totale e imposta tornano, o «IVA esclusa»), righe merce a
+celle con quantità e unità. Ogni valore porta pagina, frammento e
+confidenza.
+
+**Riscontro della commessa nel testo (`documenti/riscontroCommessa.ts`).**
+Una conferma entra in un fascicolo DA SOLA solo se il suo testo cita la
+commessa. Prove ammesse: il codice commessa; il **cognome** del cliente
+(quello dell'anagrafica, o una parola del nome che non sia un nome proprio
+comune, un cognome fra i più diffusi, una località, una forma societaria o
+la via dell'azienda), anche con un carattere sbagliato se lungo almeno sei
+lettere; il **nome completo** quando le sue parole stanno sulla stessa riga
+entro tre parole; l'**indirizzo del cantiere** solo con una parola
+distintiva della via subito dopo «via/piazza/loc.» (la città e le parole
+comuni di via non contano; la via della sede è esclusa); un **ordine noto**
+alla commessa (costi, magazzino, conferme già lette; mai una data). Oggetto
+e mittente della mail non bastano. La stessa regola vale per lo
+smistamento, per il worker delle conferme certe e per
+`archivia_allegato_comunicazione`; «È di questa commessa» (persona) è
+l'unico scavalco, registrato.
+
+**Ricerca della commessa DENTRO il documento
+(`tars/documenti/ricercaCommessaNelDocumento.ts`).** I fornitori scrivono il
+LORO numero nella mail e il nostro cliente solo nel PDF: il testo letto si
+confronta con TUTTE le commesse vive della sede (l'azienda stessa censita
+come cliente non è mai candidata). Forza delle prove: codice, ordine noto e
+nome completo o cognome pieno = forte; cognome quasi uguale, cognome corto e
+solo indirizzo = debole. Esito `unica` se una sola commessa regge una prova
+forte (fra due dello stesso cliente vince quella in uno stato che aspetta la
+conferma; un cognome solo su una commessa che non la aspetta non basta),
+`ambigua` se più commesse o solo indizi deboli (decide una persona),
+`nessuna`, `non_leggibile`, `non_letto` (tetto di letture raggiunto). Il
+lettore ricorda il testo per dodici ore (trenta minuti se la lettura è
+fallita) e legge al più N file nuovi per istanza: 8 per giro del worker,
+10 per giro di smistamento, 6 per fotografia o chiamata dalla chat. Ogni
+lettura e ogni riscontro lasciano una riga `[ricerca-commessa]` nei log.
+
+**Dove agisce.**
+- **All'arrivo (smistamento)**: per una mail senza verdetto certo con un
+  allegato «da conferma» (nome che dice conferma/ordine, non escluso), il
+  testo del file produce candidati: riscontro `unica` = collegamento certo +
+  archiviazione (le pagine lette si riusano nella verifica, niente seconda
+  lettura); riscontri multipli = candidati con punteggio (70 forte, 45
+  debole) per il modello. Una conferma d'ordine apre la proposta anche su
+  mail più vecchie di 30 giorni. Chi approva una proposta legge le scansioni
+  con OCR e modello a proprio nome.
+- **Sul pregresso (worker `confermeAutoArchivio`, ogni 10 minuti,
+  `CONFERME_AUTO_ARCHIVIO=off`)**: per le commesse da «da ordinare» in poi
+  senza conferma nel fascicolo, il detector `confermeMancanti` cerca i
+  candidati fra le mail (collegate, che citano il codice, dello stesso
+  cliente, o di nessuno purché il testo citi la commessa); ogni candidato
+  porta `riscontroTesto` (cita / non_cita / ambiguo / non_leggibile /
+  non_letto) e le prove. **Certa** = mail collegata + nome di conferma +
+  testo che non smentisce, oppure testo che cita QUESTA commessa e
+  nessun'altra: si archivia con `origine: "automatico"` e, se la mail era di
+  nessuno, la mail viene collegata con il motivo scritto. Tutto il resto
+  resta «probabile» con il motivo (da confermare a mano). Il giro scrive nei
+  log commesse esaminate, candidati per classe, archiviate, collegate,
+  saltate, errori.
+- **Nella chat**: `cerca_conferme_ordine_mancanti` 1.1.0 (stesso detector,
+  con l'identità dell'utente), `leggi_conferma_ordine` 1.3.0 (un file,
+  riscontro pieno, imponibile), `archivia_allegato_comunicazione` 1.1.0
+  (rifiuta senza riscontro salvo conferma esplicita dell'utente),
+  `registra_costo_fornitore` (solo per rimettere un costo tolto a mano,
+  importo ancorato all'imponibile letto).
+- **Nell'analisi azienda**: la fotografia elenca le conferme mancanti con
+  file, comunicazione e `allegatoIndex`, e distingue «si può archiviare
+  subito» da «va confermato: <motivo>»; la proposta «archivia» è eseguibile
+  con un click (whitelist, mai `confermaSenzaRiscontro`); le conferme nel
+  fascicolo senza costo leggibile sono un punto, non proposte.
+- **Registro**: `Documento.origine` (mano, Tars, smistamento, automatico),
+  procedura `preventiviContratti.registroConferme`, pagina
+  `/conferme-ordine`; la scheda commessa mostra il costo «da conferma
+  d'ordine» con anteprima del file e gli avvisi delle conferme non lette.
+
+**Costi e limiti.** OCR locale gratuito; visione ≈ 8–14k token in ingresso
+e 2–4k in uscita per documento scansionato (pochi centesimi), contata nel
+ledger per classe; ogni salto di versione della lettura rilegge le
+scansioni. Fuori taglio dichiarato: Word/Excel (stato `non_leggibile`), foto
+illeggibili anche per il modello (costo a mano), il confronto con l'ordine
+originario (D1 ordini sospesa), conferme senza cognome noto nel testo
+(restano proposte «va confermato»).
+
+### 54.8 Proattività — analisi giornaliera, follow-up, destinatari (03–04/09/2026)
+
+Stato: **implementato e in produzione** (T2–T6 del piano
+`docs/superpowers/plans/2026-08-31-tars-operativo-proattivo.md`, chiusi il
+03/09; correzioni del 04/09).
+
+- **Fotografia 1.1.0** (`server/tars/analisi/fotografia.ts`): commesse
+  attive per stato e ferme, preventivi fermi (7 e 30 giorni di silenzio
+  REALE: documenti, transizioni, timeline, comunicazioni — mai
+  `updatedAt`), gate documentali mancanti, conferme d'ordine mancanti o
+  senza costo leggibile (§54.7), fatture non collegate o da riconciliare,
+  casi del Centro Azioni, mail senza risposta da 24 ore, ticket senza
+  assegnatario, interventi della settimana, dormienti (oltre 120 giorni)
+  fuori dall'operativo, moduli vuoti nella sezione Perimetro. Mai importi.
+- **Analisi** (prompt `analisi-v9`, JSON strict, modello
+  `TARS_MODEL_ANALISI`): sintesi, punti, proposte, domande. Una proposta
+  PUÒ portare un'azione `{strumento, input}` presa da una whitelist chiusa
+  di strumenti R1 (`crea_ticket`, `aggiorna_ticket`, `pianifica_intervento`,
+  `crea_promemoria`, `collega_comunicazione`, `collega_fattura_commessa`,
+  `sposta_documento`, `archivia_commessa`, `transizione_adiacente_commessa`,
+  `archivia_allegato_comunicazione`); l'azione vale solo se regge contro il
+  registro e lo schema di input (mai `scavalcaGate`, mai
+  `confermaSenzaRiscontro`), altrimenti decade a richiesta in chat. Al
+  click («Esegui») il server riverifica catalogo di CHI clicca, sede e
+  capability, e passa dal ledger R1 con `runId` deterministico
+  (`analisi:<id>:proposta:<i>`): il doppio click riusa. «Scarta» registra
+  la decisione; le proposte scartate entrano nella fotografia successiva
+  come fatto e non si ripropongono. Regole di qualità: nomi e codici, mai
+  id nudi; mai «rispondi al cliente» (nessun canale d'invio); conferme
+  «archiviabili subito» = azione eseguibile; conferme senza costo leggibile
+  = un solo punto; posti riempiti prima con le azioni che Tars fa da solo.
+- **Cadenza**: una analisi per sede dalle 06:00 Roma; si rifà da sola dopo
+  quattro ore, dopo mezz'ora se tutte le proposte sono state gestite, dopo
+  mezz'ora in caso di errore (al massimo tre tentativi al giorno);
+  «Rigenera» a richiesta della direzione.
+- **Follow-up preventivi** (`server/tars/followup/`): ogni mezz'ora dalle
+  07:00, per ogni preventivo fermo da almeno 7 giorni e non dormiente, un
+  promemoria all'assegnatario con la bozza del sollecito (dedupe per
+  `canonicalKey` = commessa + giorno dell'ultima attività: un nuovo silenzio
+  riapre il diritto); dai 30 giorni il caso «proporlo come perso?» nel
+  Centro Azioni (fingerprint a scaglioni di 15 giorni). Un promemoria che
+  non si crea non ferma gli altri (04/09: il ritrovamento del promemoria
+  esistente falliva con 42P18 e bloccava ogni giro; ora cast esplicito e
+  contratto su PostgreSQL). Senza assegnatario nessun promemoria personale
+  (il caso dei 30 giorni copre).
+- **Destinatari** (`tars/destinatari.ts`): ogni proposta ha un destinatario
+  deterministico — tema amministrativo o commessa in `fatture_pagamento` /
+  `ordini_ultimazione` → ruolo amministrazione; post-vendita → chi ha in
+  carico il ticket o la commessa; commerciale → l'assegnatario; il resto →
+  direzione. La direzione vede tutto; gli altri solo ciò che è loro.
+- **Prompt interattivo v12** («non deve arrendersi, deve essere sicuro»):
+  prima di dire «non posso / non trovo / non si legge» Tars DEVE provare le
+  vie alternative nello stesso giro (rileggere il documento con OCR e
+  modello, cercare per cognome, codice, telefono e fra le comunicazioni,
+  cercare il documento fra gli allegati delle mail) e poi dire cosa ha
+  provato e la via più breve per l'utente; le conclusioni si dicono con il
+  loro grado di certezza senza attenuarle; niente «vuoi che proceda?»: se
+  l'azione è stata chiesta la fa, se resta un'ambiguità che cambia l'esito
+  fa UNA domanda precisa.
+- **Osservabilità**: log per worker con tag stabili (`[tars-smistamento]`,
+  `[tars.analisi]`, `[tars-followup]`, `[conferme-auto-archivio]`,
+  `[costo-da-conferma]`, `[ricerca-commessa]`, `[visione]`); il ledger
+  `tars_costi` per classe; il registro delle azioni (`tars.registroAzioni`)
+  con «fatto da Tars per <utente>».
 
 ---
 
