@@ -5861,7 +5861,7 @@
   "porta_blindata": true,
   "portoncino": true,
   "porta_interna": true,
-  "accessorio": true,
+  "accessorio": false,
   "controtelaio": false,
   "altro": false
  }

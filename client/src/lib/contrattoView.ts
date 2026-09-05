@@ -79,11 +79,16 @@ const nuovaChiave = () => `r-${Date.now().toString(36)}-${(contatore++).toString
 
 /**
  * Un serramento è un bene significativo ai fini dell'IVA agevolata;
- * controtelai e voci generiche no. Resta modificabile: qui c'è solo il punto
- * di partenza, che segue la categoria anche quando la si cambia.
+ * controtelai, accessori (coprifili, maniglie: «altri beni» nelle fatture
+ * reali, P3-R7) e voci generiche no. Stessi valori di
+ * `beneSignificativoDefault` in shared/limiti/tariffe-seed.json, che il
+ * server usa per le righe lette dal contratto. Resta modificabile: qui c'è
+ * solo il punto di partenza, che segue la categoria anche quando la si cambia.
  */
+const NON_SIGNIFICATIVE: CategoriaRiga[] = ["controtelaio", "accessorio", "altro"];
+
 export function beneSignificativoDefault(categoria: CategoriaRiga): boolean {
-  return categoria !== "controtelaio" && categoria !== "altro";
+  return !NON_SIGNIFICATIVE.includes(categoria);
 }
 
 export function rigaVuota(categoria: CategoriaRiga = "serramento_pvc"): RigaForm {

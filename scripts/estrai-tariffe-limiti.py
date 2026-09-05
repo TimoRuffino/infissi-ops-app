@@ -413,10 +413,13 @@ detrazioni = [
     {"tipo": "ecobonus", "immobile": "prima_casa", "anno": 2027, "pct": 36},
     {"tipo": "ecobonus", "immobile": "altro", "anno": 2027, "pct": 30},
 ]
+# «accessorio» NON è un bene significativo (P3-R7): coprifili, maniglie e
+# simili viaggiano come «altri beni» nelle fatture reali, e contarli fra i
+# significativi ridurrebbe l'IVA agevolata sul resto della fornitura.
 bene_default = {c: True for c in ["serramento_pvc", "serramento_alluminio", "serramento_legno", "serramento_legno_alluminio",
                                   "cassonetto", "tapparella", "persiana", "scuro", "schermatura", "zanzariera", "tenda",
-                                  "pergola", "porta_blindata", "portoncino", "porta_interna", "accessorio"]}
-bene_default.update({"controtelaio": False, "altro": False})
+                                  "pergola", "porta_blindata", "portoncino", "porta_interna"]}
+bene_default.update({"accessorio": False, "controtelaio": False, "altro": False})
 
 seed = {
     "versione": date.today().isoformat(), "fonte": "CALCOLO NUOVI LIMITI.xlsx", "validoDal": "2022-04-15",

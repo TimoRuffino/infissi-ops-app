@@ -82,6 +82,8 @@ describe("contrattoView", () => {
     expect(beneSignificativoDefault("serramento_pvc")).toBe(true);
     expect(beneSignificativoDefault("controtelaio")).toBe(false);
     expect(beneSignificativoDefault("altro")).toBe(false);
+    // P3-R7: coprifili, maniglie e simili sono «altri beni» nelle fatture reali.
+    expect(beneSignificativoDefault("accessorio")).toBe(false);
     expect(rigaVuota("controtelaio").beneSignificativo).toBe(false);
   });
 

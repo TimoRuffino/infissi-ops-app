@@ -824,9 +824,7 @@ function costruisciRiga(
       nota: notaOscurante,
     }),
     accessori,
-    // D-F: coprifili, maniglie e simili non sono beni significativi, anche se
-    // il seed marca `accessorio` come significativo per prudenza.
-    beneSignificativo: categoria === "accessorio" ? false : tariffe.beneSignificativoDefault[categoria],
+    beneSignificativo: tariffe.beneSignificativoDefault[categoria],
     note: nonRiconosciute.length > 0 ? `accessori da verificare: ${nonRiconosciute.join(", ")}` : null,
     avvertenze,
   };
