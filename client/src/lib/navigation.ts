@@ -34,7 +34,7 @@ export type CapabilityStatus = "loading" | "resolved";
 export type NavigationAccess = {
   user: unknown;
   capabilities: ReadonlySet<string> | null;
-  flags?: { tars?: boolean } | null;
+  flags?: { tars?: boolean; limiti?: boolean } | null;
   capabilityStatus: CapabilityStatus;
 };
 
@@ -47,7 +47,7 @@ export type MenuItem = {
   badge?: string;
   requiredCapabilities?: readonly CapabilityName[];
   roleRule?: "direzione";
-  featureFlag?: "tars";
+  featureFlag?: "tars" | "limiti";
   loadingFallbackRoles?: readonly Ruolo[];
   // Un gruppo: la voce apre/chiude le figlie invece di navigare.
   children?: readonly MenuItem[];
@@ -149,6 +149,7 @@ export const menuItems: readonly MenuItem[] = [
         label: "Fatturazione",
         path: "/fatturazione",
         requiredCapabilities: ["contratto.read"],
+        featureFlag: "limiti",
         loadingFallbackRoles: ["direzione", "amministrazione"],
       },
       {
@@ -305,9 +306,9 @@ export function mobileDestinations(
   const fourthCandidates = [
     ["/tars", "Tars"],
     ["/pagamenti", "Pagamenti"],
-    ["/fatturazione", "Fatturazione"],
     ["/clienti", "Clienti"],
     ["/commesse", "Commesse"],
+    ["/fatturazione", "Fatturazione"],
   ] as const;
   fourthCandidates.some(([path, label]) => addRoute(path, label));
 

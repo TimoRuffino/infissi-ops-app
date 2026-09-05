@@ -63,6 +63,43 @@ describe("etichettaPulsante", () => {
   it("«Fatturata» quando il passo Fattura è fatto", () => {
     expect(etichettaPulsante(passiTutti("fatto"))).toBe("Fatturata");
   });
+
+  // Regressione: un passo dietro un flag spento è `non_disponibile`, non
+  // `in_corso`/`fatto` — non conta come «iniziato». Prima della fix, un solo
+  // passo `non_disponibile` bastava a proporre «Continua» su una commessa
+  // mai toccata.
+  it("«Inizia fatturazione» quando i passi da fare hanno la fattura non disponibile (flag spento)", () => {
+    expect(
+      etichettaPulsante({
+        documenti: "da_fare",
+        contratto: "da_fare",
+        limiti: "da_fare",
+        fattura: "non_disponibile",
+      })
+    ).toBe("Inizia fatturazione");
+  });
+
+  it("«Inizia fatturazione» anche con più passi non disponibili (limiti e fattura dietro flag spenti)", () => {
+    expect(
+      etichettaPulsante({
+        documenti: "da_fare",
+        contratto: "da_fare",
+        limiti: "non_disponibile",
+        fattura: "non_disponibile",
+      })
+    ).toBe("Inizia fatturazione");
+  });
+
+  it("«Continua» quando tutto è fatto tranne la fattura", () => {
+    expect(
+      etichettaPulsante({
+        documenti: "fatto",
+        contratto: "fatto",
+        limiti: "fatto",
+        fattura: "da_fare",
+      })
+    ).toBe("Continua");
+  });
 });
 
 describe("tonoPasso", () => {

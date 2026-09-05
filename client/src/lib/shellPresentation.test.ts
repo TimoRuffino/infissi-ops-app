@@ -17,6 +17,14 @@ describe("shell presentation", () => {
     );
   });
 
+  // Regressione: senza una entry dedicata, /fatturazione ricadeva sul
+  // fallback generico ("Ruffino Flow" sia in sezione sia in titolo).
+  it("mette Fatturazione sotto Economia, come Contabilità e Marginalità", () => {
+    expect(
+      routePresentation(routeContractForLocation("/fatturazione"))
+    ).toEqual({ section: "Economia", title: "Fatturazione" });
+  });
+
   it("uses deterministic hierarchy targets instead of browser history", () => {
     expect(predictableMobileBackTarget("/clienti/7?tab=contatti")).toBe(
       "/clienti"

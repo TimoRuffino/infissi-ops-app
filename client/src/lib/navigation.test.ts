@@ -21,7 +21,7 @@ function access(overrides: Partial<NavigationAccess> = {}): NavigationAccess {
   return {
     user: { ruoli: ["commerciale"] },
     capabilities: new Set(),
-    flags: { tars: true },
+    flags: { tars: true, limiti: true },
     capabilityStatus: "resolved",
     ...overrides,
   };
@@ -250,6 +250,30 @@ describe("effective-capability navigation matrix", () => {
     expect(isNavigationItemVisible(tars, withCapability)).toBe(true);
   });
 
+  // Ruling P4-R5(b): Fatturazione usa featureFlag "limiti" come Tars usa
+  // "tars" — nascosta con l'interruttore spento o non ancora arrivato dal
+  // server, qualunque sia la capability.
+  it("requires both contratto.read and the server flag for Fatturazione", () => {
+    const fatturazione = itemAt("/fatturazione");
+    const withCapability = access({
+      capabilities: new Set(["contratto.read"]),
+    });
+
+    expect(
+      isNavigationItemVisible(fatturazione, {
+        ...withCapability,
+        flags: { limiti: false },
+      })
+    ).toBe(false);
+    expect(
+      isNavigationItemVisible(
+        fatturazione,
+        access({ capabilities: new Set(), flags: { limiti: true } })
+      )
+    ).toBe(false);
+    expect(isNavigationItemVisible(fatturazione, withCapability)).toBe(true);
+  });
+
   it("keeps genuinely role-only routes limited to direzione", () => {
     const utenti = itemAt("/utenti");
 
@@ -325,6 +349,25 @@ describe("effective-capability navigation matrix", () => {
     expect(economia?.children?.map(item => item.path)).toEqual([
       "/fatturazione",
     ]);
+  });
+
+  // Ruling P4-R5(b): con l'interruttore limiti spento, Fatturazione (e con
+  // lei l'intero gruppo Economia, se non c'è nessun'altra capability
+  // economica) sparisce anche se contratto.read è presente.
+  it("con limiti spento nasconde Fatturazione (e l'intero gruppo Economia con sola contratto.read)", () => {
+    const soloContrattoFlagSpento = access({
+      capabilities: new Set(["contratto.read"]),
+      flags: { limiti: false },
+    });
+
+    expect(destinationPaths(soloContrattoFlagSpento)).not.toContain(
+      "/fatturazione"
+    );
+    expect(
+      navigationGroups(soloContrattoFlagSpento).find(
+        group => group.label === "Economia"
+      )
+    ).toBeUndefined();
   });
 });
 
@@ -465,6 +508,23 @@ describe("mobileDestinations", () => {
         })
       )
     ).toEqual(["Oggi", "Board", "Messaggi", "Pagamenti", "Altro"]);
+  });
+
+  // Ruling P4-R5(d): Fatturazione è l'ultima candidata al quarto slot del
+  // dock, dopo Clienti e Commesse — non ruba il posto a superfici più
+  // generali quando entrambe sono disponibili.
+  it("puts Fatturazione last among the fourth-slot dock candidates, after Clienti and Commesse", () => {
+    expect(
+      labels(access({ capabilities: new Set(["contratto.read"]) }))
+    ).toEqual(["Oggi", "Agenda", "Messaggi", "Fatturazione", "Altro"]);
+
+    expect(
+      labels(
+        access({
+          capabilities: new Set(["contratto.read", "cliente.read"]),
+        })
+      )
+    ).toEqual(["Oggi", "Agenda", "Messaggi", "Clienti", "Altro"]);
   });
 
   it("returns fewer than five items when no fourth route is authorized", () => {

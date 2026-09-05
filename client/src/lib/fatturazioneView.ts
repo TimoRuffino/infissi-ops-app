@@ -26,13 +26,17 @@ import { formatCent } from "./limitiView";
  * pulsante non deve proporre «Continua» su un percorso già concluso.
  * Altrimenti: «Inizia fatturazione» solo se nessun passo è stato toccato,
  * «Continua» in ogni altro caso (misto, o tutto fatto tranne la fattura).
+ * `non_disponibile` (passo dietro un flag spento, es. Limiti o Fattura) non
+ * è un passo toccato: conta come non iniziato quanto `da_fare`, altrimenti
+ * una commessa mai aperta con la fatturazione spenta proporrebbe «Continua»
+ * su un percorso in realtà mai cominciato.
  */
 export function etichettaPulsante(
   passi: Record<PassoFatturazione, EsitoPasso>
 ): "Inizia fatturazione" | "Continua" | "Fatturata" {
   if (passi.fattura === "fatto") return "Fatturata";
   const nessunPassoIniziato = ORDINE_PASSI.every(
-    passo => passi[passo] === "da_fare"
+    passo => passi[passo] !== "in_corso" && passi[passo] !== "fatto"
   );
   return nessunPassoIniziato ? "Inizia fatturazione" : "Continua";
 }
