@@ -23,7 +23,7 @@
 //
 // Specifica: docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md
 // §3 (flusso), §6 (client), §7 (permessi, sede, flag).
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useParams, useSearch } from "wouter";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import {
@@ -33,6 +33,7 @@ import {
   type PassoFatturazione,
 } from "@shared/fatturazione/passi";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import ContrattoTab from "@/components/contratto/ContrattoTab";
 import LimitiTab from "@/components/computo/LimitiTab";
 import FatturaTab from "@/components/fattura/FatturaTab";
@@ -45,7 +46,11 @@ import StatePanel, {
 } from "@/components/patterns/StatePanel";
 import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
-import { importiCard } from "@/lib/fatturazioneView";
+import {
+  importiCard,
+  passoDallaQuery,
+  passoIniziale,
+} from "@/lib/fatturazioneView";
 import { formatCent } from "@/lib/limitiView";
 import { trpc } from "@/lib/trpc";
 import { permessoNegato } from "@/lib/trpcErrors";
@@ -77,12 +82,6 @@ function motivoAvanti(passo: PassoFatturazione): string | null {
     return "Serve un computo aggiornato sul contratto corrente, con esito «ok».";
   }
   return null;
-}
-
-/** Il passo chiesto dall'URL, se è uno dei quattro; altrimenti niente. */
-function passoDallaQuery(search: string): PassoFatturazione | null {
-  const richiesto = new URLSearchParams(search).get("passo");
-  return ORDINE_PASSI.find(passo => passo === richiesto) ?? null;
 }
 
 function hrefPasso(commessaId: number, passo: PassoFatturazione): string {
@@ -124,32 +123,67 @@ export default function FatturazioneCommessa() {
     { commessaId },
     { enabled: abilitata, retry: false }
   );
-  // La commessa è il record di questa pagina: cliente, codice e stato
-  // vengono da lì, non dallo specchio dei passi. Una commessa di un'altra
-  // sede torna `null`, esattamente come una che non esiste.
+  // Titolo, codice e stato dei passi vengono da `passiQ` (M1): questa query
+  // serve solo al chip di stato dell'intestazione, che parla lo stesso
+  // linguaggio della scheda commessa (`StatoChip`) invece delle sole due
+  // fasi che `passiQ` conosce. Una commessa di un'altra sede torna `null`,
+  // esattamente come una che non esiste — ma qui non è più il segnale di
+  // «non trovata»: quello resta a `passiQ` (vedi `nonTrovata`).
   const commessaQ = trpc.commesse.byId.useQuery(commessaId, {
     enabled: abilitata,
   });
 
   const record = passiQ.data ?? null;
   const passoUrl = passoDallaQuery(search);
-  const corrente: PassoFatturazione =
-    passoUrl ?? record?.prossimoPasso ?? ORDINE_PASSI[0];
+  // Il richiesto se raggiungibile, altrimenti il prossimo passo del server
+  // (l'ultimo se il percorso è già concluso, P4-R8/M5). Senza record ancora
+  // in mano si resta sul richiesto o sul primo passo: non c'è altro da cui
+  // decidere.
+  const corrente: PassoFatturazione = record
+    ? passoIniziale(record.passi, record.prossimoPasso, passoUrl)
+    : (passoUrl ?? ORDINE_PASSI[0]);
   const indice = ORDINE_PASSI.indexOf(corrente);
 
-  // Alla prima lettura il passo di ripresa finisce nell'URL: da lì in poi è
-  // l'URL a comandare, e un passo che si chiude mentre lo si guarda non
+  // Alla prima lettura, o quando l'URL chiede un passo che i prerequisiti
+  // non permettono ancora, il passo calcolato finisce nell'URL: da lì in poi
+  // è l'URL a comandare, e un passo che si chiude mentre lo si guarda non
   // sposta più l'operatore da solo.
   useEffect(() => {
-    if (passoUrl != null || !record) return;
-    setLocation(
-      hrefPasso(commessaId, record.prossimoPasso ?? ORDINE_PASSI[0]),
-      { replace: true }
-    );
-  }, [passoUrl, record, commessaId, setLocation]);
+    if (!record || passoUrl === corrente) return;
+    setLocation(hrefPasso(commessaId, corrente), { replace: true });
+  }, [passoUrl, corrente, record, commessaId, setLocation]);
 
-  const vai = (passo: PassoFatturazione) =>
+  // Il passo Contratto intercetta ogni uscita mentre ha modifiche non
+  // salvate (ruling P4-R7): la pagina tiene lo stato, `ContrattoTab` si
+  // limita a segnalarlo con `onSporco`. `passoDaConfermare` è il passo
+  // chiesto mentre il dialogo è aperto, `null` quando è chiuso.
+  const [contrattoSporco, setContrattoSporco] = useState(false);
+  const [passoDaConfermare, setPassoDaConfermare] =
+    useState<PassoFatturazione | null>(null);
+
+  /** Naviga senza controllare lo stato del contratto: lo stepper, «Indietro»
+   * e, dopo conferma, il dialogo di uscita passano tutti da qui. */
+  const naviga = (passo: PassoFatturazione) =>
     setLocation(hrefPasso(commessaId, passo), { replace: true });
+
+  /** Uscita dal passo corrente: se è Contratto con modifiche non salvate,
+   * chiede conferma invece di navigare subito. «Salva e avanti» non passa
+   * da qui — chiama `naviga` direttamente perché ha appena salvato con
+   * successo: resta l'unico modo di avanzare col contratto sporco. */
+  const vai = (passo: PassoFatturazione) => {
+    if (corrente === "contratto" && contrattoSporco) {
+      setPassoDaConfermare(passo);
+      return;
+    }
+    naviga(passo);
+  };
+
+  const confermaUscita = () => {
+    const passo = passoDaConfermare;
+    setContrattoSporco(false);
+    setPassoDaConfermare(null);
+    if (passo) naviga(passo);
+  };
 
   /** Un passo è cambiato sul server: rileggi questo percorso e l'elenco. */
   const segnalaCambio = () => {
@@ -174,17 +208,17 @@ export default function FatturazioneCommessa() {
     }
   );
 
-  // Un id fuori forma, una commessa che non esiste e una commessa di
-  // un'altra sede danno lo stesso identico esito: da qui non si enumera
-  // niente. Un rifiuto di permesso e un guasto restano invece distinti —
-  // nasconderli dietro «non trovata» manderebbe a cercare la commessa
-  // sbagliata.
+  // Un id fuori forma e una commessa che non esiste (o di un'altra sede,
+  // che il router tratta allo stesso modo) danno lo stesso identico esito:
+  // da qui non si enumera niente. Un rifiuto di permesso e un guasto restano
+  // invece distinti — nasconderli dietro «non trovata» manderebbe a cercare
+  // la commessa sbagliata. La sorgente resta `passiQ`: `commessaQ` alimenta
+  // solo il chip di stato dell'intestazione, un suo errore non deve mandare
+  // l'operatore a cercare una commessa che invece esiste.
   const nonTrovata =
-    !idValido ||
-    (abilitata && commessaQ.isSuccess && commessaQ.data == null) ||
-    (abilitata && passiQ.error?.data?.code === "NOT_FOUND");
+    !idValido || (abilitata && passiQ.error?.data?.code === "NOT_FOUND");
   const negata = abilitata && permessoNegato(passiQ.error);
-  const guasto = abilitata && (passiQ.isError || commessaQ.isError);
+  const guasto = abilitata && passiQ.isError;
 
   const stato: StatePanelProps | undefined = interruttori.isPending
     ? {
@@ -221,10 +255,7 @@ export default function FatturazioneCommessa() {
             ? {
                 kind: "error",
                 title: "Percorso non disponibile",
-                description:
-                  passiQ.error?.message ??
-                  commessaQ.error?.message ??
-                  "Riprova tra poco.",
+                description: passiQ.error?.message ?? "Riprova tra poco.",
                 action: (
                   <Button
                     type="button"
@@ -239,7 +270,7 @@ export default function FatturazioneCommessa() {
                   </Button>
                 ),
               }
-            : !record || commessaQ.isPending
+            : !record
               ? {
                   kind: "loading",
                   title: "Carico il percorso",
@@ -248,13 +279,15 @@ export default function FatturazioneCommessa() {
                 }
               : undefined;
 
-  const commessa = commessaQ.data as
-    | { codice?: string; cliente?: string; stato?: string }
-    | null
-    | undefined;
+  // Solo per il chip di stato dell'intestazione: non tiene la superficie in
+  // attesa (non entra in `stato` sopra) e un suo errore non compare da
+  // nessuna parte, il chip semplicemente non si mostra.
+  const commessa = commessaQ.data as { stato?: string } | null | undefined;
 
-  // Solo i passi già alle spalle, in una riga: gli importi compaiono
-  // soltanto quando il server li manda (senza `economia.read` sono `null`).
+  // Solo i passi già alle spalle, in una riga. Il pattuito (Contratto)
+  // compare solo quando il server lo manda (senza `economia.read` è
+  // `null`); il limite (Limiti) viene da `computo.ultimo` e non dipende da
+  // quel permesso, quindi è sempre presente quando il computo esiste.
   const riepilogo: string[] = [];
   if (record && indice > 0) {
     riepilogo.push(`Documenti: ${riepilogoDocumenti(record.documenti)}`);
@@ -276,7 +309,14 @@ export default function FatturazioneCommessa() {
 
   const ultimo = indice === ORDINE_PASSI.length - 1;
   const fatto = record?.passi[corrente] === "fatto";
-  const motivo = motivoAvanti(corrente);
+  // Col contratto sporco «Avanti» resta chiuso anche se il passo era già
+  // «fatto» da un salvataggio precedente: c'è una modifica più recente che
+  // il server non ha ancora vista.
+  const bloccatoDaSporco = corrente === "contratto" && contrattoSporco;
+  const puoAvanti = fatto && !bloccatoDaSporco;
+  const motivo = bloccatoDaSporco
+    ? "Salva prima di proseguire"
+    : motivoAvanti(corrente);
 
   return (
     <div className="min-w-0 space-y-4 sm:space-y-5">
@@ -291,11 +331,11 @@ export default function FatturazioneCommessa() {
           </Link>
         }
         eyebrow="Fatturazione guidata"
-        title={commessa?.cliente ?? "Commessa"}
+        title={record?.cliente ?? "Commessa"}
         description={
-          commessa?.codice ? (
+          record?.codice ? (
             <span className="codice-mono text-xs text-text-3">
-              {commessa.codice}
+              {record.codice}
             </span>
           ) : undefined
         }
@@ -304,12 +344,16 @@ export default function FatturazioneCommessa() {
         }
         busy={passiQ.isFetching}
         secondaryActions={
-          <Button asChild variant="outline" className="min-h-11">
-            <Link href={`/commesse/${commessaId}`}>
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              Apri commessa
-            </Link>
-          </Button>
+          // Solo nello stato con record: negli stati «non trovata», «flag
+          // spento» e «permesso negato» non c'è una commessa da aprire.
+          record ? (
+            <Button asChild variant="outline" className="min-h-11">
+              <Link href={`/commesse/${commessaId}`}>
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Apri commessa
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
 
@@ -353,8 +397,12 @@ export default function FatturazioneCommessa() {
               <ContrattoTab
                 commessaId={commessaId}
                 modalita="guidata"
-                onAvanti={() => vai("limiti")}
+                // Bypassa il controllo di `vai`: «Salva e avanti» ha appena
+                // salvato con successo, è l'unico modo di avanzare col
+                // contratto sporco (P4-R7).
+                onAvanti={() => naviga("limiti")}
                 onCambiato={segnalaCambio}
+                onSporco={setContrattoSporco}
               />
             )}
 
@@ -398,7 +446,7 @@ export default function FatturazioneCommessa() {
                     percorso è finito e la commessa esce dall'elenco. */}
                 {!ultimo && (
                   <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
-                    {!fatto && motivo && (
+                    {!puoAvanti && motivo && (
                       <p id="motivo-avanti" className="text-xs text-text-3">
                         {motivo}
                       </p>
@@ -406,9 +454,9 @@ export default function FatturazioneCommessa() {
                     <Button
                       type="button"
                       className="min-h-11"
-                      disabled={!fatto}
+                      disabled={!puoAvanti}
                       aria-describedby={
-                        fatto || !motivo ? undefined : "motivo-avanti"
+                        puoAvanti || !motivo ? undefined : "motivo-avanti"
                       }
                       onClick={() => vai(ORDINE_PASSI[indice + 1])}
                     >
@@ -422,6 +470,19 @@ export default function FatturazioneCommessa() {
           </div>
         ) : null}
       </DataSurface>
+
+      <ConfirmDialog
+        open={passoDaConfermare != null}
+        onOpenChange={open => {
+          if (!open) setPassoDaConfermare(null);
+        }}
+        title="Modifiche non salvate"
+        description="Il contratto ha modifiche non salvate. Se esci ora vanno perse."
+        confirmLabel="Esci senza salvare"
+        cancelLabel="Resta"
+        destructive
+        onConfirm={confermaUscita}
+      />
     </div>
   );
 }

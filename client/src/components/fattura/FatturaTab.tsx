@@ -116,6 +116,35 @@ export default function FatturaTab({
     );
   }
 
+  // Radice comune a `BozzaFatturaEditor` e `FatturaEmessaView`: la stessa,
+  // sia essa in modifica o in emesso, va nello stesso posto del contenitore
+  // qui sotto.
+  const editor =
+    fattura?.stato === "bozza" ? (
+      <BozzaFatturaEditor
+        key={fattura.id}
+        commessaId={commessaId}
+        fatturaId={fattura.id}
+        puoModificare={q.data.puoDraft}
+        puoEmettere={q.data.puoEmettere}
+        dryRun={q.data.dryRun}
+        onAnnullata={() => {
+          setSelezionata(null);
+          onCambiato?.();
+        }}
+        onCambiato={onCambiato}
+      />
+    ) : fattura ? (
+      <FatturaEmessaView
+        key={fattura.id}
+        commessaId={commessaId}
+        fatturaId={fattura.id}
+        puoNotaCredito={q.data.puoNotaCredito}
+        onApriFattura={setSelezionata}
+        onCambiato={onCambiato}
+      />
+    ) : null;
+
   return (
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
     // spaziatura la porta la pagina.
@@ -124,7 +153,9 @@ export default function FatturaTab({
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Button
             size="sm"
-            className="h-9"
+            // Nel percorso guidato è il gesto principale del passo: target
+            // touch pieno, non il pulsantino di una barra di tab.
+            className={guidata ? "min-h-11" : "h-9"}
             disabled={!q.data.puoDraft || crea.isPending}
             onClick={() => crea.mutate({ commessaId })}
           >
@@ -189,30 +220,17 @@ export default function FatturaTab({
         </ul>
       )}
 
-      {fattura?.stato === "bozza" ? (
-        <BozzaFatturaEditor
-          key={fattura.id}
-          commessaId={commessaId}
-          fatturaId={fattura.id}
-          puoModificare={q.data.puoDraft}
-          puoEmettere={q.data.puoEmettere}
-          dryRun={q.data.dryRun}
-          onAnnullata={() => {
-            setSelezionata(null);
-            onCambiato?.();
-          }}
-          onCambiato={onCambiato}
-        />
-      ) : fattura ? (
-        <FatturaEmessaView
-          key={fattura.id}
-          commessaId={commessaId}
-          fatturaId={fattura.id}
-          puoNotaCredito={q.data.puoNotaCredito}
-          onApriFattura={setSelezionata}
-          onCambiato={onCambiato}
-        />
-      ) : null}
+      {/* `BozzaFatturaEditor`/`FatturaEmessaView` portano il proprio `mt-4`
+          in radice (per quando vivono da soli sotto la linguetta della tab):
+          nel percorso guidato quel margine si somma a quello che questo
+          contenitore già dà via `space-y-4`, un doppio stacco sopra
+          l'editor. `[&>*]:mt-0` annulla solo il loro margine, senza toccare
+          lo spazio fra gli elementi sopra. */}
+      {guidata ? (
+        <div className="[&>*]:mt-0">{editor}</div>
+      ) : (
+        editor
+      )}
     </div>
   );
 }

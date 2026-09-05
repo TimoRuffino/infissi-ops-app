@@ -64,6 +64,7 @@ export default function ContrattoTab({
   modalita,
   onAvanti,
   onCambiato,
+  onSporco,
 }: {
   commessaId: number;
   /**
@@ -79,6 +80,13 @@ export default function ContrattoTab({
   onAvanti?: () => void;
   /** Il contratto è cambiato sul server: chi monta rilegga lo stato dei passi. */
   onCambiato?: () => void;
+  /**
+   * Chiamata a ogni cambiamento di `sporco` (ruling P4-R7): la pagina
+   * guidata la usa per intercettare un'uscita dal passo con modifiche non
+   * salvate — click sullo stepper o «Indietro» — con un dialogo di conferma
+   * invece di navigare subito.
+   */
+  onSporco?: (sporco: boolean) => void;
 }) {
   const guidata = modalita === "guidata";
   const lettura = modalita === "lettura";
@@ -97,7 +105,18 @@ export default function ContrattoTab({
   // Quote in corso di digitazione: senza questo «12,5» verrebbe riscritto in
   // «12» a ogni tasto e il decimale sarebbe impossibile da inserire.
   const [quoteTesto, setQuoteTesto] = useState<Record<number, string>>({});
+  // La modalità guidata nasconde il blocco di salvataggio quando `sporco` è
+  // falso (`puoModificare && (!guidata || sporco)` più sotto): OGNI percorso
+  // di modifica deve passare da `setSporco(true)`, altrimenti in guidata
+  // l'operatore non vedrebbe mai il pulsante per salvare quel cambiamento.
   const [sporco, setSporco] = useState(false);
+
+  // Segnala ogni cambiamento a chi monta (la pagina guidata, via `onSporco`):
+  // scatta anche subito dopo un salvataggio riuscito, quando `sporco` torna
+  // `false` (v. `salva.onSuccess` più sotto).
+  useEffect(() => {
+    onSporco?.(sporco);
+  }, [sporco, onSporco]);
 
   // Il form si allinea al server finché l'operatore non tocca qualcosa.
   useEffect(() => {

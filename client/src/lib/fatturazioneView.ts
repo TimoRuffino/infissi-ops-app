@@ -78,6 +78,32 @@ export function passoRaggiungibile(
   return passo === ORDINE_PASSI.find(p => passi[p] !== "fatto");
 }
 
+/** Il passo chiesto dall'URL (`?passo=`), se è uno dei quattro; altrimenti niente. */
+export function passoDallaQuery(search: string): PassoFatturazione | null {
+  const richiesto = new URLSearchParams(search).get("passo");
+  return ORDINE_PASSI.find(passo => passo === richiesto) ?? null;
+}
+
+/**
+ * Il passo su cui la pagina `/fatturazione/:id` atterra quando si apre —
+ * alla primissima lettura (senza `?passo=`) e ogni volta che l'URL ne chiede
+ * uno che i prerequisiti non permettono ancora (P4-R8): il richiesto se
+ * `passoRaggiungibile`, altrimenti il prossimo passo del server; se il
+ * percorso è già concluso (`prossimoPasso` `null`, fattura emessa) l'ultimo
+ * passo, così anche un'apertura senza `?passo=` a percorso finito atterra su
+ * Fattura invece di restare bloccata per mancanza di un prossimo passo.
+ */
+export function passoIniziale(
+  passi: Record<PassoFatturazione, EsitoPasso>,
+  prossimoPasso: PassoFatturazione | null,
+  richiesto: PassoFatturazione | null
+): PassoFatturazione {
+  if (richiesto != null && passoRaggiungibile(passi, richiesto)) {
+    return richiesto;
+  }
+  return prossimoPasso ?? ORDINE_PASSI[ORDINE_PASSI.length - 1];
+}
+
 /** "oggi" / "1 giorno" / "N giorni"; "—" quando il server non sa dire da quando (nessuna milestone né updatedAt). */
 export function giorniTesto(giorni: number | null): string {
   if (giorni == null) return "—";

@@ -10,6 +10,8 @@ import {
   filtraCommesse,
   giorniTesto,
   importiCard,
+  passoDallaQuery,
+  passoIniziale,
   passoRaggiungibile,
   tonoPasso,
 } from "./fatturazioneView";
@@ -168,6 +170,69 @@ describe("passoRaggiungibile", () => {
     ] as const) {
       expect(passoRaggiungibile(passi, passo)).toBe(true);
     }
+  });
+
+  // Regressione: una bozza di fattura (`in_corso`) rende il passo
+  // raggiungibile anche se il fascicolo non ha ancora un contratto. Senza il
+  // ramo `in_corso` di `passoRaggiungibile`, il primo non concluso resterebbe
+  // «documenti» e questo test fallirebbe.
+  it("il passo Fattura è raggiungibile con una bozza in corso, anche senza contratto", () => {
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "da_fare",
+      contratto: "da_fare",
+      limiti: "da_fare",
+      fattura: "in_corso",
+    };
+    expect(passoRaggiungibile(passi, "fattura")).toBe(true);
+  });
+});
+
+describe("passoDallaQuery", () => {
+  it("legge un passo valido dalla query", () => {
+    expect(passoDallaQuery("?passo=contratto")).toBe("contratto");
+    expect(passoDallaQuery("passo=limiti")).toBe("limiti");
+  });
+
+  it("ignora un valore che non è uno dei quattro passi", () => {
+    expect(passoDallaQuery("?passo=fatturazione")).toBeNull();
+    expect(passoDallaQuery("?passo=")).toBeNull();
+  });
+
+  it("torna null senza il parametro", () => {
+    expect(passoDallaQuery("")).toBeNull();
+    expect(passoDallaQuery("?altro=1")).toBeNull();
+  });
+});
+
+describe("passoIniziale", () => {
+  it("usa il richiesto quando è raggiungibile, anche se diverso dal prossimo passo del server", () => {
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "fatto",
+      contratto: "in_corso",
+      limiti: "da_fare",
+      fattura: "da_fare",
+    };
+    expect(passoIniziale(passi, "limiti", "contratto")).toBe("contratto");
+    // «documenti» è alle spalle ma resta raggiungibile (già fatto).
+    expect(passoIniziale(passi, "limiti", "documenti")).toBe("documenti");
+  });
+
+  it("ripiega sul prossimo passo quando il richiesto non è raggiungibile (P4-R8)", () => {
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "fatto",
+      contratto: "in_corso",
+      limiti: "da_fare",
+      fattura: "da_fare",
+    };
+    // «fattura» è oltre il primo passo non concluso: non raggiungibile.
+    expect(passoIniziale(passi, "contratto", "fattura")).toBe("contratto");
+  });
+
+  it("apre l'ultimo passo quando il percorso è concluso e non c'è un prossimo passo (M5)", () => {
+    const passi = passiTutti("fatto");
+    expect(passoIniziale(passi, null, null)).toBe("fattura");
+    // Anche con un passo richiesto: il percorso finito non lo rende un caso speciale.
+    expect(passoIniziale(passi, null, "contratto")).toBe("contratto");
   });
 });
 
