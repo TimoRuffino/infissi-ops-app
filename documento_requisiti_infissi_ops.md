@@ -1278,7 +1278,19 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 - **PEC, codice destinatario e `ficEntityId`** del cliente restano campi
   server senza UI nel form cliente.
 - **Piano 4 «Fatturazione guidata»** (§58): spec e piano scritti, nulla
-  implementato.
+  implementato. Sette task: stato dei passi come funzione pura; router
+  `fatturazioneGuidata` (`daFare`, `passi`); pagina `/fatturazione` con card e
+  voce di menu; fascicolo estratto in un componente e passo Documenti con
+  «Leggi il contratto»; pagina a passi con modalità guidata dei tre tab; tab
+  della commessa in sola lettura con «Apri fatturazione»; handoff e verifica
+  in browser.
+- **Verifiche non eseguite**: il dialog «Leggi il contratto» non è stato
+  provato in browser a 1440×900 e 390×844 (richiede il login demo, che
+  l'agente non esegue); la chiamata di prova al provider reale con
+  `EVAL_CONTRATTI_REALE=on` (§57.5) non è stata fatta.
+- **Piccoli residui**: `posaCent` della proposta non ha un consumatore a
+  valle; `avvisiForm` esenta ancora un cassonetto con oscurante diverso dalla
+  tapparella su dati salvati prima di H8 (il salvataggio lo rifiuta comunque).
 
 ---
 
