@@ -132,7 +132,13 @@ export default function LeggiContrattoDialog({
   commessaId: number;
   documento: { id: number; nome: string } | null;
   onClose: () => void;
-  /** Porta l'operatore al contratto strutturato: dopo l'applicazione e dopo «Compila a mano». */
+  /**
+   * Applicato (o «Compila a mano»): il chiamante decide dove andare. Dentro
+   * il percorso guidato (`PassoDocumenti`) risegnala solo il cambiamento
+   * (`onCambiato`, si resta sul passo); dalla scheda commessa apre il
+   * percorso di fatturazione guidata sul passo Contratto — dal piano 4 la
+   * tab «Prodotti» è un riepilogo in sola lettura, non più l'editor.
+   */
   onApplicato: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -317,8 +323,9 @@ export default function LeggiContrattoDialog({
               <Button
                 variant="outline"
                 onClick={() => {
-                  // Stessa destinazione dell'applicazione — la tab Contratto —
-                  // ma senza proposta: il contratto si scrive a mano.
+                  // Stessa destinazione dell'applicazione — il percorso di
+                  // fatturazione guidata, passo Contratto — ma senza
+                  // proposta: il contratto si scrive a mano.
                   onApplicato();
                   azzera();
                   onClose();

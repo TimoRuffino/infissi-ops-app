@@ -2138,7 +2138,11 @@ export default function CommessaDetail() {
         commessaId={commessaId}
         documento={leggiDoc}
         onClose={() => setLeggiDoc(null)}
-        onApplicato={() => setTab("prodotti")}
+        // Minor 7 (review finale): la tab «Prodotti» è ora un riepilogo in
+        // sola lettura (piano 4) — non più l'editor su cui questo callback
+        // atterrava. La destinazione vera del contratto è il percorso di
+        // fatturazione guidata, passo Contratto.
+        onApplicato={() => setLocation(`/fatturazione/${commessaId}?passo=contratto`)}
       />
 
       {/* Email preventivo dialog (mailto + auto-download) */}

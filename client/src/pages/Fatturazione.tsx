@@ -26,6 +26,7 @@ import {
 import { filtraCommesse } from "@/lib/fatturazioneView";
 import { statoLabel } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
+import { permessoNegato } from "@/lib/trpcErrors";
 import type { StatoDaFatturare } from "@shared/fatturazione/passi";
 
 type FiltroStato = "tutti" | StatoDaFatturare;
@@ -53,6 +54,10 @@ export default function Fatturazione() {
     [elenco, filtroStato, search]
   );
   const hasActiveFilters = filtroStato !== "tutti" || search.trim() !== "";
+  // Minor 1 (review finale): un FORBIDDEN non è un guasto da ritentare —
+  // stesso testo e stessa forma di `permessoNegato` in
+  // `FatturazioneCommessa.tsx`, senza «Riprova» (che non potrà mai riuscire).
+  const negata = daFare.isError && permessoNegato(daFare.error);
 
   function azzeraFiltri() {
     setFiltroStato("tutti");
@@ -80,21 +85,28 @@ export default function Fatturazione() {
             rows: 3,
           }
         : daFare.isError
-          ? {
-              kind: "error",
-              title: "Elenco non disponibile",
-              description: daFare.error?.message ?? "Riprova tra poco.",
-              action: (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11"
-                  onClick={() => void daFare.refetch()}
-                >
-                  Riprova
-                </Button>
-              ),
-            }
+          ? negata
+            ? {
+                kind: "permission",
+                title: "Percorso non disponibile",
+                description:
+                  "Serve il permesso di leggere i contratti della sede.",
+              }
+            : {
+                kind: "error",
+                title: "Elenco non disponibile",
+                description: daFare.error?.message ?? "Riprova tra poco.",
+                action: (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => void daFare.refetch()}
+                  >
+                    Riprova
+                  </Button>
+                ),
+              }
           : filtrate.length === 0
             ? {
                 kind: "empty",
@@ -189,6 +201,7 @@ export default function Fatturazione() {
               type="button"
               variant="ghost"
               size="sm"
+              className="min-h-11"
               onClick={azzeraFiltri}
             >
               <FilterX className="mr-1 h-4 w-4" aria-hidden="true" />

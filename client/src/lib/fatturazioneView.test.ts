@@ -115,10 +115,14 @@ describe("tonoPasso", () => {
 });
 
 describe("passoRaggiungibile", () => {
-  it("apre il primo passo quando non si è ancora fatto nulla", () => {
+  // Ruling P4-R14 (I2 della review finale): «documenti» non blocca mai
+  // «contratto» — si può ancora scrivere il contratto a mano a fascicolo
+  // vuoto, come su main prima di questo piano. «limiti» e «fattura»
+  // restano bloccati finché «contratto» non è `fatto`.
+  it("apre documenti e contratto quando non si è ancora fatto nulla; limiti e fattura restano bloccati", () => {
     const passi = passiTutti("da_fare");
     expect(passoRaggiungibile(passi, "documenti")).toBe(true);
-    expect(passoRaggiungibile(passi, "contratto")).toBe(false);
+    expect(passoRaggiungibile(passi, "contratto")).toBe(true);
     expect(passoRaggiungibile(passi, "limiti")).toBe(false);
     expect(passoRaggiungibile(passi, "fattura")).toBe(false);
   });
@@ -215,6 +219,14 @@ describe("passoIniziale", () => {
     expect(passoIniziale(passi, "limiti", "contratto")).toBe("contratto");
     // «documenti» è alle spalle ma resta raggiungibile (già fatto).
     expect(passoIniziale(passi, "limiti", "documenti")).toBe("documenti");
+  });
+
+  // Ruling P4-R14: a fascicolo vuoto (nessun passo fatto), «contratto»
+  // richiesto via `?passo=` resta raggiungibile — non rimbalza su
+  // «documenti» come prima di questa fix.
+  it("apre «contratto» via query anche a fascicolo vuoto, con «documenti» l'unico passo non concluso", () => {
+    const passi = passiTutti("da_fare");
+    expect(passoIniziale(passi, "documenti", "contratto")).toBe("contratto");
   });
 
   it("ripiega sul prossimo passo quando il richiesto non è raggiungibile (P4-R8)", () => {

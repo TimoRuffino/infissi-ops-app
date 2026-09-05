@@ -10,7 +10,7 @@
 // L'apertura è controllata da chi lo monta; `tipoIniziale` sceglie il tipo
 // solo quando c'è (il banner passa il tipo mancante, l'elenco il tipo
 // suggerito dallo stato), altrimenti il modulo resta com'era.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,13 @@ export default function CaricaDocumentoDialog({
   onCaricato?: () => void;
 }) {
   const utils = trpc.useUtils();
+  // Id unici per istanza (piano 4): il banner del gate documentale e
+  // l'elenco del fascicolo possono montare due istanze di questo dialog
+  // insieme su /commesse/:id — id statici duplicherebbero `id`/`for` nel DOM.
+  const idBase = useId();
+  const fileInputId = `${idBase}-file`;
+  const helpId = `${idBase}-help`;
+  const erroreId = `${idBase}-errore`;
   const [form, setForm] = useState({
     file: null as File | null,
     tipo: "preventivo" as string,
@@ -171,18 +178,16 @@ export default function CaricaDocumentoDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="commessa-upload-file">
+            <Label htmlFor={fileInputId}>
               File (max {COMMESSA_UPLOAD_MAX_MB} MB)
             </Label>
             <Input
-              id="commessa-upload-file"
+              id={fileInputId}
               type="file"
               accept={COMMESSA_UPLOAD_ACCEPT}
               aria-invalid={!!errore}
               aria-describedby={
-                errore
-                  ? "commessa-upload-help commessa-upload-error"
-                  : "commessa-upload-help"
+                errore ? `${helpId} ${erroreId}` : helpId
               }
               onChange={e => {
                 const file = e.target.files?.[0] ?? null;
@@ -199,18 +204,11 @@ export default function CaricaDocumentoDialog({
                 });
               }}
             />
-            <p
-              id="commessa-upload-help"
-              className="text-xs text-muted-foreground"
-            >
+            <p id={helpId} className="text-xs text-muted-foreground">
               PDF, immagini, documenti e video MP4, MOV o WebM.
             </p>
             {errore && (
-              <p
-                id="commessa-upload-error"
-                role="alert"
-                className="text-xs text-destructive"
-              >
+              <p id={erroreId} role="alert" className="text-xs text-destructive">
                 {errore}
               </p>
             )}

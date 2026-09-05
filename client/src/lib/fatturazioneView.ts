@@ -68,6 +68,14 @@ export function tonoPasso(
  * dietro un interruttore spento. Con la fatturazione spenta e i limiti
  * conclusi, il quarto passo si apre e dice perché è fermo, invece di restare
  * un pallino muto che non si può nemmeno interrogare.
+ *
+ * Ruling P4-R14 (I2 della review finale): `documenti` non blocca mai
+ * `contratto`. Il contratto si può ancora scrivere a mano anche a
+ * fascicolo vuoto (nessun PDF caricato, nessun documento di tipo
+ * `contratto`) — capacità che esisteva prima di questo piano e che nessun
+ * ruling toglie di proposito. Quando il primo passo non concluso è
+ * `documenti`, `contratto` resta comunque raggiungibile; `limiti` e
+ * `fattura` restano bloccati finché `contratto` non è `fatto`.
  */
 export function passoRaggiungibile(
   passi: Record<PassoFatturazione, EsitoPasso>,
@@ -75,7 +83,9 @@ export function passoRaggiungibile(
 ): boolean {
   const esito = passi[passo];
   if (esito === "fatto" || esito === "in_corso") return true;
-  return passo === ORDINE_PASSI.find(p => passi[p] !== "fatto");
+  const primoNonFatto = ORDINE_PASSI.find(p => passi[p] !== "fatto");
+  if (passo === primoNonFatto) return true;
+  return primoNonFatto === "documenti" && passo === "contratto";
 }
 
 /** Il passo chiesto dall'URL (`?passo=`), se è uno dei quattro; altrimenti niente. */
