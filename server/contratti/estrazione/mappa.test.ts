@@ -985,6 +985,79 @@ describe("tipologiaDei — il qualificatore vale per il sostantivo più vicino (
     expect(scelta.avvertenza).toBeNull();
   });
 
+  // ── P3-R32: un qualificatore non è mai un'àncora ─────────────────────────
+  //
+  // Nel giro 3 «scorrevol» stava anche fra i sostantivi di serramento: uno
+  // «scorrevole» già assorbito da un accessorio faceva da àncora al
+  // «complanare» che lo seguiva, e sulla portafinestra — che con
+  // «scorrevole» non è in contrasto (P3-R28) — il codice cambiava in
+  // silenzio, senza avvertenza. Un qualificatore qualifica, non nomina: non
+  // può ancorare i qualificatori successivi.
+
+  it("(h) uno «scorrevole» assorbito dall'accessorio non ancora il «complanare» che segue (P3-R32)", () => {
+    // «con zanzariera scorrevole complanare»: entrambi i qualificatori
+    // hanno per sostantivo più vicino «zanzariera». La portafinestra resta
+    // a battente. Prima del giro 4: C15042-b (complanare) e nessun avviso.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione: "Portafinestra 2 ante in alluminio con zanzariera scorrevole complanare",
+      },
+      "A"
+    );
+    expect(scelta.codice).toBe("C15038-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("(i) «soglia complanare» dopo una zanzariera scorrevole non rende scorrevole la portafinestra (P3-R32)", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione:
+          "Portafinestra 2 ante in alluminio con zanzariera scorrevole, soglia complanare per abbattimento barriere",
+      },
+      "A"
+    );
+    expect(scelta.codice).toBe("C15038-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("(j) senza sostantivo davanti il qualificatore resta al serramento (P3-R32)", () => {
+    // Il tipo del modello dice scorrevole: il testo non serve, e la
+    // persiana nominata prima non gli toglie nulla. La forma (finestra o
+    // portafinestra) il testo non la dice: si dichiara, non si sceglie in
+    // silenzio.
+    const dalTipo = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      {
+        tipoProdotto: "scorrevole",
+        nAnte: 2,
+        descrizione: "Persiana abbinata allo scorrevole complanare 2 ante in PVC",
+      },
+      null
+    );
+    expect(dalTipo.codice).toBe("C25077-f");
+    expect(dalTipo.avvertenza ?? "").toContain("scorrevole: finestra o portafinestra non indicato");
+
+    // Nessun sostantivo prima di «Scorrevole»: il qualificatore descrive il
+    // serramento, e la contraddizione col tipo `finestra` si dichiara.
+    const dalTesto = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Scorrevole complanare 2 ante in PVC" },
+      null
+    );
+    expect(dalTesto.codice).toBe("C25077-f");
+    expect(dalTesto.avvertenza ?? "").toContain("descrizione scorrevole, tipo del modello finestra: verifica");
+  });
+
   it("la contraddizione arriva fino alla riga: tipologia da verificare con l'avvertenza in nota", () => {
     const descrizione = "Finestra scorrevole in PVC";
     const proposta = costruisciProposta(

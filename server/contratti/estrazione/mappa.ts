@@ -272,8 +272,17 @@ function naturaDelNome(nome: string): NaturaSerramento {
   return "battente";
 }
 
-/** I sostantivi con cui il documento nomina il serramento stesso (P3-R27). */
-const SOSTANTIVO_SERRAMENTO = /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss|scorrevol/gi;
+/**
+ * I sostantivi con cui il documento nomina il serramento stesso (P3-R27).
+ * P3-R32: «scorrevole» NON è qui. È un qualificatore, e un qualificatore non
+ * nomina niente: se facesse da àncora, uno «scorrevole» già assorbito da un
+ * accessorio si porterebbe dietro il «complanare» che lo segue («…con
+ * zanzariera scorrevole complanare»), e su una portafinestra — che con
+ * «scorrevole» non è in contrasto (P3-R28) — il codice cambierebbe in
+ * silenzio. Quando il testo apre con «Scorrevole …» il qualificatore resta
+ * comunque al serramento: davanti non ha nessun sostantivo.
+ */
+const SOSTANTIVO_SERRAMENTO = /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss/gi;
 
 /** I sostantivi di accessorio o oscurante: quello che li segue parla di loro, non del serramento (P3-R27). */
 const SOSTANTIVO_ACCESSORIO =
