@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Computo, Contratto, RigaContratto } from "@shared/limiti/tipi";
 import { DICITURE } from "@shared/fatturazione/diciture";
 import { FATTURAZIONE_CONFIG_DEFAULT, type ClienteSnapshot } from "@shared/fatturazione/tipi";
-import { descrizioneRigaBene, generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
+import { FATTORE_MINIMO_SERVIZI, bilancia, descrizioneRigaBene, generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
 
 const ora = new Date("2026-09-04T10:00:00Z");
 function contratto(extra: Partial<Contratto> = {}): Contratto {
@@ -57,7 +57,8 @@ function cliente(praticaEdilizia: ClienteSnapshot["praticaEdilizia"]): ClienteSn
 }
 const SPESE_PROFESSIONALI = { rilievo: "foro" as const, speseProfessionali: true, eventuali: [] };
 const righe = [riga(1, "Portafinestra a 2 ante a battente", 3, 1900, 2400, 778373), riga(2, "Finestra a 2 ante a battente", 2, 1660, 1540, 295082), riga(3, "Maniglie mod. Lama", 6, 0, 0, 60000, false)];
-const base = { cliente: null, commessa: { codice: "COM-2026-001", indirizzo: "Via Alta 80", citta: "Sarzana" }, config: { ...FATTURAZIONE_CONFIG_DEFAULT, sedeId: 1, updatedAt: ora }, dataFattura: "2026-09-04" };
+// `bilancia: false`: questi test guardano la proposta grezza (beni a contratto, servizi ai limiti); il bilanciamento ha i suoi test in fondo.
+const base = { cliente: null, commessa: { codice: "COM-2026-001", indirizzo: "Via Alta 80", citta: "Sarzana" }, config: { ...FATTURAZIONE_CONFIG_DEFAULT, sedeId: 1, updatedAt: ora }, dataFattura: "2026-09-04", bilancia: false };
 
 describe("generaBozza", () => {
   it("beni dalle righe, servizi dai limiti arrotondati per difetto, derivate e nota limite", () => {
@@ -190,5 +191,75 @@ describe("scadenzeDaRate", () => {
 describe("descrizioneRigaBene", () => {
   it("senza misure niente L×H", () => {
     expect(descrizioneRigaBene(riga(9, "Maniglie", 6, 0, 0, 1))).toBe("N.6 Maniglie");
+  });
+});
+
+describe("bilancia — la bozza nasce dentro il pattuito (studio fatture reali 05/09/2026)", () => {
+  const somma = (righe: any[], f: (r: any) => boolean) => righe.filter(f).reduce((s: number, r: any) => s + r.importoCent, 0);
+
+  it("pattuito capiente: nessun ritocco, il markup resta il residuo", () => {
+    // 127/2026: G 15.494,72 lordo, beni a contratto 10.734,55 + 600, servizi ai limiti 1.494 → markup positivo.
+    const b = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, bilancia: true });
+    const grezza = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base });
+    expect(b.righe.filter(r => !r.derivata).map(r => r.importoCent)).toEqual(grezza.righe.filter(r => !r.derivata).map(r => r.importoCent));
+    expect(b.righe.find(r => r.tipo === "markup")!.importoCent).toBeGreaterThan(0);
+    expect(b.avvertenze.some(a => a.includes("Servizi proposti"))).toBe(false);
+  });
+
+  it("pattuito stretto: prima scendono i servizi in proporzione, markup mai negativo", () => {
+    // Lordo 14.664,15: la prestazione vale 1.600, tolti i 600 delle maniglie restano 1.000 per servizi ai limiti da 1.494.
+    const stretto = contratto({ pattuitoCent: 1466415 });
+    const b = generaBozza({ contratto: stretto, righe, computo: computo(), ...base, bilancia: true });
+    const servizi = b.righe.filter(r => r.tipo === "servizio");
+    expect(servizi.map(r => r.importoCent)).toEqual([12000, 87900]); // rilievo 180,51 → 120; posa 1.314 → 879: fattore 0,669
+    for (const r of servizi) expect(r.importoCent % 100).toBe(0);
+    const markup = b.righe.find(r => r.tipo === "markup")!.importoCent;
+    expect(markup).toBeGreaterThanOrEqual(0);
+    expect(markup).toBeLessThan(200);
+    expect(b.avvertenze.some(a => a.includes("Servizi proposti al 67 %"))).toBe(true);
+    // I beni restano a contratto: sono bastati i servizi.
+    expect(somma(b.righe, r => r.tipo === "bene")).toBe(778373 + 295082 + 60000);
+  });
+
+  it("pattuito strettissimo: i servizi si fermano al minimo e scendono i beni significativi, markup zero", () => {
+    // Come Guaita 128/2026: una finestra a 775,08 + zanzariera, servizi ai limiti 1.540, pattuito 1.320,41 lordo.
+    const guaita = contratto({ pattuitoCent: 132041 });
+    const righeG = [riga(1, "Finestra a 1 anta", 1, 1150, 1790, 77508), riga(2, "Zanzariera", 1, 0, 0, 13750, false)];
+    const b = generaBozza({ contratto: guaita, righe: righeG, computo: computo(), ...base, bilancia: true });
+    const servizi = b.righe.filter(r => r.tipo === "servizio");
+    const limiti = computo().voci.filter(v => v.codice === "rilievo_foro" || v.codice === "posa").map(v => v.limiteCent);
+    servizi.forEach((r, i) => expect(r.importoCent).toBe(Math.floor((limiti[i] * FATTORE_MINIMO_SERVIZI) / 100) * 100));
+    const markup = b.righe.find(r => r.tipo === "markup")!.importoCent;
+    expect(markup).toBeGreaterThanOrEqual(0);
+    expect(markup).toBeLessThan(100);
+    const finestra = b.righe.find(r => r.rigaCommessaId === 1)!;
+    expect(finestra.importoCent).toBeLessThan(77508);
+    expect(finestra.importoCent).toBeGreaterThan(0);
+    // La zanzariera non è significativa: resta a contratto e al 10 %.
+    const zanz = b.righe.find(r => r.rigaCommessaId === 2)!;
+    expect(zanz).toMatchObject({ importoCent: 13750, aliquota: 10, beneSignificativo: false });
+    expect(b.avvertenze.some(a => a.startsWith("Beni significativi ridotti"))).toBe(true);
+    // Il lordo torna al pattuito.
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: guaita.pattuitoCent, pattuitoTipo: guaita.pattuitoTipo });
+    expect(esito.totaleCent).toBe(132041);
+  });
+
+  it("bilancia è pura e non tocca righe già dentro il pattuito", () => {
+    const righeIn = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base }).righe.filter(r => !r.derivata);
+    const copia = righeIn.map(r => ({ ...r }));
+    const esito = bilancia({ righe: righeIn, pattuitoCent: 1549472, pattuitoTipo: "lordo" });
+    expect(esito.avvertenze).toEqual([]);
+    expect(righeIn).toEqual(copia);
+  });
+
+  it("i beni non significativi nascono al 10 % e il riepilogo li tiene nella prestazione", () => {
+    const b = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base });
+    const maniglie = b.righe.find(r => r.rigaCommessaId === 3)!;
+    expect(maniglie).toMatchObject({ aliquota: 10, beneSignificativo: false });
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: 1549472, pattuitoTipo: "lordo" });
+    const righe22 = b.righe.filter(r => r.aliquota === 22).reduce((s, r) => s + r.importoCent, 0);
+    const righe10 = b.righe.filter(r => r.aliquota === 10).reduce((s, r) => s + r.importoCent, 0);
+    expect(righe22).toBe(esito.riepilogo.find(r => r.aliquota === 22)!.imponibileCent);
+    expect(righe10).toBe(esito.riepilogo.find(r => r.aliquota === 10)!.imponibileCent);
   });
 });

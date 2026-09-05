@@ -83,14 +83,21 @@ let contatore = 0;
 const nuovaChiave = () => `r-${Date.now().toString(36)}-${(contatore++).toString(36)}`;
 
 /**
- * Un serramento è un bene significativo ai fini dell'IVA agevolata;
- * controtelai, accessori (coprifili, maniglie: «altri beni» nelle fatture
- * reali, P3-R7) e voci generiche no. Stessi valori di
- * `beneSignificativoDefault` in shared/limiti/tariffe-seed.json, che il
- * server usa per le righe lette dal contratto. Resta modificabile: qui c'è
- * solo il punto di partenza, che segue la categoria anche quando la si cambia.
+ * Un serramento (finestre, portefinestre, porte blindate, portoncini, porte
+ * interne) è un bene significativo ai fini dell'IVA agevolata; persiane,
+ * tapparelle, cassonetti, scuri, schermature, zanzariere, tende, pergole,
+ * controtelai, accessori e voci generiche no: nelle fatture reali 2026
+ * stanno nella prestazione al 10 % («beni dotati di autonomia funzionale»),
+ * mai nel blocco al 22 % con lo storno (studio del 05/09/2026). Stessi
+ * valori di `beneSignificativoDefault` in shared/limiti/tariffe-seed.json,
+ * che il server usa per le righe lette dal contratto. Resta modificabile:
+ * qui c'è solo il punto di partenza, che segue la categoria anche quando la
+ * si cambia.
  */
-const NON_SIGNIFICATIVE: CategoriaRiga[] = ["controtelaio", "accessorio", "altro"];
+const NON_SIGNIFICATIVE: CategoriaRiga[] = [
+  "controtelaio", "accessorio", "altro",
+  "cassonetto", "tapparella", "persiana", "scuro", "schermatura", "zanzariera", "tenda", "pergola",
+];
 
 export function beneSignificativoDefault(categoria: CategoriaRiga): boolean {
   return !NON_SIGNIFICATIVE.includes(categoria);

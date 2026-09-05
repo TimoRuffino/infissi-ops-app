@@ -145,6 +145,7 @@ export default function FatturaTab({
         commessaId={commessaId}
         fatturaId={fattura.id}
         puoNotaCredito={q.data.puoNotaCredito}
+        puoEmettere={q.data.puoEmettere}
         onApriFattura={setSelezionata}
         onCambiato={onCambiato}
       />

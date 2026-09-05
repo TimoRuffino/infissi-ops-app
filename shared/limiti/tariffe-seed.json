@@ -5845,24 +5845,5 @@
    "pct": 30
   }
  ],
- "beneSignificativoDefault": {
-  "serramento_pvc": true,
-  "serramento_alluminio": true,
-  "serramento_legno": true,
-  "serramento_legno_alluminio": true,
-  "cassonetto": true,
-  "tapparella": true,
-  "persiana": true,
-  "scuro": true,
-  "schermatura": true,
-  "zanzariera": true,
-  "tenda": true,
-  "pergola": true,
-  "porta_blindata": true,
-  "portoncino": true,
-  "porta_interna": true,
-  "accessorio": false,
-  "controtelaio": false,
-  "altro": false
- }
+ "beneSignificativoDefault": {"serramento_pvc": true, "serramento_alluminio": true, "serramento_legno": true, "serramento_legno_alluminio": true, "cassonetto": false, "tapparella": false, "persiana": false, "scuro": false, "schermatura": false, "zanzariera": false, "tenda": false, "pergola": false, "porta_blindata": true, "portoncino": true, "porta_interna": true, "accessorio": false, "controtelaio": false, "altro": false}
 }

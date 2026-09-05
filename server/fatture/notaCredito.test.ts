@@ -43,7 +43,8 @@ const FIC_DOCUMENT_ID_FATTURA = 88123;
 const FIC_DOCUMENT_ID_NOTA = 88124;
 
 let repository: FattureRepository;
-const dip = () => ({ repository, now: () => ora });
+// `bilanciaBozza: false`: questi test lavorano sulla proposta grezza (markup negativo compreso); la nascita bilanciata ha il suo test.
+const dip = () => ({ repository, now: () => ora, bilanciaBozza: false });
 
 const ctx = (sedeId: number): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> =>
   ({

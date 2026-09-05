@@ -40,7 +40,12 @@ import { getFattureRepository, type FattureRepository, type PatchBozza } from ".
 import { riequilibraBeni, type EsitoRisolutore } from "./risolutore";
 
 export type Controllo = { codice: string; esito: "ok" | "avviso" | "errore"; messaggio: string };
-export type Dipendenze = { now?: () => Date; repository?: FattureRepository };
+export type Dipendenze = {
+  now?: () => Date;
+  repository?: FattureRepository;
+  /** Solo per i test: `false` fa nascere la bozza grezza (beni a contratto, servizi ai limiti) invece di quella bilanciata. */
+  bilanciaBozza?: boolean;
+};
 
 export type ModificaBozza = {
   /** Solo righe bene/servizio non derivate, identificate per `ordine`. */
@@ -186,7 +191,8 @@ async function proponiDalContratto(
   repository: FattureRepository,
   sedeId: number,
   commessa: any,
-  now: Date
+  now: Date,
+  bilancia = true
 ): Promise<Proposta> {
   const { contratto, righe } = await leggiContratto(sedeId, commessa.id);
   if (!contratto) throw new Error("PRECONDIZIONE: Manca il contratto strutturato.");
@@ -195,6 +201,7 @@ async function proponiDalContratto(
   const clienteSnapshot = snapshotCliente(commessa.clienteId ? getClienteById(commessa.clienteId) : null, commessa);
 
   const bozza = generaBozza({
+    bilancia,
     contratto,
     righe,
     computo,
@@ -253,12 +260,7 @@ export async function creaBozza(
     throw new Error(`PRECONDIZIONE: La commessa ha già la fattura #${emessa.id}: usa la nota di credito.`);
   }
 
-  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(
-    repository,
-    input.sedeId,
-    commessa,
-    now
-  );
+  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(repository, input.sedeId, commessa, now, input.bilanciaBozza ?? true);
 
   const fattura = await repository.crea({
     fattura: {
@@ -691,12 +693,7 @@ export async function rigeneraBozza(
     throw new Error("PRECONDIZIONE: la nota di credito rispecchia la fattura di origine e non si rigenera.");
   }
   const commessa = commessaInSede(input.sedeId, fattura.commessaId);
-  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(
-    repository,
-    input.sedeId,
-    commessa,
-    now
-  );
+  const { contratto, clienteSnapshot, computoId, bozza, righe, esito, avvertenze } = await proponiDalContratto(repository, input.sedeId, commessa, now, input.bilanciaBozza ?? true);
 
   const aggiornata = await repository.aggiornaBozza({
     sedeId: input.sedeId,

@@ -38,7 +38,8 @@ const BENI_SIGNIFICATIVI = 1199677;
 const SERVIZI_PROPOSTI = 347500;
 
 let repository: FattureRepository;
-const dip = () => ({ repository, now: () => ora });
+// `bilanciaBozza: false`: questi test lavorano sulla proposta grezza (markup negativo compreso); la nascita bilanciata ha il suo test.
+const dip = () => ({ repository, now: () => ora, bilanciaBozza: false });
 
 const ctx = (sedeId: number): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> => ({
   user: { id: ATTORE, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "T" } as any,
@@ -312,6 +313,19 @@ describe("creaBozza", () => {
     // già usciva dal blocco servizi (R17) — resta solo il markup negativo.
     const { computo } = await ultimoComputo(SEDE, commessaId);
     expect(codici(verificaLimiti(fattura, computo))).toEqual(["markup_negativo"]);
+  });
+});
+
+describe("creaBozza — nascita bilanciata (default)", () => {
+  it("senza il seam di test la bozza nasce con markup non negativo e senza «markup_negativo»", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura, avvertenze } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, repository, now: () => ora });
+    expect(fattura.markupCent).toBeGreaterThanOrEqual(0);
+    const controlli = verificaLimiti(fattura, null).map(c => c.codice);
+    expect(controlli).not.toContain("markup_negativo");
+    // Il caso 127 grezzo aveva markup −2.598,82: qui i servizi sono scesi (avvertenza esplicita) e il lordo è il pattuito.
+    expect(avvertenze.some(a => a.startsWith("Servizi proposti al"))).toBe(true);
+    expect(fattura.totaleCent).toBe(fattura.pattuitoCent);
   });
 });
 

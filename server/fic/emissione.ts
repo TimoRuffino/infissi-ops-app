@@ -177,13 +177,26 @@ function normalizzaDocumento(d: any): DocumentoFicCreato {
 }
 
 // ── clienti ─────────────────────────────────────────────────────────────
+/**
+ * `q` è il codice fiscale o la partita IVA. Fatture in Cloud filtra con una
+ * query `campo = 'valore'`: passare il codice nudo dà HTTP 422 «Invalid
+ * query syntax» (successo il 05/09/2026 sulla prima emissione reale). Un
+ * codice di 11 cifre può essere partita IVA o codice fiscale di un
+ * condominio: si provano entrambi i campi.
+ */
 async function cercaClienti(ctx: ContestoFic, q: string) {
-  const data = await richiestaFic(
-    ctx,
-    `/c/${ctx.companyId}/entities/clients?q=${encodeURIComponent(q)}&fieldset=basic`,
-    { method: "GET" }
-  );
-  const righe: any[] = Array.isArray(data?.data) ? data.data : [];
+  const valore = q.trim().replace(/'/g, "''");
+  const campi = /^\d{11}$/.test(valore) ? ["vat_number", "tax_code"] : ["tax_code"];
+  const righe: any[] = [];
+  for (const campo of campi) {
+    const data = await richiestaFic(
+      ctx,
+      `/c/${ctx.companyId}/entities/clients?q=${encodeURIComponent(`${campo} = '${valore}'`)}&fieldset=basic`,
+      { method: "GET" }
+    );
+    if (Array.isArray(data?.data)) righe.push(...data.data);
+    if (righe.length > 0) break;
+  }
   return righe.map(r => ({
     id: Number(r?.id),
     name: String(r?.name ?? ""),

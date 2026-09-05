@@ -101,7 +101,7 @@ describe("client FiC di emissione", () => {
     const risultato = await client.cercaClienti(ctx, "RSSMRA80A01H501U");
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      `${FIC}/c/77/entities/clients?q=RSSMRA80A01H501U&fieldset=basic`
+      `${FIC}/c/77/entities/clients?q=${encodeURIComponent("tax_code = 'RSSMRA80A01H501U'")}&fieldset=basic`
     );
     expect(fetchMock.mock.calls[0][1].method).toBe("GET");
     expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(

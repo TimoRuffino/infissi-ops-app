@@ -153,6 +153,13 @@ describe("contrattoView", () => {
     expect(beneSignificativoDefault("serramento_pvc")).toBe(true);
     expect(beneSignificativoDefault("controtelaio")).toBe(false);
     expect(beneSignificativoDefault("altro")).toBe(false);
+    // Fatture reali 2026: persiane, zanzariere, tapparelle e tende al 10 %
+    // nella prestazione, non nel blocco dei beni significativi.
+    expect(beneSignificativoDefault("persiana")).toBe(false);
+    expect(beneSignificativoDefault("zanzariera")).toBe(false);
+    expect(beneSignificativoDefault("tapparella")).toBe(false);
+    expect(beneSignificativoDefault("porta_blindata")).toBe(true);
+    expect(beneSignificativoDefault("porta_interna")).toBe(true);
     // P3-R7: coprifili, maniglie e simili sono «altri beni» nelle fatture reali.
     expect(beneSignificativoDefault("accessorio")).toBe(false);
     expect(rigaVuota("controtelaio").beneSignificativo).toBe(false);

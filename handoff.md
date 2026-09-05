@@ -3672,6 +3672,21 @@ pagina rimanda al gestionale. Il PDF ufficiale di Fatture in Cloud resta
 quello nel fascicolo; questa è la copia di lavoro. Verifica browser in
 sospeso (login demo).
 
+**Studio delle fatture reali e bozza «come la commercialista» (05/09/2026
+sera).** Su mandato della direzione: 131 fatture FiC 2026 con righe (API,
+sola lettura), 18 fogli limiti con la colonna «Da fattura», 23 PDF, i 3
+contratti del CRM; replay di motore e risolutore su 19 lavori contro la
+fattura vera. Regole trovate, differenze e modifiche in
+`docs/superpowers/specs/2026-09-05-studio-fatture-reali.md`. In codice:
+`bilancia` nel generatore (servizi in proporzione fino al 40 % dei limiti,
+poi beni significativi, markup mai negativo; seam `bilanciaBozza: false`
+per i test sulla proposta grezza), beni non significativi al 10 % sulla
+riga, `beneSignificativoDefault` ristretto ai serramenti/porte, ricerca
+cliente FiC con `tax_code = '…'` (prima HTTP 422 e fattura ferma in «in
+emissione»), pulsante «Riprendi emissione», piè di pagina della stampa non
+duplicato. Dati grezzi con nomi dei clienti solo nello scratchpad di
+sessione, mai nel repo. Verifica browser: in sospeso.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

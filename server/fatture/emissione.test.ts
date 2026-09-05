@@ -52,7 +52,7 @@ const FIC_DOCUMENT_ID = 88123;
 const FIC_ENTITY_NUOVO = 4242;
 
 let repository: FattureRepository;
-const dipServizio = () => ({ repository, now: () => ora });
+const dipServizio = () => ({ repository, now: () => ora, bilanciaBozza: false });
 
 const ctx = (
   sedeId: number

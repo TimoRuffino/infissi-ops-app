@@ -6,7 +6,7 @@
 import { DICITURE, dicitureDefault, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import type { ClienteSnapshot, FatturazioneConfig, PraticaEdilizia, RigaFatturaInput, ScadenzaFatturaInput } from "@shared/fatturazione/tipi";
 import type { CategoriaRiga, Computo, Contratto, RataContratto, RigaContratto, VoceComputo } from "@shared/limiti/tipi";
-import { risolvi, type EsitoRisolutore } from "./risolutore";
+import { riequilibraBeni, risolvi, type EsitoRisolutore } from "./risolutore";
 
 export type InputGeneratore = {
   contratto: Contratto; righe: RigaContratto[]; computo: Computo | null;
@@ -14,6 +14,8 @@ export type InputGeneratore = {
   /** Qui serve solo `speseDocumentazioneCent` (R17); il resto è dell'emissione (IBAN, banca, numerazione FiC…). */
   config: FatturazioneConfig;
   dataFattura: string;
+  /** Default vero: la bozza nasce già dentro il pattuito (`bilancia`). Falso = proposta grezza, beni a contratto e servizi ai limiti. */
+  bilancia?: boolean;
 };
 export type Bozza = {
   righe: RigaFatturaInput[]; scadenze: ScadenzaFatturaInput[]; diciture: ChiaveDicitura[];
@@ -111,6 +113,69 @@ function posizioneMarkup(corpo: RigaFatturaInput[]): number {
   return prestazioni >= 0 ? prestazioni : corpo.length;
 }
 
+/** Sotto questa frazione dei limiti i servizi non scendono da soli: oltre, la bozza abbassa i beni. */
+export const FATTORE_MINIMO_SERVIZI = 0.4;
+
+function esitoDi(righe: RigaFatturaInput[], pattuitoCent: number, pattuitoTipo: "lordo" | "imponibile"): EsitoRisolutore {
+  const fisse = righe.filter(r => !r.derivata);
+  const beni = fisse.filter(r => r.tipo === "bene");
+  return risolvi({
+    pattuitoCent, pattuitoTipo,
+    beniSignificativiCent: beni.filter(r => r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0),
+    beniAltriCent: beni.filter(r => !r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0),
+    serviziCent: fisse.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0),
+  });
+}
+
+/**
+ * La bozza nasce con i conti che tornano, come fa la commercialista
+ * (studio delle fatture 2026 del 05/09): il pattuito è fisso, i servizi
+ * partono dai limiti e, se beni e servizi lo superano, prima scendono i
+ * servizi in proporzione (mai sotto `FATTORE_MINIMO_SERVIZI` dei limiti,
+ * arrotondati all'euro per difetto), poi i beni significativi in
+ * proporzione (`riequilibraBeni`), finché il markup non è più negativo.
+ * Con il pattuito capiente non cambia nulla: il markup resta il residuo.
+ * Ogni intervento è scritto nelle avvertenze; l'operatore può sempre
+ * rimettere mano a servizi e beni.
+ */
+export function bilancia(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; avvertenze: string[] } {
+  const avvertenze: string[] = [];
+  let righe = input.righe.map(r => ({ ...r }));
+  const m0 = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
+  if (m0 >= 0) return { righe, avvertenze };
+
+  const servizi = righe.filter(r => r.tipo === "servizio" && !r.derivata);
+  const S = servizi.reduce((s, r) => s + r.importoCent, 0);
+  if (S > 0) {
+    // Fattore che azzera il markup se bastano i servizi; sotto il minimo si ferma lì.
+    const fattore = Math.max(FATTORE_MINIMO_SERVIZI, Math.min(1, (S + m0) / S));
+    for (const r of servizi) {
+      r.importoCent = Math.floor((r.importoCent * fattore) / 100) * 100;
+      r.prezzoUnitCent = r.importoCent;
+    }
+    avvertenze.push(`Servizi proposti al ${Math.round(fattore * 100)} % dei limiti perché beni e servizi ai limiti superavano il pattuito.`);
+  }
+
+  // Poi i beni significativi, un passo alla volta: con il pattuito lordo la
+  // prestazione dipende dai beni (IVA mista), quindi si converge in pochi giri.
+  const significativi = righe.filter(r => r.tipo === "bene" && r.beneSignificativo && !r.derivata);
+  let ridotti = 0;
+  for (let giro = 0; giro < 8; giro++) {
+    const esito = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo);
+    const m = esito.markupCent;
+    if (m >= 0 || significativi.length === 0) break;
+    const B = significativi.reduce((s, r) => s + r.importoCent, 0);
+    if (B <= 0) break;
+    // Con il pattuito lordo e B > P ogni euro tolto ai beni ne rende 1,22/0,98 alla
+    // prestazione: si toglie il deficit diviso per quel fattore, poi si ricontrolla.
+    const resa = input.pattuitoTipo === "lordo" && esito.casoBeniSignificativi === "b_maggiore_p" ? 1.22 / 0.98 : 1;
+    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), Math.max(0, B + Math.ceil(m / resa)));
+    significativi.forEach((r, i) => { ridotti += r.importoCent - nuovi[i]; r.importoCent = nuovi[i]; r.prezzoUnitCent = r.importoCent; });
+  }
+  if (ridotti > 0) avvertenze.push(`Beni significativi ridotti di € ${euro(ridotti)} in proporzione per rientrare nel pattuito (markup zero).`);
+  return { righe, avvertenze };
+}
+
 export function ricalcola(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; esito: EsitoRisolutore } {
   const fisse = input.righe.filter(r => !r.derivata);
   const beni = fisse.filter(r => r.tipo === "bene");
@@ -148,8 +213,11 @@ export function generaBozza(input: InputGeneratore): Bozza {
   const famiglie = [...new Set(significative.map(r => FAMIGLIA[r.categoria] ?? r.categoria))];
   righe.push(rigaBase("intestazione", `${DICITURE.beni_significativi} ${famiglie.join(", ")}`.trim(), 0, null));
 
+  // I beni non significativi (persiane, tapparelle, zanzariere, grate, tende)
+  // stanno nella prestazione: 10 % sulla riga, come nelle fatture reali 2026
+  // («beni dotati di autonomia funzionale»). Il risolutore li conta già in P.
   const bene = (r: RigaContratto): RigaFatturaInput => ({
-    ...rigaBase("bene", descrizioneRigaBene(r), r.prezzoTotCent ?? 0, 22), rigaCommessaId: r.id, beneSignificativo: r.beneSignificativo,
+    ...rigaBase("bene", descrizioneRigaBene(r), r.prezzoTotCent ?? 0, r.beneSignificativo ? 22 : 10), rigaCommessaId: r.id, beneSignificativo: r.beneSignificativo,
   });
   for (const r of input.righe) {
     if (r.prezzoTotCent == null) { avvertenze.push(`Riga "${r.descrizione}" senza prezzo: non è in fattura.`); continue; }
@@ -184,7 +252,11 @@ export function generaBozza(input: InputGeneratore): Bozza {
     avvertenze.push("Computo assente: nessun servizio proposto.");
   }
 
-  const { righe: complete, esito } = ricalcola({ righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
+  const bilanciate = input.bilancia === false
+    ? { righe, avvertenze: [] as string[] }
+    : bilancia({ righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
+  avvertenze.push(...bilanciate.avvertenze);
+  const { righe: complete, esito } = ricalcola({ righe: bilanciate.righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
   avvertenze.push(...esito.avvertenze);
 
   const praticaEdilizia = input.cliente?.praticaEdilizia ?? "nessuna";

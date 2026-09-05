@@ -114,12 +114,15 @@ export default function FatturaEmessaView({
   commessaId,
   fatturaId,
   puoNotaCredito,
+  puoEmettere = false,
   onApriFattura,
   onCambiato,
 }: {
   commessaId: number;
   fatturaId: number;
   puoNotaCredito: boolean;
+  /** Con `fattura.emit`: un'emissione interrotta («in emissione» senza documento FiC) si riprende da qui. */
+  puoEmettere?: boolean;
   /** La nota di credito nasce in bozza: la tab passa subito su di lei. */
   onApriFattura: (id: number) => void;
   /**
@@ -148,6 +151,19 @@ export default function FatturaEmessaView({
           : "Nessun cambiamento dallo SdI"
       );
       if (esito.cambiato) onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  // Un'emissione fermata a metà (es. errore di rete o di Fatture in Cloud
+  // prima del documento) resta «in emissione»: i passi sono idempotenti,
+  // rilanciare `emetti` riprende da dove si era fermata.
+  const riprendi = trpc.fatture.emetti.useMutation({
+    onSuccess: esito => {
+      void utils.fatture.byId.invalidate({ id: fatturaId });
+      void utils.fatture.perCommessa.invalidate({ commessaId });
+      toast.success(`Emissione ripresa: ${esito.fattura.stato}`);
+      onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });
@@ -202,6 +218,7 @@ export default function FatturaEmessaView({
   // Il pulsante che il server rifiuterebbe non si mostra: chiedere lo stato
   // di una fattura senza documento FiC è una `PRECONDIZIONE` sicura.
   const puoSondare = f.ficDocumentId != null && STATI_SONDABILI.has(stato);
+  const puoRiprendere = puoEmettere && stato === "in_emissione";
   const puoStornare =
     puoNotaCredito && f.tipo === "fattura" && STATI_STORNABILI.has(stato);
   const annullataIl =
@@ -277,6 +294,17 @@ export default function FatturaEmessaView({
               {scaricando === "xml" ? "Scarico…" : "Scarica XML"}
             </Button>
           )}
+          {puoRiprendere && (
+            <Button
+              size="sm"
+              className="h-9"
+              disabled={riprendi.isPending}
+              onClick={() => riprendi.mutate({ id: f.id, revisione: f.revisione })}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              {riprendi.isPending ? "Riprendo…" : "Riprendi emissione"}
+            </Button>
+          )}
           {puoSondare && (
             <Button
               variant="outline"
@@ -302,6 +330,7 @@ export default function FatturaEmessaView({
           {!f.pdfStorageKey &&
             !f.xmlStorageKey &&
             !puoSondare &&
+            !puoRiprendere &&
             !puoStornare && (
               <span className="text-xs text-text-3">
                 Nessuna azione disponibile in questo stato.

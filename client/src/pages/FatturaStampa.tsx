@@ -68,6 +68,11 @@ export default function FatturaStampa() {
   const cfg = config.data?.config ?? null;
   const s = sede.data ?? null;
   const diciture = f.diciture.map(testoDicitura).filter(Boolean);
+  // Il piè di pagina della sede ripete spesso le condizioni di pagamento già
+  // scelte come dicitura: si stampa una volta sola.
+  const compatta = (t: string) => t.replace(/\s+/g, " ").trim().toLowerCase();
+  const testoCorpo = compatta([...diciture, f.note ?? ""].join(" "));
+  const footerDuplicato = !!cfg?.dicituraFooter && compatta(cfg.dicituraFooter).split(/(?<=[.)])\s/).some(r => r.length > 20 && testoCorpo.includes(r));
   const titoloPagina = `${testa.titolo} — ${cliente?.nome ?? "cliente"}`;
 
   return (
@@ -216,7 +221,7 @@ export default function FatturaStampa() {
         </section>
       )}
 
-      {cfg?.dicituraFooter && (
+      {cfg?.dicituraFooter && !footerDuplicato && (
         <footer className="testo" style={{ marginTop: 24, borderTop: "1px solid #ddd", paddingTop: 8, fontSize: 11 }}>
           {cfg.dicituraFooter}
         </footer>
