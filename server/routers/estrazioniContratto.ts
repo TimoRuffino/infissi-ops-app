@@ -132,7 +132,7 @@ export const estrazioniContrattoRouter = router({
           contratto: input.contratto,
           righe: input.righe,
           actorUserId: ctx.user.id,
-          actorNome: ctx.user.name ?? null,
+          actorNome: ctx.user.name,
         });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
@@ -146,7 +146,9 @@ export const estrazioniContrattoRouter = router({
     .input(
       z.object({
         estrazioneId: z.number().int(),
-        motivo: z.string().trim().max(500).nullable().optional(),
+        // Stesso limite del motivo delle note di credito e dello scavalco
+        // dei limiti in fatture.ts: un motivo è una riga, non una relazione.
+        motivo: z.string().trim().max(300).nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {

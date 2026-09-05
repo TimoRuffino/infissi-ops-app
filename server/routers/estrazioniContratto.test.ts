@@ -9,8 +9,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
 import type { TrpcContext } from "../_core/context";
+import { pdfConTesto } from "../documenti/pdfMinimo";
+import { creaProviderFinto, rispostaTesto } from "../tars/openai/fake";
 import { creaCommessa } from "./commesse";
 import { getClientiStore } from "./clienti";
+import { caricaDocumentoCommessaDaBuffer } from "./preventiviContratti";
 
 vi.mock("../contratti/estrazione/servizio", async importOriginal => {
   const actual = await importOriginal<typeof import("../contratti/estrazione/servizio")>();
@@ -19,6 +22,15 @@ vi.mock("../contratti/estrazione/servizio", async importOriginal => {
 
 import { applicaEstrazione, eseguiEstrazioneContratto } from "../contratti/estrazione/servizio";
 import { appRouter } from "../routers";
+
+// `scarta` non è mockato: legge e scrive il repository di DEFAULT, quindi
+// l'estrazione da scartare deve esistere davvero lì. `importActual` dà
+// l'implementazione originale di `eseguiEstrazioneContratto` senza il mock;
+// `repository.ts` non è mockato, quindi il singleton è lo stesso modulo che
+// vede il router — è questo a rendere il test un test del router e non del
+// suo doppio.
+const servizioReale =
+  await vi.importActual<typeof import("../contratti/estrazione/servizio")>("../contratti/estrazione/servizio");
 
 function context(sedeId: number, userId: number, ruoli: string[]): TrpcContext {
   return {
@@ -49,6 +61,76 @@ async function nuovaCommessa(sedeId = 1): Promise<number> {
   clienti.push(cliente);
   const creata = await creaCommessa(context(sedeId, 1, ["direzione"]), { clienteId: cliente.id } as any);
   return (creata as any).commessa?.id ?? (creata as any).id;
+}
+
+// Documento e risposta del modello sintetici (nessun contratto reale):
+// stessa coppia di server/contratti/estrazione/servizio.test.ts, ridotta a
+// una riga — al router serve solo un'estrazione in stato "proposta".
+const RIGHE_DOCUMENTO = [
+  "CONTRATTO DI FORNITURA E POSA",
+  "Finestra 2 ante PVC",
+  "Larghezza 1200 mm Altezza 1400 mm - quantita 1 - 1.000,00 EUR",
+  "Totale IVA Inclusa 1.000,00 EUR",
+];
+
+const ESITO_MODELLO = {
+  righe: [
+    {
+      descrizione: "Finestra 2 ante PVC",
+      tipoProdotto: "finestra",
+      materiale: "pvc",
+      nAnte: 2,
+      quantita: 1,
+      larghezzaMm: 1200,
+      altezzaMm: 1400,
+      prezzoTotale: 1000,
+      prezzoUnitario: null,
+      oscuranteAbbinato: "nessuno",
+      lamelleOrientabili: false,
+      accessori: [],
+      pagina: 1,
+      frammento: "Finestra 2 ante PVC",
+    },
+  ],
+  pattuito: {
+    totaleLordo: 1000,
+    totaleImponibile: null,
+    ivaDescrizione: null,
+    pagina: 1,
+    frammento: "Totale IVA Inclusa 1.000,00 EUR",
+  },
+  posa: { inclusa: false, prezzo: null, descrizione: null, pagina: 1, frammento: "" },
+  rate: [],
+  cantiere: { indirizzo: null, comune: null, provincia: null, piano: null, pagina: 1, frammento: "" },
+  cliente: { nome: null, codiceFiscale: null, pagina: 1, frammento: "" },
+  dataDocumento: null,
+  dataFirma: null,
+  riferimento: null,
+  detrazione: "non_indicata",
+  note: "",
+};
+
+/** Estrazione vera nel repository di default: commessa, documento PDF, provider finto. */
+async function estrazioneReale(sedeId: number): Promise<{ commessaId: number; estrazioneId: number }> {
+  const commessaId = await nuovaCommessa(sedeId);
+  const documento = await caricaDocumentoCommessaDaBuffer({
+    commessaId,
+    nome: "Contratto.pdf",
+    tipo: "contratto",
+    mimeType: "application/pdf",
+    buffer: pdfConTesto(RIGHE_DOCUMENTO),
+    sedeId,
+    createdBy: 1,
+    keepNome: true,
+  });
+  const { estrazione } = await servizioReale.eseguiEstrazioneContratto({
+    sedeId,
+    commessaId,
+    documentoId: documento.id,
+    actorUserId: 1,
+    provider: creaProviderFinto(() => rispostaTesto(JSON.stringify(ESITO_MODELLO))),
+  });
+  return { commessaId, estrazioneId: estrazione.id };
 }
 
 // Stessa forma di server/routers/contratti.test.ts: valori di
@@ -141,6 +223,52 @@ describe("router estrazioniContratto — sede", () => {
       code: "NOT_FOUND",
     });
     expect(eseguiEstrazioneContratto).not.toHaveBeenCalled();
+  });
+
+  it("applica su una commessa di un'altra sede è NOT_FOUND e non raggiunge il servizio", async () => {
+    const commessaId = await nuovaCommessa(1);
+    const altra = appRouter.createCaller(context(2, 40, ["direzione"]));
+    await expect(
+      altra.estrazioniContratto.applica({ commessaId, estrazioneId: 1, contratto: contrattoValido, righe: [rigaValida] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: "Commessa non trovata." });
+    expect(applicaEstrazione).not.toHaveBeenCalled();
+  });
+
+  it("scarta un'estrazione di un'altra sede è NOT_FOUND (il repository scopa per sede)", async () => {
+    // Niente commessaId in input: la garanzia di sede sta tutta nel
+    // `perId(sedeId, id)` del repository. L'id esiste davvero — è solo
+    // invisibile alla sede 2 — e il messaggio non dice altro.
+    const { estrazioneId } = await estrazioneReale(1);
+    const altra = appRouter.createCaller(context(2, 40, ["direzione"]));
+    await expect(altra.estrazioniContratto.scarta({ estrazioneId })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Estrazione non trovata.",
+    });
+  });
+});
+
+describe("router estrazioniContratto — scarta", () => {
+  it("scarta la proposta e registra il motivo", async () => {
+    const { estrazioneId } = await estrazioneReale(1);
+    const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
+
+    const scartata = await direzione.estrazioniContratto.scarta({ estrazioneId, motivo: "doppione" });
+
+    expect(scartata.stato).toBe("scartata");
+    expect(scartata.scartataMotivo).toBe("doppione");
+
+    // La proposta si prende una volta sola: la seconda chiamata trova uno
+    // stato che non è più "proposta" (PRECONDIZIONE → PRECONDITION_FAILED).
+    await expect(direzione.estrazioniContratto.scarta({ estrazioneId })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+  });
+
+  it("il motivo si ferma a 300 caratteri, come in fatture.ts", async () => {
+    const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
+    await expect(
+      direzione.estrazioniContratto.scarta({ estrazioneId: 1, motivo: "x".repeat(301) })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
 
