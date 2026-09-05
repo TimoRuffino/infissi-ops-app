@@ -97,11 +97,18 @@ function esitoFattura(i: IngressoPassi): EsitoPasso {
  * commessa, altrimenti sembra che manchi ancora tutto mentre invece si sta
  * rifatturando. Il chiamante passa `fatture` in ordine cronologico
  * (dalla più vecchia): l'ultima non annullata è la più recente.
+ *
+ * Ruling P4-R2: solo `tipo === "fattura"` conta. Una nota di credito può
+ * convivere con la fattura vera già emessa (è nata per correggerla) e non
+ * deve mai mascherarne lo stato — la bozza della nota di credito non è la
+ * bozza della fattura della commessa.
  */
 function ultimoStatoNonAnnullato(
   fatture: IngressoPassi["fatture"]
 ): string | null {
-  const attive = fatture.filter((f) => f.stato !== "annullata");
+  const attive = fatture.filter(
+    (f) => f.tipo === "fattura" && f.stato !== "annullata"
+  );
   return attive.length > 0 ? attive[attive.length - 1].stato : null;
 }
 
@@ -110,12 +117,16 @@ function ultimoStatoNonAnnullato(
  * esiste già — è un importo vero, non una stima — altrimenti il pattuito,
  * lordo com'è o, se il pattuito è imponibile, maggiorato del 10% e
  * dichiarato come stima. Senza contratto non c'è base per prevedere nulla.
+ *
+ * Ruling P4-R2: stesso confine di `ultimoStatoNonAnnullato` — la bozza di
+ * una nota di credito non è l'importo di fattura atteso della commessa.
  */
 function prevediFattura(
   i: IngressoPassi
 ): Pick<RisultatoPassi, "fatturaPrevistaCent" | "fatturaPrevistaStima"> {
   const bozza = i.fatture.find(
-    (f) => f.stato === "bozza" || f.stato === "in_emissione"
+    (f) =>
+      f.tipo === "fattura" && (f.stato === "bozza" || f.stato === "in_emissione")
   );
   if (bozza) {
     return { fatturaPrevistaCent: bozza.totaleCent, fatturaPrevistaStima: false };

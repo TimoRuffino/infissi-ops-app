@@ -45,6 +45,7 @@ import { computoRouter } from "./routers/computo";
 import { tariffeRouter } from "./routers/tariffe";
 import { fattureRouter } from "./routers/fatture";
 import { fatturazioneConfigRouter } from "./routers/fatturazioneConfig";
+import { fatturazioneGuidataRouter } from "./routers/fatturazioneGuidata";
 import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
 import {
@@ -214,6 +215,7 @@ export const appRouter = router({
   tariffe: tariffeRouter,
   fatture: fattureRouter,
   fatturazioneConfig: fatturazioneConfigRouter,
+  fatturazioneGuidata: fatturazioneGuidataRouter,
   proposte: proposteRouter,
   tars: tarsRouter,
 });

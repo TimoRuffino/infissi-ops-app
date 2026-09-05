@@ -184,4 +184,39 @@ describe("calcolaPassi", () => {
     expect(r.fatturaStato).toBeNull();
     expect(r.fatturaPrevistaCent).toBeNull();
   });
+
+  // Ruling P4-R2: una nota di credito può convivere con la fattura vera già
+  // emessa (nasce apposta per correggerla) e non deve mai mascherarne lo
+  // stato o l'importo — né quando la fattura è emessa, né quando manca del
+  // tutto.
+  it("(j) una nota di credito in bozza non è la fattura attesa: contano lo stato e l'importo della fattura vera", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 3, pattuitoCent: 5_200_000, pattuitoTipo: "lordo" },
+        computo: { valido: true, esito: "ok" },
+        fatture: [
+          { stato: "emessa", totaleCent: 5_000_000, tipo: "fattura" },
+          { stato: "bozza", totaleCent: 300_000, tipo: "nota_credito" },
+        ],
+      })
+    );
+    expect(r.passi.fattura).toBe("fatto");
+    // Non "bozza" (quella è della nota di credito): la fattura è emessa.
+    expect(r.fatturaStato).toBe("emessa");
+    // Nessuna bozza di tipo fattura: l'importo previsto torna al pattuito,
+    // non ai 300_000 della nota di credito.
+    expect(r.fatturaPrevistaCent).toBe(5_200_000);
+    expect(r.fatturaPrevistaStima).toBe(false);
+  });
+
+  it("(j-bis) una nota di credito da sola, senza alcuna fattura, non vale come stato né come importo previsto", () => {
+    const r = calcolaPassi(
+      ingresso({
+        fatture: [{ stato: "bozza", totaleCent: 300_000, tipo: "nota_credito" }],
+      })
+    );
+    expect(r.fatturaStato).toBeNull();
+    expect(r.fatturaPrevistaCent).toBeNull();
+    expect(r.fatturaPrevistaStima).toBe(false);
+  });
 });
