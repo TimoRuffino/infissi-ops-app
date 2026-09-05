@@ -266,7 +266,12 @@ export async function salvaContratto(input: {
         avvertenze.push(`Riga ${r.ordine}: tipologia DEI mancante o non valida: il CHECK2 sarà incompleto.`);
       }
     }
-    if (r.oscuranteIntegrato) {
+    // Un cassonetto abbinato (blocco B del foglio, H7) dichiara solo il
+    // massimale B: la tapparella che ospita è già la voce DEI della riga del
+    // serramento, non una seconda voce di questa riga — stessa eccezione del
+    // motore (motore.ts, `cassonettoAbbinato`).
+    const cassonettoAbbinato = r.categoria === "cassonetto" && !r.oscuranteTipologia;
+    if (r.oscuranteIntegrato && !cassonettoAbbinato) {
       const gruppoOscurante = gruppoPerOscurante(r.oscuranteIntegrato);
       const prodottoOscurante = r.oscuranteTipologia ? prodotto(tariffe, r.oscuranteTipologia) : null;
       if (!prodottoOscurante || prodottoOscurante.gruppo !== gruppoOscurante) {

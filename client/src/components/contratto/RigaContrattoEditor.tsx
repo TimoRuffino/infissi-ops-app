@@ -41,12 +41,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-/** L'oscurante integrato si vende insieme al serramento, non alle altre voci. */
-const SERRAMENTI = new Set<CategoriaRiga>([
+/**
+ * L'oscurante integrato si vende insieme al serramento o al cassonetto
+ * abbinato (H7, blocco B del foglio: il cassonetto pesa nel massimale B
+ * invece che in A). Sulle altre voci non ha senso: un oscurante venduto da
+ * solo è già la sua riga.
+ */
+const CON_OSCURANTE_ABBINATO = new Set<CategoriaRiga>([
   "serramento_pvc",
   "serramento_alluminio",
   "serramento_legno",
   "serramento_legno_alluminio",
+  "cassonetto",
 ]);
 
 const ETICHETTA_OSCURANTE: Record<OscuranteIntegrato, string> = {
@@ -282,7 +288,7 @@ export default function RigaContrattoEditor({
         </Label>
       </div>
 
-      {SERRAMENTI.has(riga.categoria) && (
+      {CON_OSCURANTE_ABBINATO.has(riga.categoria) && (
         <div className="grid gap-2 md:grid-cols-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-text-3 shrink-0">Oscurante</span>

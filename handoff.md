@@ -2582,10 +2582,43 @@ Procedere comunque?» — e lo scavalco resta registrato.
   `TariffeLimitiPanel` è sola lettura; il seed si aggiorna solo rigenerando
   `shared/limiti/tariffe-seed.json` da `scripts/estrai-tariffe-limiti.py`,
   non da UI.
-- Fixture d'oro da estendere: i tre casi in `casi-reali.json` coprono
-  serramenti PVC/alluminio; mancano fogli reali con tapparelle, cassonetti
-  e legno per chiudere la copertura delle altre famiglie di prodotto —
-  **da chiedere alla direzione** (v. «Debito aperto prioritario» qui sotto).
+- Fixture d'oro estesa dai fogli reali (05/09/2026, Ruling R22):
+  `server/computo/__fixtures__/casi-reali.json` ha ora **20 casi** (i 3
+  storici + 17 nuovi dai 19 fogli «CALCOLO NUOVI LIMITI» compilati nel 2026,
+  mai entrati nel repository — solo misure, codici DEI e totali anonimi
+  escono nel caso). **13 verdi al centesimo**, **7 saltati** con il motivo
+  scritto nel campo `salta` di ciascun caso: non è tolleranza allargata, sono
+  divergenze capite e dichiarate. Si rigenera un caso con
+  `python3 scripts/harvest-fixture-limiti.py <foglio.xlsm> --nome <nome>
+  --detrazione ecobonus|ristrutturazione` (stampa il caso JSON su stdout, i
+  dubbi su stderr; mai il foglio, mai un nome di cliente entra nel
+  repository). L'harvest ha trovato e corretto due bug del motore, già su
+  questo branch: **H1**, la maggiorazione dell'avvolgibile abbinato aveva
+  larghezza e altezza scambiate — i coefficienti del seed sono stati
+  rinominati `avvolgibileExtraLarghezza`/`avvolgibileExtraAltezza` (prima
+  `avvolgibileExtraL`/`avvolgibileExtraH`), stesso valore, dimensione giusta;
+  **H2**, un cassonetto venduto insieme al serramento (blocco B del foglio)
+  pesava nel massimale A invece che in B — nuova chiave `cassonettiB` in
+  `aggregati.ts`. Restano parcheggiate, in attesa di una decisione di
+  direzione o commercialista, quattro divergenze che i casi saltati
+  dichiarano una per una: **H3** le veneziane del blocco D sono a pezzo nel
+  foglio, a mq nel seed; **H4** cinque fogli vengono da un'edizione
+  precedente del listino DEI (44 prezzi diversi dal seed, che è a versione
+  unica); **H5** il foglio somma nei totali solo le opere davvero fatturate
+  (colonna «Da fattura»), il motore un insieme fisso — `OpzioniComputo` non
+  sa escludere una singola opera; **H6** lo stesso foglio prezza
+  l'avvolgibile PVC standard a due prezzi diversi (111,11 €/mq nel primo
+  blocco di «Calcolo Automatici B», 110,63 dal secondo in poi) — un settimo
+  caso resta fuori per una riga senza prodotto oscurante scelto, fail-closed
+  per progetto, nessuna decisione da prendere. **H7** invece è chiuso in
+  questo giro: il form dichiara l'oscurante abbinato anche su una riga
+  cassonetto (`RigaContrattoEditor`, stesso filtro `prodottiPerOscurante` dei
+  serramenti) e le avvertenze «oscurante senza voce DEI» (servizio e
+  `contrattoView`) non scattano più su un cassonetto abbinato senza una
+  tipologia propria — la tapparella che ospita è già la voce DEI della riga
+  del serramento, non una seconda voce di questa riga (stessa eccezione di
+  `motore.ts`, spec §2.1). Resta da raccogliere un foglio reale con
+  serramenti in legno: nessuno dei 19 lo usa.
 - Debito tecnico minore: i test di servizio di `server/contratti` e
   `server/computo` non possono forzare il repository in memoria quando
   `DATABASE_URL` è impostata — `getContrattiRepository`/`getComputiRepository`
@@ -3331,12 +3364,17 @@ anche la commessa) resta al controller.
     campo→consumer, sorte dei dati. Annotazione in
     `server/routers/produzione.ts`; la vecchia route reindirizza a
     `/kanban` (test in `server/routers/produzionePagina.test.ts`).
-14. **Fixture d'oro del computo**: 2–3 fogli compilati reali; finché
-    mancano, il gate resta un avviso da confermare. I tre casi già in
-    `server/computo/__fixtures__/casi-reali.json` (fatture 127/129/130
-    2026) coprono solo serramenti PVC/alluminio; servono fogli reali con
-    tapparelle, cassonetti e legno per le altre famiglie — **da chiedere
-    alla direzione** (v. §11-vicies terdecies).
+14. **Fixture d'oro del computo**: harvest chiuso il 05/09/2026 (Ruling
+    R22) — `server/computo/__fixtures__/casi-reali.json` è passato da 3 a
+    **20 casi** (13 verdi al centesimo); tapparelle, persiane, scuri e
+    cassonetti sono ora coperti, resta solo un foglio reale con serramenti
+    in legno (v. §11-vicies terdecies). Restano parcheggiate, in attesa di
+    una decisione di direzione o commercialista, le quattro divergenze
+    H3-H6 dello stesso harvest (veneziane a pezzo o a mq, cinque fogli su
+    un'edizione precedente del listino DEI, l'inclusione «solo fatturato»
+    che `OpzioniComputo` non sa rappresentare, il doppio prezzo
+    dell'avvolgibile PVC standard nello stesso foglio): finché non
+    arrivano, i casi che le toccano restano `salta` in fixture.
 15. **Fatturazione dal contratto (piano 2, 04/09/2026)**: PEC, codice
     destinatario e `ficEntityId` del cliente sono campi server
     (`clienti.update`) senza UI nel form cliente — verificato, nessun

@@ -237,6 +237,29 @@ describe("contrattoView", () => {
     expect(avvisiForm([conVoce], [])).toEqual([]);
   });
 
+  it("un cassonetto abbinato non ha bisogno di una voce DEI propria per l'oscurante (H7)", () => {
+    const prodotti = [
+      prodotto({ codice: "C25096-b", gruppo: "cassonetto", famiglia: "pvc_fino_110", nome: "Cassonetto PVC" }),
+      prodotto({ codice: "C25077-c", nome: "PVC finestra a 2 ante" }), // gruppo "serramento": sbagliato per l'oscurante
+    ];
+    const cassonetto = {
+      ...rigaVuota("cassonetto"),
+      descrizione: "Cassonetto",
+      tipologia: "C25096-b",
+      oscuranteIntegrato: "tapparella" as const,
+    };
+    // Il cassonetto abbinato (blocco B del foglio) non ha una tipologia
+    // propria per l'oscurante: la tapparella che ospita è già la voce DEI
+    // della riga del serramento, non una seconda voce di questa riga —
+    // stessa eccezione di motore.ts (spec §2.1).
+    expect(avvisiForm([cassonetto], prodotti)).toEqual([]);
+    // Ma se la tipologia è scritta ed è di un gruppo sbagliato, l'avviso
+    // torna: l'esenzione vale solo a campo vuoto, non sempre.
+    expect(avvisiForm([{ ...cassonetto, oscuranteTipologia: "C25077-c" }], prodotti)).toEqual([
+      expect.stringMatching(/oscurante/i),
+    ]);
+  });
+
   it("il catalogo si filtra per categoria, zona e oscurante", () => {
     const prodotti = [
       prodotto({ codice: "pvc-1" }),

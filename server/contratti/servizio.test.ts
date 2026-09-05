@@ -131,6 +131,26 @@ describe("servizio contratto", () => {
     expect(esito.avvertenze).toEqual([]);
   });
 
+  it("un cassonetto abbinato (H7) non segnala «oscurante senza voce DEI» quando la tipologia è vuota", async () => {
+    const commessaId = await commessaDiProva();
+    const righeCassonetto = [
+      { ...righe[0], tipologia: "C25077-e" },
+      {
+        ...righe[1],
+        categoria: "cassonetto" as const,
+        tipologia: "C25096-b", // cassonetto PVC bianco fino a 110 mm
+        oscuranteIntegrato: "tapparella" as const,
+        oscuranteTipologia: null,
+        accessori: [],
+      },
+    ];
+    const esito = await salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeCassonetto, actorUserId: 5 });
+    // La tapparella che il cassonetto ospita (blocco B del foglio) è già la
+    // voce DEI della riga del serramento: questa riga non ne ha bisogno di
+    // una propria, quindi il salvataggio non avvisa niente.
+    expect(esito.avvertenze).toEqual([]);
+  });
+
   // ── Fix round 1 (review): R12 — atomicità dello specchio ────────────────
 
   it("se lo specchio del pattuito lancia, il contratto resta salvato e l'errore diventa un'avvertenza (R12)", async () => {

@@ -409,7 +409,12 @@ export function avvisiForm(
       const avviso = avvisoVoce(r.tipologia, gruppo, "senza voce DEI il computo resterà incompleto.");
       if (avviso) avvisi.push(`${prefisso}: ${avviso}`);
     }
-    if (r.oscuranteIntegrato) {
+    // Un cassonetto abbinato (blocco B del foglio, H7) dichiara solo il
+    // massimale: la tapparella che ospita è già la voce DEI della riga del
+    // serramento, non una seconda voce di questa riga — stessa eccezione di
+    // motore.ts (§2.1 della spec).
+    const cassonettoAbbinato = r.categoria === "cassonetto" && !r.oscuranteTipologia;
+    if (r.oscuranteIntegrato && !cassonettoAbbinato) {
       const avviso = avvisoVoce(
         r.oscuranteTipologia,
         gruppoPerOscurante(r.oscuranteIntegrato),
