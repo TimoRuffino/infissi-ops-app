@@ -1,8 +1,7 @@
 {
- "edizione": "corrente",
- "versione": "2026-09-04",
- "fonte": "CALCOLO NUOVI LIMITI.xlsx",
- "validoDal": "2022-04-15",
+ "versione": "2026-09-06",
+ "fonte": "CALCOLO NUOVI LIMITI - Ver.32 - DEI 1 sem - 2023.xlsm",
+ "validoDal": "2023-01-01",
  "massimali": [
   {
    "gruppo": "A",
@@ -153,7 +152,7 @@
    "gruppo": "serramento",
    "famiglia": "pvc",
    "nome": "PVC portafinestra 2 ante, a battente",
-   "prezzo": 680.41,
+   "prezzo": 601.33,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -420,7 +419,7 @@
    "gruppo": "serramento",
    "famiglia": "alluminio",
    "nome": "ALLUMINIO portafinestra 1 anta, a battente Zone Climatiche C-D",
-   "prezzo": 517.54,
+   "prezzo": 554.68,
    "unita": "mq",
    "foglio": "A",
    "zone": [
@@ -436,7 +435,7 @@
    "gruppo": "serramento",
    "famiglia": "alluminio",
    "nome": "ALLUMINIO portafinestra 2 ante, a battente Zone Climatiche C-D",
-   "prezzo": 505.86,
+   "prezzo": 547.34,
    "unita": "mq",
    "foglio": "A",
    "zone": [
@@ -740,7 +739,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 55 x 98 cm",
-   "prezzo": 646.53,
+   "prezzo": 561.71,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -753,7 +752,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 66 x 118 cm",
-   "prezzo": 719.88,
+   "prezzo": 635.61,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -766,7 +765,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 78 x 98 cm",
-   "prezzo": 714.74,
+   "prezzo": 629.32,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -779,7 +778,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 78 x 140 cm",
-   "prezzo": 795.82,
+   "prezzo": 708.57,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -792,7 +791,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 94 x 98 cm",
-   "prezzo": 779.09,
+   "prezzo": 692.23,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -805,7 +804,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 114 x 70 cm",
-   "prezzo": 874.32,
+   "prezzo": 786.58,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -818,7 +817,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 114 x 118 cm",
-   "prezzo": 892.34,
+   "prezzo": 805.44,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -831,7 +830,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX manuale 134 x 140 cm",
-   "prezzo": 1031.34,
+   "prezzo": 943.84,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -844,7 +843,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 55 x 98 cm",
-   "prezzo": 906.24,
+   "prezzo": 1073.41,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -857,7 +856,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 66 x 118 cm",
-   "prezzo": 965.96,
+   "prezzo": 1147.63,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -870,7 +869,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 78 x 98 cm",
-   "prezzo": 960.81,
+   "prezzo": 1141.34,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -883,7 +882,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 78 x 140 cm",
-   "prezzo": 1023.62,
+   "prezzo": 1220.6,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -896,7 +895,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 94 x 98 cm",
-   "prezzo": 1011.26,
+   "prezzo": 1204.25,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -909,7 +908,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 114 x 70 cm",
-   "prezzo": 1086.42,
+   "prezzo": 1298.6,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -922,7 +921,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 114 x 118 cm",
-   "prezzo": 1101.87,
+   "prezzo": 1317.46,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -935,7 +934,7 @@
    "gruppo": "serramento",
    "famiglia": "velux",
    "nome": "VELUX motorizzata 134 x 140 cm",
-   "prezzo": 1213.06,
+   "prezzo": 1455.85,
    "unita": "mq",
    "foglio": "A",
    "zone": null,
@@ -1204,7 +1203,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "alluminio",
    "nome": "Alluminio coibentato - stecche da 55 mm",
-   "prezzo": 117.64,
+   "prezzo": 135.18,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": 1.8
@@ -1214,7 +1213,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "alluminio",
    "nome": "Alluminio coibentato - stecche da 45 mm",
-   "prezzo": 122.66,
+   "prezzo": 141.8,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": 1.8
@@ -1224,7 +1223,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "acciaio",
    "nome": "Acciaio coibentato - stecche da 40 mm",
-   "prezzo": 109.79,
+   "prezzo": 179.52,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": 1.8
@@ -1234,7 +1233,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "acciaio",
    "nome": "Acciaio coibentato - stecche da 55 mm",
-   "prezzo": 105.52,
+   "prezzo": 166.97,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": 1.8
@@ -1244,7 +1243,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "alluminio_pvc",
    "nome": "Alluminio PVC coibentate",
-   "prezzo": 123.49,
+   "prezzo": 141.02,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": 1.8
@@ -1254,7 +1253,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 55 X 98 cm",
-   "prezzo": 461.92,
+   "prezzo": 534.29,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1264,7 +1263,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 66 X 118 cm",
-   "prezzo": 492.81,
+   "prezzo": 569.52,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1274,7 +1273,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 78 X 98 cm",
-   "prezzo": 483.8,
+   "prezzo": 559.45,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1284,7 +1283,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 78 X 140 cm",
-   "prezzo": 522.41,
+   "prezzo": 605.99,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1294,7 +1293,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 94 X 98 cm",
-   "prezzo": 518.55,
+   "prezzo": 600.96,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1304,7 +1303,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 114 X 70 cm",
-   "prezzo": 536.57,
+   "prezzo": 621.08,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1314,7 +1313,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 114 X 118 cm",
-   "prezzo": 571.32,
+   "prezzo": 662.6,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1324,7 +1323,7 @@
    "gruppo": "avvolgibile",
    "famiglia": "velux",
    "nome": "Tapp. VELUX - 134 X 140 cm",
-   "prezzo": 638.24,
+   "prezzo": 740.61,
    "unita": "mq",
    "foglio": "B",
    "minimoMq": null
@@ -1618,319 +1617,176 @@
    "foglio": "B"
   },
   {
-   "codice": "C55001-a",
+   "codice": "C55039-a",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 3 m a 4 m",
-   "prezzo": 648.65,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza fino a 4 m - prof. da 3 m a 4 m",
+   "prezzo": 601.61,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<4]",
    "intervalloH": "[<4]"
   },
   {
-   "codice": "C55001-b",
+   "codice": "C55039-b",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 4 m a 5 m",
-   "prezzo": 590.35,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza fino a 4 m - prof. da 4 m a 5 m",
+   "prezzo": 576.99,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<4]",
    "intervalloH": "(4-5]"
   },
   {
-   "codice": "C55001-c",
+   "codice": "C55039-c",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 5 m a 8 m",
-   "prezzo": 621.36,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza fino a 4 m - prof. da 5 m a 6 m",
+   "prezzo": 540.95,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<4]",
-   "intervalloH": "(5-8]"
+   "intervalloH": "(5-6]"
   },
   {
-   "codice": "C55001-d",
+   "codice": "C55040-a",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza fino a 4 m - prof. da 8 m a 10 m",
-   "prezzo": 588.93,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "[<4]",
-   "intervalloH": "(>8)"
-  },
-  {
-   "codice": "C55002-a",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 3 m a 4 m",
-   "prezzo": 584.94,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza oltre 4 m - prof. da 3 m a 4 m",
+   "prezzo": 543.82,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>4)",
    "intervalloH": "[<4]"
   },
   {
-   "codice": "C55002-b",
+   "codice": "C55040-b",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 4 m a 5 m",
-   "prezzo": 543.24,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza oltre 4 m - prof. da 4 m a 5 m",
+   "prezzo": 529.69,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>4)",
    "intervalloH": "(4-5]"
   },
   {
-   "codice": "C55002-c",
+   "codice": "C55040-c",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 5 m a 8 m",
-   "prezzo": 587.64,
+   "nome": "Addossatta alla parete o a sbalzo, schermatura mobile in tessuto retraibile inclinato - larghezza oltre 4 m - prof. da 5 m a 6 m",
+   "prezzo": 498.88,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>4)",
-   "intervalloH": "(5-8]"
+   "intervalloH": "(5-6]"
   },
   {
-   "codice": "C55002-d",
+   "codice": "C55045-a",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con telo retraibile in PVC - larghezza oltre a 4 m - prof. da 8 m a 10 m",
-   "prezzo": 566.8,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza fino a 4 m - prof. da 3 m a 4 m",
+   "prezzo": 1254.35,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "[<4]"
+  },
+  {
+   "codice": "C55045-b",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza fino a 4 m - prof. da 4 m a 5 m",
+   "prezzo": 1184.07,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(4-5]"
+  },
+  {
+   "codice": "C55045-c",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza fino a 4 m - prof. da 5 m a 7 m",
+   "prezzo": 1108.27,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "[<4]",
+   "intervalloH": "(5-7]"
+  },
+  {
+   "codice": "C55046-a",
+   "gruppo": "schermatura",
+   "famiglia": "pergola",
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza oltre 4 m- prof. da 3 m a 4 m",
+   "prezzo": 1126.95,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>4)",
-   "intervalloH": "(>8)"
+   "intervalloH": "[<4]"
   },
   {
-   "codice": "C55003-a",
+   "codice": "C55046-b",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 1.5 m a 2 m",
-   "prezzo": 1103.6,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza oltre 4 m - prof. da 4 m a 5 m",
+   "prezzo": 1074.34,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<3]",
-   "intervalloH": "[<2]"
+   "intervalloL": "(>4)",
+   "intervalloH": "(4-5]"
   },
   {
-   "codice": "C55003-b",
+   "codice": "C55046-c",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 2 m a 2.5 m",
-   "prezzo": 984.17,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili in alluminio integrate - larghezza oltre 4 m - prof. da 5 m a 7 m",
+   "prezzo": 1020.17,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<3]",
-   "intervalloH": "(2-2,5]"
-  },
-  {
-   "codice": "C55003-c",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 2.5 m a 3.5 m",
-   "prezzo": 896.4,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "[<3]",
-   "intervalloH": "(2,5-3]"
-  },
-  {
-   "codice": "C55003-d",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 3 m - prof. da 3.5 m a 4 m",
-   "prezzo": 905.28,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "[<3]",
-   "intervalloH": "(>3]"
-  },
-  {
-   "codice": "C55004-a",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 1.5 m a 2 m",
-   "prezzo": 993.82,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(3-3,5]",
-   "intervalloH": "[<2]"
-  },
-  {
-   "codice": "C55004-b",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 2 m a 2.5 m",
-   "prezzo": 889.7,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(3-3,5]",
-   "intervalloH": "(2-2,5]"
-  },
-  {
-   "codice": "C55004-c",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 2.5 m a 3.5 m",
-   "prezzo": 827.67,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(3-3,5]",
-   "intervalloH": "(2,5-3]"
-  },
-  {
-   "codice": "C55004-d",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza da 3 m a 3,5 m - prof. da 3.5 m a 4 m",
-   "prezzo": 840.28,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(3-3,5]",
-   "intervalloH": "(>3]"
-  },
-  {
-   "codice": "C55005-a",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 1.5 m a 2 m",
-   "prezzo": 918.02,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>3,5)",
-   "intervalloH": "[<2]"
-  },
-  {
-   "codice": "C55005-b",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 2 m a 2.5 m",
-   "prezzo": 831.27,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>3,5)",
-   "intervalloH": "(2-2,5]"
-  },
-  {
-   "codice": "C55005-c",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle orientabili integrate - larguezza fino a 4,5 m - prof. da 2.5 m a 3 m",
-   "prezzo": 844.14,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>3,5)",
-   "intervalloH": "(>2,5)"
-  },
-  {
-   "codice": "C55006-a",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 2 m a 3 m",
-   "prezzo": 831.92,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "[<4,5]",
-   "intervalloH": "[<3]"
+   "intervalloL": "(>4)",
+   "intervalloH": "(5-7]"
   },
   {
    "codice": "C55006-b",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 3 m a 4 m",
-   "prezzo": 742.86,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili e retraibile in alluminio integrate - larghezza fino a 4.5 m - prof. da 3 m a 4 m",
+   "prezzo": 1373.13,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<4,5]",
-   "intervalloH": "(3-4]"
+   "intervalloL": "(>4.5)",
+   "intervalloH": "[<4]"
   },
   {
    "codice": "C55006-c",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 4 m a 5 m",
-   "prezzo": 766.41,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili e retraibile in alluminio integrate - larghezza fino a 4.5 m - prof. da 4 m a 5 m",
+   "prezzo": 1300.59,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<4,5]",
+   "intervalloL": "(>4.5)",
    "intervalloH": "(4-5]"
   },
   {
    "codice": "C55006-d",
    "gruppo": "schermatura",
    "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza fino 4,5 m - prof. da 5 m a 6 m",
-   "prezzo": 735.14,
+   "nome": "Pergola Bioclimatica - schermatura mobile con lamelle frangisole orientabili e retraibile in alluminio integrate - larghezza fino a 4.5 m - prof. da 5 m a 6 m",
+   "prezzo": 1229.69,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<4,5]",
-   "intervalloH": "(>5)"
-  },
-  {
-   "codice": "C55007-a",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 2 m a 3 m",
-   "prezzo": 778.76,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>4,5]",
-   "intervalloH": "[<3]"
-  },
-  {
-   "codice": "C55007-b",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 3 m a 4 m",
-   "prezzo": 692.79,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>4,5]",
-   "intervalloH": "(3-4]"
-  },
-  {
-   "codice": "C55007-c",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 4 m a 5 m",
-   "prezzo": 719.69,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>4,5]",
-   "intervalloH": "(4-5]"
-  },
-  {
-   "codice": "C55007-d",
-   "gruppo": "schermatura",
-   "famiglia": "pergola",
-   "nome": "Alluminio - copertura mobile con lamelle retraibili integrate - larguezza oltre a 4,5 m - prof. da 5 m a 6 m",
-   "prezzo": 691.38,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "(>4,5]",
-   "intervalloH": "(>5)"
-  },
-  {
-   "codice": "C55011",
-   "gruppo": "schermatura",
-   "famiglia": "tenda",
-   "nome": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m",
-   "prezzo": 281.85,
-   "unita": "mq",
-   "foglio": "D",
-   "intervalloL": "[2,5-6]",
-   "intervalloH": "[2,5-3,5]"
+   "intervalloL": "(>4.5)",
+   "intervalloH": "(5-6]"
   },
   {
    "codice": "C55012-a",
    "gruppo": "schermatura",
    "famiglia": "tenda",
-   "nome": "Tenda a guide laterali e telo scorrevole - profondità 2 m",
-   "prezzo": 436.94,
+   "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 2 m",
+   "prezzo": 491.96,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<2]",
@@ -1941,7 +1797,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 2,5 m",
-   "prezzo": 496.14,
+   "prezzo": 560.04,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(2,0-2,5]",
@@ -1952,7 +1808,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 3 m",
-   "prezzo": 607.14,
+   "prezzo": 682.43,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(2,5-3]",
@@ -1963,7 +1819,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 3,5 m",
-   "prezzo": 665.06,
+   "prezzo": 749.03,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(3-3,5]",
@@ -1974,7 +1830,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a caduta - bracci di aggancio in alluminio con inclinazione regolabile - larghezze 4 m",
-   "prezzo": 742.28,
+   "prezzo": 837.84,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>3,5)",
@@ -1985,7 +1841,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a cappotina con richiamo a fune - larghezza fino a 2 m",
-   "prezzo": 338.96,
+   "prezzo": 418.47,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<2]",
@@ -1996,7 +1852,7 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a cappotina con richiamo a fune - larghezza da 2 m a 3 m",
-   "prezzo": 298.58,
+   "prezzo": 387.33,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(2-3]",
@@ -2007,44 +1863,55 @@
    "gruppo": "schermatura",
    "famiglia": "tenda",
    "nome": "Tenda a cappotina con richiamo a fune - larguezza oltre 4 m",
-   "prezzo": 310.49,
+   "prezzo": 359.36,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "(>3]",
    "intervalloH": "[0,8-2]"
   },
   {
-   "codice": "C55014-a",
+   "codice": "C55047-a",
    "gruppo": "schermatura",
    "famiglia": "tenda",
-   "nome": "Tenda a guide laterali e telo scorrevole - profondità 2 m",
-   "prezzo": 268.98,
+   "nome": "Tenda a bracci estensibili - con cassonetto - larghezza fino a 4 m",
+   "prezzo": 359.92,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<4]",
-   "intervalloH": "[<2]"
+   "intervalloH": "[]"
   },
   {
-   "codice": "C55014-b",
+   "codice": "C55047-b",
    "gruppo": "schermatura",
    "famiglia": "tenda",
-   "nome": "Tenda a guide laterali e telo scorrevole - profondità 3 m",
-   "prezzo": 284.75,
+   "nome": "Tenda a bracci estensibili - con cassonetto - larghezza da 4 m a 6 m",
+   "prezzo": 331.15,
    "unita": "mq",
    "foglio": "D",
-   "intervalloL": "[<4]",
-   "intervalloH": "(2-3]"
+   "intervalloL": "(4-6]",
+   "intervalloH": "[]"
   },
   {
-   "codice": "C55014-c",
+   "codice": "C55047-c",
    "gruppo": "schermatura",
    "famiglia": "tenda",
-   "nome": "Tenda a guide laterali e telo scorrevole - profondità 4 m",
-   "prezzo": 306.95,
+   "nome": "Tenda a bracci estensibili - senza casonetto - larghezza fino a 4 m",
+   "prezzo": 222.37,
    "unita": "mq",
    "foglio": "D",
    "intervalloL": "[<4]",
-   "intervalloH": "(>3)"
+   "intervalloH": "[]"
+  },
+  {
+   "codice": "C55047-d",
+   "gruppo": "schermatura",
+   "famiglia": "tenda",
+   "nome": "Tenda a bracci estensibili - senza casonetto - larghezza da 4 m a 6 m",
+   "prezzo": 201.15,
+   "unita": "mq",
+   "foglio": "D",
+   "intervalloL": "(4-6]",
+   "intervalloH": "[]"
   },
   {
    "codice": "C55015-a",
@@ -5357,7 +5224,7 @@
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 60 ÷ 100 mm",
    "unita": "mq",
-   "prezzo": 55.52,
+   "prezzo": 55.75,
    "minimoMq": 1.2
   },
   {
@@ -5365,7 +5232,7 @@
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 101 ÷ 150 mm",
    "unita": "mq",
-   "prezzo": 60.92,
+   "prezzo": 61.15,
    "minimoMq": 1.2
   },
   {
@@ -5373,7 +5240,7 @@
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 151 ÷ 200 mm",
    "unita": "mq",
-   "prezzo": 69.93,
+   "prezzo": 70.16,
    "minimoMq": 1.2
   },
   {
@@ -5381,7 +5248,7 @@
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 201 ÷ 250 mm",
    "unita": "mq",
-   "prezzo": 80.74,
+   "prezzo": 80.97,
    "minimoMq": 1.2
   },
   {
@@ -5389,7 +5256,7 @@
    "famiglia": "Controtelaio in acciao",
    "variante": "profondità 251 ÷ 300 mm",
    "unita": "mq",
-   "prezzo": 89.75,
+   "prezzo": 89.98,
    "minimoMq": 1.2
   },
   {
@@ -5397,7 +5264,7 @@
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 60 ÷ 100 mm",
    "unita": "mq",
-   "prezzo": 64.53,
+   "prezzo": 64.75,
    "minimoMq": 1.2
   },
   {
@@ -5405,7 +5272,7 @@
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 101 ÷ 150 mm",
    "unita": "mq",
-   "prezzo": 69.93,
+   "prezzo": 70.16,
    "minimoMq": 1.2
   },
   {
@@ -5413,7 +5280,7 @@
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 151 ÷ 200 mm",
    "unita": "mq",
-   "prezzo": 78.94,
+   "prezzo": 79.17,
    "minimoMq": 1.2
   },
   {
@@ -5421,7 +5288,7 @@
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 201 ÷ 250 mm",
    "unita": "mq",
-   "prezzo": 88.67,
+   "prezzo": 88.9,
    "minimoMq": 1.2
   },
   {
@@ -5429,7 +5296,7 @@
    "famiglia": "Controtelaio in acciao e legno",
    "variante": "profondità 251 ÷ 300 mm",
    "unita": "mq",
-   "prezzo": 99.48,
+   "prezzo": 99.71,
    "minimoMq": 1.2
   },
   {
@@ -5437,7 +5304,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 1400 mm",
    "unita": "cad",
-   "prezzo": 149.98,
+   "prezzo": 150.21,
    "minimoMq": null
   },
   {
@@ -5445,7 +5312,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 1700 mm",
    "unita": "cad",
-   "prezzo": 162.85,
+   "prezzo": 163.08,
    "minimoMq": null
   },
   {
@@ -5453,15 +5320,23 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 1800 mm",
    "unita": "cad",
-   "prezzo": 175.72,
+   "prezzo": 175.95,
+   "minimoMq": null
+  },
+  {
+   "codice": "C15153-e",
+   "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
+   "variante": "altezza 2000 mm",
+   "unita": "cad",
+   "prezzo": 188.82,
    "minimoMq": null
   },
   {
    "codice": "C15153-d",
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
-   "variante": "altezza 2000 mm",
+   "variante": "altezza 2200 mm",
    "unita": "cad",
-   "prezzo": 188.59,
+   "prezzo": 195.26,
    "minimoMq": null
   },
   {
@@ -5469,7 +5344,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 2400 mm",
    "unita": "cad",
-   "prezzo": 201.46,
+   "prezzo": 201.69,
    "minimoMq": null
   },
   {
@@ -5477,7 +5352,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 2600 mm",
    "unita": "cad",
-   "prezzo": 214.34,
+   "prezzo": 214.56,
    "minimoMq": null
   },
   {
@@ -5485,7 +5360,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 2800 mm",
    "unita": "cad",
-   "prezzo": 227.2,
+   "prezzo": 227.43,
    "minimoMq": null
   },
   {
@@ -5493,7 +5368,7 @@
    "famiglia": "Controtelaio in alluminio a scomparsa per persiane, larghezza da 900 a 1800 mm",
    "variante": "altezza 3000 mm",
    "unita": "cad",
-   "prezzo": 233.64,
+   "prezzo": 233.87,
    "minimoMq": null
   },
   {
@@ -5519,14 +5394,6 @@
    "unita": "m",
    "prezzo": 86.67,
    "minimoMq": null
-  },
-  {
-   "codice": "C25133+C23074-d",
-   "famiglia": "Falso telaio in legno con finale in PVC",
-   "variante": "spalla oltre i 201 mm",
-   "unita": "m",
-   "prezzo": 89.4,
-   "minimoMq": null
   }
  ],
  "opere": [
@@ -5536,7 +5403,7 @@
    "descrizione": "Rilievo misure esecutive presso il cantiere (conteggio al pezzo) - in alternativa alla riga sotto",
    "codiceDei": "M01018",
    "unita": "h",
-   "prezzo": 60.17,
+   "prezzo": 61.22,
    "esclusaDaCheck2": false,
    "inclusaDefault": false
   },
@@ -5546,7 +5413,7 @@
    "descrizione": "Rilievo misure esecutive presso il cantiere (conteggio a foro finestra) - in alternativa alla riga sopra",
    "codiceDei": "M01018",
    "unita": "h",
-   "prezzo": 60.17,
+   "prezzo": 61.22,
    "esclusaDaCheck2": false,
    "inclusaDefault": true
   },
@@ -5556,7 +5423,7 @@
    "descrizione": "Progettazione dell'intervento con analisi nodi di posa (conteggio a foro finestra)",
    "codiceDei": "M01022",
    "unita": "h",
-   "prezzo": 29.84,
+   "prezzo": 30.36,
    "esclusaDaCheck2": false,
    "inclusaDefault": true
   },
@@ -5566,7 +5433,7 @@
    "descrizione": "Sviluppo ordine (conteggio al pezzo)",
    "codiceDei": "M01023",
    "unita": "h",
-   "prezzo": 60.17,
+   "prezzo": 61.22,
    "esclusaDaCheck2": true,
    "inclusaDefault": true
   },
@@ -5663,7 +5530,7 @@
   {
    "codice": "spese_professionali",
    "gruppo": "opere",
-   "descrizione": "Spese professionali: visto di conformità - asseverazione tecnica con computo metrico (messi 600 € di base = Visto Deloitte + Asseverazione / Attestazione Studio 79)",
+   "descrizione": "Spese professionali: visto di conformità - asseverazione tecnica con computo metrico (messi 600 € di base = Visto Deloitte + Asseverazione / Attestazione Studio 79 + fine lavori)",
    "codiceDei": "DM 2016",
    "unita": "fisso",
    "prezzo": 600.0,
@@ -5754,7 +5621,7 @@
   "maggiorazionePiano": 1.3,
   "puliziaFissoEuro": 50,
   "smaltimentoBaseEuro": 150,
-  "smaltimentoEuroMc": 104.69,
+  "smaltimentoEuroMc": 112.64,
   "smaltimentoEuroOnere": 100,
   "smaltimentoMcSerramento": 0.1,
   "smaltimentoMcCassonetto": 0.35,
@@ -5851,19 +5718,20 @@
   "serramento_alluminio": true,
   "serramento_legno": true,
   "serramento_legno_alluminio": true,
-  "cassonetto": false,
-  "tapparella": false,
-  "persiana": false,
-  "scuro": false,
-  "schermatura": false,
-  "zanzariera": false,
-  "tenda": false,
-  "pergola": false,
+  "cassonetto": true,
+  "tapparella": true,
+  "persiana": true,
+  "scuro": true,
+  "schermatura": true,
+  "zanzariera": true,
+  "tenda": true,
+  "pergola": true,
   "porta_blindata": true,
   "portoncino": true,
   "porta_interna": true,
   "accessorio": false,
   "controtelaio": false,
   "altro": false
- }
+ },
+ "edizione": "2023-i"
 }

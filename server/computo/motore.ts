@@ -145,7 +145,11 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
   // Quando la categoria fissa anche la famiglia (pvc, alluminio, legno), un
   // codice di un'altra famiglia sarebbe prezzato con il listino sbagliato:
   // la riga vale come senza voce DEI (fail-closed), non «quasi giusta».
-  if (famiglia && p.famiglia !== famiglia) {
+  // Le finestre da tetto («velux») stanno nel blocco PVC del foglio e nel
+  // capitolo PVC del DEI: una riga serramento_pvc può portarle (fogli reali
+  // 2025 e 2022, fase 1 del 06/09/2026).
+  const famigliaCompatibile = !famiglia || p.famiglia === famiglia || (famiglia === "pvc" && p.famiglia === "velux");
+  if (!famigliaCompatibile) {
     avvertenze.push(`Riga ${n} «${r.descrizione}»: la tipologia ${p.codice} è di famiglia ${p.famiglia}, la categoria richiede ${famiglia} — CHECK2 non calcolabile.`);
     return null;
   }
@@ -241,9 +245,13 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
     dettaglio.oscuranteBase = arrotonda(euroOsc, 2);
   }
 
+  // Le finestre da tetto («velux») non prendono gli accessori del blocco PVC
+  // (coprifili, ribalta): nei fogli reali la riga vale prodotto × mq e basta,
+  // anche quando le caselle degli accessori restano spuntate (fase 1, 06/09/2026).
+  const accessoriApplicabili = p.famiglia === "velux" ? [] : r.accessori;
   // Accessori: quelli del gruppo del prodotto si applicano al prodotto, quelli del gruppo dell'oscurante all'oscurante.
   const perimetro = perimetroM(p, l, h);
-  for (const acc of r.accessori) {
+  for (const acc of accessoriApplicabili) {
     const a = accessorio(t, acc.codice);
     if (!a) {
       avvertenze.push(`Riga ${n}: accessorio «${acc.codice}» non in catalogo, ignorato nel CHECK2.`);

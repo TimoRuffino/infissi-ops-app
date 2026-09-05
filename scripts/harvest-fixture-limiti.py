@@ -57,7 +57,13 @@ import openpyxl  # noqa: E402
 from openpyxl.utils import column_index_from_string, get_column_letter  # noqa: E402
 
 RADICE = Path(__file__).resolve().parents[1]
-SEED = json.loads((RADICE / "shared/limiti/tariffe-seed.json").read_text(encoding="utf-8"))
+SEED_PER_EDIZIONE = {
+    "corrente": "shared/limiti/tariffe-seed.json",
+    "2023-i": "shared/limiti/tariffe-seed-2023-i.json",
+    "2022-ver27": "shared/limiti/tariffe-seed-2022-ver27.json",
+}
+EDIZIONE = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--edizione" and i + 1 < len(sys.argv)), "corrente")
+SEED = json.loads((RADICE / SEED_PER_EDIZIONE[EDIZIONE]).read_text(encoding="utf-8"))
 
 # ── Struttura del foglio SERRAMENTI ────────────────────────────────────────
 # Un blocco per gruppo dell'Allegato A, affiancati sulle stesse righe 7..56.
@@ -426,6 +432,30 @@ def opera(codice):
     return next(o for o in SEED["opere"] if o["codice"] == codice)
 
 
+def tariffe_del_foglio(percorso):
+    """I prezzi unitari delle opere come stanno in QUESTO foglio (CHECK1 colonna E) e il
+    coefficiente €/mc dello smaltimento dalla formula di H29: le copie compilate hanno
+    prezzi ritoccati a mano (sviluppo ordine 31,22 invece di 61,22, spese minime 185
+    invece di 600), e senza registrarli il caso non torna con nessuna edizione."""
+    wv = openpyxl.load_workbook(percorso, data_only=True, read_only=True)["CHECK1"]
+    wf = openpyxl.load_workbook(percorso, data_only=False, read_only=True)["CHECK1"]
+    opere = {}
+    for codice, riga in RIGA_OPERA.items():
+        v = num(wv.cell(riga, 5).value)
+        if v is not None:
+            opere[codice] = round(v, 2)
+    formula = str(wf.cell(29, 8).value or "")
+    m = re.search(r"=E29\+\((\d+(?:\.\d+)?)\*", formula)
+    # Le spese professionali del foglio sono max(E35, 4 % della colonna G «Da
+    # fattura»): una regola sulla fattura, non sul computo. Si registra la base
+    # per sapere quando il foglio ha usato importi fatturati.
+    base_g = 0.0
+    for r in list(range(6, 9)) + [11, 13, 14, 17, 18] + list(range(22, 35)) + list(range(39, 44)):
+        v = num(wv.cell(r, 7).value)
+        if v: base_g += v
+    return {"opere": opere, "smaltimentoEuroMc": float(m.group(1)) if m else None, "speseBaseFoglioEuro": round(base_g, 2)}
+
+
 def costruisci(percorso, nome, detrazione, pct, salta, dia):
     wb = openpyxl.load_workbook(percorso, data_only=True, read_only=True)
     if "SERRAMENTI" not in wb.sheetnames or "CHECK1" not in wb.sheetnames:
@@ -436,6 +466,14 @@ def costruisci(percorso, nome, detrazione, pct, salta, dia):
     zona = testo(cella(inizio, 11, "H")).upper()[:1] or None
     km = prima_numerica(inizio, 17, "C", "L", dia, "INIZIO riga 17 (distanza km)")
     piano = prima_numerica(inizio, 19, "C", "L", dia, "INIZIO riga 19 (piano)")
+    if piano is None:
+        # «T» (terra) o altro testo in E19: per Excel un testo è > 4, quindi il foglio
+        # applica lo stesso il +30 % del tiro al piano. Si riproduce con piano 5 e
+        # lo si dichiara: è un difetto del foglio, non una regola.
+        testi = [testo(cella(inizio, 19, get_column_letter(c))) for c in range(3, 13)]
+        if any(t for t in testi if t and t.strip()):
+            piano = 5
+            dia.avvisa("INIZIO E19 testuale: il foglio applica il tiro al piano maggiorato (testo > 4 in Excel); piano=5 per riprodurlo")
     righe = leggi_righe(wb, dia) + leggi_controtelai(check1, dia)
 
     def h(r):
@@ -523,6 +561,7 @@ def main():
     p.add_argument("--pct", type=float, default=50)
     p.add_argument("--salta", default=None, help="motivo per cui il test salta questo caso")
     p.add_argument("--zitto", action="store_true", help="nessuna diagnostica su stderr")
+    p.add_argument("--edizione", default="corrente", choices=list(SEED_PER_EDIZIONE), help="edizione delle tariffe del foglio (corrente, 2023-i, 2022-ver27)")
     a = p.parse_args()
 
     dia = Diagnostica(a.zitto)
@@ -530,6 +569,8 @@ def main():
         print(f"== {a.nome}", file=sys.stderr)
     caso = costruisci(a.foglio, a.nome, a.detrazione, a.pct, a.salta, dia)
     caso["_diagnostica"] = {"avvisi": dia.avvisi, "nomiNonMappati": dia.nomi_non_mappati}
+    caso["edizione"] = EDIZIONE
+    caso["tariffeFoglio"] = tariffe_del_foglio(a.foglio)
     print(json.dumps(caso, ensure_ascii=False, indent=1))
 
 

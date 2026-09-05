@@ -122,3 +122,41 @@ Quindi il bilanciamento ora **abbassa prima i beni significativi** (fino al
 (finestre 3.127 senza markup, contro 3.562 + 1.170 di markup), IVA uguale.
 Restano a mano: la spunta «significativo» sulle righe vecchie e le spese di
 documentazione (150 di default) che lei su questa fattura non ha messo.
+
+## 7. Fase 1 (06/09/2026): motore limiti su tutti i fogli del backup
+
+Materiale: 94 fogli «CALCOLO NUOVI LIMITI» dal backup del NAS (cartella
+«dati x claude» sulla scrivania, mai nel repository): 2026, 2025, 23-24,
+CALCOLI LIMITI 2022, Check-Limiti. Edizioni riconosciute dai prezzi unitari
+di CHECK1: **corrente** (rilievo 60,17 €/h: 31 fogli, compresi i 2026),
+**2023-i** (Ver.31/32, DEI 1° sem 2023, rilievo 61,22: 47 fogli),
+**2022-ver27** (13/10/2022, rilievo 59,63: 4 fogli), più 6 fogli Ver.9 del
+2022 con un altro layout (13 fogli invece di 16) lasciati fuori.
+
+Cosa è cambiato per farli tornare:
+- **tariffe a edizioni** (`tariffeEdizione`, seed `tariffe-seed-2023-i.json`
+  e `tariffe-seed-2022-ver27.json` estratti dai fogli maestri con lo script
+  esistente; €/mc dello smaltimento per edizione: 104,69 / 112,64 / 102,27);
+  il CRM calcola sempre con «corrente», le edizioni servono a riprodurre i
+  computi passati;
+- **prezzi del singolo foglio** (`tariffeFoglio` nel caso: colonna E di
+  CHECK1 e €/mc dalla formula di H29): le copie compilate hanno prezzi
+  ritoccati a mano (sviluppo ordine 31,22 invece di 61,22, spese minime 185
+  invece di 600) e senza registrarli nessuna edizione li riproduce;
+- **finestre da tetto (velux)** accettate nel blocco PVC, senza minimo di
+  1 mq e senza accessori (così le prezza il foglio);
+- **piano «T»** in INIZIO E19: per Excel un testo è > 4, il foglio applica il
+  +30 % del tiro al piano; il raccoglitore lo riproduce con piano 5 e lo
+  dichiara;
+- spese professionali del foglio = max(minimo, 4 % della colonna «Da
+  fattura»): il motore usa il pattuito come base, che coincide con la
+  colonna G quando il foglio è compilato fino in fondo.
+
+Risultato: **77 casi d'oro** (da 20), **67 riprodotti al centesimo**
+(corrente 28/31, 2023-i 35/42, 2022-ver27 4/4), 10 saltati con motivo
+scritto: 5 fogli 2023 con tapparelle (ogni avvolgibile vale 60-67 € in più
+nel foglio: formula o accessorio del blocco B di quell'edizione, da
+indagare), 2 fogli con schermature o veneziane prezzate a pezzo (H3), 1 riga
+alluminio con persiana a +653,80 € (da indagare), 1 «serramento + persiana»
+senza persiana, 1 tapparella con doppio prezzo (H6); i massimali di 3 fogli
+2023 differiscono di 1-2 € su ~10.000 (tolleranza allargata, non salto).

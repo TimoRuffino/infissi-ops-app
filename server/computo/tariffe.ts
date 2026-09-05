@@ -5,6 +5,8 @@
 // scripts/estrai-tariffe-limiti.py; il motore non contiene mai un prezzo.
 // Specifica: docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md.
 import seed from "@shared/limiti/tariffe-seed.json";
+import seed2023 from "@shared/limiti/tariffe-seed-2023-i.json";
+import seed2022v27 from "@shared/limiti/tariffe-seed-2022-ver27.json";
 import {
   CODICI_OPERA,
   type CategoriaRiga,
@@ -122,6 +124,8 @@ export type RegolaDetrazione = {
 };
 
 export type Tariffe = {
+  /** «corrente» (il foglio in uso), «2023-i» (DEI 1° sem 2023, Ver.31/32), «2022-ver27» (Ver.27 del 13/10/2022). */
+  edizione: string;
   versione: string;
   validoDal: string;
   massimali: Massimale[];
@@ -135,6 +139,24 @@ export type Tariffe = {
 };
 
 const SEED = seed as unknown as Tariffe;
+/**
+ * Le edizioni storiche del foglio servono a riprodurre i computi passati
+ * (fixture dai fogli 2022-2025): il CRM calcola sempre con «corrente». Le
+ * edizioni non sono in ordine di data: il foglio in uso nel 2026 ha i
+ * prezzi del prezzario II 2022 (rilievo 60,17 €/h), quello del 2023-2024
+ * il DEI 1° semestre 2023 (61,22 €/h).
+ */
+const EDIZIONI: Record<string, Tariffe> = {
+  corrente: SEED,
+  "2023-i": seed2023 as unknown as Tariffe,
+  "2022-ver27": seed2022v27 as unknown as Tariffe,
+};
+
+export function tariffeEdizione(edizione: string | null | undefined): Tariffe {
+  const t = EDIZIONI[edizione ?? "corrente"];
+  if (!t) throw new Error(`TARIFFE_EDIZIONE_SCONOSCIUTA: ${edizione}`);
+  return t;
+}
 const PRODOTTI = new Map(SEED.prodotti.map(p => [p.codice, p]));
 const ACCESSORI = new Map(SEED.accessori.map(a => [a.codice, a]));
 

@@ -3710,6 +3710,15 @@ scaduta (401), quella di produzione va presa da Railway solo per la durata
 della prova. Dati grezzi con nomi dei clienti solo nello scratchpad di
 sessione, mai nel repo. Verifica browser: in sospeso.
 
+**Fase 1 dello studio (06/09/2026): motore limiti su 94 fogli del backup
+NAS.** Tariffe a edizioni (`tariffeEdizione`: corrente, 2023-i, 2022-ver27;
+seed estratti dai fogli maestri), prezzi del singolo foglio registrati dal
+raccoglitore (`--edizione`, `tariffeFoglio`), velux nel blocco PVC senza
+minimo né accessori, piano «T» riprodotto. 77 casi d'oro, 67 al centesimo,
+10 saltati con motivo (spec §7 dello studio). Da indagare: avvolgibili nei
+fogli 2023 (+60-67 € a pezzo), una riga alluminio+persiana, schermature a
+pezzo. I fogli restano sulla scrivania («dati x claude»), mai nel repo.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

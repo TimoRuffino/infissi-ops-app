@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { euroToCent } from "@shared/euroCent";
 import casi from "./__fixtures__/casi-reali.json";
 import { calcolaLimiti, type ParametriMotore, type RigaMotore } from "./motore";
-import { tariffeAttive } from "./tariffe";
+import { tariffeAttive, tariffeEdizione } from "./tariffe";
 
 const t = tariffeAttive(new Date("2026-09-03"));
 
@@ -20,6 +20,27 @@ function rigaDaFixture(r: any): RigaMotore {
     accessori: (r.accessori as string[]).map(codice => ({ codice, quantita: r.quantita })),
   };
 }
+/**
+ * Le tariffe con cui riprodurre un foglio: l'edizione del listino più i prezzi
+ * unitari delle opere e il coefficiente €/mc dello smaltimento come stanno in
+ * QUEL foglio (le copie compilate li ritoccano a mano). Solo per le fixture:
+ * il CRM calcola con `tariffeAttive()`.
+ */
+function tariffeDelCaso(caso: { edizione?: string; tariffeFoglio?: { opere?: Record<string, number>; smaltimentoEuroMc?: number | null } }) {
+  const base = tariffeEdizione(caso.edizione);
+  const tf = caso.tariffeFoglio;
+  if (!tf) return base;
+  const coefficienti = { ...base.coefficienti };
+  if (tf.smaltimentoEuroMc != null) coefficienti.smaltimentoEuroMc = tf.smaltimentoEuroMc;
+  // Il minimo delle spese professionali (CHECK1 E35: 600 oggi, 185 nei fogli del 2022) è un coefficiente, non un prezzo d'opera.
+  if (tf.opere?.spese_professionali != null) coefficienti.speseProfessionaliMinEuro = tf.opere.spese_professionali;
+  return {
+    ...base,
+    opere: base.opere.map(o => (tf.opere && tf.opere[o.codice] != null ? { ...o, prezzo: tf.opere[o.codice] } : o)),
+    coefficienti,
+  };
+}
+
 const voce = (esito: ReturnType<typeof calcolaLimiti>, codice: string) => {
   const v = esito.voci.find(x => x.codice === codice);
   if (!v) throw new Error(`voce mancante: ${codice}`);
@@ -33,7 +54,7 @@ describe("motore limiti — casi reali", () => {
     // l'analisi nel report R22. Togliere `salta` è la prova che è risolto.
     const salta = (caso as { salta?: string }).salta;
     (salta ? it.skip : it)(`riproduce il foglio per ${caso.nome}${salta ? ` — saltato: ${salta}` : ""}`, () => {
-      const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
+      const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, tariffeDelCaso(caso as any));
       // Ogni voce è arrotondata al centesimo; il foglio somma valori non arrotondati:
       // sui totali si ammettono pochi centesimi (tolleranzaTotaliCent), mai di più.
       const toll = caso.attesi.tolleranzaCent;
