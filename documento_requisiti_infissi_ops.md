@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (02/09/2026).
-**Versione:** 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (04/09/2026).
+**Versione:** 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -1092,6 +1092,8 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.34 (04/09/2026)** - **Le conferme d'ordine si leggono davvero, e Tars non si arrende** (§54.7, §54.8; piano `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, tranche 4–8). **Mattina** («è ancora troppo stupido»: la conferma BT Glass per De Petris letta senza importi e con il fornitore sbagliato): il testo dei PDF nativi è ricostruito dalla GEOMETRIA dei frammenti (`documenti/testoPdf.ts`, parser `pdf-testo-nativo` 2.0.0: righe vere, celle separate da tre spazi, valori sotto le etichette); estrattore conferme 1.1.0 (imponibile anche per aritmetica dell'IVA, «Imposta» come IVA, importi solo con decimali, «IVA esclusa» → il totale è l'imponibile, numero mai una data, fornitore mai agente/banca/destinatario, «vs. riferimento» nella cella accanto o sotto, colonna «Consegna»); merce 1.2.0 a celle; riscontro con un carattere di tolleranza sul cognome; lo store `fic_pagamenti_links` registrato dopo il bootstrap non salvava mai (import statico + store tardivi che si caricano da soli); una rilettura corregge i costi nati dalla regola e mai toccati a mano (`modificatoAMano`), la conferma aggiornata dello stesso ordine sostituisce la vecchia, il CAP non è un riferimento. Corpus di 15 conferme reali (fuori dal repo): 5 nativi giusti, 8 scansioni su 10 leggibili con l'OCR. **Tarda mattina**: foto (jpeg/png/webp) via tesseract; **lettura visiva** — quando l'OCR manca, fallisce o legge poco e male, il modello TRASCRIVE le pagine riga per riga (`documenti/letturaVisiva.ts`, 150 dpi, al più 8 pagine, pagina bianca = pagina vuota) e il testo passa dagli stessi estrattori (il modello non decide); a pagamento dietro governor e ledger (classe `lettura_documenti`, `FLAG_LETTURA_VISIVA` fail-closed acceso in Railway, `TARS_MODEL_VISIONE` default interattivo), solo con un'identità (worker con utente di sistema, `leggi_conferma_ordine` 1.3.0 e `registra_costo_fornitore` con l'utente della chat), mai in upload o smistamento; turni con immagini nel contratto provider (`openai/corpo.ts`); PDF con più conferme (Bertolotto) letti a sezioni, costo = somma degli imponibili solo se ogni sezione ha il suo. **Pomeriggio** («Tars non fa proposte, è tutto fermo, idem le conferme ordine; non deve arrendersi, deve essere sicuro e molto più attivo»), diagnosi in produzione con sonde in sola lettura: analisi viva ma con posti sprecati in «registra a mano»; smistamento vivo (49 mail/giorno) senza proposte perché i candidati nascevano solo dalla mail; 60 PDF «da conferma» in 120 giorni, 57 non archiviati, 52 in mail senza commessa (il fornitore scrive il SUO numero nella mail, il nostro cliente solo dentro il PDF); follow-up preventivi morto ogni mezz'ora su 42P18 (parametro nullo senza tipo). Fatto: (1) **la commessa si cerca DENTRO la conferma** (`tars/documenti/ricercaCommessaNelDocumento.ts`) e il detector, il worker delle conferme certe e lo smistamento la usano (§54.7); (2) analisi: `archivia_allegato_comunicazione` eseguibile con un click dalle proposte (mai `confermaSenzaRiscontro`), fotografia con comunicazione e `allegatoIndex`, prompt analisi-v9 (conferme senza costo leggibile = un punto, mai proposte; posti riempiti con azioni eseguibili); (3) follow-up: cast `::bigint` sul promemoria esistente, errori isolati per commessa, contratto PostgreSQL (`reminders/repository.pg.test.ts`) — primo giro: 33 solleciti; (4) prompt interattivo v12: «non ti arrendi» (rileggere con OCR e modello, cercare per cognome, telefono e comunicazioni prima di dire «non posso») e «sicurezza» (conclusioni senza attenuazioni, niente «vuoi che proceda?»); (5) quattro giri di taratura del riscontro in produzione, un deploy per classe di falsi positivi: la via dell'azienda, i nomi propri sparsi, le località e i cognomi diffusi nei nomi degli enti, le date lette come numeri d'ordine. Registro azioni 1.21.0 (`cerca_conferme_ordine_mancanti` 1.1.0, `leggi_conferma_ordine` 1.3.0). Suite 206 file / 1875 test; eval 16/16.
+- **v5.33 (03/09/2026)** - **Tars operativo T1–T6 e il costo fornitore dalla conferma d'ordine.** **T1** strumenti: `cerca_comunicazioni` (anche per sole cifre del telefono), `cerca_fatture`, `cerca_documenti`, `collega_fattura_commessa` (R1, stessa procedura del router), `sposta_documento` (R1, il gate segue il documento). **T2** fotografia 1.1.0 sul lavoro vero: preventivi fermi 7/30 giorni, gate documentali mancanti, fatture non collegate o da riconciliare, mail senza risposta da 24 ore, ticket senza assegnatario; moduli vuoti fuori (sezione Perimetro). **T3** proposte eseguibili: `PropostaAnalisi.azione {strumento, input}` verificata in fase di analisi E al click contro il catalogo di chi clicca, whitelist chiusa, ledger R1 con `runId` deterministico (doppio click riusa), `tars.eseguiPropostaAnalisi`, «Esegui» / «Scarta» / «Chiedi a Tars» nel board. **T4** agenda: `leggi_agenda` (eventi Google in sola lettura), `sposta_intervento`, `segna_intervento_fatto` (transizione consigliata, la commessa non avanza di nascosto), `pianifica_intervento` 1.1.0 con squadra; tipi evento 4→8 (`TIPI_INTERVENTO` unica fonte); `migra_calendario_google` (direzione, anteprima e migrazione degli ultimi due mesi più il corrente, dedupe per uid). **T5** follow-up preventivi (`server/tars/followup/`): sollecito a 7 giorni di silenzio reale come promemoria all'assegnatario con la bozza del messaggio (dedupe per `canonicalKey`), a 30 giorni caso «perso?» nel Centro Azioni. **T6** destinatari (`tars/destinatari.ts`): ogni proposta nasce con un destinatario deterministico (amministrazione per i temi amministrativi, chi ha in carico il ticket o la commessa, altrimenti direzione); la direzione vede tutto. **Transizioni libere**: lo stato di arrivo qualsiasi, un passaggio alla volta, ognuno annullabile; lo scavalco del gate solo su richiesta esplicita dell'utente (registrato, mai dall'Undo). **Costo fornitore dalla conferma** (§54.7): regola di dominio deterministica — quando un documento `conferma_ordine` entra nel fascicolo la commessa registra in `costi[]` l'IMPONIBILE letto (mai lo scorporo dell'IVA), la merce entra a magazzino «Da ordinare», il documento ricorda l'esito in `letturaCosto`; worker `costoDaConfermaWorker` per le conferme già archiviate; le conferme CERTE (mail collegata + nome di conferma) si archiviano da sole (`confermeAutoArchivio`, `origine: "automatico"`); registro delle conferme d'ordine in `/conferme-ordine`; `registra_costo_fornitore` (R1) solo per rimettere un costo tolto a mano, ancorato all'imponibile letto. Notte del 04/09 (caso Giacomazzi): una conferma entra da sola SOLO se il suo testo cita la commessa (`documenti/riscontroCommessa.ts`) e non è una copia (`duplicato`); rilettura 1.2.0 ritira costo e merce delle archiviazioni senza riscontro («È di questa commessa» per confermare a mano); settimana di approntamento ≠ consegna; `FLAG_OCR=on` in Railway. Hotfix: «Operatività ridotta» su ogni conversazione nuova, `INPUT_NON_VALIDO` con i vincoli Zod al modello, link server 404, fotografia che leggeva `i.data` invece di `dataPianificata`. D1 ordini fornitore SOSPESA dalla direzione.
 - **v5.32 (02/09/2026)** - **Analisi azienda e sintesi giornaliera di Tars** (fase successiva del piano smistamento; mandato «non sta analizzando l'azienda … deve proporre»). Modulo `server/tars/analisi/` dietro `FLAG_TARS_ANALISI_AZIENDA` (fail-closed, richiede `FLAG_TARS_PROACTIVE`): fotografia deterministica della sede (commesse attive per stato e ferme da più tempo, casi aperti del Centro Azioni, osservazioni, pattern, smistamento, ticket, interventi della settimana, proposte documentali; senza importi, ogni fatto con riferimenti di entità e link) → sintesi del modello a output JSON strict (`TARS_MODEL_ANALISI`, default `gpt-5.6-sol`, classe di costo `analisi_azienda`): sintesi, punti (rischio/anomalia/andamento/opportunità con priorità), proposte con la frase da dire a Tars per eseguirle, domande alla direzione; verifica deterministica (entità solo dalla fotografia, importi scrubbati, limiti), fallback deterministico senza provider. Una analisi per sede al giorno dalle 06:00 Roma (worker ogni 5 minuti), registro `tars_analisi_azienda`, rigenerazione manuale. Endpoint `tars.analisiAzienda` / `tars.analisiAziendaRigenera` (direzione). UI `/tars` (ridisegnata la sera stessa: selettore Chat / Proposte / Registro in testa, Proposte come coda di decisioni a righe a tutta larghezza — titolo, destinazione in evidenza, chip di sicurezza, Approva/Rifiuta grandi, dettagli a richiesta, filtri — e Registro a colonne): «Analisi di oggi» nel pannello contesto e nello stato vuoto, gruppo «Dall'analisi dell'azienda» nelle Proposte con «Chiedi a Tars» (precompila la chat: nessuna mutazione nasce dall'analisi). Fuori taglio: dati economici, invio via mail, storico fra giorni.
 - **v5.31 (02/09/2026)** - **Tars libero** (mandato direzione: «deve leggere tutto, capire tutto e poter fare tutto; quando serve chiede, quando è sicuro fa da solo; se l'ha fatto Tars viene segnalato; sezione proposte sulla pagina Tars»). Policy in `CLAUDE.md` «Agente AI» e piano `docs/superpowers/plans/2026-09-02-tars-libero.md`. **A**: catalogo = tutto l'autorizzato per capability/sede/flag (niente potatura per superficie/intento), niente classificatori deterministici al posto del modello, ambiguità come hint nel contesto, chiarimenti letti contro i candidati, nessuna autorità derivata dal testo (gli strumenti verificano sede/archiviazione/state machine/gate/versione da soli), prompt v9. **B**: 13 strumenti R1 di scrittura (`strumenti/scrittura.ts`: crea/aggiorna cliente; crea/aggiorna/archivia/ripristina commessa; aggiorna/chiudi ticket; pianifica intervento; collega/classifica/segna gestita comunicazione; risolvi caso) che eseguono la stessa procedura del router con il contesto server dell'utente (stesse capability e `authorizeCoreOperation`), registro azioni 1.10.0 = 44 azioni. **C**: pagina `/tars` con schede Chat / Proposte / Registro; endpoint `tars.proposte` (gateway documentale aperto in sede) e `tars.registroAzioni` (ledger R1: strumento, esito, «Tars per <utente>», entità toccate, annullabile). Conferma umana solo per importi, cancellazioni definitive, effetti esterni o su altre sedi. **Smistamento D7**: collegamento automatico anche dal modello quando la commessa indicata con confidenza alta è l'unico candidato commessa (punteggio ≥ 30, rivale a ≥ 20 punti, non archiviata) — le proposte «unica commessa attiva della cliente» erano inutili; `VERSIONE_SMISTAMENTO` 1.2.0 riesamina le aperte. **D8**: `archiviaAllegatoComunicazione` non duplica un file già nel fascicolo (SHA-256; legacy nome+dimensione), per smistamento, strumento R1 e lettore mail. Fuori taglio: conferme pendenti dei turni nella sezione Proposte, Undo dal Registro, analisi azienda/sintesi giornaliera.
 - **v5.30 (02/09/2026)** - Tars SMISTAMENTO delle comunicazioni (mandato direzione: «un cervello operativo non deve farsi scappare niente»). Nuovo motore `server/tars/smistamento/` dietro `FLAG_TARS_SMISTAMENTO` (fail-closed, richiede `FLAG_TARS_COMMUNICATIONS` + `FLAG_TARS_PROACTIVE` + PostgreSQL): ogni comunicazione in ingresso viene smistata entro un minuto — candidati deterministici spiegabili (codice commessa, stesso filo già collegato, mittente originale degli inoltri interni, telefoni, cognomi/ragioni sociali con esclusione del personale), analisi col modello a output strutturato (categoria chiusa, urgenza, riepilogo senza importi, risposta attesa, azione suggerita, collegamento SOLO fra i candidati, tipo documento per allegato), effetti deterministici: collegamento automatico SOLO se certo (D1) senza toccare lo stato della comunicazione, archiviazione automatica degli allegati riconosciuti solo su comunicazioni collegate (D2: modello e regole concordi o confidenza alta; immagini solo da WhatsApp sopra 30 KB; `vietaRiassegnazione`, idempotente per sourceRef, reversibile dal fascicolo), triage sulle colonne legacy `categoria`/`tars_riepilogo`/`tars_istruzione` (che tornano ad avere un consumatore), proposta a un click per tutto il resto. Registro `tars_smistamento` (esito, proposta, tentativi, errori); worker ogni 60 s per sede (recenti prima; modello entro 90 giorni, oltre solo deterministico; oltre 365 giorni escluso); segnali `comunicazione_decisione`/`comunicazione_risposta` nel Centro Azioni; sezione `smistamento` del briefing (da decidere, da rispondere, urgenti, contatori); endpoint `tars.smistamentoStato/PerComunicazione/Proposte/Decidi/Riesamina` (decisione con `commessa.update_operational`, doppia decisione = CONFLICT; approvazione = collegamento manuale «approvato da <nome>» + archiviazione). Contratto provider esteso con `formatoJson` (Responses `text.format json_schema strict`); classe di costo `smistamento` (modello `TARS_MODEL_SMISTAMENTO`, default `gpt-5.6-terra`). UI: banner Tars nel lettore email con Collega/No, liste nella Situazione (Dashboard) e nel pannello contesto di `/tars`. Fuori taglio: analisi azienda su dati reali e sintesi giornaliera, pagina Centro Azioni, UI osservazioni/panorama/miglioramenti. Stesso giorno: **chiarificazione robusta** (la risposta a «Quale intendi» accetta progressivo, codice, ordinale e nome; valvola dopo due risposte non riconosciute; massimo quattro candidati persistiti — prima un quinto candidato faceva perdere il contesto) e **strumento R1 `crea_ticket`** (post-vendita, commessa dal contesto verificato o esplicita, `ticket.create`, 31 azioni a registro). Suite 136 file / 1395 test.
@@ -2143,11 +2145,15 @@ L1 lavorano in shadow; L2 e L3 non sono implementati.
 
 ### 54.6 Document Intelligence — comprensione dei documenti
 
-> Stato: la **prima slice è implementata** — analisi deterministica delle
-> conferme d'ordine PDF con testo nativo, comportamento corrente documentato
-> in §19.4. Tutto il resto di questa sezione (OCR, visione, altri formati,
-> collegamento assistito, azioni proposte, dataset di valutazione) resta da
-> costruire secondo il piano in
+> Stato (04/09/2026): per le **conferme d'ordine** la pipeline è viva in
+> produzione e descritta in §54.7 — testo nativo per geometria, OCR locale,
+> lettura visiva col modello, più conferme in un file, riscontro della
+> commessa nel testo, ricerca della commessa fra tutte le commesse vive,
+> archiviazione automatica delle certe, costo e merce dal documento,
+> registro. §19.4 resta la prima slice (analisi dalla scheda ordine).
+> Restano da costruire: altri formati (Word, Excel, XML, ZIP), il confronto
+> con l'ordine originario (D1 ordini sospesa dalla direzione), il dataset
+> di valutazione anonimizzato — piano in
 > `docs/reports/d7-document-intelligence-piano.md`.
 
 Decisione della direzione del 28/08/2026 (dossier §13, D7): la comprensione
@@ -2247,3 +2253,207 @@ evidenze, estrattore conferme, candidati di match, confronto, caso
 operativo) si decideranno studiando il modello dati esistente — documenti
 §8, allegati comunicazioni §51, ordini fornitore §19 — senza creare una
 seconda fonte di verità.
+
+### 54.7 Conferme d'ordine — dal documento al fascicolo, al costo e al magazzino (03–04/09/2026)
+
+Stato: **implementato e in produzione** (piano
+`docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, tranche 1–8;
+memoria delle letture in `Documento.letturaCosto`, versione corrente
+`1.8.0`). Mandato della direzione (03/09): «è essenziale che Tars vada alla
+ricerca delle conf. ordine dove mancano nelle commesse; se è sicuro può
+collegarle in automatico, se ha dubbi deve chiedere conferma»; (04/09):
+«Tars deve controllare sempre anche il riferimento all'interno della conf.
+ordine», «le conferme ordine sono ferme, non deve arrendersi».
+
+**Regola di dominio (deterministica, `server/commesse/costoDaConferma.ts`).**
+- Quando un documento di tipo `conferma_ordine` entra nel fascicolo di una
+  commessa (upload, archiviazione da mail, riclassificazione, spostamento,
+  archiviazione automatica) il sistema DEVE leggerne il testo e registrare in
+  `costi[]` l'**imponibile** dichiarato dal documento (`costi[].documentoId`
+  lega il costo al file); cancellare o riclassificare il documento toglie il
+  costo. Senza imponibile dichiarato NON si scorpora l'IVA per stima: la
+  scheda commessa e la fotografia di Tars dicono «registra a mano».
+- La stessa lettura scrive la **merce in arrivo** a magazzino (righe con
+  `documentoId`, stato «Da ordinare»; senza righe riconosciute una riga sola
+  da completare). Settimana di approntamento ≠ data di consegna.
+- Un file con **più conferme** (riquadri totali distinti) si legge a sezioni:
+  un costo solo, pari alla somma degli imponibili, SOLO se ogni sezione ha il
+  suo; altrimenti «registra a mano» con il motivo. «TOTALE ORDINE» prevale
+  sui parziali di listino.
+- **Duplicati**: la stessa conferma inviata più volte (stesso riferimento
+  d'ordine nel nome o nel testo, oppure stesso imponibile, fornitore e data)
+  non produce un secondo costo; la conferma aggiornata dello stesso ordine
+  sostituisce la vecchia. Le date non sono mai riferimenti d'ordine.
+- Un costo nato dalla regola e mai toccato a mano (`modificatoAMano`) viene
+  corretto da una rilettura più precisa; un costo modificato a mano non si
+  tocca. Il worker `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per
+  giro, `COSTO_DA_CONFERMA_WORKER=off` per spegnerlo) rilegge le conferme
+  quando cambia la versione della lettura.
+
+**Lettura del testo (`server/documenti/parserRegistry.ts`).** La cascata è
+una sola per tutto il CRM: (1) PDF nativo con il testo ricostruito dalla
+GEOMETRIA dei frammenti (`testoPdf.ts`: righe vere, celle separate da tre
+spazi, valori allineati sotto le etichette); (2) foto jpeg/png/webp e PDF
+scansionati con l'**OCR locale** (tesseract, `FLAG_OCR`); (3) **lettura
+visiva**: quando l'OCR manca, fallisce o legge poco e male, il modello
+trascrive le pagine riga per riga (`letturaVisiva.ts`, 150 dpi, al più 8
+pagine, una pagina bianca è una pagina vuota) e il testo trascritto passa
+dagli stessi estrattori deterministici — il modello non decide niente.
+La visione costa: passa dal governor e dal ledger (classe
+`lettura_documenti`), dietro `FLAG_LETTURA_VISIVA` (fail-closed), parte SOLO
+con un'identità (worker con utente di sistema, strumenti della chat con
+l'utente), mai nel percorso di una richiesta HTTP di upload o smistamento;
+modello `TARS_MODEL_VISIONE` (default: quello interattivo). Word, Excel e
+formati non supportati producono lo stato esplicito `non_leggibile`.
+
+**Estrazione (`estrazioneConferma.ts` 1.1.0, `estrazioneMerce.ts` 1.2.0).**
+Fornitore (intestazione, firma in calce, dominio del mittente; mai agente,
+banca o destinatario), numero e data della conferma (un numero non è mai una
+data), «vostro riferimento» (cella accanto o sotto l'etichetta), date o
+settimane di consegna, totale, **imponibile** (esplicito, o per aritmetica
+dell'IVA quando totale e imposta tornano, o «IVA esclusa»), righe merce a
+celle con quantità e unità. Ogni valore porta pagina, frammento e
+confidenza.
+
+**Riscontro della commessa nel testo (`documenti/riscontroCommessa.ts`).**
+Una conferma entra in un fascicolo DA SOLA solo se il suo testo cita la
+commessa. Prove ammesse: il codice commessa; il **cognome** del cliente
+(quello dell'anagrafica, o una parola del nome che non sia un nome proprio
+comune, un cognome fra i più diffusi, una località, una forma societaria o
+la via dell'azienda), anche con un carattere sbagliato se lungo almeno sei
+lettere; il **nome completo** quando le sue parole stanno sulla stessa riga
+entro tre parole; l'**indirizzo del cantiere** solo con una parola
+distintiva della via subito dopo «via/piazza/loc.» (la città e le parole
+comuni di via non contano; la via della sede è esclusa); un **ordine noto**
+alla commessa (costi, magazzino, conferme già lette; mai una data). Oggetto
+e mittente della mail non bastano. La stessa regola vale per lo
+smistamento, per il worker delle conferme certe e per
+`archivia_allegato_comunicazione`; «È di questa commessa» (persona) è
+l'unico scavalco, registrato.
+
+**Ricerca della commessa DENTRO il documento
+(`tars/documenti/ricercaCommessaNelDocumento.ts`).** I fornitori scrivono il
+LORO numero nella mail e il nostro cliente solo nel PDF: il testo letto si
+confronta con TUTTE le commesse vive della sede (l'azienda stessa censita
+come cliente non è mai candidata). Forza delle prove: codice, ordine noto e
+nome completo o cognome pieno = forte; cognome quasi uguale, cognome corto e
+solo indirizzo = debole. Esito `unica` se una sola commessa regge una prova
+forte (fra due dello stesso cliente vince quella in uno stato che aspetta la
+conferma; un cognome solo su una commessa che non la aspetta non basta),
+`ambigua` se più commesse o solo indizi deboli (decide una persona),
+`nessuna`, `non_leggibile`, `non_letto` (tetto di letture raggiunto). Il
+lettore ricorda il testo per dodici ore (trenta minuti se la lettura è
+fallita) e legge al più N file nuovi per istanza: 8 per giro del worker,
+10 per giro di smistamento, 6 per fotografia o chiamata dalla chat. Ogni
+lettura e ogni riscontro lasciano una riga `[ricerca-commessa]` nei log.
+
+**Dove agisce.**
+- **All'arrivo (smistamento)**: per una mail senza verdetto certo con un
+  allegato «da conferma» (nome che dice conferma/ordine, non escluso), il
+  testo del file produce candidati: riscontro `unica` = collegamento certo +
+  archiviazione (le pagine lette si riusano nella verifica, niente seconda
+  lettura); riscontri multipli = candidati con punteggio (70 forte, 45
+  debole) per il modello. Una conferma d'ordine apre la proposta anche su
+  mail più vecchie di 30 giorni. Chi approva una proposta legge le scansioni
+  con OCR e modello a proprio nome.
+- **Sul pregresso (worker `confermeAutoArchivio`, ogni 10 minuti,
+  `CONFERME_AUTO_ARCHIVIO=off`)**: per le commesse da «da ordinare» in poi
+  senza conferma nel fascicolo, il detector `confermeMancanti` cerca i
+  candidati fra le mail (collegate, che citano il codice, dello stesso
+  cliente, o di nessuno purché il testo citi la commessa); ogni candidato
+  porta `riscontroTesto` (cita / non_cita / ambiguo / non_leggibile /
+  non_letto) e le prove. **Certa** = mail collegata + nome di conferma +
+  testo che non smentisce, oppure testo che cita QUESTA commessa e
+  nessun'altra: si archivia con `origine: "automatico"` e, se la mail era di
+  nessuno, la mail viene collegata con il motivo scritto. Tutto il resto
+  resta «probabile» con il motivo (da confermare a mano). Il giro scrive nei
+  log commesse esaminate, candidati per classe, archiviate, collegate,
+  saltate, errori.
+- **Nella chat**: `cerca_conferme_ordine_mancanti` 1.1.0 (stesso detector,
+  con l'identità dell'utente), `leggi_conferma_ordine` 1.3.0 (un file,
+  riscontro pieno, imponibile), `archivia_allegato_comunicazione` 1.1.0
+  (rifiuta senza riscontro salvo conferma esplicita dell'utente),
+  `registra_costo_fornitore` (solo per rimettere un costo tolto a mano,
+  importo ancorato all'imponibile letto).
+- **Nell'analisi azienda**: la fotografia elenca le conferme mancanti con
+  file, comunicazione e `allegatoIndex`, e distingue «si può archiviare
+  subito» da «va confermato: <motivo>»; la proposta «archivia» è eseguibile
+  con un click (whitelist, mai `confermaSenzaRiscontro`); le conferme nel
+  fascicolo senza costo leggibile sono un punto, non proposte.
+- **Registro**: `Documento.origine` (mano, Tars, smistamento, automatico),
+  procedura `preventiviContratti.registroConferme`, pagina
+  `/conferme-ordine`; la scheda commessa mostra il costo «da conferma
+  d'ordine» con anteprima del file e gli avvisi delle conferme non lette.
+
+**Costi e limiti.** OCR locale gratuito; visione ≈ 8–14k token in ingresso
+e 2–4k in uscita per documento scansionato (pochi centesimi), contata nel
+ledger per classe; ogni salto di versione della lettura rilegge le
+scansioni. Fuori taglio dichiarato: Word/Excel (stato `non_leggibile`), foto
+illeggibili anche per il modello (costo a mano), il confronto con l'ordine
+originario (D1 ordini sospesa), conferme senza cognome noto nel testo
+(restano proposte «va confermato»).
+
+### 54.8 Proattività — analisi giornaliera, follow-up, destinatari (03–04/09/2026)
+
+Stato: **implementato e in produzione** (T2–T6 del piano
+`docs/superpowers/plans/2026-08-31-tars-operativo-proattivo.md`, chiusi il
+03/09; correzioni del 04/09).
+
+- **Fotografia 1.1.0** (`server/tars/analisi/fotografia.ts`): commesse
+  attive per stato e ferme, preventivi fermi (7 e 30 giorni di silenzio
+  REALE: documenti, transizioni, timeline, comunicazioni — mai
+  `updatedAt`), gate documentali mancanti, conferme d'ordine mancanti o
+  senza costo leggibile (§54.7), fatture non collegate o da riconciliare,
+  casi del Centro Azioni, mail senza risposta da 24 ore, ticket senza
+  assegnatario, interventi della settimana, dormienti (oltre 120 giorni)
+  fuori dall'operativo, moduli vuoti nella sezione Perimetro. Mai importi.
+- **Analisi** (prompt `analisi-v9`, JSON strict, modello
+  `TARS_MODEL_ANALISI`): sintesi, punti, proposte, domande. Una proposta
+  PUÒ portare un'azione `{strumento, input}` presa da una whitelist chiusa
+  di strumenti R1 (`crea_ticket`, `aggiorna_ticket`, `pianifica_intervento`,
+  `crea_promemoria`, `collega_comunicazione`, `collega_fattura_commessa`,
+  `sposta_documento`, `archivia_commessa`, `transizione_adiacente_commessa`,
+  `archivia_allegato_comunicazione`); l'azione vale solo se regge contro il
+  registro e lo schema di input (mai `scavalcaGate`, mai
+  `confermaSenzaRiscontro`), altrimenti decade a richiesta in chat. Al
+  click («Esegui») il server riverifica catalogo di CHI clicca, sede e
+  capability, e passa dal ledger R1 con `runId` deterministico
+  (`analisi:<id>:proposta:<i>`): il doppio click riusa. «Scarta» registra
+  la decisione; le proposte scartate entrano nella fotografia successiva
+  come fatto e non si ripropongono. Regole di qualità: nomi e codici, mai
+  id nudi; mai «rispondi al cliente» (nessun canale d'invio); conferme
+  «archiviabili subito» = azione eseguibile; conferme senza costo leggibile
+  = un solo punto; posti riempiti prima con le azioni che Tars fa da solo.
+- **Cadenza**: una analisi per sede dalle 06:00 Roma; si rifà da sola dopo
+  quattro ore, dopo mezz'ora se tutte le proposte sono state gestite, dopo
+  mezz'ora in caso di errore (al massimo tre tentativi al giorno);
+  «Rigenera» a richiesta della direzione.
+- **Follow-up preventivi** (`server/tars/followup/`): ogni mezz'ora dalle
+  07:00, per ogni preventivo fermo da almeno 7 giorni e non dormiente, un
+  promemoria all'assegnatario con la bozza del sollecito (dedupe per
+  `canonicalKey` = commessa + giorno dell'ultima attività: un nuovo silenzio
+  riapre il diritto); dai 30 giorni il caso «proporlo come perso?» nel
+  Centro Azioni (fingerprint a scaglioni di 15 giorni). Un promemoria che
+  non si crea non ferma gli altri (04/09: il ritrovamento del promemoria
+  esistente falliva con 42P18 e bloccava ogni giro; ora cast esplicito e
+  contratto su PostgreSQL). Senza assegnatario nessun promemoria personale
+  (il caso dei 30 giorni copre).
+- **Destinatari** (`tars/destinatari.ts`): ogni proposta ha un destinatario
+  deterministico — tema amministrativo o commessa in `fatture_pagamento` /
+  `ordini_ultimazione` → ruolo amministrazione; post-vendita → chi ha in
+  carico il ticket o la commessa; commerciale → l'assegnatario; il resto →
+  direzione. La direzione vede tutto; gli altri solo ciò che è loro.
+- **Prompt interattivo v12** («non deve arrendersi, deve essere sicuro»):
+  prima di dire «non posso / non trovo / non si legge» Tars DEVE provare le
+  vie alternative nello stesso giro (rileggere il documento con OCR e
+  modello, cercare per cognome, codice, telefono e fra le comunicazioni,
+  cercare il documento fra gli allegati delle mail) e poi dire cosa ha
+  provato e la via più breve per l'utente; le conclusioni si dicono con il
+  loro grado di certezza senza attenuarle; niente «vuoi che proceda?»: se
+  l'azione è stata chiesta la fa, se resta un'ambiguità che cambia l'esito
+  fa UNA domanda precisa.
+- **Osservabilità**: log per worker con tag stabili (`[tars-smistamento]`,
+  `[tars.analisi]`, `[tars-followup]`, `[conferme-auto-archivio]`,
+  `[costo-da-conferma]`, `[ricerca-commessa]`, `[visione]`); il ledger
+  `tars_costi` per classe; il registro delle azioni (`tars.registroAzioni`)
+  con «fatto da Tars per <utente>».
