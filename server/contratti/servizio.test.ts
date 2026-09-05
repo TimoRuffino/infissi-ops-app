@@ -279,4 +279,26 @@ describe("servizio contratto", () => {
     expect(esito.contratto.detrazionePct).toBeNull();
     expect(esito.avvertenze.some(a => a.toLowerCase().includes("detrazione"))).toBe(false);
   });
+
+  // ── Fix round (review Task 1 piano 3): P3-R5 — posaCent segue l'interruttore ──
+
+  it("posaInclusa false azzera posaCent lato servizio, qualunque valore mandi il client", async () => {
+    const commessaId = await commessaDiProva();
+    await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: { ...contratto, posaInclusa: false, posaCent: 50000 },
+    });
+    const letto = await leggiContratto(SEDE, commessaId);
+    expect(letto.contratto?.posaCent).toBeNull();
+  });
+
+  it("posaInclusa true mantiene il posaCent inviato dal client", async () => {
+    const commessaId = await commessaDiProva();
+    await salvaContratto({
+      sedeId: SEDE, commessaId, righe, actorUserId: 5,
+      contratto: { ...contratto, posaInclusa: true, posaCent: 110000 },
+    });
+    const letto = await leggiContratto(SEDE, commessaId);
+    expect(letto.contratto?.posaCent).toBe(110000);
+  });
 });

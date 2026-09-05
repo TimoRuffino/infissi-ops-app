@@ -44,4 +44,21 @@ describe("hash del contratto", () => {
     const conEventualiInvertiti = { ...p, opzioniComputo: { ...p.opzioniComputo, eventuali: ["dime", "posa"] as CodiceOpera[] } };
     expect(hashParametri(conEventuali)).toBe(hashParametri(conEventualiInvertiti));
   });
+
+  it("ignora posaCent ed estrazioneId: non sono materia del computo (P3-R5)", () => {
+    const p = {
+      pattuitoCent: 1539500, pattuitoTipo: "lordo" as const, posaInclusa: true, zonaClimatica: "D" as const,
+      piano: 2, distanzaKm: 18, detrazioneTipo: "ristrutturazione" as const, detrazioneImmobile: "prima_casa" as const,
+      detrazionePct: 50, opzioniComputo: OPZIONI_COMPUTO_DEFAULT,
+    };
+    const base = hashParametri(p);
+    // posaCent e estrazioneId non fanno parte di ParametriPerHash: due
+    // contratti che differiscono solo lì non devono «superare» il computo.
+    expect(hashParametri({ ...p, posaCent: 50000, estrazioneId: 3 } as any)).toBe(base);
+    expect(hashParametri({ ...p, posaCent: null, estrazioneId: null } as any)).toBe(base);
+    expect(hashParametri({ ...p, posaCent: 110000, estrazioneId: 7 } as any)).toBe(base);
+
+    // Un parametro vero, invece, deve ancora cambiare l'hash.
+    expect(hashParametri({ ...p, pattuitoCent: 999900 } as any)).not.toBe(base);
+  });
 });

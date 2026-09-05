@@ -280,6 +280,9 @@ export async function salvaContratto(input: {
     commessaId: input.commessaId,
     sedeId: input.sedeId,
     ...parametri,
+    // Il prezzo della posa segue l'interruttore, non il client: un contratto
+    // senza posa non deve mai portare in giro un prezzo posa ormai stantio.
+    posaCent: parametri.posaInclusa ? parametri.posaCent : null,
     zonaClimatica: zona,
     codiceIstat,
     detrazionePct: pct,
