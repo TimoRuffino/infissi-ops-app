@@ -17,6 +17,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Package,
+  ReceiptText,
   Settings,
   Store,
   TicketCheck,
@@ -143,6 +144,13 @@ export const menuItems: readonly MenuItem[] = [
     label: "Economia",
     path: "/economia",
     children: [
+      {
+        icon: ReceiptText,
+        label: "Fatturazione",
+        path: "/fatturazione",
+        requiredCapabilities: ["contratto.read"],
+        loadingFallbackRoles: ["direzione", "amministrazione"],
+      },
       {
         icon: Landmark,
         label: "Contabilità",
@@ -297,6 +305,7 @@ export function mobileDestinations(
   const fourthCandidates = [
     ["/tars", "Tars"],
     ["/pagamenti", "Pagamenti"],
+    ["/fatturazione", "Fatturazione"],
     ["/clienti", "Clienti"],
     ["/commesse", "Commesse"],
   ] as const;

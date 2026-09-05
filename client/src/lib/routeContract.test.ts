@@ -25,6 +25,7 @@ const EXPECTED_PATHS = [
   "/conferme-ordine",
   "/pagamenti",
   "/economia",
+  "/fatturazione",
   "/marginalita",
   "/commesse",
   "/commesse/:id",

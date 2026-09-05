@@ -149,6 +149,20 @@ export const APP_ROUTE_CONTRACT = [
     migrationStatus: "migrata",
   }),
   route({
+    path: "/fatturazione",
+    kind: "page",
+    target: "Fatturazione",
+    uxGuard: "capability:contratto.read",
+    serverAuthority:
+      "fatturazioneGuidataRouter + procedureConInterruttore(limiti)",
+    requiredCapabilities: ["contratto.read"],
+    roleRule: null,
+    featureFlag: null,
+    navigation: "primary",
+    mobileTreatment: "standard",
+    migrationStatus: "migrata",
+  }),
+  route({
     path: "/marginalita",
     kind: "guarded",
     target: "Marginalita",

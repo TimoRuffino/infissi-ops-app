@@ -309,6 +309,23 @@ describe("effective-capability navigation matrix", () => {
       "/preventivatori",
     ]);
   });
+
+  // `contratto.read` è nelle capability condivise di ogni ruolo operativo:
+  // a differenza di Contabilità (economia.read) e Pagamenti (pagamento.read),
+  // Fatturazione compare nel gruppo Economia anche da sola, senza le altre
+  // capability economiche.
+  it("shows Fatturazione (and therefore the Economia group) via contratto.read alone", () => {
+    const soloContratto = access({ capabilities: new Set(["contratto.read"]) });
+
+    expect(destinationPaths(soloContratto)).toContain("/fatturazione");
+
+    const economia = navigationGroups(soloContratto).find(
+      group => group.label === "Economia"
+    );
+    expect(economia?.children?.map(item => item.path)).toEqual([
+      "/fatturazione",
+    ]);
+  });
 });
 
 describe("voce Preventivatori", () => {
@@ -323,9 +340,9 @@ describe("voce Preventivatori", () => {
     expect(preventivatori.featureFlag).toBeUndefined();
     expect(preventivatori.children).toBeUndefined();
 
-    const commesse = navigationGroups(
-      access({ capabilities: new Set() })
-    ).find(group => group.label === "Commesse");
+    const commesse = navigationGroups(access({ capabilities: new Set() })).find(
+      group => group.label === "Commesse"
+    );
 
     expect(commesse?.children?.map(item => item.path)).toContain(
       "/preventivatori"
