@@ -3814,7 +3814,7 @@ sessione, mai nel repo. Verifica browser: in sospeso.
 17. **Fatturazione guidata (piano 4, 05/09/2026)**: 7 task completati,
     review finale del ramo fatta e il suo giro di fix 3 chiuso su
     `feature/fatturazione-guidata` (base `f3b551b`, HEAD reale `340f955`
-    più il commit docs di questo stesso giro), **non ancora su `main`**
+    più il commit docs di questo stesso giro), **su `main` dal 05/09 sera**
     (v. §11-vicies sedecies). Aperti: (1) verifica browser (1440×900 e
     390×844) mai eseguita, in nessuno dei tre giri di fix — elenco,
     percorso a passi, dialog contratto sporco, `?passo=` bloccato dai
@@ -3844,6 +3844,35 @@ sessione, mai nel repo. Verifica browser: in sospeso.
     lo usa per una commessa fuori dai due stati, quindi non si rompe
     nulla, ma il tipo mente (Minor della review finale, mai scelto se
     allargare il tipo o restringere la procedura).
+
+18. **UX del passo Fattura e rimandi del processo (05-06/09/2026)**: su
+    `main` (`2a704b8`, `bb75931`, `85ed99b`), rebase sopra il piano 4 — i
+    rimandi nati come cambi di tab della scheda commessa sono diventati
+    link ai passi di `/fatturazione/:id` (`hrefPasso` in
+    `client/src/lib/fatturazioneView.ts`, unica forma dell'URL, usata anche
+    da `FatturazioneCommessa`). Dentro `FatturaTab`: percorso interno
+    bozza → controlli → emissione → SdI (`passiFattura` in
+    `client/src/lib/fatturaView.ts` + `FatturaPercorso`; in modalità
+    guidata Contratto e Limiti non si ripetono, sono già lo stepper della
+    pagina), banner dry-run, motivo del pulsante «Genera bozza» spento con
+    link al passo mancante; in modalità lettura non chiede più contratto e
+    computo. `BozzaFatturaEditor`: pannello «Prima di emettere: N cose da
+    risolvere» con `azionePerControllo` (l'azione `passo` porta al passo
+    Limiti). `ScadenzeEditor`: «Ridistribuisci dalle quote».
+    `FatturazioneConfigPanel`: i cinque requisiti in cima e l'ancora
+    `#fatturazione`. Dashboard: «Prepara la fattura» / «Completa la bozza»
+    da `fatturazioneGuidata.daFare` (senza `liveOpts`: quella query legge
+    contratto e computo di ogni candidata). `PagamentiCard`: «Vai alla
+    fattura». PRD §59. Aperti: (1) verifica browser 1440×900 e 390×844 mai
+    fatta (nessuna sessione sul demo locale; il controller non inserisce
+    credenziali): stessa lista del punto 17 più stepper interno del passo
+    Fattura, pannello dei controlli coi suoi pulsanti, «Da fare oggi» a
+    flag accesi; (2) `daFare` sulla Dashboard è la lettura pesante del
+    punto 17.5 (3 query × N candidate): con molte commesse in
+    `fatture_pagamento` va misurata prima di accendere i flag in
+    produzione; (3) `.claude/launch.json` porta ancora la password del
+    demo (commit `9af31e9`), contro CLAUDE.md — da spostare in una
+    variabile d'ambiente locale, decisione della direzione.
 
 ## 13. Cosa resta della piattaforma
 

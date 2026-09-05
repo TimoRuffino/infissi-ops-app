@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (05/09/2026).
-**Versione:** 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026).
+**Versione:** 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -11,7 +11,8 @@ in un ambiente esterno. §50 resta il registro storico della rimozione, §53
 le compatibilità, §54 il progetto corrente. §55-§57 descrivono i tre piani
 del 3-5 settembre 2026 (contratto strutturato e computo dei limiti,
 fatturazione dal contratto, lettura del contratto PDF), tutti dietro
-interruttori fail-closed; §58 il piano 4, pianificato e non implementato.
+interruttori fail-closed; §58 il piano 4 (fatturazione guidata), su `main`
+dal 05/09; §59 la UX del passo Fattura e i rimandi del processo (05-06/09).
 **Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
 
 ---
@@ -1316,6 +1317,7 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 ---
 
 ## 33. Cronologia significativa
+- **v5.41 (06/09/2026)** - **Fatturazione guidata su `main` e il passo Fattura che si spiega da solo.** Il piano 4 (§58) è su `main` dal 05/09 sera (7 task, review finale e tre giri di fix su `feature/fatturazione-guidata`, push fast-forward `f3b551b`→`6570317` su istruzione della direzione, verifica browser rimandata): `/fatturazione` elenca le commesse da fatturare, `/fatturazione/:id` è il percorso Documenti → Contratto → Limiti → Fattura, le tre tab della scheda commessa sono riassunti in sola lettura con «Apri fatturazione». Sopra, la UX del passo Fattura e dei rimandi del processo (§59; commit `2a704b8`, `bb75931`, `85ed99b`, rebase sopra il piano 4): il percorso interno della fattura — bozza → controlli → emissione → SdI — deciso da `passiFattura` (pura, provata) e disegnato da `FatturaPercorso`; ogni controllo di emissione ha il pulsante che porta dove si sistema (`azionePerControllo`: anagrafica, Impostazioni `#fatturazione`, passo Limiti, campo con scorrimento e fuoco, dialogo di riequilibrio) e l'editor apre con «Prima di emettere: N cose da risolvere»; «Genera bozza dai limiti» dice perché è spento e linka il passo mancante; banner «Invio allo SdI in prova»; riepilogo che sa quando le righe sono cambiate («Ricalcola e salva»); «Ridistribuisci dalle quote» sulle scadenze (`distribuisciScadenze`, al centesimo, resto sull'ultima); diciture con titolo e testo, tipi di riga per esteso, «significativo» e limite come badge; cronologia dell'emessa in parole e in euro (`descriviEvento`); Impostazioni → Fatturazione con i cinque requisiti dell'emissione in cima; «Da fare oggi» con «Prepara la fattura» / «Completa la bozza» da `fatturazioneGuidata.daFare` (prossimo passo scritto, pulsante sul percorso); «Vai alla fattura» nella card Pagamenti; `?tab=` sull'URL della scheda commessa; `hrefPasso` come unica forma dell'URL di un passo. La tab in sola lettura non chiede più contratto e computo. **Non verificato a schermo**: il demo locale non aveva una sessione e il controller non inserisce credenziali — verifica 1440×900 e 390×844 rimandata, come per il piano 4. Suite: 240 file passati e 9 saltati, **2.473 test passati e 50 saltati** (2.523); `pnpm check` e build puliti (solito avviso `dist/index.js` 3,1 MB).
 - **v5.40 (05/09/2026)** - **Fixture d'oro del motore limiti dai fogli reali, due bug corretti, piano 4 pianificato** (Ruling R22 del piano 2). Su `feature/fixture-limiti-reali` (commit `5690958`, `f7b713b`, `eced152`, `528a59c`, `ea06ec2`), **non ancora integrato su `main`**. Nuovo `scripts/harvest-fixture-limiti.py`: un solo comando trasforma una copia compilata del foglio «CALCOLO NUOVI LIMITI» in un caso d'oro **anonimo** (legge misure, codici DEI, prezzi di riga, totali e le celle di CHECK1; **non** legge nominativo, indirizzo e comune; il foglio non entra mai nel repository, il caso si chiama come dice `--nome`; un prodotto ignoto ferma lo script invece di indovinare). `server/computo/__fixtures__/casi-reali.json` passa da 3 a **20 casi**: **13 verdi al centesimo**, **7 saltati** col motivo scritto nel campo `salta` di ciascuno — divergenze capite e dichiarate, non tolleranza allargata. L'harvest ha trovato e corretto due bug del motore: **H1**, la maggiorazione dell'avvolgibile abbinato aveva larghezza e altezza scambiate (coefficienti rinominati `avvolgibileExtraLarghezza`/`avvolgibileExtraAltezza`, stesso valore, dimensione giusta); **H2**, un cassonetto venduto insieme al serramento (blocco B del foglio) pesava nel massimale A invece che in B — nuova chiave `cassonettiB` in `aggregati.ts`, che si somma ad A ovunque conti il prodotto (rilievo, rimozione tapparelle, smaltimento, tiro, posa) e non fa posare due volte la tapparella che ospita. **H7** chiuso: il form dichiara l'oscurante abbinato anche su una riga cassonetto e le avvertenze «oscurante senza voce DEI» non scattano più su un cassonetto abbinato senza tipologia propria. Parcheggiate in attesa di direzione o commercialista **H3-H6** (veneziane a pezzo o a mq, cinque fogli su un'edizione precedente del listino DEI, inclusione «solo fatturato» che `OpzioniComputo` non sa rappresentare, doppio prezzo dell'avvolgibile PVC nello stesso foglio); un settimo caso resta fuori senza decisioni da prendere (riga «serramento + persiana» senza prodotto persiana: CHECK2 non calcolabile, fail-closed per progetto). Manca ancora un foglio reale con serramenti in legno. Stesso giorno: **spec e piano del piano 4 «Fatturazione guidata»** (§58, commit `1e5f51d`), scritti e approvati ma **non implementati**, e questo PRD portato a 5.40 con le sezioni §55-§58. Suite: 234 file passati e 9 saltati, **2.350 test passati e 50 saltati** (i saltati sono le suite `*.pg.test.ts`, che girano solo con `DATABASE_URL`, più i 7 casi d'oro dichiarati).
 - **v5.39 (05/09/2026)** - **Lettura del contratto PDF** su `main` (piano 3 di 3, 9 task, `docs/superpowers/plans/2026-09-04-lettura-contratto.md`; tip `d7e0ab5`), dietro il nuovo interruttore fail-closed `FLAG_CONTRATTO_ESTRAZIONE`, che richiede anche `FLAG_LIMITI` e un provider Tars reale (classe di costo `document_intelligence`, modello `TARS_MODEL_ESTRAZIONE_CONTRATTO`). §57. Il modello legge il PDF del contratto firmato e **propone** righe, pattuito, posa, rate e cantiere; nulla viene salvato senza revisione umana. Schema JSON **strict** (`estrazione/schema.ts`, nullable come union con `null`) con `SCHEMA_JSON_ESTRAZIONE` come proiezione dello zod, mai il contrario; input a pagine intere fra marcatori neutralizzati (un documento non può fingere una pagina che non esiste), un solo ritentativo, prompt versionato `1.0.0` con l'impronta della configurazione OCR nella chiave di riuso. Il riuso si decide **prima** di estrarre il testo (OCR e lettura visiva costano) e `estraiTestoDocumento` è chiamato senza lettura visiva: una scansione illeggibile è un errore esplicito, mai una spesa silenziosa. **Mappatura deterministica** (`estrazione/mappa.ts`, il pezzo più delicato): codici DEI **solo dal catalogo**, ogni valore con `{valore, evidenza, daVerificare, nota}` e l'evidenza verificata sul testo vero; natura scorrevole/alzante decisa dal sostantivo più vicino, con l'apertura esplicita del serramento che prevale e lo dichiara; materiale per posizione (primo nominato, avvertenza se più d'uno); oscuranti autonomi fusi nel serramento solo a misure uguali (±10 mm) e pezzi sufficienti, altrimenti righe a sé con avvertenza; accessori solo da etichette note; posa per parole chiave solo su righe senza misure. Arricchimento facoltativo dal layout WnD (riconoscimento su «Riepilogo Costi», poi totali e termini di pagamento) che riscrive numeri con evidenza certa senza cancellare la quota dell'oscurante già fusa. `contratto_estrazioni` idempotente per documento e versione di prompt; `applicaEstrazione` scrive **solo** tramite `salvaContratto`, con stato e timeline in try/catch (un loro errore è un'avvertenza, mai un contratto scomparso); `eseguiEstrazioneContratto` è fail-closed da solo, non si fida del router. Router `estrazioniContratto` (`stato`, `esegui`, `applica`, `scarta`) con sede verificata anche sullo scarto; nessuna capability nuova (riusa `contratto.read`/`contratto.manage`). UI: dialog «Leggi il contratto» con evidenze, note del lettore e revisione inline; «Compila a mano» sempre disponibile quando la lettura non è configurata. Eval `pnpm eval:contratti` su tre fixture sintetiche (WnD, Word, scansione) senza rete, chiamata reale solo con `EVAL_CONTRATTI_REALE=on` **e** provider realmente disponibile; `server/contratti/eval/casi-reali/` resta vuota, quindi l'eval misura parser e mappatura, non l'accuratezza reale del modello. Ruling P3-R1…P3-R42 nel ledger del piano. `pnpm check` pulito; suite 234 file passati e 9 saltati (243), **2.332 test passati e 43 saltati** (2.375); build con l'unico avviso noto (`dist/index.js` 3,1 MB). Fuori taglio: nessuno strumento Tars, nessun formato diverso dal PDF, nessuna applicazione automatica.
 - **v5.38 (04/09/2026)** - **Fatturazione dal contratto** su `main` (piano 2 di 3, 18 task, `docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`; `4104e27` porta gli interruttori `letturaVisiva` e `fatturazione` insieme), dietro il nuovo interruttore fail-closed `FLAG_FATTURAZIONE`, che richiede `FLAG_LIMITI` sullo stesso ambiente (verificato per handler). §56. Dal contratto strutturato e dal computo nasce la bozza, che il CRM emette su Fatture in Cloud, archivia e segue. **6 tabelle** (`fatturazione_config`, `fatture`, `fattura_righe`, `fattura_riepilogo_iva`, `fattura_scadenze`, `fattura_eventi`) con blocco ottimistico su `revisione` e immutabilità da `in_emissione` in poi. **Risolutore** puro (G pattuito, B beni significativi, N altri beni, S servizi, M markup derivato; 10 % su 2P e 22 % su B−P quando B > P) verificato al centesimo su tre fatture reali del 2026, con «Riequilibra i beni» ad arrotondamento cumulativo (somma esatta al target, righe mai negative, scarto ≤ 1 centesimo a riga) perché la prassi della commercialista è abbassare i beni, non tagliare i servizi. **Generatore**: righe bene al 22 % dal contratto, servizi al 10 % dai limiti (arrotondati all'euro, mai per eccesso), markup, coppia storno/riaddebito, **spese di documentazione come bene al 22 %** (default 150,00 € per sede, fuori da entrambi i blocchi dei limiti), diciture con manutenzione straordinaria e pratica edilizia, scadenze **50/40/10** a 0/60/75/90 giorni col resto sull'ultima, righe manuali in bozza (max 20 per operazione). **Limiti verificati per tre blocchi separati** — prodotti+markup contro i massimali, servizi contro le opere proposte, imponibile contro il minore fra CHECK1/CHECK2 — mai come un totale unico; termine di paragone a zero = avviso `limiti_non_verificati`, mai un «ok» di comodo. Lo scavalco richiede una **seconda** autorizzazione con `fattura.emit` e un motivo, controllato nel servizio. **Emissione** idempotente per passo (validazione → cliente FiC → documento → confronto totali → XML → invio → archivio → documento nel fascicolo → timeline) con **lease** compare-and-swap su stato e revisione: due «Emetti» sovrapposti danno `CONFLITTO` al secondo prima di toccare FiC, mai due numeri. Invio SdI in prova con `FATTURAZIONE_SDI_DRY_RUN` (variabile di tutto il deployment, accesa finché non vale `off`): stato «Emessa (prova SdI)», ma FiC numera davvero. **Sonda** ogni 15 minuti in un solo processo: legge `ei_status`, recupera l'archivio mancante, riappaia le scadenze scollegate a ogni giro, non ritenta mai l'invio. **Nota di credito** totale o parziale sulla stessa pipeline, specchio esatto dell'origine con intestazione «Accredito su ns. fattura n. X del Y». Sync FiC: un documento il cui id combacia con `fatture.ficDocumentId` nasce collegato (`commessaMatch: "crm"`), senza match automatico né secondo PDF, e non si può ricollegare a mano a un'altra commessa. Capability `fattura.read` (amministrazione, commerciale, direzione) e `fattura.draft`/`emit`/`credit_note` (amministrazione, direzione). UI: tab «Fattura» della commessa, pannello Fatturazione in Impostazioni → Contabilità (scope FiC di scrittura, «Verifica permessi», IBAN col modulo 97), sezione «Fatture emesse dal CRM» in Cassa. Tars: nessuno strumento nuovo, ma il fascicolo mostra una riga per fattura **senza mai un importo** e senza ripetere l'errore SdI parola per parola. Ruling di piano nel ledger (`Ruling R…`, fino a R40 citati in `handoff.md`); runbook della prima fattura reale in `handoff.md`. `pnpm check` pulito; suite 210 file passati e 7 saltati (217), **2.018 test passati e 32 saltati** (2.050). Fuori ambito v1: fatture libere, acconti, IVA al 4 %, B2B senza contratto.
@@ -3297,14 +3299,18 @@ classe): non c'è un costo mostrato nella UI dell'estrazione.
 
 ---
 
-## 58. Fatturazione guidata (piano 4, PIANIFICATA il 05/09/2026)
+## 58. Fatturazione guidata (piano 4, 05/09/2026)
 
-**Non implementata.** Spec
+**Su `main` dal 05/09/2026 sera** (7 task su `feature/fatturazione-guidata`,
+review finale e tre giri di fix; push fast-forward `f3b551b`→`6570317` su
+istruzione della direzione; la verifica browser resta in sospeso, v.
+`handoff.md` §11-vicies sedecies e §12 punto 17). Spec
 `docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md`, piano
 `docs/superpowers/plans/2026-09-05-fatturazione-guidata.md`, approvati dalla
-direzione il 05/09/2026. Oggi contratto, limiti e fattura vivono in tre tab
-dense della pagina commessa, senza un ordine evidente e senza un posto dove
-vedere «cosa manca»: il piano 4 dà un ingresso unico.
+direzione il 05/09/2026. Prima, contratto, limiti e fattura vivevano in tre
+tab dense della pagina commessa, senza un ordine evidente e senza un posto
+dove vedere «cosa manca»: il piano 4 dà un ingresso unico. Il §59 descrive
+la UX del passo Fattura costruita sopra questo percorso.
 
 Decisioni registrate:
 - **Elenco** `/fatturazione` (gruppo Economia): tutte le commesse della sede
@@ -3329,3 +3335,101 @@ Decisioni registrate:
 - **Fuori ambito**: transizioni di stato automatiche, nuove regole di dominio
   su contratto/limiti/fattura, ridisegno dei componenti interni delle tab,
   notifiche.
+
+## 59. Il passo Fattura si spiega da solo (05-06/09/2026)
+
+Su `main` dal 06/09/2026 (commit `2a704b8`, `bb75931`, `85ed99b`; rebase
+sopra il piano 4). Il piano 2 aveva messo in piedi la fattura, il piano 4
+il percorso che ci porta: qui si lavora dentro il passo Fattura e sui
+rimandi che il processo lascia in giro per il CRM. Nessun contratto nuovo
+sul server: tutto è client, sopra le procedure esistenti (`fatture.*`,
+`contratti.get`, `computo.ultimo`, `fatturazioneGuidata.daFare`). Regola
+seguita: la logica nasce pura e provata in `client/src/lib/fatturaView.ts`
+(44 test), i componenti disegnano.
+
+### 59.1 Il percorso interno della fattura
+
+`passiFattura` (pura) decide sei passi — Contratto, Limiti, Bozza,
+Controlli, Emissione, SdI — ciascuno con uno stato (`fatto`, `corrente`,
+`da_fare`, `bloccato`, `attesa`) e una riga che dice cosa c'è o cosa manca:
+«3 righe», «Righe cambiate: ricalcola», «2 da risolvere», «Pronta da
+emettere», «N. 12/2026», «Prova: non spedita davvero», «Consegnata al
+cliente». `attesa` è la query non ancora risposta (mai un «manca» detto
+prima di sapere), `bloccato` il computo da ricalcolare, i controlli con
+errori o uno scarto SdI. `FatturaPercorso` li disegna come pillole
+cliccabili: Contratto e Limiti portano al loro passo di
+`/fatturazione/:id`, gli altri scorrono all'ancora giusta della tab
+(`fattura-righe`, `fattura-controlli`, `fattura-azioni`,
+`fattura-cronologia`). Nel percorso guidato (`modalita="guidata"`) Contratto
+e Limiti non si ripetono — sono già i passi 2 e 3 dello stepper della
+pagina — e resta il tratto bozza → SdI. Nel riassunto in sola lettura della
+scheda commessa la tab non chiede contratto né computo: due query in meno
+sulla pagina più aperta del CRM (§30.3).
+
+Sotto il percorso: il banner «Invio allo SdI in prova» quando
+`FATTURAZIONE_SDI_DRY_RUN` è acceso (prima lo si scopriva nel dialogo di
+conferma), e il pulsante «Genera bozza dai limiti» che dice a parole perché
+è spento — permesso mancante, contratto assente, computo non valido — con
+il link «Apri il contratto» / «Apri i limiti» al passo mancante. Finché
+contratto e computo sono in lettura il pulsante aspetta senza accusare.
+
+### 59.2 Controlli azionabili
+
+Ogni codice di controllo dell'emissione (§56.5) ha un rimedio e un posto:
+`azionePerControllo` (pura) lo mappa — `cliente_*` → anagrafica del
+cliente; `config_*` → Integrazioni, ancora `#fatturazione`;
+`computo_non_valido` e `limit*` → passo Limiti; `cantiere`,
+`dicitura_bonifico`, `scadenz*`, `pratica_edilizia_incompleta` → il campo
+(scorrimento e fuoco); `markup_negativo` e `riequilibrio_markup` → il
+dialogo di riequilibrio. L'editor apre con «Prima di emettere: N cose da
+risolvere», una riga per errore con il suo pulsante; gli avvisi restano
+nella colonna laterale. Prima i controlli erano un elenco di testo e
+l'operatore doveva sapere da solo in quale pagina stesse il rimedio.
+
+### 59.3 Editor, scadenze, emessa
+
+- Righe: via la colonna «Tipo» e l'interruttore spento; «significativo» è
+  un badge, i tipi di riga si leggono per esteso («Storno beni
+  significativi»), la riga «derivata» si chiama «calcolata». L'indicatore
+  di limite è un badge — «entro il limite» / «oltre di € X» — col numero
+  nel tooltip, non una frase ripetuta su ogni riga.
+- Riepilogo: quando le righe sono cambiate lo dice, con «Ricalcola e
+  salva» sul posto, invece di mostrare totali vecchi come se fossero veri.
+- Diciture: titolo (`ETICHETTA_DICITURA`) e testo intero sotto, non un muro
+  di paragrafi da cui scegliere.
+- Scadenze: «Ridistribuisci dalle quote» (`distribuisciScadenze`: al
+  centesimo, il resto sull'ultima rata) quando la somma non torna, e il
+  messaggio dice quanto manca o quanto c'è in più.
+- Emessa: la cronologia parla italiano (`descriviEvento`: chiavi note
+  tradotte, `*Cent` in euro, booleani e liste contati) — prima stampava i
+  nomi dei campi del database.
+
+### 59.4 Il processo fuori dalla tab
+
+- **Impostazioni → Fatturazione**: in cima i cinque requisiti
+  dell'emissione — IBAN, permesso di scrittura su FiC, IVA 22, IVA 10,
+  conto — con un segno ciascuno; l'ancora `#fatturazione` ci porta dai
+  controlli.
+- **«Da fare oggi»**: «Prepara la fattura — cliente» / «Completa la bozza
+  di fattura», lette da `fatturazioneGuidata.daFare` (la stessa query di
+  `/fatturazione`, così feed ed elenco non raccontano due storie), con il
+  prossimo passo scritto e il pulsante che apre `/fatturazione/:id` al
+  punto giusto. Direzione vede tutte le commesse, gli altri le proprie.
+  Senza refetch periodico: quella lettura apre contratto e computo di ogni
+  candidata (§58, debito «letture in blocco»).
+- **Card Pagamenti**: quando il pattuito viene dalla fattura del CRM, «Vai
+  alla fattura» accanto al badge apre il passo Fattura.
+- **Elenco delle fatture emesse** e ogni altro rimando: un solo modo di
+  scrivere l'indirizzo di un passo, `hrefPasso` in
+  `client/src/lib/fatturazioneView.ts`, usato anche dalla pagina a passi.
+- **Scheda commessa**: `?tab=` nell'URL sceglie la tab iniziale; se la tab
+  è dietro un flag spento si ricade su Preventivi.
+
+### 59.5 Verifica e residui
+
+`pnpm check`, 2.473 test e build verdi sul tree pushato. **Non verificato a
+schermo**: il demo locale non aveva una sessione e il controller non
+inserisce credenziali; la verifica 1440×900 e 390×844 (stepper interno,
+pannello dei controlli e i suoi pulsanti, «Da fare oggi» a flag accesi) si
+somma a quella, anch'essa in sospeso, del piano 4. In produzione non cambia
+nulla finché `FLAG_LIMITI` e `FLAG_FATTURAZIONE` restano spenti.
