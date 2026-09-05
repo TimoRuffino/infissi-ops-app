@@ -3313,6 +3313,260 @@ regole nuove non hanno reso irraggiungibile nessuna voce. Il controllo nel
 browser del dialog «Leggi il contratto» (il pulsante «Scarta» ora manda
 anche la commessa) resta al controller.
 
+## 11-vicies sedecies. Fatturazione guidata — piano 4 (05/09/2026)
+
+Piano 4 (`docs/superpowers/plans/2026-09-05-fatturazione-guidata.md`, 7
+task) su `feature/fatturazione-guidata`, aperto da `f3b551b` (main con i
+piani 1-3, harvest, PRD 5.40). Task 1-6 chiusi: 12 commit, 34 file,
++4124/−598 (`git diff --stat f3b551b..c0e71e5`); HEAD di questo giro
+`c0e71e5`. **Non ancora su `main`**, a differenza dei piani 1-3: il piano
+vieta il push senza una decisione esplicita. Spec di riferimento:
+`docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md`. Sopra
+il contratto strutturato (piano 1, §11-vicies terdecies), la fatturazione
+dal contratto (piano 2, §11-vicies quaterdecies) e la lettura del
+contratto PDF (piano 3, §11-vicies quindecies): oggi contratto, limiti e
+fattura vivevano in tre tab della pagina commessa senza un ordine né un
+«cosa manca»; qui nasce un ingresso unico — l'elenco delle commesse da
+fatturare e, per ciascuna, un percorso in quattro passi.
+
+**Cosa c'è.**
+
+- Router `fatturazioneGuidata` (`server/routers/fatturazioneGuidata.ts`)
+  dietro `procedureConInterruttore("limiti")`: `daFare` (elenco della
+  sede) e `passi({commessaId})` (stesso record per una commessa),
+  entrambi dietro `contratto.read` (`authorizeCoreOperation`); una sola
+  lettura per store (commesse, documenti, contratto, computo, fatture CRM,
+  fatture FiC), mai N+1. Nessuna mutation nuova: ogni passo lavora con le
+  procedure già esistenti (`contratti.*`, `computo.*`, `fatture.*`,
+  `estrazioniContratto.*`).
+- Stato dei quattro passi come funzione pura (`server/fatturazione/passi.ts`,
+  `calcolaPassi`) — nessuno store, nessun I/O — con i tipi condivisi in
+  `shared/fatturazione/passi.ts` (`PassoFatturazione`, `EsitoPasso`,
+  `ORDINE_PASSI`, `ETICHETTA_PASSO`, `CommessaDaFatturare`,
+  `StatoDaFatturare`). Testata da sola in `server/fatturazione/passi.test.ts`.
+- Pagina `/fatturazione` (`client/src/pages/Fatturazione.tsx`): card per
+  commessa, filtro per stato (tutti/aggiornamento contratto/fatture
+  pagamento), ricerca libera su cliente/codice, ordinamento server-side
+  per giorni nello stato decrescente. Dietro il kill switch client
+  `interruttori.limiti` (il server rifiuterebbe comunque la query).
+- Pagina `/fatturazione/:id` (`client/src/pages/FatturazioneCommessa.tsx`):
+  percorso a quattro passi — Documenti, Contratto, Limiti, Fattura — con
+  stepper (`PassiFatturazione`), riepilogo dei passi già chiusi in testa,
+  «Avanti»/«Indietro» in coda (Documenti porta il proprio piede: mai due
+  controlli di avanzamento sulla stessa schermata). Il passo vive nella
+  query `?passo=`, bloccata dai prerequisiti (`passoRaggiungibile`, letta
+  tramite `passoIniziale` in `client/src/lib/fatturazioneView.ts`): il
+  richiesto se raggiungibile, altrimenti il prossimo passo del server,
+  altrimenti «fattura» a percorso concluso; l'URL si riscrive da solo con
+  `replace`. Un contratto con modifiche non salvate blocca «Avanti», e
+  stepper/«Indietro» aprono `ConfirmDialog` «Modifiche non salvate» (Esci
+  senza salvare / Resta) invece di navigare — mai un salvataggio forzato.
+- `ElencoDocumentiCommessa.tsx` e `CaricaDocumentoDialog.tsx`
+  (`client/src/components/documenti/`) estratti da `CommessaDetail.tsx`
+  come componenti riusabili (sostituzione pura, −471/+30 righe nella
+  pagina commessa). `CaricaDocumentoDialog` non era previsto dal brief del
+  Task 4 ed è nato componente a sé perché il pulsante del banner del gate
+  documentale — fuori dalle tab, sempre montato — apriva lo stesso dialog
+  che prima viveva solo dentro la tab «File e documenti» (smontata da
+  Radix quando non è attiva): oggi sono due istanze dello stesso
+  componente, una per il banner e una per l'elenco. `PassoDocumenti.tsx`
+  (`client/src/components/fatturazione/`) è il passo 1: la stessa
+  `ElencoDocumentiCommessa` in versione compatta, «Leggi il contratto»
+  quando `contrattoEstrazione && limiti`, «Avanti» attivo solo a passo
+  fatto.
+- Prop `modalita: "guidata" | "lettura"` su `ContrattoTab`, `LimitiTab`,
+  `FatturaTab` (nessun consumatore resta senza `modalita`, ma il ramo di
+  comportamento invariato è ancora lì): `"guidata"` aggiunge
+  `onAvanti`/`onCambiato` (e `onSporco` per Contratto) dentro il percorso
+  a passi; `"lettura"` sostituisce l'editor con un riassunto (righe,
+  pattuito e tipo, cantiere, data firma per Contratto; limite, CHECK1,
+  CHECK2, esito per Limiti; stato, numero, totale per Fattura) e un solo
+  pulsante «Apri fatturazione» verso `/fatturazione/:id?passo=<passo>`.
+  `CommessaDetail.tsx` usa `"lettura"` sui tre tab — tre righe toccate,
+  nient'altro nella pagina.
+- `ContrattoStatoBanner`: i tre pulsanti ghost «Contratto»/«Limiti»/
+  «Fattura» diventano un solo «Apri fatturazione» (`min-h-11`) verso
+  `/fatturazione/:id` **senza** `?passo=` quando il flag `limiti` è
+  acceso — la pagina a passi atterra da sola sul prossimo passo del
+  server. «Leggi il contratto» resta un'azione separata quando il PDF non
+  è ancora stato letto.
+- Voce di menu «Fatturazione» in Economia (`client/src/lib/navigation.ts`),
+  `requiredCapabilities: ["contratto.read"]`, `featureFlag: "limiti"`
+  (`MenuItem.featureFlag` esteso da solo `"tars"` a `"tars" | "limiti"`),
+  `loadingFallbackRoles: ["direzione", "amministrazione"]`; ultima
+  candidata al quarto slot del dock mobile, dopo Clienti e Commesse. Rotte
+  in `routeContract.ts` (`migrationStatus: "migrata"`; `/fatturazione`
+  navigazione «primary»; `/fatturazione/:id` «hidden») e
+  `shellPresentation.ts` (sezione Economia per entrambe; il breadcrumb di
+  `/fatturazione/:id` collassa su `/fatturazione`); il manifest
+  (`docs/design/modular-control/route-manifest.md`) è stato aggiornato
+  nello stesso giro, fuori dal perimetro di questo task — non toccato qui.
+
+**Come si usa.** Economia → **Fatturazione** (`/fatturazione`): elenco a
+card delle commesse senza fattura, filtro per stato e ricerca, ordinate
+per giorni nello stato. Card → «Inizia fatturazione» (nessun passo
+toccato) o «Continua» → `/fatturazione/:id`: quattro passi in sequenza,
+uno stepper che lascia saltare solo su quelli già toccati o sul prossimo,
+«Avanti» attivo solo a passo fatto (mai muto: la riga sotto dice cosa
+manca). Chi non ha la capability di modifica di un passo lo vede
+comunque — nessun redirect — ma i controlli si disattivano dai `puo*` già
+restituiti dai router esistenti, esattamente come nei tab di oggi: nessun
+mirror di capability introdotto da questo piano. Dalla scheda commessa
+(`/commesse/:id`) i tab Contratto/Limiti/Fattura sono riassunti in sola
+lettura con «Apri fatturazione»: si lavora in un posto solo, la scheda
+commessa resta il punto d'osservazione.
+
+**Regole dei passi (spec §4.1, `calcolaPassi`).** `documenti`: fatto se
+esiste un contratto strutturato o almeno un documento di tipo `contratto`
+nel fascicolo, altrimenti da fare (nessuno stato «in corso» possibile per
+questo passo). `contratto`: fatto con almeno una riga, in corso se il
+contratto esiste ma è ancora vuoto. `limiti`: non disponibile a flag
+`limiti` spento (controllato prima di ogni altra condizione), fatto se il
+computo esiste, è coerente col contratto corrente (hash parametri/righe)
+ed esito `ok`, in corso se esiste ma stantio o incompleto. `fattura`: non
+disponibile a flag `fatturazione` spento, fatto da una fattura
+`tipo === "fattura"` arrivata a `emessa|inviata|consegnata|mancata_consegna`
+(mai `scartata`/`rifiutata`: vanno corrette, non sono un traguardo), in
+corso con qualunque fattura non annullata. `prossimoPasso` = il primo
+passo non fatto e non non-disponibile nell'ordine. Importi (§4.3):
+`fatturaPrevistaCent` prende il totale di una bozza/in-emissione se esiste
+(importo vero, non stima), altrimenti il pattuito lordo (vero) o il
+pattuito imponibile ×1,10 (dichiarato «stima»); `null` senza contratto.
+
+**Filtro «senza fattura» (§4.2).** Elenco = commesse della sede in
+`aggiornamento_contratto` o `fatture_pagamento`, escluse quelle con una
+fattura FiC collegata (`ficFatture` per `sedeId`+`commessaId`, qualunque
+stato) o con una fattura CRM `tipo === "fattura"` in
+`emessa|inviata|consegnata|mancata_consegna`. Una bozza CRM (`bozza` o
+`in_emissione`) non esclude: la commessa resta in elenco con «Continua».
+
+**Permessi, sede, flag (§7).** Elenco e passi dietro `contratto.read`,
+filtrati per `sedeId` in ogni query; commessa di un'altra sede →
+`NOT_FOUND` (`commessaInSede`), mai un dato che permetta di enumerarla.
+Importi (`pattuitoCent`, `pattuitoTipo`, `fatturaPrevistaCent`,
+`fatturaPrevistaStima`) solo con `economia.read` (`effectiveCapabilitySet`),
+altrimenti `null` e la card non mostra la riga degli importi. Nessuna
+variabile d'ambiente nuova: verificato `.claude/launch.json`, il profilo
+«Limiti demo (porta 5198)» ha già i tre flag che bastano — `FLAG_LIMITI`
+(pagina e router, kill switch), `FLAG_FATTURAZIONE` (passo Fattura) e
+`FLAG_CONTRATTO_ESTRAZIONE` (pulsante «Leggi il contratto» dentro
+Documenti).
+
+**Decisioni prese in corso d'opera (ruling P4-R1–P4-R11, ledger completo in**
+`.superpowers/sdd/2026-09-05-fatturazione-guidata/progress.md`**, grep
+`"Ruling P4-R"`).**
+
+- P4-R1: la rotta `/fatturazione/:id` si registra nel Task 5 (non nel
+  Task 3): nessuna rotta punta a un componente inesistente nel frattempo.
+- P4-R2: `fatturaPrevistaCent`/`fatturaStato` guardano solo le fatture
+  `tipo === "fattura"` (una nota di credito non conta), passate al
+  calcolo in ordine cronologico crescente.
+- P4-R3: `statoDal` = data dell'ultimo passo completato della timeline
+  (proxy già usato da `server/commesse/attivita.ts`), fallback
+  `updatedAt`; può restare stantio dopo un ritorno indietro manuale sulla
+  board (limite preesistente, mai un dato di dominio sbagliato).
+- P4-R4: `giorniTra` converte entrambi i lati con `istanteComeLocale`
+  (Europe/Rome) prima di tagliare il giorno — altrimenti fra le 22 e le
+  24 UTC il conteggio sballa di ±1.
+- P4-R5: voce di menu con `featureFlag: "limiti"`; «Inizia fatturazione»
+  quando nessun passo è in corso o fatto (i «non disponibili» contano
+  come non iniziati); «Fatturata» resta quando il passo fattura è fatto;
+  `/fatturazione` ultima candidata al quarto slot del dock mobile, dopo
+  Clienti e Commesse.
+- P4-R6: un solo «Avanti» per schermata — Documenti porta il proprio, gli
+  altri passi usano il piede della pagina; «Salva e avanti» dentro il
+  contratto solo con modifiche non salvate.
+- P4-R7 (versione finale, giro di fix del Task 5): «Avanti» del piede
+  spento col contratto sporco; stepper e «Indietro» col contratto sporco
+  aprono `ConfirmDialog` «Modifiche non salvate» (Esci senza salvare /
+  Resta) invece di navigare subito.
+- P4-R8: `?passo=` bloccato da `passoRaggiungibile` tramite `passoIniziale`
+  (il richiesto se raggiungibile, altrimenti il prossimo passo del
+  server, altrimenti «fattura» a percorso concluso); URL riscritto con
+  `replace`.
+- P4-R9 (versione finale, giro di fix del Task 6): il banner rimanda a
+  `/fatturazione/:id` **senza** `?passo=`; niente specchio client dei
+  criteri «fatto» di `calcolaPassi` — `passoSuggerito` e
+  `fatturazioneAttiva` eliminati dal banner (sbagliavano in due casi
+  reali: fascicolo vuoto → editor del contratto vuoto invece del passo
+  Documenti; percorso già concluso → passo Limiti invece di Fattura).
+- P4-R10: nel banner e nei tab il pulsante si chiama «Apri fatturazione»
+  in entrambi i casi (stessa pagina; il tab aggiunge solo il passo
+  nell'URL); la data della fattura resta `YYYY-MM-DD` (convenzione della
+  famiglia fattura), la data firma del contratto diventa gg/mm/aaaa
+  (`dataItaliana`, split di stringa, mai `new Date("YYYY-MM-DD")`).
+- P4-R11: `ContrattoTab` in lettura tiene in piedi hook e query del form
+  (catalogo DEI, mutation `salva`): gli hook non si saltano e le query
+  restano condivise in cache con la pagina a passi.
+- **Nota debito (review Task 6, preesistente al piano 4):** `contratti.get`
+  è dietro `contratto.read` — condivisa da tutti i ruoli, `squadra_posa` e
+  `tecnico_rilievi` inclusi — e restituisce `pattuitoCent` a chiunque,
+  mentre `/fatturazione` lo nasconde senza `economia.read`. Lo stesso
+  valore era già leggibile in un `<Input>` disabilitato nella tab piena:
+  decisione a sé con matrice campo→consumer, v. §12.
+
+**Test.** `server/fatturazione/passi.test.ts` (12 casi al Task 1, esteso
+nei task successivi fino a 23 alla review del Task 6): una riga per
+combinazione di flag/documenti/righe/computo/fatture. Nuovo
+`server/routers/fatturazioneGuidata.test.ts` (7 casi, Task 2): filtro
+stati, esclusione con fattura FiC collegata e con fattura CRM emessa
+(bozza resta), sede, importi nascosti senza `economia.read`, `NOT_FOUND`
+altra sede, flag spento. `client/src/lib/fatturazioneView.test.ts`
+(cresciuto nei due giri di fix con `passoRaggiungibile`, `passoDallaQuery`,
+`passoIniziale`).
+
+**Verifica.** Ultima esecuzione della suite intera al commit `357b50e`
+(Task 6, prima dei due giri di fix): `pnpm check` pulito, `pnpm test`
+2412 test passati e 50 saltati (stesso numero del Task 5, nessuna
+regressione), `pnpm build` verde. I due giri di fix successivi — `540000d`
+(Task 5: contratto sporco + `?passo=`) e `c0e71e5` (Task 6: banner e
+stacco delle tab, HEAD di questo branch) — hanno rieseguito solo `pnpm
+check` (pulito su entrambi) e `pnpm vitest run client/src/lib` (473 poi
+474 test, tutti verdi) più `git diff --check` pulito: **non** una nuova
+`pnpm test`/`pnpm build` per intero dopo `357b50e`. Dichiarato, non esteso
+oltre quanto verificato dagli implementatori.
+
+**Verifica browser: IN SOSPESO.** Nessuno dei task di implementazione ha
+avviato server o browser (mandato esplicito di ogni brief); resta al
+controller, login demo, 1440×900 e 390×844:
+
+1. `/fatturazione`: elenco a card, filtro stato, ricerca, ordinamento per
+   giorni nello stato, riga degli importi presente/assente secondo
+   `economia.read`, stati vuoto/errore/caricamento.
+2. `/fatturazione/:id`: i quattro passi (Documenti col fascicolo e «Leggi
+   il contratto»; Contratto/Limiti/Fattura in modalità guidata), stepper
+   cliccabile solo sui passi raggiungibili, «Avanti» disattivato col
+   motivo quando il passo non è fatto.
+3. Dialog «Modifiche non salvate» uscendo dal passo Contratto sporco
+   (stepper, «Indietro»); verificare che «Salva e avanti» non lo apra mai.
+4. `?passo=` che chiede un passo non ancora raggiungibile: l'URL si
+   riscrive da solo sul passo giusto, senza sobbalzi visibili.
+5. `/commesse/:id`: i tre tab in sola lettura (nessun campo, nessun
+   pulsante di modifica) e il banner con un solo «Apri fatturazione»
+   (44 px, destinazione coerente col prossimo passo); il percorso guidato
+   resta invariato.
+6. Flag `limiti`/`fatturazione`/`contrattoEstrazione` spenti uno alla
+   volta: pagina nascosta, passo Fattura nascosto, «Leggi il contratto»
+   nascosto.
+7. Console pulita in ogni schermata, nessuno scroll orizzontale a 390.
+
+**Debito.** Minori differiti, tutti dichiarati nei report dei singoli
+task: prop `stato` non passata a `PassoDocumenti` dalla pagina che già la
+possiede (il componente rilegge `commesse.byId` per conto proprio — stessa
+chiave di cache, nessuna richiesta di rete in più, solo una query
+duplicata nel codice); predicato `estrazioneAttiva` duplicato identico fra
+`ElencoDocumentiCommessa.tsx` e `PassoDocumenti.tsx`; `CaricaDocumentoDialog`
+usa id DOM statici (`commessa-upload-file` e affini) invece di `useId()`
+— oggi il dialog ha due istanze sulla stessa pagina (banner del gate ed
+elenco); pulsanti icona da 28 px (`h-7 w-7`) preesistenti nel fascicolo,
+mai portati a 44 px da questo piano; «chi ha caricato» il documento non è
+mostrato (il campo non esiste nello schema attuale). `contratti.get` e gli
+importi senza filtro `economia.read`: nota debito sopra, v. §12. M4 della
+review del Task 6 (due pulsanti «Apri fatturazione» identici, uno nel
+banner e uno nel tab, con destinazioni diverse sulla stessa schermata a
+1440) è stato ratificato come comportamento voluto, non un difetto:
+P4-R10.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
@@ -3414,6 +3668,24 @@ anche la commessa) resta al controller.
     strict (Ruling P3-R6) non è mai stato esercitato dal vivo contro l'API
     OpenAI reale — la prima chiamata reale segue il runbook del §11-vicies
     quindecies.
+17. **Fatturazione guidata (piano 4, 05/09/2026)**: 7 task, Task 1-6
+    completati su `feature/fatturazione-guidata` (base `f3b551b`, HEAD
+    `c0e71e5`), **non ancora su `main`** (v. §11-vicies sedecies). Aperti:
+    (1) verifica browser (1440×900 e 390×844) mai eseguita — elenco,
+    percorso a passi, dialog contratto sporco, `?passo=` bloccato dai
+    prerequisiti, tab in lettura e banner della scheda commessa, flag
+    spenti, console pulita: lista completa in §11-vicies sedecies; (2)
+    minori differiti (prop `stato` a `PassoDocumenti`, predicato
+    `estrazioneAttiva` duplicato, id DOM con `useId` in
+    `CaricaDocumentoDialog`, pulsanti icona 28 px preesistenti nel
+    fascicolo, «chi l'ha caricato» non mostrato); (3) `contratti.get`
+    restituisce `pattuitoCent` a chiunque abbia `contratto.read` (tutti i
+    ruoli) mentre `/fatturazione` lo nasconde senza `economia.read` —
+    preesistente al piano, decisione a sé con matrice campo→consumer; (4)
+    nessuna transizione di stato automatica della commessa: la fattura
+    emessa toglie la commessa dall'elenco, ma il passaggio dello stato
+    `fatture_pagamento` al successivo resta un gesto umano, fuori ambito
+    dichiarato (spec §9).
 
 ## 13. Cosa resta della piattaforma
 

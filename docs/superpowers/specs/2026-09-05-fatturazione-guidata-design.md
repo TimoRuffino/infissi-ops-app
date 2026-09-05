@@ -172,3 +172,43 @@ non ha `economia.read`; la card allora non mostra la riga degli importi.
 Transizioni di stato automatiche della commessa; nuove regole di dominio su
 contratto, limiti o fattura; ridisegno dei componenti interni delle tab
 (solo la cornice cambia); notifiche.
+
+## 10. Precisazioni in corso d'opera (05/09/2026)
+
+Decisioni emerse durante l'implementazione (Task 1-6), non fissate al
+livello di dettaglio di questo documento all'origine. Ruling completi:
+`.superpowers/sdd/2026-09-05-fatturazione-guidata/progress.md`, grep
+`"Ruling P4-R"`.
+
+- Un solo «Avanti» per schermata: il passo Documenti porta il proprio
+  piede, gli altri tre usano quello della pagina — mai due controlli di
+  avanzamento sulla stessa vista (P4-R6).
+- `statoDal` (§4.1) è la data dell'ultimo passo completato della timeline
+  della commessa (stesso proxy di `server/commesse/attivita.ts`), non un
+  campo dedicato; fallback `updatedAt` quando nessuno step risulta
+  completato (P4-R3).
+- La voce di menu «Fatturazione» usa `featureFlag: "limiti"`
+  (`MenuItem.featureFlag`, prima limitato a `"tars"`, esteso ai due
+  valori) invece di un flag dedicato al piano (P4-R5).
+- Il dialog di caricamento file (`CaricaDocumentoDialog`) è un componente
+  a sé, non solo una funzione interna dell'elenco documenti: lo apre
+  anche il banner del gate documentale, fuori dalle tab e sempre montato,
+  mentre l'elenco viene smontato quando la sua tab non è attiva.
+- `?passo=` è bloccato dai prerequisiti (§4.1, `passoRaggiungibile`): un
+  passo non ancora raggiungibile viene sostituito dal prossimo passo del
+  server; a percorso concluso (`prossimoPasso` nullo) l'atterraggio è sul
+  passo «fattura», mai su «documenti» (P4-R8).
+- Il banner della scheda commessa (`ContrattoStatoBanner`) rimanda a
+  `/fatturazione/:id` **senza** `?passo=`: la pagina a passi decide da
+  sola su quale passo atterrare, niente doppio calcolo dei criteri
+  «fatto» sul client (P4-R9).
+- Un contratto con modifiche non salvate blocca l'uscita dal passo:
+  dialog «Modifiche non salvate», mai un salvataggio o uno scarto
+  automatico (P4-R7).
+- La data firma del contratto si mostra in gg/mm/aaaa (nuovo
+  `dataItaliana`, split di stringa sulla data pura, mai
+  `new Date("YYYY-MM-DD")`); la data della fattura resta `YYYY-MM-DD`, la
+  convenzione già in uso nella sua famiglia di componenti (P4-R10).
+- Confermato: nessuna mutation nuova in tutto il piano — ogni passo
+  lavora con le mutation già esistenti di contratto, computo e fattura
+  (§5, §9).
