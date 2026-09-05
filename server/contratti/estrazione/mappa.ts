@@ -272,34 +272,83 @@ function naturaDelNome(nome: string): NaturaSerramento {
   return "battente";
 }
 
-/**
- * Le parole di accessorio o oscurante che chiudono il «segmento serramento»
- * della descrizione (P3-R24): «Finestra 2 ante in alluminio con zanzariera
- * scorrevole» parla di serramento solo prima di «zanzariera».
- */
-const PRIMO_SOSTANTIVO_ACCESSORIO = /\b(zanzarier|tend[ae]|persian|tapparell|cassonett|scur[oi]|avvolgibil|manigli|coprifil)/i;
+/** I sostantivi con cui il documento nomina il serramento stesso (P3-R27). */
+const SOSTANTIVO_SERRAMENTO = /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss|scorrevol/gi;
 
-/** La parte della descrizione che parla del serramento stesso, prima del primo accessorio o oscurante citato. */
-function segmentoSerramento(testo: string): string {
-  const trovato = PRIMO_SOSTANTIVO_ACCESSORIO.exec(testo);
-  return trovato ? testo.slice(0, trovato.index) : testo;
+/** I sostantivi di accessorio o oscurante: quello che li segue parla di loro, non del serramento (P3-R27). */
+const SOSTANTIVO_ACCESSORIO =
+  /\b(?:zanzarier|tend[ae]\b|persian|tapparell|cassonett|avvolgibil|manigli|coprifil|scur[oi]\b)/gi;
+
+/** Le parole che dicono «scorrevole» di un serramento: complanare e alzante comprese. */
+const QUALIFICATORE_SCORRIMENTO = /scorrev|alzante|complanare/gi;
+
+/**
+ * «scuro/scuri» non è un oscurante quando lo precede entro due parole un
+ * colore o una finitura: «colore scuro», «finitura noce scuro» (P3-R27).
+ */
+const PAROLA_DI_COLORE = /colore|tinta|finitur|tonalit|effetto|verniciat|laccat/;
+
+function scuroDiColore(testo: string, indice: number): boolean {
+  const parolePrima = testo.slice(0, indice).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return parolePrima.slice(-2).some(p => PAROLA_DI_COLORE.test(p));
 }
 
 /**
- * P3-R10/P3-R24: la natura si decide dal tipo del modello E dalla
+ * P3-R27: ogni «scorrevole/alzante/complanare» della descrizione vale per
+ * il sostantivo più vicino che lo PRECEDE. Se quel sostantivo è un
+ * accessorio o un oscurante, l'accessorio se lo tiene («…con zanzariera
+ * scorrevole» non rende scorrevole la finestra); se è un serramento — o se
+ * prima non c'è nessun sostantivo — il qualificatore descrive il
+ * serramento («Persiana abbinata alla portafinestra scorrevole»). La
+ * prossimità sostituisce il taglio al primo accessorio del giro 2, che era
+ * cieco alla direzione e buttava via tutto quello che veniva dopo.
+ *
+ * Ritorna i qualificatori che restano al serramento, nell'ordine del testo.
+ */
+function qualificatoriDelSerramento(testo: string): string[] {
+  const sostantivi: Array<{ indice: number; accessorio: boolean }> = [];
+  for (const m of testo.matchAll(SOSTANTIVO_SERRAMENTO)) {
+    sostantivi.push({ indice: m.index, accessorio: false });
+  }
+  for (const m of testo.matchAll(SOSTANTIVO_ACCESSORIO)) {
+    // «scuro» preceduto da un colore o da una finitura non è un sostantivo.
+    if (m[0].startsWith("scur") && scuroDiColore(testo, m.index)) continue;
+    sostantivi.push({ indice: m.index, accessorio: true });
+  }
+
+  const restano: string[] = [];
+  for (const q of testo.matchAll(QUALIFICATORE_SCORRIMENTO)) {
+    let piuVicino: { indice: number; accessorio: boolean } | null = null;
+    for (const s of sostantivi) {
+      if (s.indice >= q.index) continue;
+      if (piuVicino == null || s.indice > piuVicino.indice) piuVicino = s;
+    }
+    if (piuVicino == null || !piuVicino.accessorio) restano.push(q[0]);
+  }
+  return restano;
+}
+
+/**
+ * P3-R10/P3-R27: la natura si decide dal tipo del modello E dalla
  * descrizione. Il modello marca «portafinestra» anche una portafinestra
  * scorrevole: senza leggere il testo l'intero foglio degli scorrevoli
- * resterebbe irraggiungibile. Ma per finestra/portafinestra/fisso il testo
- * conta SOLO nel segmento che parla del serramento — prima del primo
- * accessorio o oscurante nominato, altrimenti «…con zanzariera scorrevole»
- * renderebbe scorrevole una finestra battente. Il tipo «scorrevole» del
- * modello non ha bisogno del testo: resta scorrevole.
+ * resterebbe irraggiungibile. Ma per finestra e portafinestra contano solo
+ * i qualificatori che la prossimità (P3-R27) lascia al serramento,
+ * altrimenti «…con zanzariera scorrevole» renderebbe scorrevole una
+ * finestra battente. Il tipo «scorrevole» del modello non ha bisogno del
+ * testo: resta scorrevole.
  *
- * Quando il segmento del serramento dice comunque «scorrevole» ma il tipo
- * del modello è finestra o portafinestra, si segue la parola — è più
- * spesso giusta del tipo dichiarato dal modello — ma la CONTRADDIZIONE si
- * dichiara sempre (`contrasto: true`), mai una scelta silenziosa.
+ * Quando il testo dice «scorrevole» del serramento ma il tipo del modello
+ * è `finestra` (o `fisso`), i due si contraddicono: si segue la parola — è
+ * più spesso giusta del tipo dichiarato dal modello — ma la
+ * CONTRADDIZIONE si dichiara sempre (`contrasto: true`), mai una scelta
+ * silenziosa. P3-R28: `portafinestra` NON è in contrasto con «scorrevole»
+ * — una portafinestra scorrevole è una cosa sola — e non genera avviso.
+ * (`fisso` oggi esce dal ramo `telaio_fisso` qui sopra: resta nell'elenco
+ * perché è la regola dichiarata, non perché il ramo sia raggiungibile.)
  */
+const TIPI_IN_CONTRASTO_CON_SCORREVOLE: ReadonlyArray<TipoProdotto> = ["finestra", "fisso"];
+
 function naturaRichiesta(tipo: TipoProdotto, descrizione: string): { natura: NaturaSerramento; contrasto: boolean } {
   if (tipo === "fisso") return { natura: "telaio_fisso", contrasto: false };
   const testo = normalizzaTesto(descrizione);
@@ -307,10 +356,12 @@ function naturaRichiesta(tipo: TipoProdotto, descrizione: string): { natura: Nat
   if (tipo === "scorrevole") {
     return { natura: /alzante/.test(testo) ? "alzante" : "complanare", contrasto: false };
   }
-  const segmento = segmentoSerramento(testo);
-  const scorrevole = /scorrev|alzante|complanare/.test(segmento);
-  if (!scorrevole) return { natura: "battente", contrasto: false };
-  return { natura: /alzante/.test(segmento) ? "alzante" : "complanare", contrasto: true };
+  const qualificatori = qualificatoriDelSerramento(testo);
+  if (qualificatori.length === 0) return { natura: "battente", contrasto: false };
+  return {
+    natura: qualificatori.includes("alzante") ? "alzante" : "complanare",
+    contrasto: TIPI_IN_CONTRASTO_CON_SCORREVOLE.includes(tipo),
+  };
 }
 
 /** Il testo parla di una portafinestra (e non della finestra che le sta dentro come parola). */
@@ -430,8 +481,8 @@ function tipologiaSerramento(
     return { codice: null, avvertenza: `nessuna voce DEI per ${categoria} (${dettaglio})` };
   }
 
-  // P3-R24: il segmento del serramento dice «scorrevole» ma il tipo del
-  // modello è finestra/portafinestra — si segue il testo, ma la
+  // P3-R27/P3-R28: la descrizione dice «scorrevole» del serramento ma il
+  // tipo del modello è `finestra` (o `fisso`) — si segue il testo, ma la
   // contraddizione fra i due si dichiara sempre.
   if (contrasto) {
     avvertenze.push(`descrizione scorrevole, tipo del modello ${r.tipoProdotto}: verifica`);

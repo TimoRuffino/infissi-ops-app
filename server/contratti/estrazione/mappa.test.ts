@@ -873,13 +873,23 @@ describe("tipologiaDei — scorrevoli, portefinestre e fogli (P3-R10, P3-R15)", 
   });
 });
 
-// ── N1/P3-R24: la natura si legge solo nel segmento del serramento ─────────
+// ── P3-R27/P3-R28: ogni «scorrevole» vale per il sostantivo più vicino ─────
+//
+// Il taglio al primo accessorio del giro 2 (P3-R24) era cieco alla
+// direzione: buttava via anche il serramento nominato DOPO l'accessorio
+// («Persiana abbinata alla portafinestra scorrevole») e prendeva per
+// oscurante un colore («colore scuro»). P3-R27 lo sostituisce con la
+// prossimità: ogni qualificatore (scorrev|alzante|complanare) vale per il
+// sostantivo più vicino che lo PRECEDE — se è un accessorio se lo tiene
+// l'accessorio, se è un serramento (o non ce n'è nessuno) vale per il
+// serramento. P3-R28: l'avvertenza di contrasto scatta solo per
+// `finestra`/`fisso`, non per `portafinestra`.
 
-describe("tipologiaDei — la natura si legge solo prima dell'accessorio (P3-R24)", () => {
+describe("tipologiaDei — il qualificatore vale per il sostantivo più vicino (P3-R27, P3-R28)", () => {
   it("(a) un accessorio scorrevole non rende scorrevole la finestra", () => {
-    // «con zanzariera scorrevole» è dopo la parola «zanzariera»: fuori dal
-    // segmento del serramento. Prima di questo fix il giro 1 avrebbe letto
-    // «scorrevole» in tutta la descrizione e scelto C15043-a (complanare).
+    // Il sostantivo più vicino prima di «scorrevole» è «zanzariera»: se lo
+    // tiene l'accessorio. Prima del giro 2 tutta la descrizione contava e
+    // la scelta cadeva su C15043-a (complanare).
     const scelta = tipologiaDei(
       TARIFFE,
       "serramento_alluminio",
@@ -890,7 +900,7 @@ describe("tipologiaDei — la natura si legge solo prima dell'accessorio (P3-R24
     expect(scelta.avvertenza).toBeNull();
   });
 
-  it("(b) «scorrevole» nel segmento del serramento vince sul tipo del modello, e lo dichiara", () => {
+  it("(b) «scorrevole» attaccato al serramento vince sul tipo del modello, e lo dichiara", () => {
     // Qui «scorrevole» descrive il serramento stesso, non un accessorio:
     // il tipo dichiarato dal modello (finestra) e il testo si contraddicono,
     // si segue il testo ma la contraddizione è un'avvertenza, mai silenziosa.
@@ -915,9 +925,11 @@ describe("tipologiaDei — la natura si legge solo prima dell'accessorio (P3-R24
     expect(scelta.avvertenza).toBeNull();
   });
 
-  it("(d) la portafinestra scorrevole complanare in PVC resta raggiungibile", () => {
-    // Non regredisce rispetto al giro 1: nessun accessorio nel testo, quindi
-    // il segmento è la descrizione intera e il risultato non cambia.
+  it("(d) la portafinestra scorrevole complanare in PVC resta raggiungibile, e senza avviso di contrasto", () => {
+    // Non regredisce rispetto al giro 1: nessun accessorio prima di
+    // «scorrevole», il risultato non cambia. P3-R28: qui il tipo del
+    // modello (portafinestra) NON contraddice «scorrevole» — una
+    // portafinestra scorrevole è una cosa sola — quindi nessun avviso.
     const scelta = tipologiaDei(
       TARIFFE,
       "serramento_pvc",
@@ -925,6 +937,52 @@ describe("tipologiaDei — la natura si legge solo prima dell'accessorio (P3-R24
       null
     );
     expect(scelta.codice).toBe("C25077-g");
+    expect(scelta.avvertenza ?? "").not.toContain("tipo del modello");
+  });
+
+  it("(e) il serramento nominato DOPO l'accessorio conta lo stesso (P3-R27)", () => {
+    // «Persiana abbinata alla portafinestra scorrevole complanare»: il
+    // sostantivo più vicino prima di «scorrevole» è «portafinestra», non
+    // «persiana». Il taglio del giro 2 tagliava alla prima parola e
+    // sceglieva la portafinestra a battente (C25077-e) in silenzio.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione: "Persiana abbinata alla portafinestra scorrevole complanare 2 ante in PVC",
+      },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-g");
+    expect(scelta.avvertenza ?? "").not.toContain("tipo del modello");
+  });
+
+  it("(f) «colore scuro» è un colore, non un oscurante (P3-R27)", () => {
+    // «scuro/scuri» non è un sostantivo quando lo precede entro due parole
+    // un colore o una finitura: il sostantivo più vicino prima di
+    // «scorrevole» resta «Finestra». Col taglio del giro 2 «scuro» chiudeva
+    // il segmento e la finestra diventava a battente (C25077-c) in silenzio.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra 2 ante colore scuro scorrevole complanare in PVC" },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-f");
+    expect(scelta.avvertenza ?? "").toContain("descrizione scorrevole, tipo del modello finestra: verifica");
+  });
+
+  it("(g) una tenda scorrevole su una portafinestra non la rende scorrevole", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "portafinestra", nAnte: 2, descrizione: "Portafinestra 2 ante in PVC con tenda scorrevole" },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-e");
+    expect(scelta.avvertenza).toBeNull();
   });
 
   it("la contraddizione arriva fino alla riga: tipologia da verificare con l'avvertenza in nota", () => {
