@@ -13,7 +13,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { Contratto } from "@shared/limiti/tipi";
-import type { Computo } from "@shared/limiti/tipi";
 import type { Fattura, StatoFattura } from "@shared/fatturazione/tipi";
 import type { CommessaDaFatturare, StatoDaFatturare } from "@shared/fatturazione/passi";
 import { calcolaPassi, STATI_FATTURA_EMESSA, type IngressoPassi } from "../fatturazione/passi";
@@ -25,8 +24,9 @@ import { getCommessaById, getCommesseStore } from "./commesse";
 import { getDocumentiDiCommessa, type Documento } from "./preventiviContratti";
 import { stepsDiCommessa } from "./timeline";
 import { leggiContratto } from "../contratti/servizio";
-import { ultimoComputo } from "../computo/servizio";
-import { fatturePerCommessa } from "../fatture/servizio";
+import { statoComputoLeggero } from "../computo/servizio";
+import type { IntestazioneComputo } from "../computo/repository";
+import { getFattureRepository } from "../fatture/repository";
 import { ficFatture } from "./ficFatture";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
@@ -95,15 +95,20 @@ function statoDalDiCommessa(commessa: { id: number; updatedAt: unknown }): strin
  * entrambi i casi `new Date(...)` lo ancora a mezzanotte UTC o all'istante
  * esatto, e uno spostamento di sole 1-2 ore verso Roma non attraversa mai
  * la mezzanotte di un'altra volta.
+ *
+ * Ruling P4-R16: mai negativo. `statoDal` nel futuro (orologio del server
+ * indietro, dato di migrazione anomalo) non deve mandare la commessa in
+ * fondo all'ordinamento con un numero di giorni assurdo: si azzera, come
+ * «entrato oggi».
  */
 function giorniTra(dataIso: string, adesso: Date): number {
   const epoca = (yyyyMmDd: string) => Date.parse(`${yyyyMmDd}T00:00:00Z`);
   const giorno = istanteComeLocale(new Date(dataIso)).slice(0, 10);
   const oggi = istanteComeLocale(adesso).slice(0, 10);
-  return Math.round((epoca(oggi) - epoca(giorno)) / 86_400_000);
+  return Math.max(0, Math.round((epoca(oggi) - epoca(giorno)) / 86_400_000));
 }
 
-type StatoComputo = { computo: Computo | null; valido: boolean; motivo: string | null };
+type StatoComputo = { computo: IntestazioneComputo | null; valido: boolean; motivo: string | null };
 
 type DatiCommessa = {
   commessa: any;
@@ -116,24 +121,31 @@ type DatiCommessa = {
 };
 
 /**
- * Tutto ciò che serve per una commessa in un solo giro: una lettura per
- * store (contratto, computo, fatture), mai una per l'altra dentro un
- * ciclo. `getDocumentiDiCommessa` è sincrona: resta fuori dal Promise.all.
+ * Tutto ciò che serve per una commessa tranne le fatture, lette altrove
+ * (Ruling P4-R15): `daFare` le legge in blocco per tutte le candidate con
+ * `perCommesse`, `passi` per la singola commessa, prima di chiamare questa
+ * funzione. Qui restano al massimo 3 query per commessa: `leggiContratto`
+ * (testata + righe, 2 query) e `statoComputoLeggero` col contratto appena
+ * letto (1 query, mai una rilettura del contratto né delle `computo_voci`).
+ * Contratto e computo restano sequenziali — il secondo ha bisogno del
+ * primo per il giudizio di validità — mentre `getDocumentiDiCommessa`,
+ * sincrona, resta fuori da qualunque attesa.
  */
-async function leggiDatiCommessa(sedeId: number, commessa: any): Promise<DatiCommessa> {
+async function leggiDatiCommessa(
+  sedeId: number,
+  commessa: any,
+  fatture: Fattura[]
+): Promise<DatiCommessa> {
   const documenti = getDocumentiDiCommessa(commessa.id);
-  const [{ contratto, righe }, statoComputo, fattureGrezze] = await Promise.all([
-    leggiContratto(sedeId, commessa.id),
-    ultimoComputo(sedeId, commessa.id),
-    fatturePerCommessa(sedeId, commessa.id),
-  ]);
+  const { contratto, righe } = await leggiContratto(sedeId, commessa.id);
+  const statoComputo = await statoComputoLeggero(sedeId, commessa.id, contratto);
   return {
     commessa,
     documenti,
     contratto,
     righeContratto: righe.length,
     statoComputo,
-    fatture: [...fattureGrezze].sort((a, b) => a.id - b.id),
+    fatture: [...fatture].sort((a, b) => a.id - b.id),
   };
 }
 
@@ -188,7 +200,10 @@ function costruisciRecord(
     pattuitoCent: mostraImporti ? contratto?.pattuitoCent ?? centDaEuro(commessa.importoTotale) : null,
     pattuitoTipo: mostraImporti ? contratto?.pattuitoTipo ?? null : null,
     fatturaPrevistaCent: mostraImporti ? risultato.fatturaPrevistaCent : null,
-    fatturaPrevistaStima: risultato.fatturaPrevistaStima,
+    // Anche questa dietro `economia.read` (I4 della review finale): da sola
+    // rivelava `pattuitoTipo === "imponibile"` a chi non ha il permesso di
+    // leggere il pattuito, le due righe sopra.
+    fatturaPrevistaStima: mostraImporti && risultato.fatturaPrevistaStima,
     // `calcolaPassi` resta agnostico dei tipi di @shared/fatturazione/tipi
     // (nessuno store, nessun import di dominio): qui si restringe di nuovo
     // al contratto pubblico dell'API.
@@ -210,17 +225,40 @@ export const fatturazioneGuidataRouter = router({
     const caps = await effectiveCapabilitySet(ctx, ["economia.read"]);
     const mostraImporti = caps.has("economia.read");
 
-    // Filtro grezzo (sede, stato, fattura FiC) prima di leggere: sono poche
-    // decine di commesse, e da qui in poi una sola lettura per store,
-    // mai un giro nidificato sulle fatture di ognuna.
+    // Filtro grezzo (sede, stato, archivio, fattura FiC) prima di leggere:
+    // sono poche decine di commesse. Ruling P4-R13: una commessa archiviata
+    // (soft-archive o `stato === "archiviata"`, stessa convenzione di
+    // `commesse.list`/board, `server/routers/commesse.ts` ~832/~1373) non è
+    // più da lavorare, anche se lo stato residuo è ancora uno dei due.
     const candidate = getCommesseStore().filter(
       (c: any) =>
         (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
         STATI_DA_FATTURARE.has(c.stato) &&
+        c.stato !== "archiviata" &&
+        !c.archivedAt &&
         !haFatturaFicCollegata(sedeId, c.id)
     );
 
-    const dati = await Promise.all(candidate.map((c: any) => leggiDatiCommessa(sedeId, c)));
+    // Ruling P4-R15: da qui in poi al massimo 3 query per commessa
+    // candidata (contratto, righe, intestazione del computo) più UNA sola
+    // query in blocco per le fatture di TUTTE le candidate — mai un giro
+    // nidificato sulle fatture di ognuna.
+    const fattureCandidate = await getFattureRepository().perCommesse(
+      sedeId,
+      candidate.map((c: any) => c.id)
+    );
+    const fatturePerCommessaId = new Map<number, Fattura[]>();
+    for (const f of fattureCandidate) {
+      const gruppo = fatturePerCommessaId.get(f.commessaId);
+      if (gruppo) gruppo.push(f);
+      else fatturePerCommessaId.set(f.commessaId, [f]);
+    }
+
+    const dati = await Promise.all(
+      candidate.map((c: any) =>
+        leggiDatiCommessa(sedeId, c, fatturePerCommessaId.get(c.id) ?? [])
+      )
+    );
     const senzaFatturaEmessa = dati.filter((d) => !haFatturaCrmEmessa(d));
 
     const adesso = new Date();
@@ -246,7 +284,11 @@ export const fatturazioneGuidataRouter = router({
         legacyAllowed: "capability",
       });
       const caps = await effectiveCapabilitySet(ctx, ["economia.read"]);
-      const dati = await leggiDatiCommessa(sedeId, commessa);
+      // Stessa `perCommesse` di `daFare`, con un solo id: mai la più pesante
+      // `fatturePerCommessa` (righe/riepilogo/scadenze) per un record che
+      // legge solo stato, tipo e totale.
+      const fatture = await getFattureRepository().perCommesse(sedeId, [commessa.id]);
+      const dati = await leggiDatiCommessa(sedeId, commessa, fatture);
       return costruisciRecord(dati, caps.has("economia.read"), new Date());
     }),
 });

@@ -92,6 +92,22 @@ export async function ultimoComputo(
   return { computo, ...giudizio(contratto, computo) };
 }
 
+/**
+ * Come `ultimoComputo`, ma senza le voci e senza rileggere il contratto: il
+ * chiamante lo ha già in mano. Legge SOLO `ultimoIntestazione` (mai
+ * `computo_voci`) e applica lo stesso `giudizio` — per un elenco che deve
+ * sapere solo «è valido?», mai mostrare il dettaglio del computo
+ * (Ruling P4-R15: 1 query invece delle 2+2 di `ultimoComputo` per commessa).
+ */
+export async function statoComputoLeggero(
+  sedeId: number,
+  commessaId: number,
+  contratto: Contratto | null
+): Promise<{ computo: IntestazioneComputo | null; valido: boolean; motivo: string | null }> {
+  const intestazione = await getComputiRepository().ultimoIntestazione(sedeId, commessaId);
+  return { computo: intestazione, ...giudizio(contratto, intestazione) };
+}
+
 export async function computoValido(sedeId: number, commessaId: number): Promise<boolean> {
   const [{ contratto }, intestazione] = await Promise.all([
     leggiContratto(sedeId, commessaId),

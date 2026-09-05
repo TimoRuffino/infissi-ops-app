@@ -123,6 +123,8 @@ export type FattureRepository = {
   perFicDocumentId(sedeId: number, ficDocumentId: number): Promise<Fattura | null>;
   /** Le fatture della sede il cui `ficDocumentId` è in elenco, senza righe e SENZA tetto: la mappa CRM↔FiC del sync deve coprirle tutte (Ruling R37). */
   perFicDocumentIds(sedeId: number, ficDocumentIds: number[]): Promise<Fattura[]>;
+  /** Le fatture di più commesse della sede, senza righe e SENZA tetto: `fatturazioneGuidata.daFare` legge tutte le commesse candidate con una query sola invece di una per commessa (Ruling P4-R15). */
+  perCommesse(sedeId: number, commessaIds: number[]): Promise<Fattura[]>;
   lista(filtro: FiltroFatture): Promise<Fattura[]>; // senza righe (voci vuote) per le liste
   daSondare(): Promise<
     Array<Pick<Fattura, "id" | "sedeId" | "ficDocumentId" | "stato" | "inviataDryRun">>
@@ -262,6 +264,14 @@ export function createMemoryFattureRepository(): FattureRepository {
       const cercati = new Set(ficDocumentIds);
       return [...fatture.values()]
         .filter(f => f.sedeId === sedeId && f.ficDocumentId != null && cercati.has(f.ficDocumentId))
+        .sort((a, b) => b.id - a.id)
+        .map(f => ({ ...clona(f), righe: [], riepilogo: [], scadenze: [] }));
+    },
+    async perCommesse(sedeId, commessaIds) {
+      if (commessaIds.length === 0) return [];
+      const cercate = new Set(commessaIds);
+      return [...fatture.values()]
+        .filter(f => f.sedeId === sedeId && cercate.has(f.commessaId))
         .sort((a, b) => b.id - a.id)
         .map(f => ({ ...clona(f), righe: [], riepilogo: [], scadenze: [] }));
     },
@@ -788,6 +798,17 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       // CRM↔FiC guarda solo testata, totale e commessa.
       const rows = await sql`SELECT * FROM fatture
         WHERE sede_id = ${sedeId} AND fic_document_id = ANY(${ficDocumentIds}::bigint[])
+        ORDER BY id DESC`;
+      return rows.map(row => rowToFattura(row, [], [], []));
+    },
+    async perCommesse(sedeId, commessaIds) {
+      if (commessaIds.length === 0) return [];
+      await ensureSchema();
+      // Stesso stile di `perFicDocumentIds`: niente figli, nessun LIMIT —
+      // `fatturazioneGuidata.daFare` ha già ristretto l'elenco alle
+      // commesse candidate (Ruling P4-R15), una query sola per tutte.
+      const rows = await sql`SELECT * FROM fatture
+        WHERE sede_id = ${sedeId} AND commessa_id = ANY(${commessaIds}::bigint[])
         ORDER BY id DESC`;
       return rows.map(row => rowToFattura(row, [], [], []));
     },

@@ -86,6 +86,21 @@ describe("repository fatture (memoria)", () => {
     expect(await repo.perFicDocumentIds(1, [])).toEqual([]);
   });
 
+  // Ruling P4-R15: `fatturazioneGuidata.daFare` legge le fatture di tutte
+  // le commesse candidate con una query sola, mai una per commessa.
+  it("perCommesse legge più commesse in una query sola, senza righe, isolando la sede", async () => {
+    const a = await repo.crea({ fattura: { ...fattura(1), commessaId: 10 }, righe: [riga(1)], riepilogo: [], scadenze: [scadenza(1)], now: ora });
+    const b = await repo.crea({ fattura: { ...fattura(1), commessaId: 20 }, righe: [riga(1)], riepilogo: [], scadenze: [], now: ora });
+    // Stessa commessa (10) ma di un'altra sede: non deve tornare.
+    await repo.crea({ fattura: { ...fattura(2), commessaId: 10 }, righe: [], riepilogo: [], scadenze: [], now: ora });
+
+    const trovate = await repo.perCommesse(1, [10, 20]);
+    expect(trovate.map(f => f.id).sort((x, y) => x - y)).toEqual([a.id, b.id].sort((x, y) => x - y));
+    expect(trovate.every(f => f.sedeId === 1)).toBe(true);
+    expect(trovate.every(f => f.righe.length === 0 && f.riepilogo.length === 0 && f.scadenze.length === 0)).toBe(true);
+    expect(await repo.perCommesse(1, [])).toEqual([]);
+  });
+
   it("config: default poi salvataggio per sede", async () => {
     const c = await repo.config(1);
     expect(c.metodoPagamento).toBe("MP05");

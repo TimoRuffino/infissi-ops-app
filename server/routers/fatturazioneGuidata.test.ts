@@ -399,4 +399,159 @@ describe("router fatturazioneGuidata", () => {
     expect(rigaImponibile.fatturaPrevistaCent).toBe(Math.round(pattuitoCent * 1.1));
     expect(rigaImponibile.fatturaPrevistaStima).toBe(true);
   });
+
+  // Giro di fix 3 (final-review.md, Test mancante 1): `contratto.read` è
+  // condivisa da tutti i ruoli definiti (SHARED_CAPABILITIES) — l'unico
+  // contesto senza quella capability è uno senza ruoli riconosciuti.
+  it("(j) un contesto senza ruoli/capability è FORBIDDEN su daFare e su passi", async () => {
+    const sedeId = 9110;
+    const id = await commessaDiProva(sedeId);
+    (getCommessaById(id) as any).stato = "aggiornamento_contratto";
+
+    const senzaRuoli = appRouter.createCaller(context(sedeId, 1, []));
+    await expect(senzaRuoli.fatturazioneGuidata.daFare()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      senzaRuoli.fatturazioneGuidata.passi({ commessaId: id })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  // Test mancante 2: il test (f) copre solo `daFare`.
+  it("(k) FLAG_LIMITI spento blocca anche passi, non solo daFare (PRECONDITION_FAILED)", async () => {
+    const prima = process.env.FLAG_LIMITI;
+    try {
+      process.env.FLAG_LIMITI = "off";
+      const direzione = appRouter.createCaller(context(9111, 1, ["direzione"]));
+      await expect(
+        direzione.fatturazioneGuidata.passi({ commessaId: 1 })
+      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    } finally {
+      if (prima === undefined) delete process.env.FLAG_LIMITI;
+      else process.env.FLAG_LIMITI = prima;
+    }
+  });
+
+  // I1 / Ruling P4-R13: una commessa soft-archiviata resta nello stato
+  // `fatture_pagamento` (l'archiviazione non lo tocca) ma non deve più
+  // comparire fra le commesse da lavorare.
+  it("(l) una commessa archiviata (soft-archive) non compare in daFare anche nello stato giusto", async () => {
+    const sedeId = 9112;
+    const id = await commessaDiProva(sedeId);
+    (getCommessaById(id) as any).stato = "fatture_pagamento";
+    (getCommessaById(id) as any).archivedAt = new Date().toISOString();
+
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+    const elenco = await direzione.fatturazioneGuidata.daFare();
+    expect(elenco.map((c) => c.commessaId)).not.toContain(id);
+  });
+
+  // I3 / Ruling P4-R15: protegge il raggruppamento per `commessaId` di
+  // `perCommesse` in `daFare` — una fattura mal raggruppata finirebbe sulla
+  // commessa sbagliata senza che nessun altro test se ne accorga.
+  it("(m) due commesse candidate con fatture miste: fatturaStato corretto per ciascuna", async () => {
+    const sedeId = 9113;
+    const conBozza = await commessaDiProva(sedeId);
+    (getCommessaById(conBozza) as any).stato = "fatture_pagamento";
+    const senzaFattura = await commessaDiProva(sedeId);
+    (getCommessaById(senzaFattura) as any).stato = "fatture_pagamento";
+
+    const repo = getFattureRepository();
+    await repo.crea({
+      fattura: fatturaMinima(sedeId, conBozza),
+      righe: [],
+      riepilogo: [],
+      scadenze: [],
+      now: new Date(),
+    });
+
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+    const elenco = await direzione.fatturazioneGuidata.daFare();
+
+    expect(elenco.find((c) => c.commessaId === conBozza)?.fatturaStato).toBe("bozza");
+    expect(elenco.find((c) => c.commessaId === senzaFattura)?.fatturaStato).toBeNull();
+  });
+
+  // I4 / Test mancante 3: il test (d) verificava solo pattuitoCent e
+  // fatturaPrevistaCent — questo avrebbe intercettato la fuga di
+  // `fatturaPrevistaStima` (oracolo su pattuitoTipo === "imponibile") fuori
+  // dal gate `economia.read`.
+  it("(n) gating completo degli importi: il commerciale non vede né pattuitoTipo né fatturaPrevistaStima (I4)", async () => {
+    const pattuitoCent = 500_000;
+    const riga: RigaContrattoInput = {
+      categoria: "serramento_pvc",
+      tipologia: "finestra_2_ante",
+      oscuranteIntegrato: null,
+      oscuranteTipologia: null,
+      descrizione: "Finestra",
+      quantita: 1,
+      larghezzaMm: 1200,
+      altezzaMm: 1400,
+      misuraDei: null,
+      prezzoUnitCent: null,
+      prezzoTotCent: 300000,
+      beneSignificativo: true,
+      accessori: [],
+      note: null,
+      origine: "manuale",
+      evidenza: null,
+    };
+    const sedeId = 9114;
+    const id = await commessaDiProva(sedeId);
+    (getCommessaById(id) as any).stato = "aggiornamento_contratto";
+    await salvaContratto({
+      sedeId,
+      commessaId: id,
+      actorUserId: 1,
+      contratto: {
+        pattuitoCent,
+        pattuitoTipo: "imponibile",
+        posaInclusa: true,
+        notePosa: null,
+        comuneCantiere: "Sarzana",
+        zonaManuale: false,
+        piano: 1,
+        distanzaKm: 10,
+        detrazioneTipo: "nessuna",
+        detrazioneImmobile: null,
+        detrazionePct: null,
+        dataFirma: "2026-09-01",
+        rate: [],
+        origine: "manuale",
+        documentoId: null,
+        opzioniComputo: OPZIONI_COMPUTO_DEFAULT,
+      },
+      righe: [riga],
+    });
+
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+    const commerciale = appRouter.createCaller(context(sedeId, 2, ["commerciale"]));
+    const [elencoDirezione, elencoCommerciale] = await Promise.all([
+      direzione.fatturazioneGuidata.daFare(),
+      commerciale.fatturazioneGuidata.daFare(),
+    ]);
+
+    const rigaCommerciale = elencoCommerciale.find((c) => c.commessaId === id);
+    const rigaDirezione = elencoDirezione.find((c) => c.commessaId === id);
+    // Il commerciale ha contratto.read (legge l'elenco) ma non economia.read:
+    // niente pattuitoTipo, e niente fatturaPrevistaStima anche se sarebbe
+    // vero (un contratto imponibile senza bozza) — prima della fix questo
+    // secondo campo restava valorizzato.
+    expect(rigaCommerciale?.pattuitoTipo).toBeNull();
+    expect(rigaCommerciale?.fatturaPrevistaStima).toBe(false);
+    expect(rigaDirezione?.pattuitoTipo).toBe("imponibile");
+    expect(rigaDirezione?.fatturaPrevistaStima).toBe(true);
+  });
+
+  // Test mancante 7 / Ruling P4-R16.
+  it("(o) statoDal nel futuro non produce un giorniNelloStato negativo", async () => {
+    const sedeId = 9115;
+    const id = await commessaDiProva(sedeId);
+    (getCommessaById(id) as any).stato = "aggiornamento_contratto";
+    (getCommessaById(id) as any).updatedAt = new Date(Date.now() + 3 * 86_400_000);
+
+    const direzione = appRouter.createCaller(context(sedeId, 1, ["direzione"]));
+    const elenco = await direzione.fatturazioneGuidata.daFare();
+    expect(elenco.find((c) => c.commessaId === id)?.giorniNelloStato).toBe(0);
+  });
 });
