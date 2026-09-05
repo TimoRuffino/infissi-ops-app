@@ -231,29 +231,43 @@ ricalcolati a mano dal foglio.
 `server/contratti/estrazione.ts`
 
 1. Byte del documento → `parserRegistry` (testo per pagina; OCR locale se
-   scansione, con le soglie già in `documenti/ocr.ts`).
-2. Prompt di estrazione con **schema JSON** (`formatoJson` del provider
-   governato di Tars, `creaProviderPerRun`, classe di costo `documenti`):
-   `{righe[]: {categoria, tipologia, descrizione, quantita, larghezza_mm, altezza_mm, accessori[], prezzo}, pattuito, pattuito_tipo, posa_inclusa, rate[], detrazione, comune_cantiere, piano, note}`.
+   scansione, con le soglie già in `documenti/ocr.ts`). Nessuna lettura
+   visiva a pagamento da questo percorso: solo testo nativo e OCR locale.
+2. Prompt di estrazione con **schema JSON strict** (`formatoJson` del
+   provider governato di Tars, `creaProviderPerRun`, classe di costo
+   `document_intelligence`):
+   `{righe[]: {categoria, tipologia, descrizione, quantita, larghezza_mm, altezza_mm, accessori[], prezzo, oscurante_abbinato}, pattuito, pattuito_tipo, posa_inclusa, posa_cent, rate[], detrazione, comune_cantiere, piano, note}`.
    Il contenuto del PDF è input non fidato: nessuna istruzione dentro il
-   documento ha effetto; l'esito è una **proposta**.
-3. Validazione deterministica: numeri, intervalli (L/H 200–4000 mm), somma
-   righe vs pattuito, rate che sommano a 100 %, comune risolto su
-   `comuni_zona_climatica`, CF del cliente se citato.
+   documento ha effetto; l'esito è una **proposta**. Un arricchimento
+   deterministico **facoltativo** (non un parser per configuratore, un solo
+   caso riconosciuto dalle sue etichette esatte) corregge misure, prezzi,
+   pattuito e rate quando il documento è un preventivo del configuratore
+   WnD; su ogni altro contratto la proposta del modello resta intatta.
+3. Validazione deterministica: numeri, intervalli (L/H 100–6000 mm), somma
+   righe vs pattuito (solo con un'aliquota IVA unica dichiarata; IVA mista o
+   non indicata → avviso, mai un numero inventato), rate che sommano a
+   100 %, comune risolto su `comuni_zona_climatica`, CF del cliente se
+   citato.
 4. Evidenze: ogni campo cerca il proprio testo nelle pagine
-   (`trovaRiferimentoTesto`) → `CampoEstratto<T>` con `{pagina, frammento}`;
-   campo senza evidenza = «da verificare».
+   (`verificaEvidenza`) → `CampoProposto<T>` con `{valore, evidenza,
+   daVerificare, nota}`; campo senza evidenza verificata = «da verificare».
 5. `contratto_estrazioni`: `documento_id`, `commessa_id`, `stato`
    `proposta|applicata|scartata`, `payload` jsonb, `prompt_versione`,
-   `costo_cent`, `created_by`. Idempotente per documento + versione prompt.
+   `run_id`, `created_by`. Idempotente per documento + versione prompt — il
+   riuso si controlla PRIMA di estrarre il testo (OCR e lettura visiva
+   costano); il costo del run si legge dal ledger Tars per `run_id`, non da
+   un campo sulla riga.
 6. Applicazione: crea/aggiorna `commessa_contratti` + `commessa_righe` con
-   `origine=estrazione`, evidenze salvate sulle righe; completa lo step
-   timeline «Firma Contratto (allegato)».
+   `origine=estrazione`, evidenze salvate sulle righe; allinea la timeline
+   allo stato corrente della commessa, stessa funzione del salvataggio
+   manuale del contratto.
 
-Flag `FLAG_CONTRATTO_ESTRAZIONE` (fail-closed). Provider assente o flag spento
-→ la UI offre solo l'inserimento manuale. Il modello del contratto Word
-dell'azienda va usato come caso di test: un PDF reale anonimizzato in
-`server/contratti/eval/` (da fornire).
+Flag `FLAG_CONTRATTO_ESTRAZIONE` (fail-closed) **e** `FLAG_LIMITI` (la
+lettura automatica non ha senso senza il contratto strutturato). Provider
+assente o un flag spento → la UI offre solo l'inserimento manuale. Eval:
+`server/contratti/eval/` — fixture sintetiche (`casoWnd`/`casoWord`/`casoScansione`,
+nessuna rete) più contratti reali anonimizzati in `casi-reali/` (fuori dal
+repository, da fornire) per la misura vera dell'accuratezza.
 
 ## 7. Generatore fattura, risolutore, emissione
 

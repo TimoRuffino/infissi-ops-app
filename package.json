@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "eval:documenti": "tsx server/documenti/eval/runEval.ts",
+    "eval:contratti": "tsx server/contratti/eval/runEval.ts",
     "eval:tars": "tsx server/tars/eval/runEval.ts",
     "ui:contrast": "tsx scripts/check-ui-contrast.ts",
     "storage:check": "tsx scripts/check-storage.ts",

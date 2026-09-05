@@ -133,6 +133,9 @@ graphify-out/
 # Eval D7: documenti reali anonimizzati, MAI nel repository
 server/documenti/eval/casi-reali/
 
+# Eval piano 3: contratti reali anonimizzati, MAI nel repository
+server/contratti/eval/casi-reali/
+
 # Foto del team e avatar generati: dati personali, mai nel repository.
 # Gli script che li producono stanno in scripts/avatar e scripts/mascotte.
 /avatar/

@@ -2910,6 +2910,268 @@ credito/sync/Tars) è quella descritta in
 e nel ledger `progress.md` dello stesso piano, non ripetuta in questa
 sezione.
 
+## 11-vicies quindecies. Lettura del contratto PDF — piano 3 (04-05/09/2026)
+
+Piano 3 di 3 (`docs/superpowers/plans/2026-09-04-lettura-contratto.md`,
+9 task) chiuso su `feature/lettura-contratto` (aperto da `4104e27`, main del
+piano 2), **mai integrato su `main`**. Spec di riferimento:
+`docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` §6
+(allineata da questo task). Sopra il piano 1 (contratto strutturato, §11-vicies
+terdecies): oggi le righe del contratto si compilano a mano, qui il modello
+legge il PDF firmato e propone righe, pattuito, posa, rate e cantiere —
+sempre come **proposta rivedibile**, mai un salvataggio automatico. Nessun
+nome cliente, indirizzo, CF o importo di un contratto reale in questa
+sezione: gli unici casi citabili sono i preventivi anonimi 127/129/130 già
+usati come fixture d'oro altrove nel repository.
+
+**Cosa c'è.**
+
+- Schema e chiamata al modello (Task 2-3): `server/contratti/estrazione/schema.ts`
+  (`EsitoModello`/`schemaEsitoModello` via zod `.strict()`, `SCHEMA_JSON_ESTRAZIONE`
+  come sua proiezione JSON Schema — mai il contrario; nullable espresso come
+  union con `null`, per lo strict mode della Responses API), `modello.ts`
+  (`estraiConModello`, `costruisciInputModello` con pagine intere fra
+  marcatori `<<<PAGINA n>>>`, troncamento dichiarato mai a metà pagina),
+  `prompt.ts` (`PROMPT_ESTRAZIONE_CONTRATTO`, versione `1.0.0`). Il contenuto
+  del PDF è input non fidato: nessuna istruzione al suo interno ha effetto
+  (test di prompt injection incluso, come per D7).
+- Mappatura deterministica (Task 4, il più delicato): `server/contratti/estrazione/mappa.ts`
+  (`costruisciProposta`, `tipologiaDei`/`oscuranteDei` — un codice DEI esce
+  SOLO dal catalogo tariffe, mai indovinato dal modello — `abbinaOscuranti`,
+  `accessoriDaEtichette`, `costruisciControlli` esportata e riusabile) e
+  `layoutWnd.ts` (`arricchisciDaLayoutWnd`, **facoltativo**: quando il testo
+  porta le etichette esatte del configuratore WnD — «Riepilogo Costi»,
+  intestazione colonne, «Totale IVA Incl./Esc.», «Termini di pagamento» — i
+  numeri del layout riscrivono misure, quantità, prezzi, pattuito e rate con
+  evidenza certa; su ogni altro contratto la proposta del modello resta
+  intatta. Non è un parser per configuratore: un solo arricchimento
+  deterministico, non un'architettura a parser-per-fornitore. Ogni valore
+  proposto porta `{valore, evidenza, daVerificare, nota}` (`CampoProposto<T>`,
+  `shared/contratti/estrazione.ts`); l'evidenza è verificata sul testo vero
+  del PDF (`verificaEvidenza`, `server/contratti/estrazione/evidenze.ts`) —
+  una citazione che non si trova nasce «da verificare», mai spacciata per
+  letta.
+- Repository e servizio (Task 5-6): `server/contratti/estrazione/repository.ts`
+  (`EstrazioniRepository`: memoria senza `DATABASE_URL`, tabella Postgres
+  altrimenti), `servizio.ts` (`eseguiEstrazioneContratto` fail-closed **da
+  solo** — chiama `disponibilitaEstrazione()` prima di leggere qualunque
+  cosa, non si fida solo del router — idempotente per documento e versione
+  prompt, col riuso controllato PRIMA di estrarre il testo perché OCR e
+  lettura visiva costano; `applicaEstrazione` scrive SOLO tramite
+  `salvaContratto` — l'unico percorso — poi stato ed effetti collaterali
+  (timeline) in try/catch: un loro fallimento diventa un'avvertenza, mai un
+  contratto scomparso; `scartaEstrazione`, `disponibilitaEstrazione`,
+  `ultimaEstrazione`). Il testo del documento non tocca mai la lettura
+  visiva a pagamento da questo percorso: `estraiTestoDocumento` è chiamato
+  senza opzione `visione`, quindi solo testo nativo e OCR locale — una
+  scansione che l'OCR non legge resta un errore esplicito
+  (`PRECONDIZIONE`), mai una spesa aggiuntiva silenziosa.
+- Router (Task 7): `server/routers/estrazioniContratto.ts`
+  (`trpc.estrazioniContratto`: `stato`, `esegui`, `applica`, `scarta`) dietro
+  `FLAG_CONTRATTO_ESTRAZIONE` in middleware (`procedureConInterruttore`, kill
+  switch della feature) **e** `FLAG_LIMITI` per handler
+  (`assicuraInterruttore("limiti")` — la lettura automatica non ha senso
+  senza il contratto strutturato). Nessuna capability nuova: riusa
+  `contratto.read`/`contratto.manage` del piano 1.
+- UI (Task 8): `client/src/components/contratto/LeggiContrattoDialog.tsx` —
+  proposta con evidenza e nota per ogni campo, revisione inline riga per
+  riga, applicazione verso il contratto strutturato esistente; «Compila a
+  mano» resta sempre disponibile quando la lettura non è configurata.
+- Eval e documentazione (Task 9, questo task): `server/contratti/eval/{casi.ts,runEval.ts,eval.test.ts}`
+  — fixture sintetiche `casoWnd`/`casoWord`/`casoScansione` (PDF veri via
+  jsPDF; la scansione è un'immagine reimpacchettata, letta via OCR locale
+  quando i binari ci sono), `eseguiEvalContratti({ provider? })` esegue lo
+  stesso `estraiTestoDocumento` della produzione e poi `costruisciProposta`
+  su un **esito finto** (nessuna rete) — o sulla chiamata reale, SOLO con
+  `EVAL_CONTRATTI_REALE=on` **e** `statoProvider(...).tipo === "openai"`,
+  doppia condizione per difesa in profondità; script `pnpm eval:contratti`.
+  `casoWnd` è la stessa fixture di `layoutWnd.test.ts`, importata da lì
+  (un'unica definizione, Ruling P3-R8/P3-R26).
+- Contratto strutturato (Task 1, esteso dal piano 1): `Contratto.estrazioneId`/
+  `posaCent` opzionali; `salvaContratto` forza `posaCent = null` quando
+  `posaInclusa` è falso (Ruling P3-R5), stesso pattern di `zonaClimatica`.
+
+**Come si attiva.** `FLAG_CONTRATTO_ESTRAZIONE=on` **e** `FLAG_LIMITI=on`
+sullo stesso ambiente, più un provider Tars reale utilizzabile:
+`TARS_PROVIDER=openai`, `FLAG_TARS=on`, `OPENAI_API_KEY`, una tariffa attiva
+per `TARS_MODEL_ESTRAZIONE_CONTRATTO` (default `gpt-5.6-terra`), budget
+configurato e ledger PostgreSQL autorevole — le stesse sei condizioni
+verificate da `statoProvider` (`server/tars/costi/providerGovernato.ts`).
+Manca anche una sola condizione: `disponibilitaEstrazione()` dice il motivo
+esatto e la UI mostra solo «Compila a mano», mai un pulsante che poi fallisce
+in silenzio.
+
+**Come si valuta.** `pnpm eval:contratti` sulle tre fixture sintetiche, di
+default senza rete (esito finto, deterministico — è la parte coperta anche
+da `pnpm test`). Report Markdown con accuratezza per campo in
+`docs/reports/piano3-eval-contratti-<data>.md`. Per la misura vera servono
+contratti reali **anonimizzati** in `server/contratti/eval/casi-reali/<nome>/{documento.pdf,atteso.json}`
+(cartella in `.gitignore`, oggi vuota — nessun contratto reale nel
+repository): stessa procedura di anonimizzazione di
+`docs/reports/d7-eval-2026-08-29.md`. Senza un provider reale disponibile un
+caso reale resta saltato — non esiste un «esito finto» per un documento
+sconosciuto.
+
+**Cosa NON fa (dichiarato).**
+
+- Non applica nulla da sola: ogni proposta passa dalla revisione umana nel
+  dialog prima di toccare il contratto strutturato.
+- Non inventa codici DEI: solo dal catalogo tariffe: senza un candidato
+  univoco la riga resta senza codice, mai un codice indovinato in silenzio.
+- Non legge contratti che non siano PDF.
+- Accessori riconosciuti solo da etichette note; un'etichetta libera del
+  modello che non trova corrispondenza resta in nota come «da verificare»,
+  mai un codice a caso.
+- Cassonetti e tapparelle citati come righe autonome nel documento restano
+  righe autonome: l'abbinamento automatico a una finestra scatta solo
+  quando il modello dichiara esplicitamente `oscuranteAbbinato` su quella
+  riga.
+- Nessuno strumento Tars in v1 (v. `docs/tars/matrice-azioni-tars.md`): la
+  lettura resta un'azione umana dal dialog «Leggi il contratto».
+- Il costo del run si legge dal ledger Tars per `runId`
+  (`contratto:<sede>:<documento>:<checksum8>:<timestamp>`, classe
+  `document_intelligence`), non nella UI dell'estrazione.
+
+**Runbook della prima lettura reale.**
+
+1. Sede/ambiente di prova: `FLAG_CONTRATTO_ESTRAZIONE` e `FLAG_LIMITI`
+   accesi lì soltanto; provider Tars reale configurato come sopra
+   (`TARS_PROVIDER=openai`, `OPENAI_API_KEY`, `TARS_MODEL_ESTRAZIONE_CONTRATTO`
+   con tariffa attiva, budget, PostgreSQL per il ledger).
+2. **Prima** di accendere il flag in produzione: una chiamata di prova con
+   `EVAL_CONTRATTI_REALE=on` sulle fixture sintetiche (`pnpm eval:contratti`).
+   Serve perché il pattern nullable dello schema strict (`["tipo","null"]`,
+   Ruling P3-R6) non è mai stato esercitato dal vivo contro l'API reale da
+   questo codebase: se lo schema non torna valido, la chiamata fallisce con
+   `PRECONDIZIONE` esplicita e non scrive nulla — meglio scoprirlo qui che
+   sulla prima commessa vera.
+3. Un contratto reale già inserito a mano nel CRM: «Leggi il contratto» →
+   confronto **riga per riga** con il contratto strutturato esistente —
+   misure, prezzi, pattuito, posa, rate, cantiere — prima di fidarsi della
+   proposta su una commessa dove il contratto manca ancora.
+4. Il costo del run è nel ledger Tars per `runId`, classe
+   `document_intelligence` (prima consumatrice reale di questa classe, v.
+   matrice azioni).
+
+**Decisioni prese in corso d'opera che cambiano un contratto (ruling
+P3-R1–P3-R31, ledger completo in**
+`.superpowers/sdd/2026-09-04-lettura-contratto/progress.md`**, grep
+`"Ruling P3-R"`; questi «R» sono numeri di ruling di questo piano, non i
+livelli di rischio R0–R4 di Tars).**
+
+- P3-R1: nel controllo `righe_vs_pattuito`, un pattuito lordo con
+  `ivaDescrizione` a un'UNICA aliquota (10 % o 22 %) scorpora l'imponibile;
+  IVA mista o non indicata → controllo saltato con avviso, mai un numero
+  del contratto inventato.
+- P3-R2: nessuna invalidazione esplicita del fascicolo Tars dalle funzioni
+  di estrazione — l'invalidazione del fascicolo è a versioni e non dipende
+  da contratti/estrazioni.
+- P3-R3/P3-R4: la firma OCR nella `promptVersione` è `"+ocr:" + parser`
+  (`firmaOcrCorrente()` esiste in `documenti/ocr.ts`); `ocr = parser !==
+  "pdf-testo-nativo"`, vero anche per la lettura visiva del main.
+- P3-R5: `salvaContratto` forza `posaCent = null` quando `posaInclusa` è
+  falso, stesso pattern di `zonaClimatica` — l'invariante vive nel
+  servizio, non nel widget.
+- P3-R6: il pattern nullable strict resta (documentato da OpenAI); la
+  verifica dal vivo entra nel runbook qui sopra.
+- P3-R7: `beneSignificativoDefault.accessorio` → `false` nel seed (coprifili
+  e maniglie sono «altri beni» nelle fatture reali, caso 127) — **cambio di
+  default che tocca anche il seed del piano 1**, non solo questo piano.
+- P3-R8: fixture WnD unica fra `layoutWnd.test.ts` e l'eval — chiusa da
+  questo task (P3-R26).
+- P3-R9-P3-R17 (mappatura, giro di fix del Task 4): controlli derivati
+  ricalcolati dopo l'arricchimento WnD (`costruisciControlli` esportata);
+  scorrevole/alzante/complanare deciso da descrizione **e** tipoProdotto
+  insieme; materiale dell'oscurante letto solo nel segmento di testo dopo
+  la sua parola; confronto cliente su token ≥ 3 caratteri con stoplist;
+  `oscuranteDei` dichiara la scelta fra più candidati come `tipologiaDei`;
+  un oscurante si abbina a una finestra solo se il residuo copre l'intera
+  quantità della riga; tie-break fra codici DEI candidati (prima senza «>
+  1,3», poi la famiglia coerente col materiale, poi il codice); la posa per
+  parole chiave assorbe solo righe SENZA misure; minori (zona dal cliente
+  segnalata, aliquota unica solo 4/10/22 %, coprifilo con confine di
+  parola).
+- P3-R18: il controllo di riuso avviene PRIMA di estrarre il testo del
+  documento (prova entrambe le chiavi, con e senza firma OCR): OCR e
+  lettura visiva costano, un riuso mancato al più ricalcola.
+- P3-R19: `applicaEstrazione` accetta `actorNome` per la timeline.
+- P3-R20: `eseguiEstrazioneContratto` è fail-closed **da solo**
+  (`disponibilitaEstrazione()` prima di leggere il documento): il router —
+  e domani un eventuale strumento Tars — non è l'unico confine.
+- P3-R21: dopo un `salvaContratto` riuscito, l'aggiornamento di stato e
+  timeline vivono in try/catch — un loro errore diventa un'avvertenza
+  nell'esito, mai un contratto già scritto che sparisce.
+- P3-R22: l'arricchimento WnD legge anche l'unica riga IVA del layout
+  quando il modello non fornisce `ivaDescrizione`.
+- P3-R23: flag spento → `PRECONDITION_FAILED` (convenzione del repository),
+  non `NOT_FOUND` come ipotizzato in una prima stesura del piano.
+- P3-R24/P3-R27 (natura scorrevole, due giri): la natura
+  scorrevole/alzante/complanare conta per il serramento o per l'accessorio
+  in base al sostantivo più VICINO che la precede (non al primo taglio
+  della descrizione, che aveva una regressione su descrizioni invertite —
+  R27 sostituisce R24 mantenendone l'intento). P3-R28: l'avvertenza di
+  contrasto scatta solo per finestra e fisso, non per portafinestra (la
+  portafinestra scorrevole è un prodotto ordinario).
+- P3-R25: nel segmento di testo dell'oscurante vince il materiale che
+  compare per POSIZIONE, non una precedenza fissa pvc>alluminio.
+- P3-R26 (questo task): lo script eval è `eval:contratti` → `tsx
+  server/contratti/eval/runEval.ts` (l'entry point vive nel runner, non in
+  un `cli.ts` separato, come `server/documenti/eval` e `server/tars/eval`);
+  la fixture WnD è unica.
+- P3-R29: `rigaDaProposta` tronca `note` a 500 caratteri (limite dello
+  schema del contratto).
+- P3-R30: il badge zona e il filtro del catalogo DEI usano la zona del
+  contratto SALVATO solo se il comune proposto coincide (normalizzato) con
+  quello salvato; altrimenti nessun filtro.
+- P3-R31: con una proposta/applicata/scartata già presente, il pannello
+  «lettura non disponibile» diventa una riga informativa senza il pulsante
+  «Compila a mano», che resterebbe fuori posto sopra una proposta ancora
+  applicabile.
+
+**Debito e fuori ambito.**
+
+- **Task 8 fix round 1 (P3-R29/P3-R30/P3-R31 + minori) NON ANCORA scritto
+  nel codice**, pianificato subito dopo questo task: alla revisione del
+  Task 8, `LeggiContrattoDialog.tsx` mostra ancora la zona/il filtro DEI dal
+  contratto salvato **senza** il controllo «stesso comune della proposta»
+  (riga ~229), la nota di testata della proposta (`proposta.note`) non è
+  mostrata da nessuna parte nel dialog, e il pannello «lettura non
+  disponibile» resta impilato sopra una proposta applicabile col pulsante
+  «Compila a mano» sempre visibile — i tre ruling qui sopra descrivono il
+  fix deciso, non ancora applicato. Minori nello stesso giro: divisioni
+  `/100` dirette invece di `centToEuro` in tre punti, «Prezzo della posa» in
+  «da verificare» anche quando nascosto, editor rate duplicato.
+- `server/contratti/eval/casi-reali/` è vuota: nessun contratto reale
+  anonimizzato ancora raccolto — i tre contratti reali citati nel piano
+  stanno solo sul Desktop del controller, mai nel repository. Finché resta
+  vuota, l'eval misura solo la tenuta di parser e mappatura su fixture
+  controllate, non l'accuratezza reale del modello.
+- Il pattern nullable dello schema strict (P3-R6) non è mai stato
+  esercitato dal vivo contro l'API OpenAI reale da questo codebase: la
+  prima chiamata reale del runbook qui sopra è la prima prova.
+- Come i piani 1 e 2: mai integrato su `main`, `feature/lettura-contratto`
+  resta un branch locale in attesa di una decisione di merge.
+
+**Verifica (05/09/2026).** `pnpm check` pulito (nessun errore); `pnpm test`
+234 file passati e 9 saltati (243), 2304 test passati e 43 saltati (2347), 0
+falliti — gli unici saltati sono le suite `*.pg.test.ts` che girano solo con
+`DATABASE_URL`, non eseguite da questo task documentale; il test della
+scansione (`server/contratti/eval/eval.test.ts`) non è fra questi, è un test
+normale con un ramo tollerante — in questo ambiente (pdftoppm/tesseract
+presenti, ma solo la lingua inglese installata) `pnpm eval:contratti` mostra
+che il caso gira per davvero e il testo OCR di un documento italiano risulta
+insufficiente (`scansione_senza_testo`, mai un'analisi su testo sbagliato),
+coerente con `brew install tesseract-lang` già citato altrove come debito
+noto, non un difetto introdotto da questo task; `pnpm build` completa
+(`dist/public` + `dist/index.js`) con l'unico avviso noto, esbuild su
+`dist/index.js` a 3,1 MB (2,9 MB al gate del piano 2 del 04/09): cresce col
+resto del branch (Task 4 giro 3, Task 8), non con questo task, che aggiunge
+solo script eval fuori dal bundle server (mai importati da
+`server/_core/index.ts`). La verifica funzionale end-to-end (browser
+1440×900 e 390×844, Postgres 16 reale, review finale con lente su schema
+strict/evidenze/riuso/sede) resta a carico del controller, come per i piani 1
+e 2, e non è ripetuta in questa sezione.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
@@ -2985,13 +3247,25 @@ sezione.
     il punto 14 qui sopra (fixture d'oro del motore computo), in un task a
     parte dopo questo piano (Ruling R22). `tsconfig` esclude `*.test.ts`
     da `tsc`: i test restano controllati solo da vitest a runtime, non dal
-    type-check di `pnpm check`. Piano 3 (lettura del contratto PDF via
-    provider governato di Tars + OCR esistente):
-    `docs/superpowers/plans/2026-09-04-lettura-contratto.md`, non
-    iniziato. Aperti da confermare col commercialista: aliquote di
-    detrazione 2025/2027 nel seed (piano 1); segno con cui Fatture in
-    Cloud stampa il totale di una nota di credito; company FiC di prova
-    per la prima emissione reale (la numerazione è reale, non simulata).
+    type-check di `pnpm check`. Piano 3 (lettura del contratto PDF):
+    completato su `feature/lettura-contratto` (v. §11-vicies quindecies),
+    mai integrato su `main` — debito proprio al punto 16 qui sotto. Aperti
+    da confermare col commercialista: aliquote di detrazione 2025/2027 nel
+    seed (piano 1); segno con cui Fatture in Cloud stampa il totale di una
+    nota di credito; company FiC di prova per la prima emissione reale (la
+    numerazione è reale, non simulata).
+16. **Lettura del contratto PDF (piano 3, 04-05/09/2026)**: 9 task
+    completati su `feature/lettura-contratto` (v. §11-vicies quindecies),
+    **mai integrato su `main`**. Prima di un merge: (1) Task 8 fix round 1
+    (Ruling P3-R29/P3-R30/P3-R31 + minori) non ancora scritto — zona/filtro
+    DEI dal contratto salvato senza il controllo «stesso comune della
+    proposta», nota di testata della proposta mai mostrata nel dialog,
+    pannello «non disponibile» impilato sopra una proposta applicabile; (2)
+    `server/contratti/eval/casi-reali/` è vuota, nessun contratto reale
+    anonimizzato ancora raccolto; (3) il pattern nullable dello schema
+    strict (Ruling P3-R6) non è mai stato esercitato dal vivo contro l'API
+    OpenAI reale — la prima chiamata reale segue il runbook del §11-vicies
+    quindecies.
 
 ## 13. Cosa resta della piattaforma
 

@@ -9,51 +9,15 @@
 
 import { describe, expect, it } from "vitest";
 import { tariffeAttive } from "../../computo/tariffe";
+import { casoWnd } from "../eval/casi";
 import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "./layoutWnd";
 import { costruisciProposta, type ContestoMappa } from "./mappa";
 import type { EsitoModello } from "./schema";
 
-const PAGINE_WND = [
-  [
-    "Konfortline - Preventivo n. 127 del 12/03/2026",
-    "Cliente: Rossi Mario",
-    "",
-    "1. Rif. Stanza: Soggiorno",
-    "Prodotto: Portafinestra 2 ante in PVC Konfortline, finitura Real Wood",
-    "Larghezza 1400 mm Altezza 2300 mm",
-    "Vetro: basso emissivo",
-    "Riepilogo",
-    "Portafinestra 2 ante 5.200,00 € 0,00 € 1 0,00 € (0%) 5.200,00 €",
-    "",
-    "2. Rif. Stanza: Cucina",
-    "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
-    "Larghezza 1400 mm Altezza 1300 mm",
-    "Vetro: basso emissivo",
-    "Riepilogo",
-    "Finestra 2 ante 2.400,00 € 0,00 € 2 0,00 € (0%) 4.800,00 €",
-    "",
-    "3. Rif. Stanza: Camera",
-    "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
-    "Larghezza 1200 mm Altezza 1300 mm",
-    "Vetro: basso emissivo",
-    "Riepilogo",
-    "Finestra 2 ante 2.136,11 € 0,00 € 1 0,00 € (0%) 2.136,11 €",
-  ].join("\n"),
-  [
-    "Riepilogo Costi",
-    "Prodotto Prezzo unit. Installazione Quantità Sconto Totale",
-    "Portafinestra 2 ante 5.200,00 € 0,00 € 1 0,00 € (0%) 5.200,00 €",
-    "Finestra 2 ante 2.400,00 € 0,00 € 2 0,00 € (0%) 4.800,00 €",
-    "Finestra 2 ante 2.136,11 € 0,00 € 1 0,00 € (0%) 2.136,11 €",
-    "Coprifili in PVC su misura 600,00 € 0,00 € 1 0,00 € (0%) 600,00 €",
-    "Maniglie in ottone 250,00 € 0,00 € 1 0,00 € (0%) 250,00 €",
-    "Trasporto e posa in opera 1.100,00 € 0,00 € 1 0,00 € (0%) 1.100,00 €",
-    "Totale IVA Esc. 14.086,11 €",
-    "IVA 10% 1.408,61 €",
-    "Totale IVA Incl. 15.494,72 €",
-    "Termini di pagamento: ACCONTO DEL 50% ALLA FIRMA, 40% ALLA CONSEGNA, 10% A FINE LAVORI",
-  ].join("\n"),
-];
+// Stessa fixture dell'eval (Ruling P3-R8 punto 7 / P3-R26): un'unica
+// definizione del testo del preventivo WnD, qui importata invece di
+// duplicata — `server/contratti/eval/casi.ts` (`casoWnd`).
+const PAGINE_WND = casoWnd().pagine;
 
 const PAGINE_WORD = [
   [
