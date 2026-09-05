@@ -456,6 +456,207 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     expect(steps[0].utente).toBe("Mario Bianchi");
   });
 
+  // P3-R20: fail-closed sui flag, come prima cosa — anche con un provider
+  // finto pronto a rispondere. Il controllo sta PRIMA di leggere il
+  // documento: un flag spento non deve costare nemmeno una lettura storage.
+  it("(j) con il flag spento nessuna estrazione parte, anche con un provider finto pronto", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider, conta } = providerCheConta(() => JSON.stringify(esitoValido()));
+    process.env.FLAG_CONTRATTO_ESTRAZIONE = "off";
+
+    await expect(
+      eseguiEstrazioneContratto({ sedeId: SEDE, commessaId, documentoId, actorUserId: 5, repository: repo, provider })
+    ).rejects.toThrow("PRECONDIZIONE");
+    expect(conta.n).toBe(0);
+    expect(await repo.ultimaPerDocumento(SEDE, documentoId)).toBeNull();
+  });
+
+  // Minore: una data del contratto senza tariffe attive è un problema di
+  // dati (VALIDAZIONE), non un errore non gestito — stesso principio di
+  // server/contratti/servizio.ts per salvaContratto.
+  it("(k) una data del contratto senza tariffe attive è VALIDAZIONE", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+
+    await expect(
+      eseguiEstrazioneContratto({
+        sedeId: SEDE,
+        commessaId,
+        documentoId,
+        actorUserId: 5,
+        repository: repo,
+        provider,
+        now: () => new Date("2020-01-01T00:00:00.000Z"),
+      })
+    ).rejects.toThrow("VALIDAZIONE");
+  });
+
+  // Dedup concorrente: due esecuzioni sulla stessa chiave partite insieme
+  // condividono la stessa promessa invece di rifare l'estrazione due volte
+  // (doppio click, retry del client dopo un timeout di rete).
+  it("(l) due esecuzioni concorrenti sulla stessa chiave condividono la stessa promessa", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider, conta } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const input = { sedeId: SEDE, commessaId, documentoId, actorUserId: 5, repository: repo, provider };
+
+    const [prima, seconda] = await Promise.all([eseguiEstrazioneContratto(input), eseguiEstrazioneContratto(input)]);
+
+    expect(conta.n).toBe(1);
+    expect(prima.estrazione.id).toBe(seconda.estrazione.id);
+  });
+
+  it("(m) un documento di un'altra commessa nella stessa sede è NOT_FOUND", async () => {
+    const commessaA = await nuovaCommessa(SEDE);
+    const commessaB = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaA, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+
+    await expect(
+      eseguiEstrazioneContratto({
+        sedeId: SEDE,
+        commessaId: commessaB,
+        documentoId,
+        actorUserId: 5,
+        repository: repo,
+        provider,
+      })
+    ).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("(n) applicaEstrazione e scartaEstrazione su un'altra sede sono NOT_FOUND", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+
+    await expect(
+      applicaEstrazione({
+        sedeId: ALTRA_SEDE,
+        commessaId,
+        estrazioneId: estrazione.id,
+        contratto: CONTRATTO_BASE,
+        righe: RIGHE_BASE,
+        actorUserId: 5,
+        repository: repo,
+      })
+    ).rejects.toThrow("NOT_FOUND");
+
+    await expect(
+      scartaEstrazione({ sedeId: ALTRA_SEDE, estrazioneId: estrazione.id, motivo: "x", actorUserId: 5, repository: repo })
+    ).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("(o) una transizione non adiacente è precondizione: applicata non si scarta, scartata non si applica", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+
+    const documentoApplicata = await nuovoDocumento(commessaId, SEDE);
+    const { estrazione: applicataEstrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId: documentoApplicata,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+    await applicaEstrazione({
+      sedeId: SEDE,
+      commessaId,
+      estrazioneId: applicataEstrazione.id,
+      contratto: CONTRATTO_BASE,
+      righe: RIGHE_BASE,
+      actorUserId: 5,
+      repository: repo,
+    });
+    await expect(
+      scartaEstrazione({
+        sedeId: SEDE,
+        estrazioneId: applicataEstrazione.id,
+        motivo: "tardi",
+        actorUserId: 5,
+        repository: repo,
+      })
+    ).rejects.toThrow("PRECONDIZIONE");
+
+    const documentoScartata = await nuovoDocumento(commessaId, SEDE);
+    const { estrazione: scartataEstrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId: documentoScartata,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+    await scartaEstrazione({
+      sedeId: SEDE,
+      estrazioneId: scartataEstrazione.id,
+      motivo: "non serve",
+      actorUserId: 5,
+      repository: repo,
+    });
+    await expect(
+      applicaEstrazione({
+        sedeId: SEDE,
+        commessaId,
+        estrazioneId: scartataEstrazione.id,
+        contratto: CONTRATTO_BASE,
+        righe: RIGHE_BASE,
+        actorUserId: 5,
+        repository: repo,
+      })
+    ).rejects.toThrow("PRECONDIZIONE");
+  });
+
+  // P3-R21: un errore dopo il salvataggio non deve nascondere il contratto
+  // già scritto — diventa un'avvertenza, come fa lo specchio del pattuito in
+  // server/contratti/servizio.ts.
+  it("(p) applicaEstrazione non propaga un errore di aggiornaStato: il contratto resta salvato con un'avvertenza", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+
+    const repoRotto: EstrazioniRepository = {
+      ...repo,
+      aggiornaStato: async () => {
+        throw new Error("boom");
+      },
+    };
+
+    const esito = await applicaEstrazione({
+      sedeId: SEDE,
+      commessaId,
+      estrazioneId: estrazione.id,
+      contratto: CONTRATTO_BASE,
+      righe: RIGHE_BASE,
+      actorUserId: 5,
+      repository: repoRotto,
+    });
+
+    expect(esito.contratto.origine).toBe("estrazione");
+    expect(esito.avvertenze.some(a => a.includes("Applica"))).toBe(true);
+
+    const letto = await leggiContratto(SEDE, commessaId);
+    expect(letto.contratto?.origine).toBe("estrazione");
+  });
+
   it("(f) disponibilitaEstrazione segnala il flag spento con un motivo", () => {
     process.env.FLAG_CONTRATTO_ESTRAZIONE = "off";
     const esito = disponibilitaEstrazione();

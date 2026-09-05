@@ -203,8 +203,28 @@ describe("arricchisciDaLayoutWnd", () => {
     expect(new Set(codici).size).toBe(codici.length);
   });
 
-  it("senza descrizione dell'IVA la somma delle righe non si verifica, e lo dice", () => {
-    const arricchitaSenzaIva = arricchisciDaLayoutWnd(PAGINE_WND, proposta);
+  // P3-R22: il layout WnD di questo caso porta la sua unica riga IVA
+  // («IVA 10% 1.408,61 €», pagina 2): senza una descrizione dal modello,
+  // l'arricchimento la usa comunque per lo scorporo, invece di rinunciare
+  // al controllo.
+  it("(P3-R22) senza descrizione dell'IVA dal modello, usa l'unica riga IVA del layout", () => {
+    const arricchitaSenzaOpzioni = arricchisciDaLayoutWnd(PAGINE_WND, proposta);
+    const somma = arricchitaSenzaOpzioni.controlli.find(c => c.codice === "righe_vs_pattuito");
+    expect(somma?.esito).toBe("avviso");
+    expect(somma?.messaggio).not.toContain("IVA mista");
+    // Stesso numero del test con ivaDescrizione "IVA 10%" esplicita: la riga
+    // del layout ha prodotto la stessa aliquota unica.
+    expect(somma?.messaggio).toContain("14086,11");
+  });
+
+  // Controparte del test sopra: senza NESSUNA riga IVA nel layout (e senza
+  // descrizione dal modello) il controllo resta quello di sempre — l'IVA
+  // mista o non indicata non si inventa un'aliquota.
+  it("senza alcuna riga IVA nel layout né dal modello, la somma resta non verificabile", () => {
+    const paginaSenzaAliquota = PAGINE_WND[1].replace("IVA 10% 1.408,61 €\n", "");
+    const pagine = [PAGINE_WND[0], paginaSenzaAliquota];
+    const propostaLocale = costruisciProposta(ESITO_INCERTO, { ...CONTESTO, pagine }, false);
+    const arricchitaSenzaIva = arricchisciDaLayoutWnd(pagine, propostaLocale);
     const somma = arricchitaSenzaIva.controlli.find(c => c.codice === "righe_vs_pattuito");
     expect(somma?.esito).toBe("avviso");
     expect(somma?.messaggio).toContain("IVA mista");

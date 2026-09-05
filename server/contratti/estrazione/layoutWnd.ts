@@ -32,6 +32,12 @@ const RIGA_COSTI =
 const TOTALE_INCLUSA = /Totale\s+IVA\s+Incl[a-zA-Z.]*\s+([\d.,]+)/i;
 const TOTALE_ESCLUSA = /Totale\s+IVA\s+Esc[a-zA-Z.]*\s+([\d.,]+)/i;
 const TERMINI_PAGAMENTO = /Termini\s+di\s+pagamento\s*:?\s*(.+)$/i;
+/**
+ * La riga che dichiara l'aliquota («IVA 10%», «Totale IVA 10%»): l'IVA deve
+ * seguire subito, non un'altra parola come in «Totale IVA Incl./Esc.», che
+ * sono i totali e non l'aliquota.
+ */
+const RIGA_ALIQUOTA_IVA = /(?:Totale\s+)?IVA\s*(\d{1,2}(?:[.,]\d+)?)\s*%/i;
 
 /** Punteggio minimo di somiglianza fra la descrizione della riga e il nome del blocco. */
 const PUNTEGGIO_MINIMO = 2;
@@ -197,6 +203,22 @@ function rateDaTermini(pagine: readonly string[]): { rate: RataContratto[]; evid
   return { rate, evidenza: { pagina: trovata.pagina, frammento: frammento(trovata.riga) } };
 }
 
+/**
+ * P3-R22: aliquota IVA quando il layout la dichiara in un'UNICA riga
+ * («IVA 10%» o «Totale IVA 10%»). Con più aliquote diverse o senza nessuna,
+ * resta `null`: non è compito di questa funzione indovinare un'IVA mista.
+ */
+function ivaDescrizioneDalLayout(pagine: readonly string[]): string | null {
+  const aliquote = new Set<string>();
+  for (const testo of pagine) {
+    for (const riga of testo.split(/\r?\n/)) {
+      const trovata = RIGA_ALIQUOTA_IVA.exec(riga);
+      if (trovata) aliquote.add(trovata[1]);
+    }
+  }
+  return aliquote.size === 1 ? `IVA ${[...aliquote][0]}%` : null;
+}
+
 function pattuitoDaTotali(
   pagine: readonly string[]
 ): { cent: number; tipo: PattuitoTipo; evidenza: EvidenzaEstratta } | null {
@@ -273,7 +295,9 @@ export function arricchisciDaLayoutWnd(
   return {
     ...arricchita,
     controlli: costruisciControlli(arricchita, {
-      ivaDescrizione: opzioni?.ivaDescrizione ?? null,
+      // P3-R22: senza una descrizione dell'IVA dal modello, l'unica riga IVA
+      // del layout (se c'è, ed è una sola) vale quanto una descrizione letta.
+      ivaDescrizione: opzioni?.ivaDescrizione ?? ivaDescrizioneDalLayout(pagine),
       troncato: opzioni?.troncato ?? false,
     }),
   };

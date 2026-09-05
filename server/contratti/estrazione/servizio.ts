@@ -23,7 +23,7 @@ import { leggiDocumentoCommessaDaStorage, type Documento } from "../../routers/p
 import { allineaTimelineAlBoard } from "../../routers/timeline";
 import { creaProviderPerRun, statoProvider } from "../../tars/costi/providerGovernato";
 import type { TarsProvider } from "../../tars/provider";
-import { tariffeAttive } from "../../computo/tariffe";
+import { tariffeAttive, type Tariffe } from "../../computo/tariffe";
 import { salvaContratto } from "../servizio";
 import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "./layoutWnd";
 import { costruisciProposta, type ContestoMappa } from "./mappa";
@@ -72,12 +72,23 @@ function nomeClienteDisplay(cliente: any | null): string | null {
  * Disponibilità della lettura automatica: flag `contrattoEstrazione` e
  * `limiti` accesi, provider reale utilizzabile per il modello configurato.
  * Diagnostica onesta come `statoProvider`: non chiama nulla, dice solo se
- * il pulsante può accendersi e perché no. Nei test si inietta il provider
- * direttamente a `eseguiEstrazioneContratto`: questa funzione resta senza
- * dipendenze perché serve anche a decidere se MOSTRARE l'azione, prima
- * ancora di eseguirla.
+ * il pulsante può accendersi e perché no.
+ *
+ * P3-R20: `eseguiEstrazioneContratto` chiama questa funzione come PRIMA
+ * cosa, passandole il provider che ha ricevuto (sempre presente nei test).
+ * Con un provider iniettato lo stato del provider REALE non conta più: chi
+ * inietta un provider ha già deciso come rispondere, e verificare
+ * `statoProvider` in quel caso boccerebbe ogni test in un ambiente senza
+ * chiave OpenAI anche a flag accesi. Senza un provider iniettato (il
+ * percorso reale, o questa funzione chiamata dalla UI per decidere se
+ * MOSTRARE l'azione) il controllo resta quello di sempre: flag PIÙ provider
+ * reale disponibile.
  */
-export function disponibilitaEstrazione(): { disponibile: boolean; motivo: string | null; modello: string } {
+export function disponibilitaEstrazione(opzioni?: { provider?: TarsProvider }): {
+  disponibile: boolean;
+  motivo: string | null;
+  modello: string;
+} {
   const modello = modelloEstrazione();
   if (!interruttoreAttivo("contrattoEstrazione")) {
     return {
@@ -92,6 +103,9 @@ export function disponibilitaEstrazione(): { disponibile: boolean; motivo: strin
       motivo: "Il contratto strutturato e il computo dei limiti sono disattivati (FLAG_LIMITI).",
       modello,
     };
+  }
+  if (opzioni?.provider) {
+    return { disponibile: true, motivo: null, modello };
   }
   const stato = statoProvider(modello);
   if (stato.tipo !== "openai") {
@@ -174,6 +188,17 @@ export async function eseguiEstrazioneContratto(
   } & DipendenzeEstrazione
 ): Promise<{ estrazione: EstrazioneContratto; riusata: boolean }> {
   const { sedeId, commessaId, documentoId, forza = false } = input;
+
+  // P3-R20: fail-closed come PRIMA cosa, prima di leggere qualunque cosa dal
+  // fascicolo. Un flag spento non deve costare nemmeno una lettura storage.
+  // Il provider ricevuto in input (sempre presente nei test) passa a
+  // `disponibilitaEstrazione`, che con un provider iniettato guarda SOLO i
+  // flag: lo stato del provider reale resta compito della stessa funzione
+  // chiamata senza provider (la UI, per decidere se mostrare l'azione).
+  const disponibilita = disponibilitaEstrazione({ provider: input.provider });
+  if (!disponibilita.disponibile) {
+    throw new Error(`PRECONDIZIONE: Lettura automatica non disponibile: ${disponibilita.motivo}`);
+  }
 
   // Validazione del documento: deterministica, sede-scoped, ripetuta a ogni
   // chiamata (non conviene deduplicarla: deve fallire subito anche se
@@ -283,8 +308,18 @@ async function eseguiEstrazioneCorpo(
     runId,
   });
 
+  let tariffe: Tariffe;
+  try {
+    tariffe = tariffeAttive(now);
+  } catch {
+    // Stesso principio di server/contratti/servizio.ts (~r. 180-186): una
+    // data fuori dal periodo coperto dal listino è un problema di dati, non
+    // un errore non gestito.
+    throw new Error("VALIDAZIONE: tariffe non disponibili per la data del contratto.");
+  }
+
   const contestoMappa: ContestoMappa = {
-    tariffe: tariffeAttive(now),
+    tariffe,
     clienteCommessa: {
       nome: nomeClienteDisplay(cliente),
       indirizzo: cliente?.indirizzoLavoro || cliente?.indirizzo || null,
@@ -372,17 +407,30 @@ export async function applicaEstrazione(
     now,
   });
 
-  await repo.aggiornaStato({
-    sedeId: input.sedeId,
-    id: estrazione.id,
-    stato: "applicata",
-    applicataBy: input.actorUserId,
-    now,
-  });
+  // P3-R21: il contratto è già scritto (sopra, unico percorso di
+  // scrittura). Da qui in poi un errore non deve nascondere un salvataggio
+  // riuscito: diventa un'avvertenza, stesso principio dello specchio del
+  // pattuito in server/contratti/servizio.ts (~r. 296-306) — niente
+  // rollback cross-store, il contratto resta la fonte di verità.
+  try {
+    await repo.aggiornaStato({
+      sedeId: input.sedeId,
+      id: estrazione.id,
+      stato: "applicata",
+      applicataBy: input.actorUserId,
+      now,
+    });
+  } catch {
+    esito.avvertenze.push("Contratto salvato, ma lo stato dell'estrazione non è stato aggiornato: riprova «Applica».");
+  }
 
-  const commessa: any = getCommessaById(input.commessaId);
-  if (commessa) {
-    allineaTimelineAlBoard(input.commessaId, commessa.stato, input.actorNome ?? null);
+  try {
+    const commessa: any = getCommessaById(input.commessaId);
+    if (commessa) {
+      allineaTimelineAlBoard(input.commessaId, commessa.stato, input.actorNome ?? null);
+    }
+  } catch {
+    esito.avvertenze.push("Contratto salvato, ma la timeline non è stata aggiornata: verifica lo stato della commessa a mano.");
   }
 
   return esito;
