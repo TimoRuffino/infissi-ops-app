@@ -173,6 +173,9 @@ export default function FatturaEmessaView({
   });
 
   const [confermaAnnulla, setConfermaAnnulla] = useState(false);
+  // Tutti gli hook prima del primo `return`: un hook dopo l'uscita anticipata
+  // cambia l'ordine fra un render e l'altro (React #310, visto in produzione).
+  const [confermaDoppione, setConfermaDoppione] = useState(false);
   const annulla = trpc.fatture.annullaBozza.useMutation({
     onSuccess: () => {
       void utils.fatture.byId.invalidate({ id: fatturaId });
@@ -237,7 +240,6 @@ export default function FatturaEmessaView({
   const puoRiprendere = puoEmettere && stato === "in_emissione";
   // L'emissione si è fermata sull'anti-doppione: solo chi può emettere decide di andare avanti lo stesso.
   const fermaSuDoppione = puoRiprendere && f.ficDocumentId == null && (f.eiErrore ?? "").startsWith("doppione_fic:");
-  const [confermaDoppione, setConfermaDoppione] = useState(false);
   // Senza documento su FiC non c'è nulla fuori dal CRM: si può annullare.
   const puoAnnullare = puoModificare && stato === "in_emissione" && f.ficDocumentId == null;
   const puoStornare =
