@@ -228,7 +228,7 @@ ricalcolati a mano dal foglio.
 
 ## 6. Lettura del contratto
 
-`server/contratti/estrazione.ts`
+`server/contratti/estrazione/`
 
 1. Byte del documento → `parserRegistry` (testo per pagina; OCR locale se
    scansione, con le soglie già in `documenti/ocr.ts`). Nessuna lettura

@@ -3023,10 +3023,15 @@ sconosciuto.
 - Accessori riconosciuti solo da etichette note; un'etichetta libera del
   modello che non trova corrispondenza resta in nota come «da verificare»,
   mai un codice a caso.
-- Cassonetti e tapparelle citati come righe autonome nel documento restano
-  righe autonome: l'abbinamento automatico a una finestra scatta solo
-  quando il modello dichiara esplicitamente `oscuranteAbbinato` su quella
-  riga.
+- I cassonetti citati come righe autonome nel documento restano righe
+  autonome: nessun abbinamento. Tapparelle, persiane e scuri autonomi
+  invece l'abbinamento se lo prendono (D-E, `abbinaOscuranti`) quando
+  trovano un serramento con le STESSE misure (±10 mm) e i pezzi bastano per
+  tutta la riga serramento (P3-R14): la quota di prezzo si fonde nella riga
+  del serramento — che nasce «da verificare» con la nota che dice quanto
+  comprende (P3-R36) — e la riga oscurante si riduce o sparisce. Fuori da
+  quelle condizioni restano righe a sé, con l'avvertenza che lo dichiara
+  («quantità diversa dal serramento con le stesse misure»).
 - Nessuno strumento Tars in v1 (v. `docs/tars/matrice-azioni-tars.md`): la
   lettura resta un'azione umana dal dialog «Leggi il contratto».
 - Il costo del run si legge dal ledger Tars per `runId`
@@ -3055,7 +3060,7 @@ sconosciuto.
    matrice azioni).
 
 **Decisioni prese in corso d'opera che cambiano un contratto (ruling
-P3-R1–P3-R32, ledger completo in**
+P3-R1–P3-R39, ledger completo in**
 `.superpowers/sdd/2026-09-04-lettura-contratto/progress.md`**, grep
 `"Ruling P3-R"`; questi «R» sono numeri di ruling di questo piano, non i
 livelli di rischio R0–R4 di Tars).**
@@ -3140,8 +3145,49 @@ livelli di rischio R0–R4 di Tars).**
   contrasto, P3-R28) il codice cambiava in silenzio: «Portafinestra 2 ante
   in alluminio con zanzariera scorrevole complanare» in zona A dava
   C15042-b invece di C15038-e, senza avvertenza.
+- P3-R33 (FATTO, giro di fix finale): `SOSTANTIVO_ACCESSORIO` si allarga
+  (inferriata, grata, frangisole, veneziana, oscurante, scuretto) e una
+  parola di apertura esplicita del serramento (battente, ribalta,
+  oscillobattente, vasistas) prevale su uno scorrimento attribuito allo
+  stesso serramento: voce a battente, avvertenza «descrizione a battente e
+  scorrevole: verifica» e tipologia da verificare, anche su portafinestra.
+- P3-R34 (FATTO, stesso giro): con più materiali citati nella riga il
+  materiale dedotto è il PRIMO nominato (posizione, come P3-R25 dentro il
+  segmento dell'oscurante), con avvertenza «più materiali citati: dedotto
+  X» e `categoria.daVerificare`; un solo materiale citato → nessun avviso.
+- P3-R35 (FATTO, stesso giro): «apertura», «anta/ante» e «battente» sono
+  sostantivi del serramento — «… con zanzariera a scomparsa e apertura
+  scorrevole» torna al serramento (C15043-a con il contrasto dichiarato).
+- P3-R36 (FATTO, stesso giro): `RigaProposta.quotaOscuranteCent` conserva
+  la quota dell'oscurante fuso da `abbinaOscuranti`; l'arricchimento dal
+  layout WnD la risomma al prezzo riscritto invece di cancellarla.
+- P3-R37 (FATTO, stesso giro): `scarta` prende anche `commessaId` (router:
+  `commessaInSede` prima dell'autorizzazione; servizio: estrazione di
+  un'altra commessa → NOT_FOUND), come `applica`.
+- P3-R38 (FATTO, stesso giro): il testo di pagina neutralizza `<<<` e `>>>`
+  (in `‹‹‹`/`›››`) prima dei marcatori: un documento non può fingere una
+  pagina che non esiste.
+- P3-R39 (FATTO, stesso giro): `campiDaVerificare` elenca solo campi
+  mostrati dal dialog e salvati dal contratto — fuori `indirizzoCantiere`,
+  `riferimento` e `clienteCitato`.
 
 **Debito e fuori ambito.**
+
+- Residuo dichiarato di P3-R35: un qualificatore di scorrimento che segue
+  un accessorio SENZA nessun sostantivo di serramento in mezzo resta
+  dell'accessorio («Portafinestra con zanzariera scorrevole»: corretto), ma
+  se in mezzo c'è una delle parole nuove («… con zanzariera a scomparsa e
+  apertura scorrevole») torna al serramento. È la regola voluta; la lista
+  dei sostantivi resta chiusa e ogni parola che manca è un accessorio che
+  si prende il serramento — la rete è P3-R33 (l'apertura esplicita vince e
+  lo dichiara), non l'assenza di casi.
+- M3 (review finale, non toccato): in `misuraValida` il ramo che scarta una
+  misura fuori intervallo non è raggiungibile dallo schema del modello
+  (`larghezzaMm`/`altezzaMm` già vincolati): resta come difesa in
+  profondità, non come comportamento provato dai test.
+- M4 (review finale, non toccato): `posaCent` della proposta non ha ancora
+  un consumatore a valle oltre al contratto salvato — lo consumerà il piano
+  4 delle fatture, o va tolto quando quella decisione sarà presa.
 
 - **Task 8 fix round 1 (P3-R29/P3-R30/P3-R31 + minori): SCRITTO nel codice**
   (05/09/2026, stesso branch, insieme al giro 4 della mappatura P3-R32):
@@ -3189,6 +3235,15 @@ test passati e 43 saltati (2354), 0 falliti; `pnpm build` completo con lo
 stesso unico avviso noto (`dist/index.js` 3,1 MB). Il controllo nel browser
 del dialog «Leggi il contratto» dopo queste modifiche (badge della zona,
 note del lettore, pannello «non disponibile») resta al controller.
+
+**Verifica del giro di fix finale (05/09/2026, P3-R33–P3-R39).** `pnpm
+check` pulito; `pnpm test` 234 file passati e 9 saltati (243), 2332 test
+passati e 43 saltati (2375), 0 falliti; `pnpm build` completo con lo stesso
+unico avviso noto (`dist/index.js` 3,1 MB). La sonda di raggiungibilità del
+catalogo resta a 116 voci serramento con le 16 duplicate dichiarate: le
+regole nuove non hanno reso irraggiungibile nessuna voce. Il controllo nel
+browser del dialog «Leggi il contratto» (il pulsante «Scarta» ora manda
+anche la commessa) resta al controller.
 
 ## 12. Debito aperto prioritario
 
