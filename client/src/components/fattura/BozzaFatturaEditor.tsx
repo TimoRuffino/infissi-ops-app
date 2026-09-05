@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   Plus,
+  Printer,
   RefreshCw,
   Save,
   Scale,
@@ -957,6 +958,14 @@ export default function BozzaFatturaEditor({
         }
         secondary={
           <>
+            {/* Stampa della bozza: copia di lavoro, non documento fiscale. */}
+            <Button
+              variant="outline"
+              className="h-11 sm:h-10"
+              onClick={() => window.open(`/fatture/${f.id}/stampa`, "_blank", "noopener")}
+            >
+              <Printer className="h-4 w-4 mr-1" /> Stampa
+            </Button>
             {puoModificare && f.tipo !== "nota_credito" && (
               <Button
                 variant="outline"

@@ -44,6 +44,19 @@ const route = (entry: RouteContractEntry): RouteContractEntry => entry;
 
 export const APP_ROUTE_CONTRACT = [
   route({
+    path: "/fatture/:id/stampa",
+    kind: "page",
+    target: "FatturaStampa",
+    uxGuard: "capability:fattura.read",
+    serverAuthority: "fattureRouter.byId + procedureConInterruttore(limiti)",
+    requiredCapabilities: ["fattura.read"],
+    roleRule: null,
+    featureFlag: null,
+    navigation: "hidden",
+    mobileTreatment: "record",
+    migrationStatus: "migrata",
+  }),
+  route({
     path: "/",
     kind: "page",
     target: "Dashboard",

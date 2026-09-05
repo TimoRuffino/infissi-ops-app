@@ -4,7 +4,7 @@
 // niente altro: dall'emissione in poi il documento non si modifica.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Download, FileText, RefreshCw, Undo2 } from "lucide-react";
+import { Download, FileText, Printer, RefreshCw, Undo2 } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
 import type {
@@ -244,6 +244,15 @@ export default function FatturaEmessaView({
         </p>
       ) : (
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9"
+            onClick={() => window.open(`/fatture/${f.id}/stampa`, "_blank", "noopener")}
+          >
+            <Printer className="h-4 w-4 mr-1" />
+            Stampa
+          </Button>
           {f.pdfStorageKey && (
             <Button
               variant="outline"

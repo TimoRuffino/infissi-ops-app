@@ -3656,6 +3656,22 @@ campo e tiene la città come fallback; import CSV (colonna «provincia») e
 sync FiC popolano il campo; Tars lo espone accanto alla città. Verifica
 browser del menu: in sospeso (login demo).
 
+**Stampa della fattura, anche in bozza (05/09/2026 sera).** Pagina
+`/fatture/:id/stampa` (`client/src/pages/FatturaStampa.tsx`) registrata in
+`App.tsx` FUORI dalla shell (prima voce del route contract e del manifest),
+aperta in una scheda nuova dal pulsante «Stampa» della bozza
+(`BozzaFatturaEditor`) e della fattura emessa (`FatturaEmessaView`, accanto a
+«Scarica PDF»): intestazione sede/`intestatario`, cliente dallo snapshot,
+cantiere, righe nell'ordine del documento (`righeStampa`), riepilogo IVA,
+totali, scadenze con IBAN/banca della configurazione, diciture e note;
+filigrana «BOZZA» e nota «non valida ai fini fiscali» finché la fattura non
+è emessa; `@page A4`, pulsanti nascosti in stampa. Helper puri e test in
+`client/src/lib/fatturaStampaView.ts`. Le query restano quelle protette
+(`fatture.byId`, `fatturazioneConfig.get`, `sedi.active`): senza sessione la
+pagina rimanda al gestionale. Il PDF ufficiale di Fatture in Cloud resta
+quello nel fascicolo; questa è la copia di lavoro. Verifica browser in
+sospeso (login demo).
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.

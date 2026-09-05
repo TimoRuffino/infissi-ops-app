@@ -45,6 +45,7 @@ const Conoscenza = lazy(() => import("./pages/Conoscenza"));
 const Economia = lazy(() => import("./pages/Economia"));
 const Fatturazione = lazy(() => import("./pages/Fatturazione"));
 const FatturazioneCommessa = lazy(() => import("./pages/FatturazioneCommessa"));
+const FatturaStampa = lazy(() => import("./pages/FatturaStampa"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
 const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
 const Notifiche = lazy(() => import("./pages/Notifiche"));
@@ -91,6 +92,18 @@ function RouteContractSurface({ children }: { children: React.ReactNode }) {
 
 function Router() {
   return (
+    <Switch>
+      {/* Stampa della fattura: pagina senza shell, aperta in una scheda
+          nuova; le query tRPC restano protette dal cookie di sessione. */}
+      <Route path="/fatture/:id/stampa">
+        {() => (
+          <Suspense fallback={<RouteLoading />}>
+            <FatturaStampa />
+          </Suspense>
+        )}
+      </Route>
+      <Route>
+        {() => (
     <DashboardLayout>
       <Suspense fallback={<RouteLoading />}>
         <RouteContractSurface>
@@ -198,6 +211,9 @@ function Router() {
         </RouteContractSurface>
       </Suspense>
     </DashboardLayout>
+        )}
+      </Route>
+    </Switch>
   );
 }
 
