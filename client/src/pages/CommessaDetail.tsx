@@ -1,13 +1,14 @@
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import CaricaDocumentoDialog from "@/components/documenti/CaricaDocumentoDialog";
 import CollegaOrdineDialog from "@/components/documenti/CollegaOrdineDialog";
+import ElencoDocumentiCommessa from "@/components/documenti/ElencoDocumentiCommessa";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -37,11 +38,9 @@ import {
   Pencil,
   Upload,
   Download,
-  File as FileIcon,
   CheckCircle2,
   Clock,
   UserPlus,
-  Eye,
   Send,
   Package,
   AlertTriangle,
@@ -54,8 +53,6 @@ import {
   TrendingUp,
   ChevronDown,
   HardHat,
-  Link2,
-  ScanText,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
@@ -96,46 +93,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useOperationalContext } from "@/contexts/OperationalContext";
-import {
-  COMMESSA_UPLOAD_ACCEPT,
-  COMMESSA_UPLOAD_MAX_MB,
-  erroreUploadCommessa,
-  normalizzaMimeUploadCommessa,
-} from "@shared/commessaUpload";
-import { DOC_TIPO_LABEL, docTipoLabel } from "@shared/docTipi";
-
-const tipoDocColors: Record<string, string> = {
-  preventivo: "bg-info-soft text-info",
-  contratto: "bg-success-soft text-success",
-  misure: "bg-st-misure-soft text-st-misure",
-  fattura: "bg-st-pagamento-soft text-st-pagamento",
-  conferma_ordine: "bg-st-ordine-soft text-st-ordine",
-  ddt_consegna: "bg-st-produzione-soft text-st-produzione",
-  ddt_posa: "bg-st-produzione-soft text-st-produzione",
-  ddt_finale: "bg-st-produzione-soft text-st-produzione",
-  saldo: "bg-st-pagamento-soft text-st-pagamento",
-  foto: "bg-st-contratto-soft text-st-contratto",
-  documento_identita: "bg-surface-2 text-text-2",
-  visura: "bg-surface-2 text-text-2",
-  planimetria: "bg-st-misure-soft text-st-misure",
-  certificazione: "bg-structure-soft text-structure",
-  altro: "bg-surface-2 text-text-2",
-};
-
-
-// Mirror of REQUIRED_DOC_TIPI_PER_STATO on the server — used to hint the
-// user which doc tipo they should upload for the current state.
-const SUGGESTED_TIPO_FOR_STATO: Record<string, string> = {
-  preventivo: "preventivo",
-  misure_esecutive: "misure",
-  aggiornamento_contratto: "contratto",
-  fatture_pagamento: "fattura",
-  da_ordinare: "conferma_ordine",
-  ordini_ultimazione: "saldo",
-  attesa_posa: "ddt_consegna",
-  finiture_saldo: "ddt_posa",
-  interventi_regolazioni: "ddt_finale",
-};
+import { SUGGESTED_TIPO_FOR_STATO } from "@/lib/documentiView";
 
 export default function CommessaDetail() {
   const params = useParams<{ id: string }>();
@@ -226,7 +184,13 @@ export default function CommessaDetail() {
   const [interventoDialog, setInterventoDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
   const [consegnaDialog, setConsegnaDialog] = useState(false);
+  // Caricamento aperto dal banner del gate documentale: quel banner sta
+  // sopra le tab e resta visibile anche quando il fascicolo è smontato, così
+  // il dialog vive qui accanto a lui (l'elenco ha il suo).
   const [uploadDialog, setUploadDialog] = useState(false);
+  const [uploadTipoIniziale, setUploadTipoIniziale] = useState<
+    string | undefined
+  >(undefined);
 
   const [interventoForm, setInterventoForm] = useState({
     tipo: "posa" as string,
@@ -265,19 +229,6 @@ export default function CommessaDetail() {
 
   const [consegnaDate, setConsegnaDate] = useState("");
 
-  const [uploadForm, setUploadForm] = useState({
-    file: null as File | null,
-    tipo: "preventivo" as string,
-    note: "",
-  });
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
-
-  // Rinomina e riclassifica un documento gia caricato. Il tipo conta per il
-  // doc gate: un contratto caricato come "altro" blocca un avanzamento
-  // legittimo, e finora si poteva correggere solo ricaricando il file.
-  const [rinominaDoc, setRinominaDoc] = useState<any>(null);
-  const [rinominaForm, setRinominaForm] = useState({ nome: "", tipo: "altro" });
   // Collegamento assistito documento → ordine fornitore (D7 slice 2).
   const [collegaDoc, setCollegaDoc] = useState<any>(null);
   // Lettura assistita del contratto PDF (piano 3): la proposta si rivede in
@@ -328,28 +279,6 @@ export default function CommessaDetail() {
 
   const deleteIntervento = trpc.interventi.delete.useMutation({
     onSuccess: () => { utils.interventi.list.invalidate(); setDeleteTarget(null); },
-  });
-  // Il fascicolo muove il margine: una conferma d'ordine che entra, esce o
-  // cambia tipo fa nascere o sparire il costo fornitore (03/09/2026).
-  const aggiornaEconomia = () => {
-    utils.commesse.margine.invalidate(commessaId);
-    utils.commesse.marginalita.invalidate();
-  };
-  const deleteDocumento = trpc.preventiviContratti.delete.useMutation({
-    onSuccess: () => {
-      utils.preventiviContratti.invalidate();
-      aggiornaEconomia();
-      setDeleteTarget(null);
-    },
-  });
-  const rinominaDocumento = trpc.preventiviContratti.update.useMutation({
-    onSuccess: () => {
-      utils.preventiviContratti.invalidate();
-      aggiornaEconomia();
-      setRinominaDoc(null);
-      toast.success("Documento aggiornato");
-    },
-    onError: (e) => toast.error(e.message ?? "Modifica non riuscita"),
   });
   const createIntervento = trpc.interventi.create.useMutation({
     onSuccess: () => {
@@ -560,54 +489,6 @@ export default function CommessaDetail() {
       });
     } catch (e) {
       console.error("[commessa] save edit failed", e);
-    }
-  }
-
-  async function handleUpload() {
-    if (!uploadForm.file) return;
-    const file = uploadForm.file;
-    const mimeType = normalizzaMimeUploadCommessa(file.name, file.type);
-    const errore = erroreUploadCommessa(file.size, mimeType);
-    if (errore) {
-      setUploadError(errore);
-      return;
-    }
-    setUploadError(null);
-    setIsUploadingFile(true);
-    try {
-      const response = await fetch(
-        `/api/commesse/${commessaId}/documenti/file`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "X-File-Name": encodeURIComponent(file.name),
-            "X-File-Mime-Type": encodeURIComponent(mimeType),
-            "X-Document-Type": uploadForm.tipo,
-            ...(uploadForm.note
-              ? { "X-File-Note": encodeURIComponent(uploadForm.note) }
-              : {}),
-          },
-          body: file,
-        }
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Caricamento non riuscito.");
-      }
-      await utils.preventiviContratti.invalidate();
-      aggiornaEconomia();
-      setUploadDialog(false);
-      setUploadForm({ file: null, tipo: "preventivo", note: "" });
-      setUploadError(null);
-      toast.success("File caricato nella commessa");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Caricamento non riuscito.";
-      setUploadError(message);
-      toast.error("Caricamento non riuscito", { description: message });
-    } finally {
-      setIsUploadingFile(false);
     }
   }
 
@@ -1153,9 +1034,7 @@ export default function CommessaDetail() {
                     size="sm"
                     onClick={() => {
                       const missing = statoGate.data!.required.find((r) => !r.satisfied);
-                      if (missing) {
-                        setUploadForm((prev) => ({ ...prev, tipo: missing.tipo }));
-                      }
+                      setUploadTipoIniziale(missing?.tipo);
                       setUploadDialog(true);
                     }}
                   >
@@ -1276,279 +1155,16 @@ export default function CommessaDetail() {
         </TabsList>
 
         {/* File e documenti Tab */}
-        <TabsContent value="preventivi" className="space-y-4 mt-4">
-          <div className="flex justify-end">
-            <Dialog
-              open={uploadDialog}
-              onOpenChange={(open) => {
-                setUploadDialog(open);
-                if (open) {
-                  setUploadError(null);
-                  // Preset tipo to the state-required document when the user
-                  // opens the upload dialog — one less click in 90% of cases.
-                  const suggested = SUGGESTED_TIPO_FOR_STATO[c.stato];
-                  if (suggested) {
-                    setUploadForm((prev) => ({ ...prev, tipo: suggested }));
-                  }
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <Upload className="h-4 w-4 mr-1" />
-                  Carica file
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Carica file</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-3 py-2">
-                  <div className="space-y-1.5">
-                    <Label>Tipo documento</Label>
-                    <Select
-                      value={uploadForm.tipo}
-                      onValueChange={(v: any) => setUploadForm({ ...uploadForm, tipo: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      {/* La lista arriva da @shared/docTipi, la stessa che
-                          il router usa per l'enum e per il gate: un tipo
-                          nuovo compare qui senza doverlo ricopiare. */}
-                      <SelectContent>
-                        {Object.entries(DOC_TIPO_LABEL).map(([tipo, label]) => (
-                          <SelectItem key={tipo} value={tipo}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {SUGGESTED_TIPO_FOR_STATO[c.stato] && uploadForm.tipo === SUGGESTED_TIPO_FOR_STATO[c.stato] && (
-                      <p className="text-[11px] text-success bg-success-soft border border-success/40 rounded px-2 py-1">
-                        Tipo suggerito per lo stato corrente — caricando questo file si sbloccher&agrave; l&apos;avanzamento
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="commessa-upload-file">
-                      File (max {COMMESSA_UPLOAD_MAX_MB} MB)
-                    </Label>
-                    <Input
-                      id="commessa-upload-file"
-                      type="file"
-                      accept={COMMESSA_UPLOAD_ACCEPT}
-                      aria-invalid={!!uploadError}
-                      aria-describedby={
-                        uploadError
-                          ? "commessa-upload-help commessa-upload-error"
-                          : "commessa-upload-help"
-                      }
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] ?? null;
-                        const errore = file
-                          ? erroreUploadCommessa(
-                              file.size,
-                              normalizzaMimeUploadCommessa(
-                                file.name,
-                                file.type
-                              )
-                            )
-                          : null;
-                        setUploadError(errore);
-                        setUploadForm({
-                          ...uploadForm,
-                          file,
-                        });
-                      }}
-                    />
-                    <p
-                      id="commessa-upload-help"
-                      className="text-xs text-muted-foreground"
-                    >
-                      PDF, immagini, documenti e video MP4, MOV o WebM.
-                    </p>
-                    {uploadError && (
-                      <p
-                        id="commessa-upload-error"
-                        role="alert"
-                        className="text-xs text-destructive"
-                      >
-                        {uploadError}
-                      </p>
-                    )}
-                    {uploadForm.file && (
-                      <p className="text-xs text-muted-foreground">
-                        {uploadForm.file.name} — {uploadForm.file.size >= 1024 * 1024
-                          ? `${(uploadForm.file.size / (1024 * 1024)).toFixed(1)} MB`
-                          : `${(uploadForm.file.size / 1024).toFixed(1)} KB`}
-                      </p>
-                    )}
-                    {isUploadingFile && (
-                      <p className="text-xs text-muted-foreground" aria-live="polite">
-                        I file grandi possono richiedere qualche minuto. Non chiudere la pagina.
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Note</Label>
-                    <Textarea
-                      rows={2}
-                      value={uploadForm.note}
-                      onChange={(e) => setUploadForm({ ...uploadForm, note: e.target.value })}
-                    />
-                  </div>
-                  <Button
-                    onClick={handleUpload}
-                    disabled={
-                      !uploadForm.file ||
-                      !!uploadError ||
-                      isUploadingFile
-                    }
-                  >
-                    {isUploadingFile ? "Caricamento..." : "Carica"}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {documenti.data?.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-center">
-              <FileText className="h-9 w-9 text-text-3" />
-              <p className="text-[15px] font-semibold">Nessun documento</p>
-              <p className="text-sm text-text-2 max-w-xs">
-                Qui compariranno preventivi, contratti, fatture e foto. Usa il
-                pulsante per caricare un file.
-              </p>
-              <Button size="sm" variant="outline" onClick={() => setUploadDialog(true)}>
-                <Upload className="h-3.5 w-3.5 mr-1" /> Carica file
-              </Button>
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {documenti.data?.map((d: any) => (
-                <Card key={d.id}>
-                  <CardContent className="p-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <FileIcon className="h-5 w-5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm truncate">{d.nome}</span>
-                          <Badge
-                            variant="secondary"
-                            className={`text-[10px] ${tipoDocColors[d.tipo] ?? ""}`}
-                          >
-                            {docTipoLabel(d.tipo)}
-                          </Badge>
-                          {d.source === "fic" && (
-                            <Badge variant="outline" className="text-[10px]">
-                              Fatture in Cloud
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                          <span>
-                            {d.size >= 1024 * 1024
-                              ? `${(d.size / (1024 * 1024)).toFixed(1)} MB`
-                              : `${(d.size / 1024).toFixed(1)} KB`}
-                          </span>
-                          <span>{new Date(d.createdAt).toLocaleDateString("it-IT")}</span>
-                        </div>
-                        {d.note && (
-                          <p className="text-xs text-muted-foreground mt-1">{d.note}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      {(d.mimeType === "application/pdf" ||
-                        d.mimeType?.startsWith("image/") ||
-                        d.mimeType?.startsWith("video/")) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Anteprima"
-                          aria-label={`Anteprima ${d.nome}`}
-                          onClick={() => openPreview(d)}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {(d.tipo === "preventivo" || d.tipo === "contratto") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-info hover:text-info hover:bg-info-soft"
-                          title="Invia via email"
-                          onClick={() => openEmailDialog(d)}
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Scarica"
-                        onClick={() => downloadDocumento(d.id)}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                      </Button>
-                      {(d.mimeType ?? "").toLowerCase().includes("pdf") &&
-                        interruttori.data?.documentIntelligence && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Collega a un ordine fornitore"
-                          aria-label={`Collega ${d.nome} a un ordine fornitore`}
-                          onClick={() => setCollegaDoc(d)}
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {d.tipo === "contratto" &&
-                        (d.mimeType ?? "").toLowerCase().includes("pdf") &&
-                        estrazioneAttiva && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Leggi il contratto"
-                          aria-label={`Leggi il contratto ${d.nome}`}
-                          onClick={() => setLeggiDoc({ id: d.id, nome: d.nome })}
-                        >
-                          <ScanText className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Rinomina o cambia tipo"
-                        aria-label={`Rinomina ${d.nome}`}
-                        onClick={() => {
-                          setRinominaDoc(d);
-                          setRinominaForm({ nome: d.nome, tipo: d.tipo });
-                        }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-danger hover:text-danger hover:bg-danger-soft"
-                        onClick={() => setDeleteTarget({ type: "documento", id: d.id, label: d.nome })}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+        <TabsContent value="preventivi" className="mt-4">
+          <ElencoDocumentiCommessa
+            commessaId={commessaId}
+            stato={c.stato}
+            documenti={documenti.data}
+            onApriAnteprima={openPreview}
+            onInviaEmail={openEmailDialog}
+            onCollegaOrdine={setCollegaDoc}
+            onLeggiContratto={(d) => setLeggiDoc({ id: d.id, nome: d.nome })}
+          />
         </TabsContent>
 
         {/* Prodotti Tab — con FLAG_LIMITI diventa il contratto strutturato */}
@@ -2189,8 +1805,7 @@ export default function CommessaDetail() {
         }
         onConfirm={() => {
           if (!deleteTarget) return;
-          if (deleteTarget.type === "documento") deleteDocumento.mutate(deleteTarget.id);
-          else if (deleteTarget.type === "intervento") deleteIntervento.mutate(deleteTarget.id);
+          if (deleteTarget.type === "intervento") deleteIntervento.mutate(deleteTarget.id);
           else if (deleteTarget.type === "commessa") deleteCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "archive-commessa") archiveCommessa.mutate(deleteTarget.id);
           else if (deleteTarget.type === "prodotto") removeProdotto.mutate({ commessaId, prodottoId: deleteTarget.id });
@@ -2505,6 +2120,15 @@ export default function CommessaDetail() {
         onDownload={() => previewDoc && downloadDocumento(previewDoc.id)}
       />
 
+      {/* Caricamento aperto dal banner del gate documentale (fuori dalle tab) */}
+      <CaricaDocumentoDialog
+        commessaId={commessaId}
+        open={uploadDialog}
+        onOpenChange={setUploadDialog}
+        tipoIniziale={uploadTipoIniziale}
+        tipoSuggerito={SUGGESTED_TIPO_FOR_STATO[c.stato]}
+      />
+
       {/* Collegamento assistito documento → ordine fornitore */}
       <CollegaOrdineDialog
         documento={collegaDoc}
@@ -2520,71 +2144,6 @@ export default function CommessaDetail() {
       />
 
       {/* Email preventivo dialog (mailto + auto-download) */}
-      <Dialog
-        open={!!rinominaDoc}
-        onOpenChange={(open) => !open && setRinominaDoc(null)}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rinomina documento</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div className="space-y-1.5">
-              <Label>Nome file</Label>
-              <Input
-                value={rinominaForm.nome}
-                onChange={(e) =>
-                  setRinominaForm({ ...rinominaForm, nome: e.target.value })
-                }
-                placeholder="Documento d'identita Rossi Mario.pdf"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Il nome e libero: tienici l&apos;estensione del file.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Tipo documento</Label>
-              <Select
-                value={rinominaForm.tipo}
-                onValueChange={(v) =>
-                  setRinominaForm({ ...rinominaForm, tipo: v })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(DOC_TIPO_LABEL).map(([tipo, label]) => (
-                    <SelectItem key={tipo} value={tipo}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRinominaDoc(null)}>
-              Annulla
-            </Button>
-            <Button
-              disabled={
-                !rinominaForm.nome.trim() || rinominaDocumento.isPending
-              }
-              onClick={() =>
-                rinominaDocumento.mutate({
-                  id: rinominaDoc.id,
-                  nome: rinominaForm.nome.trim(),
-                  tipo: rinominaForm.tipo as any,
-                })
-              }
-            >
-              Salva
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!emailDoc} onOpenChange={(open) => !open && setEmailDoc(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

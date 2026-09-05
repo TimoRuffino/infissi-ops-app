@@ -21,11 +21,22 @@ describe("tipi documento — una lista sola", () => {
     expect(DOC_TIPI).toContain("conferma_ordine");
   });
 
-  it("la scheda commessa usa la lista condivisa, non una sua copia", () => {
-    const source = sorgente("../pages/CommessaDetail.tsx");
+  it("il fascicolo usa la lista condivisa, non una sua copia", () => {
+    // I due menu del tipo documento (caricamento e riclassifica) sono usciti
+    // da CommessaDetail insieme al fascicolo: il guardiano li segue.
+    for (const file of [
+      "../components/documenti/CaricaDocumentoDialog.tsx",
+      "../components/documenti/ElencoDocumentiCommessa.tsx",
+    ]) {
+      const source = sorgente(file);
 
-    expect(source).toMatch(/from "@shared\/docTipi"/);
-    // Nessuna seconda mappa locale che possa divergere di nuovo.
-    expect(source).not.toMatch(/const DOC_TIPO_LABEL/);
+      expect(source).toMatch(/from "@shared\/docTipi"/);
+      // Nessuna seconda mappa locale che possa divergere di nuovo.
+      expect(source).not.toMatch(/const DOC_TIPO_LABEL/);
+    }
+    // E la scheda commessa non se n'è ricostruita una sua.
+    expect(sorgente("../pages/CommessaDetail.tsx")).not.toMatch(
+      /const DOC_TIPO_LABEL/
+    );
   });
 });
