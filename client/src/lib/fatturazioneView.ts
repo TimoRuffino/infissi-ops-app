@@ -57,6 +57,27 @@ export function tonoPasso(
   return "neutro";
 }
 
+/**
+ * Su quale passo lo stepper lascia cliccare (piano 4, Task 5): quelli già
+ * toccati — `fatto` o `in_corso` — e il primo non concluso, che è il
+ * prossimo gesto. Un passo più avanti resta spento: non si salta il
+ * contratto per andare alla fattura.
+ *
+ * Differenza voluta rispetto a `prossimoPasso` del server, che salta i passi
+ * `non_disponibile`: qui il primo non concluso è raggiungibile anche se è
+ * dietro un interruttore spento. Con la fatturazione spenta e i limiti
+ * conclusi, il quarto passo si apre e dice perché è fermo, invece di restare
+ * un pallino muto che non si può nemmeno interrogare.
+ */
+export function passoRaggiungibile(
+  passi: Record<PassoFatturazione, EsitoPasso>,
+  passo: PassoFatturazione
+): boolean {
+  const esito = passi[passo];
+  if (esito === "fatto" || esito === "in_corso") return true;
+  return passo === ORDINE_PASSI.find(p => passi[p] !== "fatto");
+}
+
 /** "oggi" / "1 giorno" / "N giorni"; "—" quando il server non sa dire da quando (nessuna milestone né updatedAt). */
 export function giorniTesto(giorni: number | null): string {
   if (giorni == null) return "—";

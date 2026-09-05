@@ -21,13 +21,32 @@ const TONO: Record<"success" | "warning" | "muted", string> = {
   muted: "text-muted-foreground",
 };
 
-export default function LimitiTab({ commessaId }: { commessaId: number }) {
+export default function LimitiTab({
+  commessaId,
+  modalita,
+  onCambiato,
+}: {
+  commessaId: number;
+  /**
+   * Cornice in cui la tab è montata (piano 4). Assente = la tab della scheda
+   * commessa, com'è sempre stata. `"guidata"` è il passo 3 del percorso
+   * `/fatturazione/:id`: l'intestazione e l'avanzamento sono della pagina,
+   * qui resta il computo. `"lettura"` (Task 6) per ora rende come il default.
+   */
+  modalita?: "guidata" | "lettura";
+  /** Il computo è cambiato: chi monta rilegga lo stato dei passi. */
+  onCambiato?: () => void;
+}) {
+  const guidata = modalita === "guidata";
   const utils = trpc.useUtils();
   const q = trpc.computo.ultimo.useQuery({ commessaId }, { retry: false });
   const esegui = trpc.computo.esegui.useMutation({
     onSuccess: () => {
       utils.computo.ultimo.invalidate({ commessaId });
       toast.success("Limiti ricalcolati");
+      // Un computo valido con esito «ok» chiude il passo: la pagina guidata
+      // rilegge e apre «Avanti».
+      onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });
@@ -40,9 +59,18 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
   const motivo = motivoSintetico(stato.motivo, c?.avvertenze.length ?? 0);
 
   return (
-    <div className="space-y-4 mt-4 min-w-0">
+    // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
+    // spaziatura la porta la pagina.
+    <div className={guidata ? "space-y-4 min-w-0" : "space-y-4 mt-4 min-w-0"}>
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium">Computo dei limiti di spesa</span>
+        {/* Nel percorso guidato il titolo del passo è già in testa alla
+            pagina («3 · Limiti»): ripeterlo qui sarebbe una seconda
+            intestazione per la stessa cosa. */}
+        {!guidata && (
+          <span className="text-sm font-medium">
+            Computo dei limiti di spesa
+          </span>
+        )}
         <Badge variant="outline" className={TONO[badge.tono]}>
           {badge.testo}
         </Badge>
@@ -50,7 +78,9 @@ export default function LimitiTab({ commessaId }: { commessaId: number }) {
         {stato.puoEseguire && (
           <Button
             size="sm"
-            className="ml-auto h-7"
+            // Nel percorso guidato è il gesto principale del passo: target
+            // touch pieno, non il pulsantino di una barra di tab.
+            className={guidata ? "ml-auto min-h-11" : "ml-auto h-7"}
             disabled={esegui.isPending}
             onClick={() => esegui.mutate({ commessaId })}
           >

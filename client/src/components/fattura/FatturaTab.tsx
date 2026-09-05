@@ -14,7 +14,23 @@ import FatturaEmessaView from "@/components/fattura/FatturaEmessaView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-export default function FatturaTab({ commessaId }: { commessaId: number }) {
+export default function FatturaTab({
+  commessaId,
+  modalita,
+  onCambiato,
+}: {
+  commessaId: number;
+  /**
+   * Cornice in cui la tab è montata (piano 4). Assente = la tab della scheda
+   * commessa, com'è sempre stata. `"guidata"` è il passo 4 (l'ultimo) del
+   * percorso `/fatturazione/:id`: nessun «Avanti», la pagina porta solo
+   * «Indietro». `"lettura"` (Task 6) per ora rende come il default.
+   */
+  modalita?: "guidata" | "lettura";
+  /** Bozza creata, emessa, annullata o stato SdI cambiato: chi monta rilegga i passi. */
+  onCambiato?: () => void;
+}) {
+  const guidata = modalita === "guidata";
   const utils = trpc.useUtils();
   const q = trpc.fatture.perCommessa.useQuery({ commessaId }, { retry: false });
   const [selezionata, setSelezionata] = useState<number | null>(null);
@@ -47,6 +63,7 @@ export default function FatturaTab({ commessaId }: { commessaId: number }) {
       setSelezionata(esito.fattura.id);
       toast.success("Bozza generata dai limiti");
       esito.avvertenze.forEach(a => toast.warning(a));
+      onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });
@@ -68,7 +85,9 @@ export default function FatturaTab({ commessaId }: { commessaId: number }) {
   const fattura = elenco.find(f => f.id === selezionata) ?? null;
 
   return (
-    <div className="space-y-4 mt-4 min-w-0">
+    // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
+    // spaziatura la porta la pagina.
+    <div className={guidata ? "space-y-4 min-w-0" : "space-y-4 mt-4 min-w-0"}>
       {puoGenerare && (
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Button
@@ -146,7 +165,11 @@ export default function FatturaTab({ commessaId }: { commessaId: number }) {
           puoModificare={q.data.puoDraft}
           puoEmettere={q.data.puoEmettere}
           dryRun={q.data.dryRun}
-          onAnnullata={() => setSelezionata(null)}
+          onAnnullata={() => {
+            setSelezionata(null);
+            onCambiato?.();
+          }}
+          onCambiato={onCambiato}
         />
       ) : fattura ? (
         <FatturaEmessaView
@@ -155,6 +178,7 @@ export default function FatturaTab({ commessaId }: { commessaId: number }) {
           fatturaId={fattura.id}
           puoNotaCredito={q.data.puoNotaCredito}
           onApriFattura={setSelezionata}
+          onCambiato={onCambiato}
         />
       ) : null}
     </div>

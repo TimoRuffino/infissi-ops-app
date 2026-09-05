@@ -23,6 +23,11 @@ describe("shell presentation", () => {
     expect(
       routePresentation(routeContractForLocation("/fatturazione"))
     ).toEqual({ section: "Economia", title: "Fatturazione" });
+    // Anche il percorso a passi di una commessa resta sotto Economia:
+    // senza entry ricadrebbe sul fallback generico.
+    expect(
+      routePresentation(routeContractForLocation("/fatturazione/42"))
+    ).toEqual({ section: "Economia", title: "Fatturazione" });
   });
 
   it("uses deterministic hierarchy targets instead of browser history", () => {
@@ -39,6 +44,11 @@ describe("shell presentation", () => {
         "/preventivatori/punto-del-serramento/persiane"
       )
     ).toBe("/preventivatori");
+    // Dal percorso a passi di una commessa si torna al suo elenco, non
+    // alla cronologia del browser.
+    expect(predictableMobileBackTarget("/fatturazione/42?passo=limiti")).toBe(
+      "/fatturazione"
+    );
     expect(predictableMobileBackTarget("/kanban")).toBeNull();
   });
 });

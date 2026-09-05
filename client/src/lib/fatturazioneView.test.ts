@@ -10,6 +10,7 @@ import {
   filtraCommesse,
   giorniTesto,
   importiCard,
+  passoRaggiungibile,
   tonoPasso,
 } from "./fatturazioneView";
 
@@ -108,6 +109,65 @@ describe("tonoPasso", () => {
     expect(tonoPasso("in_corso")).toBe("attivo");
     expect(tonoPasso("fatto")).toBe("ok");
     expect(tonoPasso("non_disponibile")).toBe("spento");
+  });
+});
+
+describe("passoRaggiungibile", () => {
+  it("apre il primo passo quando non si è ancora fatto nulla", () => {
+    const passi = passiTutti("da_fare");
+    expect(passoRaggiungibile(passi, "documenti")).toBe(true);
+    expect(passoRaggiungibile(passi, "contratto")).toBe(false);
+    expect(passoRaggiungibile(passi, "limiti")).toBe(false);
+    expect(passoRaggiungibile(passi, "fattura")).toBe(false);
+  });
+
+  it("lascia tornare sui passi già fatti e stare su quello in corso", () => {
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "fatto",
+      contratto: "in_corso",
+      limiti: "da_fare",
+      fattura: "da_fare",
+    };
+    expect(passoRaggiungibile(passi, "documenti")).toBe(true);
+    expect(passoRaggiungibile(passi, "contratto")).toBe(true);
+    // Il primo non concluso è «contratto»: i limiti restano oltre il salto.
+    expect(passoRaggiungibile(passi, "limiti")).toBe(false);
+    expect(passoRaggiungibile(passi, "fattura")).toBe(false);
+  });
+
+  it("apre il passo successivo appena il precedente è fatto", () => {
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "fatto",
+      contratto: "fatto",
+      limiti: "da_fare",
+      fattura: "da_fare",
+    };
+    expect(passoRaggiungibile(passi, "limiti")).toBe(true);
+    expect(passoRaggiungibile(passi, "fattura")).toBe(false);
+  });
+
+  it("apre anche un passo non disponibile, se è il primo non concluso", () => {
+    // Fatturazione spenta con tutto il resto chiuso: il quarto passo si
+    // apre e spiega perché è fermo, invece di restare un pallino muto.
+    const passi: Record<PassoFatturazione, EsitoPasso> = {
+      documenti: "fatto",
+      contratto: "fatto",
+      limiti: "fatto",
+      fattura: "non_disponibile",
+    };
+    expect(passoRaggiungibile(passi, "fattura")).toBe(true);
+  });
+
+  it("non apre nulla oltre l'ultimo quando il percorso è concluso", () => {
+    const passi = passiTutti("fatto");
+    for (const passo of [
+      "documenti",
+      "contratto",
+      "limiti",
+      "fattura",
+    ] as const) {
+      expect(passoRaggiungibile(passi, passo)).toBe(true);
+    }
   });
 });
 

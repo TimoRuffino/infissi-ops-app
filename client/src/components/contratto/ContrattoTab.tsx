@@ -57,7 +57,28 @@ const ETICHETTA_DETRAZIONE: Record<DetrazioneTipo, string> = {
   ristrutturazione: "Ristrutturazione",
 };
 
-export default function ContrattoTab({ commessaId }: { commessaId: number }) {
+export default function ContrattoTab({
+  commessaId,
+  modalita,
+  onAvanti,
+  onCambiato,
+}: {
+  commessaId: number;
+  /**
+   * Cornice in cui la tab è montata (piano 4). Assente = la tab della scheda
+   * commessa, esattamente com'è sempre stata. `"guidata"` è il passo 2 del
+   * percorso `/fatturazione/:id`: la pagina porta intestazione e navigazione,
+   * qui resta il solo gesto che deve precedere l'avanzamento (il salvataggio).
+   * `"lettura"` è il riassunto in sola lettura della scheda commessa (Task 6):
+   * finché non esiste rende come il default.
+   */
+  modalita?: "guidata" | "lettura";
+  /** Solo in modalità guidata: chiamato dopo un salvataggio riuscito da «Salva e avanti». */
+  onAvanti?: () => void;
+  /** Il contratto è cambiato sul server: chi monta rilegga lo stato dei passi. */
+  onCambiato?: () => void;
+}) {
+  const guidata = modalita === "guidata";
   const utils = trpc.useUtils();
   const q = trpc.contratti.get.useQuery({ commessaId }, { retry: false });
   // Il catalogo DEI non dipende dalla commessa e cambia solo col listino:
@@ -102,6 +123,9 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
       setSporco(false);
       toast.success("Contratto salvato");
       esito.avvertenze.forEach(a => toast.warning(a));
+      // Le righe del contratto decidono il passo «Contratto» del percorso
+      // guidato: chi ci monta sopra rilegge, non indovina.
+      onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });
@@ -140,7 +164,9 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
   if (q.error) return <p className="text-sm text-danger py-6">{q.error.message}</p>;
 
   return (
-    <div className="space-y-5 mt-4 min-w-0">
+    // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
+    // spaziatura la porta la pagina, qui sarebbe un buco in più.
+    <div className={guidata ? "space-y-5 min-w-0" : "space-y-5 mt-4 min-w-0"}>
       {/* Parametri */}
       <section aria-label="Parametri del contratto" className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
         <div className="space-y-1">
@@ -578,19 +604,33 @@ export default function ContrattoTab({ commessaId }: { commessaId: number }) {
         </ul>
       )}
 
-      {puoModificare && (
+      {/* Nel percorso guidato il pulsante compare solo se c'è davvero
+          qualcosa da salvare: ad avanzare ci pensa il piede della pagina,
+          un «Salva» spento non aggiunge nulla. */}
+      {puoModificare && (!guidata || sporco) && (
         <div className="flex justify-end gap-2">
           <Button
+            className={guidata ? "min-h-11" : undefined}
             disabled={!sporco || errori.length > 0 || salva.isPending}
             onClick={() =>
-              salva.mutate({
-                commessaId,
-                contratto: parametri,
-                righe: righe.map(({ chiave: _chiave, ...resto }) => resto),
-              })
+              salva.mutate(
+                {
+                  commessaId,
+                  contratto: parametri,
+                  righe: righe.map(({ chiave: _chiave, ...resto }) => resto),
+                },
+                // Avanza solo se il server ha davvero accettato: un errore
+                // lascia l'operatore sul passo, con le sue modifiche.
+                guidata ? { onSuccess: () => onAvanti?.() } : undefined
+              )
             }
           >
-            <Save className="h-4 w-4 mr-1" /> {salva.isPending ? "Salvataggio…" : "Salva contratto"}
+            <Save className="h-4 w-4 mr-1" />{" "}
+            {salva.isPending
+              ? "Salvataggio…"
+              : guidata
+                ? "Salva e avanti"
+                : "Salva contratto"}
           </Button>
         </div>
       )}

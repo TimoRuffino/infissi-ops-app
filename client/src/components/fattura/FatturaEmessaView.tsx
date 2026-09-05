@@ -115,12 +115,20 @@ export default function FatturaEmessaView({
   fatturaId,
   puoNotaCredito,
   onApriFattura,
+  onCambiato,
 }: {
   commessaId: number;
   fatturaId: number;
   puoNotaCredito: boolean;
   /** La nota di credito nasce in bozza: la tab passa subito su di lei. */
   onApriFattura: (id: number) => void;
+  /**
+   * Lo stato SdI o le fatture della commessa sono cambiati: chi monta la
+   * vista (il percorso guidato del piano 4) rilegge i propri passi. Uno
+   * scarto riporta il passo «Fattura» a «in corso»: non è un dettaglio
+   * cosmetico. Assente: nessuno ascolta, niente cambia.
+   */
+  onCambiato?: () => void;
 }) {
   const utils = trpc.useUtils();
   const dettaglio = trpc.fatture.byId.useQuery(
@@ -139,6 +147,7 @@ export default function FatturaEmessaView({
           ? `Stato aggiornato: ${esito.fattura.stato}`
           : "Nessun cambiamento dallo SdI"
       );
+      if (esito.cambiato) onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });
@@ -150,6 +159,7 @@ export default function FatturaEmessaView({
       toast.success("Nota di credito creata in bozza");
       esito.avvertenze.forEach(a => toast.warning(a));
       onApriFattura(esito.fattura.id);
+      onCambiato?.();
     },
     onError: e => toast.error(e.message),
   });

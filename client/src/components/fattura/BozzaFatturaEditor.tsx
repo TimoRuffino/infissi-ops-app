@@ -214,6 +214,7 @@ export default function BozzaFatturaEditor({
   puoEmettere,
   dryRun,
   onAnnullata,
+  onCambiato,
 }: {
   commessaId: number;
   fatturaId: number;
@@ -222,6 +223,12 @@ export default function BozzaFatturaEditor({
   /** Da `fatture.perCommessa`: dichiarato sempre nella conferma di emissione. */
   dryRun: boolean;
   onAnnullata: () => void;
+  /**
+   * L'emissione ha cambiato lo stato della fattura: chi monta l'editor
+   * (il percorso guidato del piano 4) rilegge i propri passi. L'annullamento
+   * passa già da `onAnnullata`. Assente: nessuno ascolta, niente cambia.
+   */
+  onCambiato?: () => void;
 }) {
   const utils = trpc.useUtils();
   const dettaglio = trpc.fatture.byId.useQuery(
@@ -321,6 +328,7 @@ export default function BozzaFatturaEditor({
   const emetti = trpc.fatture.emetti.useMutation({
     onSuccess: esito => {
       ricarica();
+      onCambiato?.();
       const falliti = esito.passi.filter(p => p.esito === "errore");
       if (falliti.length === 0) {
         toast.success(

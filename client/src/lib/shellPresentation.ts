@@ -10,6 +10,7 @@ const ROUTE_PRESENTATION: Record<string, RoutePresentation> = {
   "/magazzino": { section: "Ordini e cantiere", title: "Magazzino" },
   "/conferme-ordine": { section: "Ordini e cantiere", title: "Conferme d'ordine" },
   "/fatturazione": { section: "Economia", title: "Fatturazione" },
+  "/fatturazione/:id": { section: "Economia", title: "Fatturazione" },
   "/pagamenti": { section: "Economia", title: "Pagamenti" },
   "/economia": { section: "Economia", title: "Contabilità" },
   "/marginalita": { section: "Economia", title: "Marginalità" },
@@ -86,6 +87,7 @@ export function predictableMobileBackTarget(location: string): string | null {
   );
   if (rilievo) return `/commesse/${rilievo[1]}`;
   if (/^\/commesse\/[^/]+$/.test(pathname)) return "/commesse";
+  if (/^\/fatturazione\/[^/]+$/.test(pathname)) return "/fatturazione";
   if (/^\/clienti\/[^/]+$/.test(pathname)) return "/clienti";
   if (/^\/preventivatori\/[^/]+\/[^/]+$/.test(pathname)) {
     return "/preventivatori";

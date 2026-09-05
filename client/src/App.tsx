@@ -44,6 +44,7 @@ const ChatAziendale = lazy(() => import("./pages/ChatAziendale"));
 const Conoscenza = lazy(() => import("./pages/Conoscenza"));
 const Economia = lazy(() => import("./pages/Economia"));
 const Fatturazione = lazy(() => import("./pages/Fatturazione"));
+const FatturazioneCommessa = lazy(() => import("./pages/FatturazioneCommessa"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
 const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
 const Notifiche = lazy(() => import("./pages/Notifiche"));
@@ -103,6 +104,7 @@ function Router() {
             <Route path="/pagamenti" component={Pagamenti} />
             <Route path="/economia" component={Economia} />
             <Route path="/fatturazione" component={Fatturazione} />
+            <Route path="/fatturazione/:id" component={FatturazioneCommessa} />
             <Route path="/marginalita">
               {() => (
                 <RequireDirezione>
