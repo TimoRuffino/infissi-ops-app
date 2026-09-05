@@ -204,7 +204,9 @@ describe("router estrazioniContratto — autorizzazione", () => {
     await expect(
       tecnico.estrazioniContratto.applica({ commessaId, estrazioneId: 1, contratto: contrattoValido, righe: [] })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(tecnico.estrazioniContratto.scarta({ estrazioneId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(tecnico.estrazioniContratto.scarta({ commessaId, estrazioneId: 1 })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
 
     // Nessuna delle tre chiamate respinte deve aver raggiunto il servizio.
     expect(eseguiEstrazioneContratto).not.toHaveBeenCalled();
@@ -234,40 +236,58 @@ describe("router estrazioniContratto — sede", () => {
     expect(applicaEstrazione).not.toHaveBeenCalled();
   });
 
-  it("scarta un'estrazione di un'altra sede è NOT_FOUND (il repository scopa per sede)", async () => {
-    // Niente commessaId in input: la garanzia di sede sta tutta nel
-    // `perId(sedeId, id)` del repository. L'id esiste davvero — è solo
-    // invisibile alla sede 2 — e il messaggio non dice altro.
-    const { estrazioneId } = await estrazioneReale(1);
+  it("scarta su una commessa di un'altra sede è NOT_FOUND e non tocca l'estrazione", async () => {
+    // P3-R37: lo scarto è vincolato alla commessa come l'applicazione, e il
+    // controllo di sede sta prima dell'autorizzazione: la sede 2 non arriva
+    // nemmeno al repository, e il messaggio non dice se quell'id esista.
+    const { commessaId, estrazioneId } = await estrazioneReale(1);
     const altra = appRouter.createCaller(context(2, 40, ["direzione"]));
-    await expect(altra.estrazioniContratto.scarta({ estrazioneId })).rejects.toMatchObject({
+    await expect(altra.estrazioniContratto.scarta({ commessaId, estrazioneId })).rejects.toMatchObject({
       code: "NOT_FOUND",
-      message: "Estrazione non trovata.",
+      message: "Commessa non trovata.",
     });
+
+    // La proposta è ancora scartabile da chi è di casa.
+    const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
+    const scartata = await direzione.estrazioniContratto.scarta({ commessaId, estrazioneId });
+    expect(scartata.stato).toBe("scartata");
   });
 });
 
 describe("router estrazioniContratto — scarta", () => {
   it("scarta la proposta e registra il motivo", async () => {
-    const { estrazioneId } = await estrazioneReale(1);
+    const { commessaId, estrazioneId } = await estrazioneReale(1);
     const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
 
-    const scartata = await direzione.estrazioniContratto.scarta({ estrazioneId, motivo: "doppione" });
+    const scartata = await direzione.estrazioniContratto.scarta({ commessaId, estrazioneId, motivo: "doppione" });
 
     expect(scartata.stato).toBe("scartata");
     expect(scartata.scartataMotivo).toBe("doppione");
 
     // La proposta si prende una volta sola: la seconda chiamata trova uno
     // stato che non è più "proposta" (PRECONDIZIONE → PRECONDITION_FAILED).
-    await expect(direzione.estrazioniContratto.scarta({ estrazioneId })).rejects.toMatchObject({
+    await expect(direzione.estrazioniContratto.scarta({ commessaId, estrazioneId })).rejects.toMatchObject({
       code: "PRECONDITION_FAILED",
     });
+  });
+
+  // P3-R37: dentro la stessa sede, l'id di un'estrazione di un'altra
+  // commessa era scartabile: un id indovinato bastava a togliere di mezzo
+  // la proposta di qualcun altro.
+  it("l'estrazione di un'altra commessa della stessa sede è NOT_FOUND", async () => {
+    const { estrazioneId } = await estrazioneReale(1);
+    const altraCommessa = await nuovaCommessa(1);
+    const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
+
+    await expect(
+      direzione.estrazioniContratto.scarta({ commessaId: altraCommessa, estrazioneId, motivo: "non mia" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: "Estrazione non trovata." });
   });
 
   it("il motivo si ferma a 300 caratteri, come in fatture.ts", async () => {
     const direzione = appRouter.createCaller(context(1, 91, ["direzione"]));
     await expect(
-      direzione.estrazioniContratto.scarta({ estrazioneId: 1, motivo: "x".repeat(301) })
+      direzione.estrazioniContratto.scarta({ commessaId: 1, estrazioneId: 1, motivo: "x".repeat(301) })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

@@ -139,12 +139,15 @@ export const estrazioniContrattoRouter = router({
       }
     }),
 
-  // Niente commessaId: lo scarto scopa per sede tramite il repository
-  // (`perId(sedeId, estrazioneId)`), stessa garanzia — un'estrazione di
-  // un'altra sede resta NOT_FOUND senza bisogno di un secondo controllo qui.
+  // P3-R37: lo scarto è vincolato alla commessa come `applica`. Il
+  // repository scopava già per sede (`perId(sedeId, estrazioneId)`), ma
+  // dentro la stessa sede l'id di un'estrazione di un'altra commessa era
+  // scartabile: qui la commessa si controlla PRIMA dell'autorizzazione, e il
+  // servizio rifiuta l'estrazione che non le appartiene.
   scarta: procedura
     .input(
       z.object({
+        commessaId: z.number().int(),
         estrazioneId: z.number().int(),
         // Stesso limite del motivo delle note di credito e dello scavalco
         // dei limiti in fatture.ts: un motivo è una riga, non una relazione.
@@ -154,6 +157,7 @@ export const estrazioniContrattoRouter = router({
     .mutation(async ({ input, ctx }) => {
       assicuraInterruttore("limiti");
       const sedeId = sedeCorrente(ctx);
+      commessaInSede(input.commessaId, sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "estrazioniContratto.scarta",
@@ -165,6 +169,7 @@ export const estrazioniContrattoRouter = router({
       try {
         return await scartaEstrazione({
           sedeId,
+          commessaId: input.commessaId,
           estrazioneId: input.estrazioneId,
           motivo: input.motivo ?? null,
           actorUserId: ctx.user.id,

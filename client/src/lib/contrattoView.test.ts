@@ -584,6 +584,21 @@ describe("contrattoView", () => {
     expect(campiDaVerificare(proposta())).toEqual([]);
   });
 
+  // P3-R39: il riepilogo manda a verificare solo caselle che esistono.
+  // `riferimento`, `clienteCitato` e `indirizzoCantiere` la lettura li
+  // propone, ma non stanno né in `ContrattoInput` né nel dialog: erano tre
+  // voci che l'operatore non poteva chiudere in nessun modo.
+  it("i campi che il dialog non mostra restano fuori dall'elenco", () => {
+    const etichette = campiDaVerificare(
+      proposta({
+        riferimento: campo<string | null>("PR-127/2026", { daVerificare: true }),
+        clienteCitato: campo<string | null>("Rossi Mario", { daVerificare: true }),
+        indirizzoCantiere: campo<string | null>("Via delle Mimose 4", { daVerificare: true }),
+      })
+    );
+    expect(etichette).toEqual([]);
+  });
+
   // Il dialog nasconde il prezzo della posa quando la posa non è inclusa:
   // mandare l'operatore a verificare una casella che non c'è è un vicolo cieco.
   it("«Prezzo della posa» non è da verificare quando la posa non è inclusa", () => {

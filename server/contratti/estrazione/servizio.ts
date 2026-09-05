@@ -436,9 +436,18 @@ export async function applicaEstrazione(
   return esito;
 }
 
+/**
+ * P3-R37: lo scarto è vincolato alla commessa esattamente come
+ * l'applicazione. La sede la garantiva già il repository (`perId(sedeId,
+ * id)`), ma dentro la stessa sede l'id di un'estrazione di un'altra commessa
+ * era scartabile: un id indovinato bastava a togliere di mezzo la proposta di
+ * un'altra commessa. Commessa che non corrisponde → NOT_FOUND, senza dire se
+ * quell'id esista.
+ */
 export async function scartaEstrazione(
   input: {
     sedeId: number;
+    commessaId: number;
     estrazioneId: number;
     motivo: string | null;
     actorUserId: number | null;
@@ -448,7 +457,9 @@ export async function scartaEstrazione(
   const now = oraDi(input);
 
   const estrazione = await repo.perId(input.sedeId, input.estrazioneId);
-  if (!estrazione) throw new Error("NOT_FOUND: Estrazione non trovata.");
+  if (!estrazione || estrazione.commessaId !== input.commessaId) {
+    throw new Error("NOT_FOUND: Estrazione non trovata.");
+  }
   assicuraStatoProposta(estrazione);
 
   return repo.aggiornaStato({

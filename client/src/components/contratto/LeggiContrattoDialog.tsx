@@ -746,7 +746,7 @@ export default function LeggiContrattoDialog({
                 variant="dangerGhost"
                 disabled={!puoApplicare || occupato}
                 onClick={() =>
-                  scarta.mutate({ estrazioneId: ultima!.id, motivo: motivo.trim() || undefined })
+                  scarta.mutate({ commessaId, estrazioneId: ultima!.id, motivo: motivo.trim() || undefined })
                 }
               >
                 <XCircle className="h-4 w-4 mr-1" /> Scarta

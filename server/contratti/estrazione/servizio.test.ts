@@ -351,6 +351,7 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
 
     const scartata = await scartaEstrazione({
       sedeId: SEDE,
+      commessaId,
       estrazioneId: estrazione.id,
       motivo: "non pertinente",
       actorUserId: 5,
@@ -360,8 +361,49 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     expect(scartata.scartataMotivo).toBe("non pertinente");
 
     await expect(
-      scartaEstrazione({ sedeId: SEDE, estrazioneId: estrazione.id, motivo: "di nuovo", actorUserId: 5, repository: repo })
+      scartaEstrazione({
+        sedeId: SEDE,
+        commessaId,
+        estrazioneId: estrazione.id,
+        motivo: "di nuovo",
+        actorUserId: 5,
+        repository: repo,
+      })
     ).rejects.toThrow("PRECONDIZIONE");
+  });
+
+  // P3-R37: lo scarto è vincolato alla commessa come l'applicazione. La sede
+  // la garantiva già il repository (`perId(sedeId, id)`), ma dentro la stessa
+  // sede l'id di un'estrazione di un'altra commessa era scartabile: un id
+  // indovinato bastava a togliere di mezzo la proposta di qualcun altro.
+  it("(e2) scartaEstrazione con la commessa sbagliata è NOT_FOUND", async () => {
+    const commessaA = await nuovaCommessa(SEDE);
+    const commessaB = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaA, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId: commessaA,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+
+    await expect(
+      scartaEstrazione({
+        sedeId: SEDE,
+        commessaId: commessaB,
+        estrazioneId: estrazione.id,
+        motivo: "non mia",
+        actorUserId: 5,
+        repository: repo,
+      })
+    ).rejects.toThrow("NOT_FOUND");
+
+    // E la proposta è rimasta dov'era: nessun effetto collaterale.
+    const ancora = await repo.perId(SEDE, estrazione.id);
+    expect(ancora?.stato).toBe("proposta");
   });
 
   // P3-R18: il riuso si decide prima di leggere il testo. Estrarlo (OCR
@@ -552,7 +594,14 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     ).rejects.toThrow("NOT_FOUND");
 
     await expect(
-      scartaEstrazione({ sedeId: ALTRA_SEDE, estrazioneId: estrazione.id, motivo: "x", actorUserId: 5, repository: repo })
+      scartaEstrazione({
+        sedeId: ALTRA_SEDE,
+        commessaId,
+        estrazioneId: estrazione.id,
+        motivo: "x",
+        actorUserId: 5,
+        repository: repo,
+      })
     ).rejects.toThrow("NOT_FOUND");
   });
 
@@ -581,6 +630,7 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     await expect(
       scartaEstrazione({
         sedeId: SEDE,
+        commessaId,
         estrazioneId: applicataEstrazione.id,
         motivo: "tardi",
         actorUserId: 5,
@@ -599,6 +649,7 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     });
     await scartaEstrazione({
       sedeId: SEDE,
+      commessaId,
       estrazioneId: scartataEstrazione.id,
       motivo: "non serve",
       actorUserId: 5,

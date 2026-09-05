@@ -25,6 +25,17 @@ export type ContestoEstrazione = {
 };
 
 /**
+ * P3-R38: i marcatori delimitano le pagine, quindi un documento che li
+ * contiene potrebbe fingerne una che non esiste. Le due sequenze si
+ * sostituiscono con le virgolette ad angolo semplice: stessa lunghezza (il
+ * conto del troncamento non cambia), testo ancora leggibile dal modello,
+ * ma nessun marcatore che non abbia scritto questo codice.
+ */
+function neutralizzaMarcatori(testo: string): string {
+  return testo.replace(/<<</g, "‹‹‹").replace(/>>>/g, "›››");
+}
+
+/**
  * Il messaggio utente per il modello: intestazione fissa (commessa,
  * cliente, numero di pagine) seguita dalle pagine intere fra marcatori
  * `<<<PAGINA n>>>`/`<<<FINE PAGINA n>>>`. Le pagine si aggiungono per
@@ -47,7 +58,7 @@ export function costruisciInputModello(
   let troncato = false;
   for (let i = 0; i < pagine.length; i++) {
     const numero = i + 1;
-    const blocco = `<<<PAGINA ${numero}>>>\n${pagine[i]}\n<<<FINE PAGINA ${numero}>>>`;
+    const blocco = `<<<PAGINA ${numero}>>>\n${neutralizzaMarcatori(pagine[i])}\n<<<FINE PAGINA ${numero}>>>`;
     // +1 per l'a-capo che separa il blocco dal precedente (o dall'intestazione).
     if (lunghezza + 1 + blocco.length > TESTO_MASSIMO_TOTALE) {
       troncato = true;

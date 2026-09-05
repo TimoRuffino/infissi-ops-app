@@ -440,6 +440,12 @@ export function rigaDaLegacy(p: RigaLegacy): RigaForm {
  * stesse che l'operatore legge sopra le caselle del dialog, così un campo
  * «da verificare» si trova a colpo d'occhio invece di dover essere cercato.
  * L'ordine di questa mappa è l'ordine del riepilogo.
+ *
+ * P3-R39: solo campi che il dialog MOSTRA e che il contratto salva.
+ * `indirizzoCantiere`, `riferimento` e `clienteCitato` la lettura li
+ * propone, ma non esistono in `ContrattoInput` né fra le caselle del
+ * dialog: mandarli a verificare era un vicolo cieco, come «Prezzo della
+ * posa» quando la posa non è inclusa.
  */
 const ETICHETTE_CAMPI_PROPOSTA: Array<[keyof PropostaContratto, string]> = [
   ["pattuitoCent", "Pattuito"],
@@ -447,13 +453,10 @@ const ETICHETTE_CAMPI_PROPOSTA: Array<[keyof PropostaContratto, string]> = [
   ["posaInclusa", "Posa"],
   ["posaCent", "Prezzo della posa"],
   ["comuneCantiere", "Comune del cantiere"],
-  ["indirizzoCantiere", "Indirizzo del cantiere"],
   ["piano", "Piano"],
   ["dataFirma", "Data firma"],
   ["detrazioneTipo", "Detrazione"],
   ["rate", "Rate"],
-  ["riferimento", "Riferimento del contratto"],
-  ["clienteCitato", "Cliente citato"],
 ];
 
 /**
