@@ -113,7 +113,9 @@ function posizioneMarkup(corpo: RigaFatturaInput[]): number {
   return prestazioni >= 0 ? prestazioni : corpo.length;
 }
 
-/** Sotto questa frazione dei limiti i servizi non scendono da soli: oltre, la bozza abbassa i beni. */
+/** Sotto questa frazione del prezzo di contratto i beni significativi non scendono da soli: oltre, scendono i servizi. */
+export const FATTORE_MINIMO_BENI = 0.6;
+/** Sotto questa frazione dei limiti i servizi non scendono da soli. */
 export const FATTORE_MINIMO_SERVIZI = 0.4;
 
 function esitoDi(righe: RigaFatturaInput[], pattuitoCent: number, pattuitoTipo: "lordo" | "imponibile"): EsitoRisolutore {
@@ -128,51 +130,63 @@ function esitoDi(righe: RigaFatturaInput[], pattuitoCent: number, pattuitoTipo: 
 }
 
 /**
- * La bozza nasce con i conti che tornano, come fa la commercialista
- * (studio delle fatture 2026 del 05/09): il pattuito è fisso, i servizi
- * partono dai limiti e, se beni e servizi lo superano, prima scendono i
- * servizi in proporzione (mai sotto `FATTORE_MINIMO_SERVIZI` dei limiti,
- * arrotondati all'euro per difetto), poi i beni significativi in
- * proporzione (`riequilibraBeni`), finché il markup non è più negativo.
+ * La bozza nasce con i conti che tornano, come nelle fatture reali 2026
+ * (studio del 05/09 e confronto dal vivo del 05/09 notte): il pattuito è
+ * fisso, i servizi restano ai limiti e, se beni e servizi lo superano,
+ * prima scendono i beni significativi in proporzione (`riequilibraBeni`,
+ * mai sotto `FATTORE_MINIMO_BENI` del contratto), poi i servizi in
+ * proporzione (mai sotto `FATTORE_MINIMO_SERVIZI` dei limiti, arrotondati
+ * all'euro per difetto), finché il markup non è più negativo.
+ *
+ * Perché i beni prima: a parità di lordo, ogni euro spostato dai beni
+ * significativi (22 % oltre la prestazione) ai servizi (10 %) alza
+ * l'imponibile — cioè il ricavo dell'azienda e la spesa detraibile del
+ * cliente. È quello che la commercialista fa quando il pattuito lo
+ * permette (129: servizi ai limiti, beni giù del 28 %); nei lavori
+ * strettissimi taglia anche i servizi, ed è il secondo passo qui.
  * Con il pattuito capiente non cambia nulla: il markup resta il residuo.
  * Ogni intervento è scritto nelle avvertenze; l'operatore può sempre
  * rimettere mano a servizi e beni.
  */
 export function bilancia(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; avvertenze: string[] } {
   const avvertenze: string[] = [];
-  let righe = input.righe.map(r => ({ ...r }));
+  const righe = input.righe.map(r => ({ ...r }));
   const m0 = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
   if (m0 >= 0) return { righe, avvertenze };
 
+  // 1. Beni significativi, un passo alla volta: con il pattuito lordo la
+  // prestazione dipende dai beni (IVA mista), quindi si converge in pochi giri.
+  const significativi = righe.filter(r => r.tipo === "bene" && r.beneSignificativo && !r.derivata);
+  const contratto = significativi.reduce((s, r) => s + r.importoCent, 0);
+  const pavimentoBeni = Math.round(contratto * FATTORE_MINIMO_BENI);
+  let ridotti = 0;
+  for (let giro = 0; giro < 8 && significativi.length > 0; giro++) {
+    const esito = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo);
+    if (esito.markupCent >= 0) break;
+    const B = significativi.reduce((s, r) => s + r.importoCent, 0);
+    if (B <= pavimentoBeni) break;
+    // Con il pattuito lordo e B > P ogni euro tolto ai beni ne rende 1,22/0,98 alla prestazione.
+    const resa = input.pattuitoTipo === "lordo" && esito.casoBeniSignificativi === "b_maggiore_p" ? 1.22 / 0.98 : 1;
+    const target = Math.max(pavimentoBeni, B + Math.ceil(esito.markupCent / resa));
+    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), target);
+    significativi.forEach((r, i) => { ridotti += r.importoCent - nuovi[i]; r.importoCent = nuovi[i]; r.prezzoUnitCent = r.importoCent; });
+  }
+  if (ridotti > 0) {
+    avvertenze.push(`Beni significativi ridotti di € ${euro(ridotti)} in proporzione (${Math.round(((contratto - ridotti) / contratto) * 100)} % del contratto) per rientrare nel pattuito con i servizi ai limiti.`);
+  }
+
+  // 2. Se non basta, i servizi in proporzione, arrotondati all'euro per difetto.
+  const m1 = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
   const servizi = righe.filter(r => r.tipo === "servizio" && !r.derivata);
   const S = servizi.reduce((s, r) => s + r.importoCent, 0);
-  if (S > 0) {
-    // Fattore che azzera il markup se bastano i servizi; sotto il minimo si ferma lì.
-    const fattore = Math.max(FATTORE_MINIMO_SERVIZI, Math.min(1, (S + m0) / S));
+  if (m1 < 0 && S > 0) {
+    const fattore = Math.max(FATTORE_MINIMO_SERVIZI, Math.min(1, (S + m1) / S));
     for (const r of servizi) {
       r.importoCent = Math.floor((r.importoCent * fattore) / 100) * 100;
       r.prezzoUnitCent = r.importoCent;
     }
-    avvertenze.push(`Servizi proposti al ${Math.round(fattore * 100)} % dei limiti perché beni e servizi ai limiti superavano il pattuito.`);
+    avvertenze.push(`Servizi proposti al ${Math.round(fattore * 100)} % dei limiti: anche con i beni al minimo il pattuito non basta.`);
   }
-
-  // Poi i beni significativi, un passo alla volta: con il pattuito lordo la
-  // prestazione dipende dai beni (IVA mista), quindi si converge in pochi giri.
-  const significativi = righe.filter(r => r.tipo === "bene" && r.beneSignificativo && !r.derivata);
-  let ridotti = 0;
-  for (let giro = 0; giro < 8; giro++) {
-    const esito = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo);
-    const m = esito.markupCent;
-    if (m >= 0 || significativi.length === 0) break;
-    const B = significativi.reduce((s, r) => s + r.importoCent, 0);
-    if (B <= 0) break;
-    // Con il pattuito lordo e B > P ogni euro tolto ai beni ne rende 1,22/0,98 alla
-    // prestazione: si toglie il deficit diviso per quel fattore, poi si ricontrolla.
-    const resa = input.pattuitoTipo === "lordo" && esito.casoBeniSignificativi === "b_maggiore_p" ? 1.22 / 0.98 : 1;
-    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), Math.max(0, B + Math.ceil(m / resa)));
-    significativi.forEach((r, i) => { ridotti += r.importoCent - nuovi[i]; r.importoCent = nuovi[i]; r.prezzoUnitCent = r.importoCent; });
-  }
-  if (ridotti > 0) avvertenze.push(`Beni significativi ridotti di € ${euro(ridotti)} in proporzione per rientrare nel pattuito (markup zero).`);
   return { righe, avvertenze };
 }
 

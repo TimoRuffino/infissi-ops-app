@@ -98,3 +98,27 @@ Totale: 95 su 111 campi (86 %); sui blocchi tabellari del layout WnD 100 %, l'in
 **Due difetti trovati solo dal vivo, mai dai test:**
 - lo schema strict rifiutava `pagina: 0`, che il modello usa per «nessuna fonte» (cantiere assente): la lettura intera andava persa (`ESTRAZIONE_RISPOSTA_INVALIDA`). Ora lo 0 vale «nessuna evidenza» e il campo resta da verificare;
 - con l'IVA al 22 % nel preventivo la commercialista tiene a volte il lordo (129) e a volte l'imponibile (130): non si indovina dal documento. Il layout propone il lordo (D-G) e segna pattuito e tipo come **da confermare** quando «IVA Beni / Totale IVA Esc.» supera il 15 %.
+
+## 6. Confronto dal vivo 129 (05/09 notte) e ordine del bilanciamento
+
+Il pannello «Fattura vera a confronto» in produzione, stessa commessa,
+bozza CRM (bilanciata «servizi prima») contro la fattura vera:
+
+| Voce | Bozza CRM | Fattura vera | Perché |
+|---|---|---|---|
+| Beni significativi 22 % | 8.770,67 | 3.562,00 | il CRM aveva ancora le persiane fra i significativi (righe salvate prima del nuovo default) e i beni a contratto |
+| Beni autonomi 10 % | 340,20 | 3.020,91 | le persiane stanno qui, al 10 %, ridotte del 29 % |
+| Servizi | 2.929,00 | 5.058,00 | lei li tiene ai limiti (5.076 arrotondati), il CRM li aveva tagliati per far posto ai beni |
+| Markup | 5,79 | 1.170,00 | residuo in entrambi; lei arrotonda i beni a cifra tonda e il residuo cresce |
+| Imponibile | 12.195,66 | 12.810,91 | stesso lordo (14.092,71 contro 14.092,00): più valore al 10 % = meno IVA = più imponibile |
+
+Lezione: a parità di lordo ogni euro spostato dai beni significativi
+(22 % oltre la prestazione) ai servizi o ai beni autonomi (10 %) alza
+l'imponibile, cioè il ricavo dell'azienda e la spesa detraibile del cliente.
+Quindi il bilanciamento ora **abbassa prima i beni significativi** (fino al
+60 % del contratto) e solo dopo i servizi (fino al 40 % dei limiti). Sulla
+129, con le persiane al 10 %, il CRM arriva a imponibile 12.811,55 contro i
+12.810,91 della fattura vera: differenza 0,64 €, split interno diverso
+(finestre 3.127 senza markup, contro 3.562 + 1.170 di markup), IVA uguale.
+Restano a mano: la spunta «significativo» sulle righe vecchie e le spese di
+documentazione (150 di default) che lei su questa fattura non ha messo.

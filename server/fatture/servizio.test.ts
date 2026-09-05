@@ -325,7 +325,7 @@ describe("creaBozza — nascita bilanciata (default)", () => {
     const controlli = verificaLimiti(fattura, null).map(c => c.codice);
     expect(controlli).not.toContain("markup_negativo");
     // Il caso 127 grezzo aveva markup −2.598,82: qui i servizi sono scesi (avvertenza esplicita) e il lordo è il pattuito.
-    expect(avvertenze.some(a => a.startsWith("Servizi proposti al"))).toBe(true);
+    expect(avvertenze.some(a => a.startsWith("Beni significativi ridotti"))).toBe(true);
     expect(fattura.totaleCent).toBe(fattura.pattuitoCent);
   });
 });

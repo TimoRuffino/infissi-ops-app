@@ -12,6 +12,8 @@ export const VOCI_SERVIZIO_FIC: ReadonlyArray<[RegExp, string]> = [
   [/progettazione/i, "progettazione"],
   [/sviluppo ordine/i, "sviluppo_ordine"],
   [/protezione/i, "protezione"],
+  // «Servizio di pulizia … e rimozione imballaggi»: la pulizia va letta prima della rimozione.
+  [/pulizia/i, "pulizia"],
   [/rimozione.*(tapparell|cassonett)/i, "rimozione_tapparelle"],
   [/rimozione/i, "rimozione_serramenti"],
   [/smaltimento/i, "smaltimento"],
@@ -19,7 +21,6 @@ export const VOCI_SERVIZIO_FIC: ReadonlyArray<[RegExp, string]> = [
   [/carico|tiro al piano|^trasporto\b/i, "tiro_piano"],
   [/assistenz[ae] murari/i, "assistenza_muraria"],
   [/posa in opera|\bposa\b/i, "posa"],
-  [/pulizia/i, "pulizia"],
   [/elettricista|altri servizi/i, "altri_servizi"],
   [/piattaforma/i, "piattaforma"],
   [/permess/i, "permessi_suolo"],

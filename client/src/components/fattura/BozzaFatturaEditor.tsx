@@ -950,18 +950,20 @@ export default function BozzaFatturaEditor({
                   Fattura {confronto.data.fic.numero} del {confronto.data.fic.data}
                   {confronto.data.fic.collegata ? " (collegata a questa commessa)" : " (stesso cliente, non collegata)"} · lordo {formatCent(confronto.data.fic.lordoCent)}
                 </p>
-                <dl className="space-y-1 text-sm">
+                <dl className="space-y-2 text-sm">
                   {confronto.data.voci.filter(v => v.crmCent !== 0 || v.ficCent !== 0).map(v => (
-                    <div key={v.voce} className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-baseline min-w-0">
-                      <dt className="min-w-0 truncate text-text-2">{v.etichetta}</dt>
-                      <dd className="tabular-nums">{formatCent(v.crmCent)}</dd>
-                      <dd className={`tabular-nums ${v.deltaCent === 0 ? "text-text-3" : v.deltaCent > 0 ? "text-success" : "text-warning"}`}>
-                        {formatCent(v.ficCent)}{v.deltaCent !== 0 ? ` (${v.deltaCent > 0 ? "+" : "−"}${formatCent(Math.abs(v.deltaCent))})` : ""}
+                    <div key={v.voce} className="min-w-0">
+                      <dt className="text-text-2">{v.etichetta}</dt>
+                      <dd className="flex flex-wrap items-baseline gap-x-3 tabular-nums">
+                        <span>bozza {formatCent(v.crmCent)}</span>
+                        <span className={v.deltaCent === 0 ? "text-text-3" : v.deltaCent > 0 ? "text-success" : "text-warning"}>
+                          vera {formatCent(v.ficCent)}{v.deltaCent !== 0 ? ` (${v.deltaCent > 0 ? "+" : "−"}${formatCent(Math.abs(v.deltaCent))})` : ""}
+                        </span>
                       </dd>
                     </div>
                   ))}
                 </dl>
-                <p className="text-xs text-text-3">Colonne: bozza · fattura vera (scarto). {confronto.data.nonClassificate.length > 0 ? `Righe non classificate: ${confronto.data.nonClassificate.join("; ")}` : ""}</p>
+                <p className="text-xs text-text-3">Scarto = fattura vera meno bozza. {confronto.data.nonClassificate.length > 0 ? `Righe non classificate: ${confronto.data.nonClassificate.join("; ")}` : ""}</p>
               </div>
             )}
           </DataSurface>
