@@ -219,4 +219,109 @@ describe("calcolaPassi", () => {
     expect(r.fatturaPrevistaCent).toBeNull();
     expect(r.fatturaPrevistaStima).toBe(false);
   });
+
+  it("(k) con il flag limiti spento, Limiti è non disponibile anche senza computo, e il prossimo passo lo salta", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 2, pattuitoCent: 1_000_000, pattuitoTipo: "lordo" },
+        computo: null,
+        flag: { limiti: false, fatturazione: true },
+      })
+    );
+    expect(r.passi.limiti).toBe("non_disponibile");
+    // Documenti e Contratto sono già fatti: il prossimo passo salta Limiti
+    // (non disponibile, non "da fare") e arriva dritto a Fattura.
+    expect(r.prossimoPasso).toBe("fattura");
+  });
+
+  it("(l1) una riga sola basta a chiudere Contratto", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 1, pattuitoCent: 100_000, pattuitoTipo: "lordo" },
+      })
+    );
+    expect(r.passi.contratto).toBe("fatto");
+  });
+
+  it("(l2) un contratto senza righe resta in corso, non da fare", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 0, pattuitoCent: 100_000, pattuitoTipo: "lordo" },
+      })
+    );
+    expect(r.passi.contratto).toBe("in_corso");
+  });
+
+  it("(m1) una nota di credito emessa da sola non completa il passo Fattura né ne diventa lo stato", () => {
+    const r = calcolaPassi(
+      ingresso({
+        fatture: [{ stato: "emessa", totaleCent: 500_000, tipo: "nota_credito" }],
+      })
+    );
+    // "emessa" è nel set STATI_FATTURA_EMESSA, ma qui conta il tipo: non è
+    // una fattura, quindi il passo resta in corso (una nota attiva esiste),
+    // mai "fatto" — e non diventa lo stato mostrato in card.
+    expect(r.passi.fattura).toBe("in_corso");
+    expect(r.fatturaStato).toBeNull();
+  });
+
+  it("(m2) una nota di credito in bozza non alimenta l'importo previsto quando c'è un contratto: vince il pattuito", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 2, pattuitoCent: 2_000_000, pattuitoTipo: "lordo" },
+        fatture: [{ stato: "bozza", totaleCent: 500_000, tipo: "nota_credito" }],
+      })
+    );
+    // Se la bozza della nota di credito alimentasse la previsione vedremmo
+    // 500_000: invece, senza alcuna bozza di tipo fattura, la previsione
+    // ricade sul pattuito del contratto.
+    expect(r.fatturaPrevistaCent).toBe(2_000_000);
+    expect(r.fatturaPrevistaStima).toBe(false);
+  });
+
+  it("(n) una fattura in_emissione mette il proprio totale come importo previsto", () => {
+    const r = calcolaPassi(
+      ingresso({
+        contratto: { righe: 2, pattuitoCent: 1_000_000, pattuitoTipo: "lordo" },
+        fatture: [{ stato: "in_emissione", totaleCent: 950_000, tipo: "fattura" }],
+      })
+    );
+    expect(r.fatturaPrevistaCent).toBe(950_000);
+    expect(r.fatturaPrevistaStima).toBe(false);
+    expect(r.fatturaStato).toBe("in_emissione");
+  });
+
+  it("(o1) con due fatture attive in ordine cronologico, lo stato è quello dell'ultima", () => {
+    const r = calcolaPassi(
+      ingresso({
+        fatture: [
+          { stato: "bozza", totaleCent: 1_000_000, tipo: "fattura" },
+          { stato: "in_emissione", totaleCent: 1_100_000, tipo: "fattura" },
+        ],
+      })
+    );
+    expect(r.fatturaStato).toBe("in_emissione");
+  });
+
+  it("(o2) se l'ultima fattura è annullata, lo stato torna a quello della precedente non annullata", () => {
+    const r = calcolaPassi(
+      ingresso({
+        fatture: [
+          { stato: "in_emissione", totaleCent: 1_000_000, tipo: "fattura" },
+          { stato: "bozza", totaleCent: 1_100_000, tipo: "fattura" },
+          { stato: "annullata", totaleCent: 1_200_000, tipo: "fattura" },
+        ],
+      })
+    );
+    expect(r.fatturaStato).toBe("bozza");
+  });
+
+  it("(p) un documento contratto con un mimeType diverso da pdf chiude comunque Documenti: conta il tipo, non il mime", () => {
+    const r = calcolaPassi(
+      ingresso({
+        documenti: [{ tipo: "contratto", mimeType: "image/jpeg" }],
+      })
+    );
+    expect(r.passi.documenti).toBe("fatto");
+  });
 });
