@@ -153,15 +153,43 @@ function materialeOscuranteDelTesto(descrizione: string): { materiale: Materiale
   return { materiale: "pvc", indovinato: true };
 }
 
+/** Come si scrive un materiale in un'avvertenza rivolta all'operatore. */
+const ETICHETTA_MATERIALE: Record<Materiale, string> = {
+  pvc: "PVC",
+  alluminio: "alluminio",
+  legno: "legno",
+  legno_alluminio: "legno-alluminio",
+  acciaio: "acciaio",
+  altro: "altro",
+  sconosciuto: "sconosciuto",
+};
+
 /**
  * Materiale della riga: quello dichiarato dal modello, oppure — se dice
  * «sconosciuto» — quello dedotto dalla descrizione (marchi di profili in PVC
  * compresi). Resta «sconosciuto» quando il testo non lo dice: la riga lo
  * dichiarerà con un'avvertenza, non lo inventa.
+ *
+ * P3-R34: quando la riga cita PIÙ materiali («… in legno di pino con maniglia
+ * in alluminio anodizzato») la precedenza fissa di `materialeDelTesto`
+ * sceglieva l'alluminio in silenzio, cioè il materiale di un accessorio. Con
+ * più materiali citati vince la POSIZIONE — il primo nominato, come P3-R25
+ * fa dentro il segmento dell'oscurante — e la deduzione si DICHIARA
+ * (`piuMateriali`): la riga porta l'avvertenza e la categoria nasce da
+ * verificare. Con un solo materiale citato non cambia nulla.
  */
+export function materialeRiga(r: RigaModello): { materiale: Materiale; piuMateriali: boolean } {
+  if (r.materiale !== "sconosciuto") return { materiale: r.materiale, piuMateriali: false };
+  const testo = normalizzaTesto(r.descrizione);
+  if (materialiCitati(testo).length > 1) {
+    const posizionale = materialePerPosizione(testo);
+    if (posizionale != null) return { materiale: posizionale, piuMateriali: true };
+  }
+  return { materiale: materialeDelTesto(r.descrizione) ?? "sconosciuto", piuMateriali: false };
+}
+
 export function materialeEffettivo(r: RigaModello): Materiale {
-  if (r.materiale !== "sconosciuto") return r.materiale;
-  return materialeDelTesto(r.descrizione) ?? "sconosciuto";
+  return materialeRiga(r).materiale;
 }
 
 /** Categoria del CRM per il tipo del modello. `null` = servizio: non è una riga (D-F). */
@@ -281,12 +309,36 @@ function naturaDelNome(nome: string): NaturaSerramento {
  * «scorrevole» non è in contrasto (P3-R28) — il codice cambierebbe in
  * silenzio. Quando il testo apre con «Scorrevole …» il qualificatore resta
  * comunque al serramento: davanti non ha nessun sostantivo.
+ *
+ * P3-R35: «apertura», «anta/ante» e «battente» nominano il serramento — «…
+ * con zanzariera a scomparsa e apertura scorrevole» parla di come si apre la
+ * finestra, non della zanzariera. Tutte e tre con il confine di parola:
+ * «pianta» non è un'anta e «abbattimento» non è un battente.
  */
-const SOSTANTIVO_SERRAMENTO = /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss/gi;
+const SOSTANTIVO_SERRAMENTO =
+  /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss|\bapertur|\bant[ae]\b|\bbattent/gi;
 
-/** I sostantivi di accessorio o oscurante: quello che li segue parla di loro, non del serramento (P3-R27). */
+/**
+ * I sostantivi di accessorio o oscurante: quello che li segue parla di loro,
+ * non del serramento (P3-R27).
+ *
+ * P3-R33: la lista è chiusa, quindi ogni parola che manca è un accessorio che
+ * si prende il serramento in silenzio — «con inferriata scorrevole» faceva
+ * scorrevole la portafinestra. Aggiunte le parole che i documenti usano
+ * davvero per le protezioni e le schermature. `persianin*` è già coperto dal
+ * prefisso `persian`, `avvolgibil` era già in lista: non si duplicano.
+ * `grat[ae]` con il confine di parola per non intercettare «integrata».
+ */
 const SOSTANTIVO_ACCESSORIO =
-  /\b(?:zanzarier|tend[ae]\b|persian|tapparell|cassonett|avvolgibil|manigli|coprifil|scur[oi]\b)/gi;
+  /\b(?:zanzarier|tend[ae]\b|persian|tapparell|cassonett|avvolgibil|manigli|coprifil|scur[oi]\b|inferriat|grat[ae]\b|frangisol|venezian|oscurant|scurett)/gi;
+
+/**
+ * Le parole con cui il documento dichiara un'apertura che scorrevole NON è
+ * (P3-R33). Quando una di queste è attribuita al serramento, prevale su un
+ * qualificatore di scorrimento attribuito allo stesso serramento: il testo si
+ * contraddice e la voce a battente è la lettura prudente, MAI silenziosa.
+ */
+const APERTURA_ESPLICITA = /\bbattent|\bribalta|\boscillobattent|\bvasistas/gi;
 
 /** Le parole che dicono «scorrevole» di un serramento: complanare e alzante comprese. */
 const QUALIFICATORE_SCORRIMENTO = /scorrev|alzante|complanare/gi;
@@ -315,18 +367,31 @@ function scuroDiColore(testo: string, indice: number): boolean {
  * Ritorna i qualificatori che restano al serramento, nell'ordine del testo.
  */
 function qualificatoriDelSerramento(testo: string): string[] {
+  return paroleDelSerramento(testo, QUALIFICATORE_SCORRIMENTO);
+}
+
+/**
+ * La stessa prossimità, per qualunque famiglia di parole che qualifica un
+ * serramento: ritorna quelle il cui sostantivo più vicino a sinistra è un
+ * serramento (o che non ne hanno nessuno davanti). P3-R33 la riusa per le
+ * parole di apertura esplicita: «Portafinestra scorrevole con persiana a
+ * battente» è una portafinestra scorrevole, e quel «battente» è della
+ * persiana.
+ */
+function paroleDelSerramento(testo: string, parole: RegExp): string[] {
   const sostantivi: Array<{ indice: number; accessorio: boolean }> = [];
   for (const m of testo.matchAll(SOSTANTIVO_SERRAMENTO)) {
     sostantivi.push({ indice: m.index, accessorio: false });
   }
   for (const m of testo.matchAll(SOSTANTIVO_ACCESSORIO)) {
-    // «scuro» preceduto da un colore o da una finitura non è un sostantivo.
-    if (m[0].startsWith("scur") && scuroDiColore(testo, m.index)) continue;
+    // «scuro» preceduto da un colore o da una finitura non è un sostantivo
+    // («scuretto» è un oscurante anche dopo un colore: non è un aggettivo).
+    if (/^scur[oi]$/.test(m[0]) && scuroDiColore(testo, m.index)) continue;
     sostantivi.push({ indice: m.index, accessorio: true });
   }
 
   const restano: string[] = [];
-  for (const q of testo.matchAll(QUALIFICATORE_SCORRIMENTO)) {
+  for (const q of testo.matchAll(parole)) {
     let piuVicino: { indice: number; accessorio: boolean } | null = null;
     for (const s of sostantivi) {
       if (s.indice >= q.index) continue;
@@ -358,18 +423,39 @@ function qualificatoriDelSerramento(testo: string): string[] {
  */
 const TIPI_IN_CONTRASTO_CON_SCORREVOLE: ReadonlyArray<TipoProdotto> = ["finestra", "fisso"];
 
-function naturaRichiesta(tipo: TipoProdotto, descrizione: string): { natura: NaturaSerramento; contrasto: boolean } {
-  if (tipo === "fisso") return { natura: "telaio_fisso", contrasto: false };
+type NaturaDedotta = {
+  natura: NaturaSerramento;
+  /** Il testo dice scorrevole, il tipo del modello dice altro (P3-R28). */
+  contrasto: boolean;
+  /** Il testo dice a battente E scorrevole dello stesso serramento (P3-R33). */
+  aperturaContraddetta: boolean;
+};
+
+function naturaRichiesta(tipo: TipoProdotto, descrizione: string): NaturaDedotta {
+  if (tipo === "fisso") return { natura: "telaio_fisso", contrasto: false, aperturaContraddetta: false };
   const testo = normalizzaTesto(descrizione);
-  if (testo.includes("telaio fisso")) return { natura: "telaio_fisso", contrasto: false };
+  if (testo.includes("telaio fisso")) return { natura: "telaio_fisso", contrasto: false, aperturaContraddetta: false };
   if (tipo === "scorrevole") {
-    return { natura: /alzante/.test(testo) ? "alzante" : "complanare", contrasto: false };
+    return {
+      natura: /alzante/.test(testo) ? "alzante" : "complanare",
+      contrasto: false,
+      aperturaContraddetta: false,
+    };
   }
   const qualificatori = qualificatoriDelSerramento(testo);
-  if (qualificatori.length === 0) return { natura: "battente", contrasto: false };
+  if (qualificatori.length === 0) return { natura: "battente", contrasto: false, aperturaContraddetta: false };
+  // P3-R33: lo stesso serramento è detto «a battente» (o a ribalta,
+  // oscillobattente, vasistas) E scorrevole. La parola di apertura esplicita
+  // è la più specifica delle due — quasi sempre è lo scorrimento a essere di
+  // un accessorio che la lista dei sostantivi non conosce ancora — e vince,
+  // ma la contraddizione va detta: qui non si sceglie mai in silenzio.
+  if (paroleDelSerramento(testo, APERTURA_ESPLICITA).length > 0) {
+    return { natura: "battente", contrasto: false, aperturaContraddetta: true };
+  }
   return {
     natura: qualificatori.includes("alzante") ? "alzante" : "complanare",
     contrasto: TIPI_IN_CONTRASTO_CON_SCORREVOLE.includes(tipo),
+    aperturaContraddetta: false,
   };
 }
 
@@ -478,7 +564,7 @@ function tipologiaSerramento(
   zona: ZonaClimatica | null
 ): { codice: string | null; avvertenza: string | null } {
   const ammesse = famiglieSerramento(categoria);
-  const { natura, contrasto } = naturaRichiesta(r.tipoProdotto, r.descrizione);
+  const { natura, contrasto, aperturaContraddetta } = naturaRichiesta(r.tipoProdotto, r.descrizione);
   const portafinestra = portafinestraRichiesta(r.tipoProdotto, r.descrizione);
   const avvertenze: Array<string | null> = [];
 
@@ -495,6 +581,11 @@ function tipologiaSerramento(
   // contraddizione fra i due si dichiara sempre.
   if (contrasto) {
     avvertenze.push(`descrizione scorrevole, tipo del modello ${r.tipoProdotto}: verifica`);
+  }
+  // P3-R33: «a battente» e «scorrevole» nella stessa descrizione, entrambi
+  // del serramento. Si segue la parola di apertura esplicita, e lo si dice.
+  if (aperturaContraddetta) {
+    avvertenze.push("descrizione a battente e scorrevole: verifica");
   }
 
   if (portafinestra == null) avvertenze.push("scorrevole: finestra o portafinestra non indicato");
@@ -876,7 +967,7 @@ function costruisciRiga(
   pagine: readonly string[],
   zona: ZonaClimatica | null
 ): { riga: RigaProposta; dati: DatiRigaModello } {
-  const materiale = materialeEffettivo(r);
+  const { materiale, piuMateriali } = materialeRiga(r);
   const categoria = categoriaPer(r.tipoProdotto, materiale) ?? "altro";
   const evidenza = verificaEvidenza(pagine, r.pagina, r.frammento);
   // P3-R10: la forma vale anche per gli accessori (soglia ribassata) e per
@@ -888,6 +979,12 @@ function costruisciRiga(
   const materialeIndovinato = TIPI_SERRAMENTO.includes(r.tipoProdotto) && !MATERIALI_SERRAMENTO.includes(materiale);
   if (materialeIndovinato) {
     avvertenze.push("materiale non riconosciuto: verificato come PVC");
+  }
+  // P3-R34: la riga cita più materiali e quello della riga è dedotto dal
+  // primo citato: si dichiara quale, invece di lasciare all'operatore il
+  // dubbio su quale delle due parole abbia deciso la categoria.
+  if (piuMateriali) {
+    avvertenze.push(`più materiali citati: dedotto ${ETICHETTA_MATERIALE[materiale]}`);
   }
   if (citaLaPosa(r)) {
     avvertenze.push("cita la posa: verifica se è un prodotto o un servizio");
@@ -928,7 +1025,7 @@ function costruisciRiga(
 
   const riga: RigaProposta = {
     ordine,
-    categoria: campo(categoria, evidenza, { daVerificare: materialeIndovinato || evidenza == null }),
+    categoria: campo(categoria, evidenza, { daVerificare: materialeIndovinato || piuMateriali || evidenza == null }),
     tipologia: campo<string | null>(tipologia.codice, evidenza, {
       daVerificare: tipologia.codice == null || tipologia.avvertenza != null || evidenza == null,
       nota: tipologia.avvertenza,

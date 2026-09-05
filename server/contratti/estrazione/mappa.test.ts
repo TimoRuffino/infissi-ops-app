@@ -653,6 +653,68 @@ describe("materialeEffettivo", () => {
   });
 });
 
+// ── P3-R34 (C2): più materiali nella stessa riga ───────────────────────────
+//
+// «Finestra a 2 ante in legno di pino con maniglia in alluminio» è una
+// finestra di legno con una maniglia di alluminio, non una finestra di
+// alluminio: la precedenza fissa (pvc, poi alluminio, poi legno) sceglieva
+// l'alluminio in silenzio e la riga finiva su C15039-c. Con più materiali
+// citati vince la POSIZIONE (il primo nominato, come P3-R25 fa dentro il
+// segmento dell'oscurante) e la deduzione si dichiara.
+
+describe("materiale dedotto con più materiali citati (P3-R34)", () => {
+  function propostaConDescrizione(descrizione: string, materiale: EsitoModello["righe"][number]["materiale"]) {
+    return costruisciProposta(
+      esito({
+        righe: [
+          riga({
+            descrizione,
+            materiale,
+            tipoProdotto: "finestra",
+            nAnte: 2,
+            larghezzaMm: 1200,
+            altezzaMm: 1400,
+            prezzoTotale: 1500,
+            frammento: descrizione,
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: [descrizione] },
+      false
+    );
+  }
+
+  it("il primo materiale citato vince, con avvertenza e categoria da verificare", () => {
+    const descrizione = "Finestra a 2 ante in legno di pino con maniglia in alluminio anodizzato";
+    expect(materialeEffettivo(riga({ materiale: "sconosciuto", descrizione }))).toBe("legno");
+
+    const proposta = propostaConDescrizione(descrizione, "sconosciuto");
+    expect(proposta.righe[0].categoria.valore).toBe("serramento_legno");
+    expect(proposta.righe[0].tipologia.valore).toBe("C25053-c");
+    expect(proposta.righe[0].avvertenze.join(" ")).toContain("più materiali citati: dedotto legno");
+    expect(proposta.righe[0].categoria.daVerificare).toBe(true);
+  });
+
+  it("«in legno con soglia in alluminio» resta una finestra di legno", () => {
+    expect(
+      materialeEffettivo(riga({ materiale: "sconosciuto", descrizione: "Finestra a 2 ante in legno con soglia in alluminio" }))
+    ).toBe("legno");
+  });
+
+  it("con un solo materiale citato la deduzione resta senza avvisi", () => {
+    const proposta = propostaConDescrizione("Finestra a 2 ante in alluminio a taglio termico", "sconosciuto");
+    expect(proposta.righe[0].categoria.valore).toBe("serramento_alluminio");
+    expect(proposta.righe[0].avvertenze.join(" ")).not.toContain("più materiali citati");
+    expect(proposta.righe[0].categoria.daVerificare).toBe(false);
+  });
+
+  it("il materiale dichiarato dal modello non si mette in discussione", () => {
+    const proposta = propostaConDescrizione("Finestra a 2 ante in legno di pino con maniglia in alluminio", "alluminio");
+    expect(proposta.righe[0].categoria.valore).toBe("serramento_alluminio");
+    expect(proposta.righe[0].avvertenze.join(" ")).not.toContain("più materiali citati");
+  });
+});
+
 describe("categoriaPer", () => {
   it("mappa i serramenti sul materiale e i servizi su nessuna riga", () => {
     expect(categoriaPer("finestra", "pvc")).toBe("serramento_pvc");
@@ -1082,6 +1144,158 @@ describe("tipologiaDei — il qualificatore vale per il sostantivo più vicino (
     expect(riga0.tipologia.nota).toContain("descrizione scorrevole, tipo del modello finestra: verifica");
     expect(riga0.tipologia.daVerificare).toBe(true);
     expect(riga0.avvertenze.join(" ")).toContain("descrizione scorrevole");
+  });
+});
+
+// ── P3-R33 (C1): accessori fuori lista e apertura esplicita ────────────────
+//
+// La prossimità funziona solo se la lista dei sostantivi di accessorio
+// contiene la parola che il documento usa davvero: «inferriata», «grata»,
+// «frangisole», «oscurante», «veneziana», «scuretto» erano fuori, e il loro
+// «scorrevole» finiva sulla portafinestra — che con «scorrevole» non è in
+// contrasto (P3-R28) — cambiandone la voce IN SILENZIO, anche quando il
+// testo diceva «a battente». Due mosse: la lista si allarga, e una parola di
+// apertura esplicita del serramento (battente, ribalta, oscillobattente,
+// vasistas) PREVALE su uno scorrimento attribuito al serramento, sempre
+// dichiarandolo.
+
+describe("tipologiaDei — sostantivi di accessorio fuori lista (P3-R33)", () => {
+  const FRASI = [
+    "Portafinestra in alluminio a 2 ante a battente con inferriata scorrevole, L 1400 x H 2300",
+    "Portafinestra in alluminio a 2 ante a battente con oscurante scorrevole esterno, L 1400 x H 2300",
+    "Portafinestra in alluminio a 2 ante a battente con grata di sicurezza scorrevole, L 1400 x H 2300",
+    "Portafinestra in alluminio a 2 ante a battente con frangisole scorrevole esterno, L 1400 x H 2300",
+  ];
+
+  it.each(FRASI)("«%s» resta la portafinestra a battente", descrizione => {
+    // Prima del giro 5: C15043-b (portafinestra scorrevole complanare) e
+    // nessuna avvertenza — lo «scorrevole» dell'accessorio si prendeva il
+    // serramento. Ora il sostantivo più vicino è l'accessorio: il
+    // qualificatore resta suo e la voce è quella dichiarata dal testo.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      { tipoProdotto: "portafinestra", nAnte: 2, descrizione },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("una veneziana o uno scuretto scorrevole non spostano il serramento", () => {
+    for (const descrizione of [
+      "Portafinestra 2 ante in alluminio con veneziana scorrevole integrata",
+      "Portafinestra 2 ante in alluminio con scuretto scorrevole interno",
+    ]) {
+      const scelta = tipologiaDei(
+        TARIFFE,
+        "serramento_alluminio",
+        { tipoProdotto: "portafinestra", nAnte: 2, descrizione },
+        "D"
+      );
+      expect(scelta.codice).toBe("C15039-e");
+      expect(scelta.avvertenza).toBeNull();
+    }
+  });
+
+  it("un sostantivo di accessorio ancora fuori lista non passa più in silenzio: «a battente» vince e lo dichiara", () => {
+    // «veletta» non è in nessuna lista: il suo «scorrevole» arriva al
+    // serramento. La parola di apertura esplicita del testo prevale — voce a
+    // battente — ma la contraddizione si dichiara, anche su portafinestra
+    // (P3-R28 esclude solo il contrasto «portafinestra scorrevole» semplice).
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione: "Portafinestra in alluminio a 2 ante a battente con veletta scorrevole, L 1400 x H 2300",
+      },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-e");
+    expect(scelta.avvertenza).toContain("descrizione a battente e scorrevole: verifica");
+  });
+
+  it("vale per ogni parola di apertura esplicita, e la riga nasce da verificare", () => {
+    for (const descrizione of [
+      "Finestra 2 ante in alluminio con anta a ribalta e apertura scorrevole",
+      "Finestra 2 ante in alluminio oscillobattente con apertura scorrevole",
+      "Finestra 2 ante in alluminio a vasistas con apertura scorrevole",
+    ]) {
+      const scelta = tipologiaDei(TARIFFE, "serramento_alluminio", { tipoProdotto: "finestra", nAnte: 2, descrizione }, "D");
+      expect(scelta.codice).toBe("C15039-c");
+      expect(scelta.avvertenza).toContain("descrizione a battente e scorrevole: verifica");
+      // La parola esplicita ha già deciso: non si dichiara ANCHE il
+      // contrasto col tipo del modello, che qui non c'è più.
+      expect(scelta.avvertenza ?? "").not.toContain("tipo del modello");
+    }
+
+    const descrizione = "Portafinestra in alluminio a 2 ante a battente con veletta scorrevole";
+    const proposta = costruisciProposta(
+      esito({
+        righe: [
+          riga({
+            descrizione,
+            tipoProdotto: "portafinestra",
+            materiale: "alluminio",
+            nAnte: 2,
+            larghezzaMm: 1400,
+            altezzaMm: 2300,
+            prezzoTotale: 2000,
+            frammento: descrizione,
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: [descrizione] },
+      false
+    );
+    expect(proposta.righe[0].tipologia.valore).toBe("C15039-e");
+    expect(proposta.righe[0].tipologia.daVerificare).toBe(true);
+    expect(proposta.righe[0].avvertenze.join(" ")).toContain("descrizione a battente e scorrevole");
+  });
+
+  it("«a battente» da solo non è una contraddizione: nessuna avvertenza", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      { tipoProdotto: "portafinestra", nAnte: 2, descrizione: "Portafinestra 2 ante in alluminio a battente" },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+});
+
+// ── P3-R35 (I1): «apertura scorrevole» parla del serramento ────────────────
+
+describe("tipologiaDei — apertura, ante e battente sono sostantivi del serramento (P3-R35)", () => {
+  it("«e apertura scorrevole» dopo una zanzariera torna al serramento, e il contrasto si dichiara", () => {
+    // Prima del giro 5 il sostantivo più vicino era «zanzariera» (l'unica
+    // parola in lista) e lo scorrevole spariva: C15039-c senza avviso.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "finestra",
+        nAnte: 2,
+        descrizione: "Finestra in alluminio a 2 ante con zanzariera a scomparsa e apertura scorrevole, L 1800 x H 1400",
+      },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15043-a");
+    expect(scelta.avvertenza).toContain("descrizione scorrevole, tipo del modello finestra: verifica");
+  });
+
+  it("«2 ante con zanzariera scorrevole» resta dell'accessorio: il sostantivo più vicino è la zanzariera", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra 2 ante in alluminio con zanzariera scorrevole" },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-c");
+    expect(scelta.avvertenza).toBeNull();
   });
 });
 
