@@ -285,3 +285,82 @@ describe("arricchisciDaLayoutWnd — oscurante abbinato (P3-R36)", () => {
     expect(somma?.esito).toBe("ok");
   });
 });
+
+// ── P3-R41: l'abbinamento parziale non raddoppia la quota ───────────────────
+//
+// `abbinaOscuranti` scrive `quotaOscuranteCent` sulla finestra per ogni
+// oscurante abbinato, a prescindere da quanto dell'oscurante resta. Se la
+// persiana non si consuma del tutto (pezzi in eccesso rispetto alle
+// finestre con lo stesso foro) la sua riga sopravvive con pezzi e prezzo
+// ridotti — e il layout WnD la riporta DA SOLA a pezzi e prezzo pieni col
+// proprio blocco. Sommare anche la quota sul serramento la conta due volte.
+
+const RIGHE_WND_PERSIANA_PARZIALE = [
+  "Konfortline - Preventivo n. 901 del 13/03/2026",
+  "Cliente: Bianchi Elena",
+  "",
+  "1. Rif. Stanza: Cucina",
+  "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
+  "Larghezza 1400 mm Altezza 1300 mm",
+  "Riepilogo",
+  "Finestra 2 ante 2.400,00 € 0,00 € 1 0,00 € (0%) 2.400,00 €",
+  "",
+  "2. Rif. Stanza: Cucina",
+  "Prodotto: Persiana in alluminio",
+  "Larghezza 1400 mm Altezza 1300 mm",
+  "Riepilogo",
+  "Persiana in alluminio 300,00 € 0,00 € 2 0,00 € (0%) 600,00 €",
+  "",
+  "Riepilogo Costi",
+  "Prodotto Prezzo unit. Installazione Quantità Sconto Totale",
+  "Finestra 2 ante 2.400,00 € 0,00 € 1 0,00 € (0%) 2.400,00 €",
+  "Persiana in alluminio 300,00 € 0,00 € 2 0,00 € (0%) 600,00 €",
+  "Totale IVA Esc. 3.000,00 €",
+];
+
+describe("arricchisciDaLayoutWnd — abbinamento parziale non raddoppia la quota (P3-R41)", () => {
+  const pagine = [RIGHE_WND_PERSIANA_PARZIALE.join("\n")];
+  // Finestra: 1 pezzo. Persiana: 2 pezzi, stesso foro — solo 1 si abbina,
+  // 1 resta scoperto e la riga persiana sopravvive (residuo > 0).
+  const esitoConPersianaParziale: EsitoModello = {
+    ...ESITO_INCERTO,
+    righe: [
+      riga({
+        descrizione: "Finestra 2 ante in PVC Konfortline bianco",
+        larghezzaMm: 1400,
+        altezzaMm: 1300,
+        prezzoTotale: 2400,
+        frammento: "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
+      }),
+      riga({
+        descrizione: "Persiana in alluminio",
+        tipoProdotto: "persiana",
+        materiale: "alluminio",
+        larghezzaMm: 1400,
+        altezzaMm: 1300,
+        quantita: 2,
+        prezzoTotale: 600,
+        frammento: "Persiana in alluminio 300,00",
+      }),
+    ],
+    posa: { inclusa: false, prezzo: null, descrizione: null, pagina: 1, frammento: "" },
+  };
+  const proposta = costruisciProposta(esitoConPersianaParziale, { ...CONTESTO, pagine }, false);
+  const arricchita = arricchisciDaLayoutWnd(pagine, proposta);
+
+  it("l'abbinamento è parziale: la persiana sopravvive e la quota non si scrive", () => {
+    expect(proposta.righe).toHaveLength(2);
+    const finestra = proposta.righe.find(r => r.oscuranteIntegrato.valore === "persiana");
+    const persiana = proposta.righe.find(r => r.categoria.valore === "persiana");
+    expect(finestra?.quotaOscuranteCent).toBeNull();
+    expect(persiana?.quantita.valore).toBe(1);
+  });
+
+  it("dopo l'arricchimento la somma delle righe torna col totale del layout, non lo sfora", () => {
+    const somma = arricchita.righe.reduce((s, r) => s + (r.prezzoTotCent.valore ?? 0), 0);
+    expect(somma).toBe(300000);
+    expect(arricchita.pattuitoCent.valore).toBe(300000);
+    const controllo = arricchita.controlli.find(c => c.codice === "righe_vs_pattuito");
+    expect(controllo?.esito).toBe("ok");
+  });
+});

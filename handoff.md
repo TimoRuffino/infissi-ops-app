@@ -3060,7 +3060,7 @@ sconosciuto.
    matrice azioni).
 
 **Decisioni prese in corso d'opera che cambiano un contratto (ruling
-P3-R1–P3-R39, ledger completo in**
+P3-R1–P3-R42, ledger completo in**
 `.superpowers/sdd/2026-09-04-lettura-contratto/progress.md`**, grep
 `"Ruling P3-R"`; questi «R» sono numeri di ruling di questo piano, non i
 livelli di rischio R0–R4 di Tars).**
@@ -3170,6 +3170,20 @@ livelli di rischio R0–R4 di Tars).**
 - P3-R39 (FATTO, stesso giro): `campiDaVerificare` elenca solo campi
   mostrati dal dialog e salvati dal contratto — fuori `indirizzoCantiere`,
   `riferimento` e `clienteCitato`.
+- P3-R40 (FATTO, fix post-review): «anta/ante» esce da `SOSTANTIVO_SERRAMENTO`
+  — la propria «ante» di un oscurante elencato nella stessa frase («…con
+  persiana a 2 ante scorrevoli») faceva risalire lo scorrimento alla
+  portafinestra invece di restare sull'oscurante, e portafinestra +
+  scorrevole non è in contrasto (P3-R28): il foglio cambiava in silenzio.
+- P3-R41 (FATTO, fix post-review): `abbinaOscuranti` scrive
+  `quotaOscuranteCent` solo quando l'oscurante si consuma DEL TUTTO (la
+  riga sparisce); con un abbinamento parziale la riga sopravvive e il suo
+  stesso blocco del layout WnD la riporta già a pezzi e prezzo pieni —
+  sommarci anche la quota sul serramento la contava due volte.
+- P3-R42 (FATTO, fix post-review): debito dichiarato per i residui
+  silenziosi restanti (accessori fuori lista, materiale composto,
+  intestazione del prompt) invece di tacerli — v. «Debito e fuori ambito»
+  qui sotto.
 
 **Debito e fuori ambito.**
 
@@ -3181,6 +3195,21 @@ livelli di rischio R0–R4 di Tars).**
   dei sostantivi resta chiusa e ogni parola che manca è un accessorio che
   si prende il serramento — la rete è P3-R33 (l'apertura esplicita vince e
   lo dichiara), non l'assenza di casi.
+- Residuo dichiarato di P3-R40 (P3-R42): un sostantivo di accessorio ancora
+  fuori dalla lista chiusa (`SOSTANTIVO_ACCESSORIO`) — griglia, veletta,
+  cancelletto, soglia… — su una portafinestra SENZA una parola di apertura
+  esplicita nel testo prende ancora lo scorrevole in silenzio: la rete di
+  P3-R33 scatta solo quando il testo ha ANCHE una parola di apertura
+  esplicita, e portafinestra + scorrevole non è in contrasto (P3-R28).
+- Una sola menzione di un materiale composto («legno-alluminio») è dedotta
+  come materiale unico senza alcuna avvertenza: `materialeRiga` marca
+  `piuMateriali` solo quando il testo cita PIÙ materiali distinti, e una
+  citazione composta da sola conta come una (P3-R42).
+- L'intestazione del prompt (`costruisciInputModello`, `COMMESSA`/
+  `CLIENTE CRM`) non passa da `neutralizzaMarcatori` (P3-R38): solo le
+  pagine del documento lo fanno. Una commessa o un cliente CRM con
+  `<<<`/`>>>` nel nome forgerebbe un marcatore di pagina prima ancora che
+  inizi la prima pagina vera (P3-R42).
 - M3 (review finale, non toccato): in `misuraValida` il ramo che scarta una
   misura fuori intervallo non è raggiungibile dallo schema del modello
   (`larghezzaMm`/`altezzaMm` già vincolati): resta come difesa in
@@ -3188,7 +3217,6 @@ livelli di rischio R0–R4 di Tars).**
 - M4 (review finale, non toccato): `posaCent` della proposta non ha ancora
   un consumatore a valle oltre al contratto salvato — lo consumerà il piano
   4 delle fatture, o va tolto quando quella decisione sarà presa.
-
 - **Task 8 fix round 1 (P3-R29/P3-R30/P3-R31 + minori): SCRITTO nel codice**
   (05/09/2026, stesso branch, insieme al giro 4 della mappatura P3-R32):
   zona e filtro DEI dal contratto salvato solo a parità di comune, note del

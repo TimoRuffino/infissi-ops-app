@@ -310,13 +310,20 @@ function naturaDelNome(nome: string): NaturaSerramento {
  * silenzio. Quando il testo apre con «Scorrevole …» il qualificatore resta
  * comunque al serramento: davanti non ha nessun sostantivo.
  *
- * P3-R35: «apertura», «anta/ante» e «battente» nominano il serramento — «…
- * con zanzariera a scomparsa e apertura scorrevole» parla di come si apre la
- * finestra, non della zanzariera. Tutte e tre con il confine di parola:
- * «pianta» non è un'anta e «abbattimento» non è un battente.
+ * P3-R35: «apertura» e «battente» nominano il serramento — «… con
+ * zanzariera a scomparsa e apertura scorrevole» parla di come si apre la
+ * finestra, non della zanzariera. Entrambe con il confine di parola:
+ * «abbattimento» non è un battente.
+ *
+ * P3-R40: «anta/ante» NON è più qui (c'era da P3-R35). «Persiana a 2 ante
+ * scorrevoli» ha una sua «ante»: presa come sostantivo del serramento, il
+ * suo «scorrevoli» risaliva alla portafinestra invece di restare sulla
+ * persiana, e una portafinestra scorrevole non è in contrasto (P3-R28) — il
+ * foglio cambiava in silenzio. «Ante» resta un conteggio (`nAnte`), non un
+ * sostantivo che possa ancorare un qualificatore.
  */
 const SOSTANTIVO_SERRAMENTO =
-  /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss|\bapertur|\bant[ae]\b|\bbattent/gi;
+  /finestr|portafinestr|porta[ -]finestr|\bpf\b|serrament|infiss|\bapertur|\bbattent/gi;
 
 /**
  * I sostantivi di accessorio o oscurante: quello che li segue parla di loro,
@@ -861,6 +868,9 @@ export function abbinaOscuranti(
     let residuo = pezzi;
     let quotaCeduta = 0;
     let quantitaDiversa = false;
+    // P3-R41: le quote si scrivono sulle righe solo se QUESTO oscurante
+    // finisce del tutto (vedi sotto). Prima di saperlo si tengono qui.
+    const contributiQuota: Array<{ riga: RigaProposta; quota: number }> = [];
 
     for (let j = 0; j < lavorate.length && residuo > 0; j++) {
       const serramento = lavorate[j];
@@ -905,11 +915,14 @@ export function abbinaOscuranti(
           serramento.prezzoTotCent.evidenza,
           { daVerificare: true, nota: `comprende ${categoria} (€ ${euroTesto(quota)})` }
         );
-        // P3-R36: la quota resta scritta sulla riga, non solo sommata. Chi
-        // riscrive il prezzo dopo di qui (l'arricchimento dal layout WnD)
-        // la ritrova e la somma di nuovo, invece di cancellarla lasciando
-        // `oscuranteIntegrato` a promettere una persiana fuori dal prezzo.
-        serramento.quotaOscuranteCent = (serramento.quotaOscuranteCent ?? 0) + quota;
+        // P3-R36/P3-R41: la quota va scritta sulla riga (non solo sommata al
+        // prezzo) per chi la ritrova più avanti (l'arricchimento dal layout
+        // WnD) — ma solo se l'oscurante finisce QUI del tutto: con un
+        // abbinamento parziale la riga sopravvive, e il suo stesso blocco
+        // WnD la riporta da sola a pezzi e prezzo pieni. Sommarci ANCHE la
+        // quota sul serramento la conterebbe due volte. Si decide dopo il
+        // giro, quando `residuo` finale è noto: per ora si accoda soltanto.
+        contributiQuota.push({ riga: serramento, quota });
       }
       serramento.note = unisci(serramento.note, `${categoria} abbinata (€ ${euroTesto(quota)})`);
 
@@ -920,6 +933,17 @@ export function abbinaOscuranti(
         oscurante.prezzoTotCent = campo<number | null>(prezzoOscurante - quotaCeduta, oscurante.prezzoTotCent.evidenza, {
           daVerificare: true,
         });
+      }
+    }
+
+    // P3-R41: l'oscurante è finito del tutto (la riga sparisce nel filtro
+    // finale) solo con `residuo <= 0` — solo allora le quote accodate sopra
+    // si scrivono davvero. Con un residuo la riga sopravvive e resta con
+    // `quotaOscuranteCent` a null (il prezzo fuso resta comunque su
+    // `prezzoTotCent`, invariato).
+    if (residuo <= 0) {
+      for (const { riga, quota } of contributiQuota) {
+        riga.quotaOscuranteCent = (riga.quotaOscuranteCent ?? 0) + quota;
       }
     }
 

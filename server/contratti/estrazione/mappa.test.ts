@@ -1300,6 +1300,44 @@ describe("tipologiaDei — apertura, ante e battente sono sostantivi del serrame
   });
 });
 
+// ── P3-R40: «ante» non è più un sostantivo del serramento ───────────────────
+
+describe("tipologiaDei — «ante» non è più un sostantivo del serramento (P3-R40)", () => {
+  it("«persiana a 2 ante scorrevoli» non sposta più la portafinestra: resta a battente", () => {
+    // Prima di P3-R40 la seconda «ante» (quella della persiana) era il
+    // sostantivo più vicino a «scorrevoli», il qualificatore risaliva alla
+    // portafinestra, e siccome portafinestra + scorrevole non è in
+    // contrasto (P3-R28) il foglio cambiava in C15043-b senza avviso.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione: "Portafinestra in alluminio a 2 ante con persiana a 2 ante scorrevoli, L 1400 x H 2300",
+      },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("«scuri a 2 ante scorrevoli» resta dell'accessorio, non della portafinestra", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      {
+        tipoProdotto: "portafinestra",
+        nAnte: 2,
+        descrizione: "Portafinestra 2 ante in alluminio con scuri a 2 ante scorrevoli",
+      },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-e");
+    expect(scelta.avvertenza).toBeNull();
+  });
+});
+
 describe("oscuranteDei", () => {
   it("persiane in alluminio: distingue lamelle orientabili e forma", () => {
     expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 1, false).codice).toBe("C15079-a");
