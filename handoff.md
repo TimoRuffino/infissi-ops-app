@@ -3322,8 +3322,10 @@ fatta (opus, `.superpowers/sdd/2026-09-05-fatturazione-guidata/final-review.md`,
 Needs fixes) e il suo giro di fix 3 chiuso: 16 commit, 40 file,
 +4757/−602 (`git diff --stat f3b551b..340f955`); HEAD del ramo `03dd384`
 (docs), dopo `3e8192e` server + `340f955` client del giro 3 e `f7bcef0`
-del giro 2 (descritti sotto; i numeri qui sopra li includono tutti). **Non ancora su `main`**, a differenza dei piani 1-3: il piano
-vieta il push senza una decisione esplicita. Spec di riferimento:
+del giro 2 (descritti sotto; i numeri qui sopra li includono tutti). **Su `main` dal 05/09/2026 sera** (push fast-forward da `f3b551b` su
+istruzione esplicita dell'utente: «fai push sul main senza controllare,
+lo faremo dopo»; la verifica browser resta quindi in sospeso e va fatta
+su `main`, flag spenti in produzione). Spec di riferimento:
 `docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md`. Sopra
 il contratto strutturato (piano 1, §11-vicies terdecies), la fatturazione
 dal contratto (piano 2, §11-vicies quaterdecies) e la lettura del
