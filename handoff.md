@@ -3317,9 +3317,13 @@ anche la commessa) resta al controller.
 
 Piano 4 (`docs/superpowers/plans/2026-09-05-fatturazione-guidata.md`, 7
 task) su `feature/fatturazione-guidata`, aperto da `f3b551b` (main con i
-piani 1-3, harvest, PRD 5.40). Task 1-6 chiusi: 12 commit, 34 file,
-+4124/−598 (`git diff --stat f3b551b..c0e71e5`); HEAD di questo giro
-`c0e71e5`. **Non ancora su `main`**, a differenza dei piani 1-3: il piano
+piani 1-3, harvest, PRD 5.40). Task 1-7 chiusi, review finale del ramo
+fatta (opus, `.superpowers/sdd/2026-09-05-fatturazione-guidata/final-review.md`,
+Needs fixes) e il suo giro di fix 3 chiuso: 16 commit, 40 file,
++4757/−602 (`git diff --stat f3b551b..340f955`); HEAD reale di questo
+giro `340f955` (il fix `f7bcef0` è descritto sotto insieme al giro di fix
+3, `3e8192e` server + `340f955` client — i numeri qui sopra li includono
+entrambi). **Non ancora su `main`**, a differenza dei piani 1-3: il piano
 vieta il push senza una decisione esplicita. Spec di riferimento:
 `docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md`. Sopra
 il contratto strutturato (piano 1, §11-vicies terdecies), la fatturazione
@@ -3333,12 +3337,20 @@ fatturare e, per ciascuna, un percorso in quattro passi.
 
 - Router `fatturazioneGuidata` (`server/routers/fatturazioneGuidata.ts`)
   dietro `procedureConInterruttore("limiti")`: `daFare` (elenco della
-  sede) e `passi({commessaId})` (stesso record per una commessa),
-  entrambi dietro `contratto.read` (`authorizeCoreOperation`); una sola
-  lettura per store (commesse, documenti, contratto, computo, fatture CRM,
-  fatture FiC), mai N+1. Nessuna mutation nuova: ogni passo lavora con le
-  procedure già esistenti (`contratti.*`, `computo.*`, `fatture.*`,
-  `estrazioniContratto.*`).
+  sede, esclude anche le commesse archiviate — soft-archive o
+  `stato === "archiviata"`, Ruling P4-R13) e `passi({commessaId})` (stesso
+  record per una commessa), entrambi dietro `contratto.read`
+  (`authorizeCoreOperation`). Letture al minimo indispensabile dal giro di
+  fix 3 (Ruling P4-R15), **non** «una lettura per store» come dichiarato
+  dai Task 1-6 e smentito dalla review finale (I3): 3 query per commessa
+  candidata (contratto, righe, intestazione del computo via il nuovo
+  `statoComputoLeggero`) più UNA query in blocco per le fatture di tutte
+  le candidate (nuovo `FattureRepository.perCommesse`, sul modello di
+  `perFicDocumentIds`) — contro le 7-10 per commessa di prima. Le letture
+  di contratto e computo restano una per commessa, non ancora in blocco
+  per l'elenco intero: debito dichiarato, v. §12 voce 17. Nessuna mutation
+  nuova: ogni passo lavora con le procedure già esistenti (`contratti.*`,
+  `computo.*`, `fatture.*`, `estrazioniContratto.*`).
 - Stato dei quattro passi come funzione pura (`server/fatturazione/passi.ts`,
   `calcolaPassi`) — nessuno store, nessun I/O — con i tipi condivisi in
   `shared/fatturazione/passi.ts` (`PassoFatturazione`, `EsitoPasso`,
@@ -3504,31 +3516,85 @@ Documenti).
   mentre `/fatturazione` lo nasconde senza `economia.read`. Lo stesso
   valore era già leggibile in un `<Input>` disabilitato nella tab piena:
   decisione a sé con matrice campo→consumer, v. §12.
+- P4-R13 (review finale, I1): le commesse archiviate (`archivedAt`
+  valorizzato o `stato === "archiviata"`) non entrano più in `daFare` —
+  stessa convenzione di `commesse.list` e del board — costo se sbagliato:
+  una commessa da fatturare nascosta, visibile riattivandola.
+- P4-R14 (review finale, I2): `documenti` non blocca mai `contratto` —
+  il contratto si può ancora scrivere a mano anche a fascicolo vuoto,
+  capacità che esisteva su `main` prima di questo piano; `limiti` e
+  `fattura` restano bloccati finché `contratto` non è `fatto` — costo:
+  nessuno.
+- P4-R15 (review finale, I3): l'N+1 chiuso al minimo indispensabile, non
+  riscritto per intero — 3 query per commessa candidata (contratto,
+  righe, intestazione del computo) più UNA query in blocco per le fatture
+  di tutte le candidate, niente `computo_voci` né righe/riepilogo/scadenze
+  delle fatture per un elenco — costo se sbagliato: latenza dell'elenco
+  con molte commesse (letture di contratto e computo ancora una per
+  commessa: debito, v. §12 voce 17).
+- P4-R16 (review finale, test mancante 7): `giorniNelloStato` mai
+  negativo — una `statoDal` nel futuro (orologio indietro, dato di
+  migrazione anomalo) dà `0`, mai un numero assurdo che manderebbe la
+  commessa in fondo all'ordinamento — costo: nessuno.
 
-**Test.** `server/fatturazione/passi.test.ts` (12 casi al Task 1, esteso
-nei task successivi fino a 23 alla review del Task 6): una riga per
-combinazione di flag/documenti/righe/computo/fatture. Nuovo
-`server/routers/fatturazioneGuidata.test.ts` (7 casi, Task 2): filtro
-stati, esclusione con fattura FiC collegata e con fattura CRM emessa
-(bozza resta), sede, importi nascosti senza `economia.read`, `NOT_FOUND`
-altra sede, flag spento. `client/src/lib/fatturazioneView.test.ts`
-(cresciuto nei due giri di fix con `passoRaggiungibile`, `passoDallaQuery`,
-`passoIniziale`).
+**Giro di fix 3 (05/09/2026, dopo la review finale del ramo).** Brief
+`.superpowers/sdd/2026-09-05-fatturazione-guidata/fix3-brief.md`, punti
+A–K; commit `3e8192e` (server) e `340f955` (client), più questo stesso
+commit docs. Uno per punto:
 
-**Verifica.** Ultima esecuzione della suite intera al commit `357b50e`
-(Task 6, prima dei due giri di fix): `pnpm check` pulito, `pnpm test`
-2412 test passati e 50 saltati (stesso numero del Task 5, nessuna
-regressione), `pnpm build` verde. I due giri di fix successivi — `540000d`
-(Task 5: contratto sporco + `?passo=`) e `c0e71e5` (Task 6: banner e
-stacco delle tab, HEAD di questo branch) — hanno rieseguito solo `pnpm
-check` (pulito su entrambi) e `pnpm vitest run client/src/lib` (473 poi
-474 test, tutti verdi) più `git diff --check` pulito: **non** una nuova
-`pnpm test`/`pnpm build` per intero dopo `357b50e`. Dichiarato, non esteso
-oltre quanto verificato dagli implementatori.
+- **A** (I4): `fatturaPrevistaStima` ora dietro `economia.read` come le
+  altre tre righe di importi.
+- **B** (I1, P4-R13): `daFare` esclude le commesse archiviate.
+- **C** (I3, P4-R15): nuovo `FattureRepository.perCommesse` (una query in
+  blocco per le fatture di tutte le candidate) e nuovo
+  `statoComputoLeggero` (riusa il contratto già letto, mai una seconda
+  `leggiContratto`, mai `computo_voci`).
+- **D** (I2, P4-R14): `passoRaggiungibile` non lascia più che `documenti`
+  blocchi `contratto`.
+- **E** (Minor 1): `Fatturazione.tsx` mostra `kind: "permission"` su un
+  `FORBIDDEN`, senza «Riprova».
+- **F** (Minor 5): il pulsante «Azzera» a `min-h-11`.
+- **G** (Minor 7): `onApplicato` di `LeggiContrattoDialog` in
+  `CommessaDetail.tsx` naviga a `/fatturazione/:id?passo=contratto`
+  invece del tab «Prodotti» (ora un riepilogo in sola lettura); copy del
+  dialogo aggiornata.
+- **H** (test mancanti 1-2): capability negata (contesto senza ruoli) e
+  `FLAG_LIMITI` spento su `passi`, non solo su `daFare`.
+- **I** (P4-R16): `giorniTra` con `Math.max(0, …)`.
+- **J**: id DOM di `CaricaDocumentoDialog` con `useId()` (due istanze
+  possono montarsi insieme su `/commesse/:id`).
 
-**Verifica browser: IN SOSPESO.** Nessuno dei task di implementazione ha
-avviato server o browser (mandato esplicito di ogni brief); resta al
-controller, login demo, 1440×900 e 390×844:
+**Test.** `server/fatturazione/passi.test.ts`: 23 casi (invariato dal
+Task 6), una riga per combinazione di flag/documenti/righe/computo/
+fatture. `server/routers/fatturazioneGuidata.test.ts`: **15 casi** (7 al
+Task 2, cresciuto nei due giri di fix precedenti e nel giro di fix 3 con
+capability negata, `FLAG_LIMITI` su `passi`, commessa archiviata,
+raggruppamento di `perCommesse` con fatture miste su due commesse, gating
+completo di `fatturaPrevistaStima`, giorni mai negativi): filtro stati,
+esclusione con fattura FiC collegata e con fattura CRM emessa (bozza
+resta), sede, importi nascosti senza `economia.read`, `NOT_FOUND` altra
+sede, flag spento. `server/fatture/repository.test.ts`: **12 casi**
+(nuovo `perCommesse`: più commesse in una query, senza righe, isolando
+la sede). `client/src/lib/fatturazioneView.test.ts`: **30 casi**,
+cresciuto nei tre giri di fix con `passoRaggiungibile` (ora anche
+P4-R14), `passoDallaQuery`, `passoIniziale`.
+
+**Verifica.** Gate completo rieseguito per intero al termine del giro di
+fix 3, sul codice dei commit `3e8192e` + `340f955` (prima del commit
+docs): `pnpm check` pulito (`tsc --noEmit`, nessun errore); `pnpm test`
+**237 file passati e 9 saltati** (senza `DATABASE_URL`, come da
+convenzione del progetto), **2428 test passati e 50 saltati, zero
+falliti**; `pnpm build` verde (`vite build`, 3214 moduli trasformati, poi
+`esbuild` del bundle server — solo l'avviso informativo sulla dimensione
+di `dist/index.js`, nessun errore). Sostituisce la dichiarazione
+precedente: dopo `357b50e` (Task 6) i due giri di fix successivi avevano
+rieseguito solo `pnpm check` e `pnpm vitest run client/src/lib`, mai un
+`pnpm test`/`pnpm build` per intero — ora rieseguiti entrambi, verdi.
+
+**Verifica browser: IN SOSPESO.** Nessuno dei task di implementazione né
+dei tre giri di fix (incluso questo) ha avviato server o browser (mandato
+esplicito di ogni brief); resta al controller, login demo, 1440×900 e
+390×844:
 
 1. `/fatturazione`: elenco a card, filtro stato, ricerca, ordinamento per
    giorni nello stato, riga degli importi presente/assente secondo
@@ -3555,16 +3621,15 @@ task: prop `stato` non passata a `PassoDocumenti` dalla pagina che già la
 possiede (il componente rilegge `commesse.byId` per conto proprio — stessa
 chiave di cache, nessuna richiesta di rete in più, solo una query
 duplicata nel codice); predicato `estrazioneAttiva` duplicato identico fra
-`ElencoDocumentiCommessa.tsx` e `PassoDocumenti.tsx`; `CaricaDocumentoDialog`
-usa id DOM statici (`commessa-upload-file` e affini) invece di `useId()`
-— oggi il dialog ha due istanze sulla stessa pagina (banner del gate ed
-elenco); pulsanti icona da 28 px (`h-7 w-7`) preesistenti nel fascicolo,
-mai portati a 44 px da questo piano; «chi ha caricato» il documento non è
-mostrato (il campo non esiste nello schema attuale). `contratti.get` e gli
-importi senza filtro `economia.read`: nota debito sopra, v. §12. M4 della
-review del Task 6 (due pulsanti «Apri fatturazione» identici, uno nel
-banner e uno nel tab, con destinazioni diverse sulla stessa schermata a
-1440) è stato ratificato come comportamento voluto, non un difetto:
+`ElencoDocumentiCommessa.tsx` e `PassoDocumenti.tsx`; pulsanti icona da
+28 px (`h-7 w-7`) preesistenti nel fascicolo, mai portati a 44 px da
+questo piano; «chi ha caricato» il documento non è mostrato (il campo non
+esiste nello schema attuale). (`CaricaDocumentoDialog` con id DOM statici
+invece di `useId()`: risolto nel giro di fix 3, punto J.) `contratti.get`
+e gli importi senza filtro `economia.read`: nota debito sopra, v. §12. M4
+della review del Task 6 (due pulsanti «Apri fatturazione» identici, uno
+nel banner e uno nel tab, con destinazioni diverse sulla stessa schermata
+a 1440) è stato ratificato come comportamento voluto, non un difetto:
 P4-R10.
 
 ## 12. Debito aperto prioritario
@@ -3668,24 +3733,39 @@ P4-R10.
     strict (Ruling P3-R6) non è mai stato esercitato dal vivo contro l'API
     OpenAI reale — la prima chiamata reale segue il runbook del §11-vicies
     quindecies.
-17. **Fatturazione guidata (piano 4, 05/09/2026)**: 7 task, Task 1-6
-    completati su `feature/fatturazione-guidata` (base `f3b551b`, HEAD
-    `c0e71e5`), **non ancora su `main`** (v. §11-vicies sedecies). Aperti:
-    (1) verifica browser (1440×900 e 390×844) mai eseguita — elenco,
+17. **Fatturazione guidata (piano 4, 05/09/2026)**: 7 task completati,
+    review finale del ramo fatta e il suo giro di fix 3 chiuso su
+    `feature/fatturazione-guidata` (base `f3b551b`, HEAD reale `340f955`
+    più il commit docs di questo stesso giro), **non ancora su `main`**
+    (v. §11-vicies sedecies). Aperti: (1) verifica browser (1440×900 e
+    390×844) mai eseguita, in nessuno dei tre giri di fix — elenco,
     percorso a passi, dialog contratto sporco, `?passo=` bloccato dai
     prerequisiti, tab in lettura e banner della scheda commessa, flag
     spenti, console pulita: lista completa in §11-vicies sedecies; (2)
     minori differiti (prop `stato` a `PassoDocumenti`, predicato
-    `estrazioneAttiva` duplicato, id DOM con `useId` in
-    `CaricaDocumentoDialog`, pulsanti icona 28 px preesistenti nel
-    fascicolo, «chi l'ha caricato» non mostrato); (3) `contratti.get`
-    restituisce `pattuitoCent` a chiunque abbia `contratto.read` (tutti i
-    ruoli) mentre `/fatturazione` lo nasconde senza `economia.read` —
-    preesistente al piano, decisione a sé con matrice campo→consumer; (4)
-    nessuna transizione di stato automatica della commessa: la fattura
-    emessa toglie la commessa dall'elenco, ma il passaggio dello stato
-    `fatture_pagamento` al successivo resta un gesto umano, fuori ambito
-    dichiarato (spec §9).
+    `estrazioneAttiva` duplicato, pulsanti icona 28 px preesistenti nel
+    fascicolo, «chi l'ha caricato» non mostrato — l'id DOM di
+    `CaricaDocumentoDialog` è stato risolto nel giro di fix 3); (3)
+    `contratti.get` restituisce `pattuitoCent` a chiunque abbia
+    `contratto.read` (tutti i ruoli) mentre `/fatturazione` lo nasconde
+    senza `economia.read` — preesistente al piano, decisione a sé con
+    matrice campo→consumer; (4) nessuna transizione di stato automatica
+    della commessa: la fattura emessa toglie la commessa dall'elenco, ma
+    il passaggio dello stato `fatture_pagamento` al successivo resta un
+    gesto umano, fuori ambito dichiarato (spec §9); (5) **letture in
+    blocco non completate** (I3 chiuso solo al minimo, Ruling P4-R15):
+    contratto e intestazione del computo restano una lettura per
+    commessa candidata (3 query × N), mai raggruppate come le fatture
+    (1 query per tutte le N); la riscrittura a «una lettura per store»
+    resta il bersaglio della spec §5; (6) **tipo `stato` più stretto di
+    quanto `passi` restituisce**: `CommessaDaFatturare.stato` è tipato
+    `StatoDaFatturare` (solo `aggiornamento_contratto` o
+    `fatture_pagamento`), ma la procedura `passi` non filtra per stato —
+    una commessa in un altro stato (es. `produzione`) torna comunque il
+    suo `stato` vero sotto un tipo che lo esclude; oggi nessun consumer
+    lo usa per una commessa fuori dai due stati, quindi non si rompe
+    nulla, ma il tipo mente (Minor della review finale, mai scelto se
+    allargare il tipo o restringere la procedura).
 
 ## 13. Cosa resta della piattaforma
 

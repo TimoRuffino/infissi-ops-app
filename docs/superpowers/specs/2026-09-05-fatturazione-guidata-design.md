@@ -175,8 +175,9 @@ contratto, limiti o fattura; ridisegno dei componenti interni delle tab
 
 ## 10. Precisazioni in corso d'opera (05/09/2026)
 
-Decisioni emerse durante l'implementazione (Task 1-6), non fissate al
-livello di dettaglio di questo documento all'origine. Ruling completi:
+Decisioni emerse durante l'implementazione (Task 1-6) e, più sotto, dalla
+review finale del ramo e dal suo giro di fix 3, non fissate al livello di
+dettaglio di questo documento all'origine. Ruling completi:
 `.superpowers/sdd/2026-09-05-fatturazione-guidata/progress.md`, grep
 `"Ruling P4-R"`.
 
@@ -212,3 +213,25 @@ livello di dettaglio di questo documento all'origine. Ruling completi:
 - Confermato: nessuna mutation nuova in tutto il piano — ogni passo
   lavora con le mutation già esistenti di contratto, computo e fattura
   (§5, §9).
+- Le commesse archiviate (soft-archive o `stato === "archiviata"`) sono
+  escluse da `daFare`, come ogni altro elenco del CRM: non erano nominate
+  al §2 ma la convenzione del prodotto è unanime e la conseguenza di
+  ometterle è economica — una commessa abbandonata può altrimenti
+  arrivare a un'emissione vera (P4-R13).
+- `documenti` non blocca mai `contratto` (§4.1, `passoRaggiungibile`): il
+  contratto strutturato si può ancora scrivere a mano anche a fascicolo
+  vuoto, senza aver prima caricato o classificato un file come
+  `contratto` — capacità preesistente al piano che nessun ruling toglie
+  di proposito; `limiti` e `fattura` restano bloccati finché `contratto`
+  non è `fatto` (P4-R14).
+- §5, «niente N+1»: raggiunto solo in parte. Il minimo indispensabile è
+  3 query per commessa candidata (contratto, righe, intestazione del
+  computo) più UNA query in blocco per le fatture di tutte le candidate
+  — non più le 7-10 per commessa di prima, ma nemmeno «una lettura per
+  store»: contratto e computo restano una lettura per commessa, non
+  raggruppati come le fatture. La riscrittura completa resta il bersaglio
+  di questa sezione (P4-R15).
+- `giorniNelloStato` (§4.1) non scende mai sotto zero: una `statoDal`
+  successiva ad «adesso» (orologio indietro, dato anomalo) dà `0`, mai un
+  numero negativo che l'ordinamento manderebbe in fondo o in testa per
+  errore (P4-R16).
