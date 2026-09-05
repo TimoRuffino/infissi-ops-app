@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (04/09/2026).
-**Versione:** 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (05/09/2026).
+**Versione:** 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -248,7 +248,9 @@ Quando una commessa entra nello stato `produzione`:
 - **Elimina** — operazione distruttiva. Conferma esplicita. Dovrebbe essere usata solo per errori di inserimento.
 
 ### 6.7 Lista commesse
-- Filtri: search testuale (codice, cliente, città), stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
+- Filtri: search testuale, stato, clienteId, assegnatoA, scope `archived = exclude | only | all` (default `exclude`).
+- **Ricerca allargata (03/09/2026)**: codice, cliente, email, indirizzo, città, **telefono**. Regole condivise in `server/_core/ricerca.ts` con la lista clienti, la palette ⌘K e la ricerca del calendario (§12.2-quater) — tre superfici, una regola sola. L'anagrafica vera impone due cose che il confronto fra stringhe non fa: (1) i numeri li scrivono persone diverse («+39 340 1234567», «340-1234567», «00393401234567») e chi cerca ne digita una forma qualsiasi, quindi si confrontano le sole cifre più la forma internazionale — sotto 4 cifre non è una ricerca, e una stringa con lettere non pesca fra i telefoni, così «Via Roma 1234» non diventa un numero; (2) i nomi italiani hanno gli accenti e chi cerca non li mette, quindi il confronto avviene senza diacritici **da entrambi i lati** («forli» trova «Forlì»).
+- Per i clienti la ricerca copre anche i due ordini nome/cognome, indirizzo di residenza e di lavoro, CAP, codice fiscale, partita IVA e nomi/email/telefoni dei referenti.
 - Ordinata per `createdAt` desc.
 - Risposta **non include** `prodotti` né `pagamenti` (ottimizzazione bandwidth/render). Include però `prodottiSintesi` (nome + quantità per riga) e `nPagamenti` (conteggio degli acconti), che alimentano rispettivamente la colonna Prodotti e la proposta della rata successiva nella pagina Pagamenti.
 
@@ -371,6 +373,7 @@ schema dei dati esposti agli operatori.
 - Una transizione **in avanti** verifica che esista almeno un documento con uno dei tipi richiesti dallo stato CORRENTE (`REQUIRED_DOC_TIPI_PER_STATO`).
 - Conta solo se il documento è stato caricato **mentre la commessa era in quello stato** (campo `statoAtUpload`), così un preventivo non può soddisfare un gate diverso.
 - Per i documenti legacy senza `statoAtUpload`, fallback permissivo: il tipo è sufficiente.
+- **Correzione 03/09/2026** — il gate segnalava mancante un documento che era nel fascicolo. `statoAtUpload` registra lo stato al momento del caricamento, ma un documento caricato in uno stato **precedente** a quello che lo richiede lo soddisfa comunque: la fattura caricata prima di arrivare a `fatture_pagamento` è la stessa fattura. `primoStatoUtilePerGate` risale gli stati a ritroso dal corrente fino al primo che richiede quel tipo, e accetta ogni caricamento avvenuto da lì in poi. La regola vive in una funzione sola (`tipoSoddisfaGate` / `statoHasRequiredDoc`) usata sia dal gate sia dall'indicatore UI, che prima la duplicavano.
 
 ### 9.2 Stati daily reminder
 Per gli stati `aggiornamento_contratto`, `fatture_pagamento`, `da_ordinare` viene generata anche una notifica giornaliera (vedi §25.2) anche oltre la soglia di priorità.
@@ -441,23 +444,55 @@ Le frecce **Avanza** seguono lo stesso doc gate. Errore `DOC_GATE_BLOCKED:` → 
 
 ## 12. Calendario / Planning (`/planning`)
 
-### 12.1 Viste
-- **Mese** *(default)* — griglia 6×7 (la sesta settimana è renderizzata solo se il mese vi sconfina); oggi evidenziato con pill primary; giorni fuori mese e weekend attenuati; chip evento pieni (colore per tipo, testo bianco) con ora + nome cliente; overflow "+N altri" apre la vista giorno.
-- **Settimana** — 7 colonne lun–dom; weekend leggermente attenuati.
-- **Giorno** — singola colonna.
+### 12.1 Viste (riprogettate 03/09/2026)
+- **Mese** *(default)* — griglia 6×7 (la sesta settimana solo se il mese vi sconfina). Sotto il numero del giorno una **barretta di carico** dice quanto è occupata la giornata sulle ore lavorative, con le sovrapposizioni contate una volta sola (due squadre in contemporanea riempiono la giornata una volta, non due). Fino a 4 voci per cella, poi "+N altri" apre la vista giorno. **Sabato e domenica occupano colonne più strette** (0,62fr contro 1fr): quasi sempre vuote, e la larghezza serve ai feriali.
+- **Settimana** e **Giorno** — **griglia oraria**, non più elenchi. L'altezza di un blocco **è** la sua durata; i lavori in contemporanea stanno affiancati; i buchi si vedono perché sono buchi. Riga "adesso" su oggi, aggiornata ogni minuto. Fascia **«senza orario»** in cima per gli eventi senza ora (tipicamente gli all-day importati da Google). In vista Giorno il blocco è largo quanto la pagina, quindi il contenuto sta su una riga sola e anche una mezz'ora dice esecutore e indirizzo.
 Ordine switcher: Mese · Settimana · Giorno.
 
-### 12.2 Tipi di intervento
-`rilievo, posa, assistenza, altro`. Colori dedicati per tipo.
+**Finestra oraria.** Di base la giornata lavorativa 07:00–19:00, non la mezzanotte: dodici ore di griglia vuota renderebbero illeggibile un intervento delle 15. Se qualcosa cade fuori la finestra si allarga fino a contenerlo, arrotondata all'ora. Una sola finestra per tutte e sette le colonne: assi diversi non sarebbero confrontabili, ed è il confronto il motivo per cui si guarda la settimana.
 
-### 12.3 Card intervento (joined info)
-Ogni card mostra:
-- Ora inizio – ora fine.
-- Tipo intervento.
-- **Nome + cognome** del cliente (lookup commessa → cliente).
-- **Indirizzo** (fallback `intervento.indirizzo → commessa.indirizzo → cliente.indirizzoLavoro → cliente.indirizzo`).
-- Note brevi.
-- Stato (`pianificato` di default).
+**Sovrapposizioni.** I blocchi che si toccano formano un gruppo (anche in catena: A tocca B, B tocca C) e condividono la larghezza; una colonna liberata si riusa invece di allargare tutto. La larghezza minima è **metà colonna**: a due colonne la divisione in parti uguali dà già il 50% e i blocchi non si toccano, da tre in su si accavallano a cascata con l'ultimo (il più corto) davanti — a parti uguali sarebbero 40px in una colonna da 160, cioè righelli colorati senza testo.
+
+**Durata minima visiva** 30 minuti: un intervento di dieci minuti disegnato a dieci minuti sarebbe una riga di due pixel, illeggibile e impossibile da cliccare. L'orario esatto si legge nel blocco.
+
+L'aritmetica sta in `client/src/lib/grigliaOraria.ts`, separata dal disegno e provata da sola (40 casi): nessun blocco sparisce con una fine prima dell'inizio o un'ora mancante, due blocchi della stessa colonna non si sovrappongono mai, nessuno esce dai bordi.
+
+**Scroll.** Un contenitore solo — quello della pagina. La griglia sta alta quanto le sue ore e non scorre per conto suo: due contenitori annidati significano che la rotella sposta quello sbagliato. Le intestazioni (nomi dei giorni in settimana, LUN…DOM nel mese) si **agganciano sotto la barra del periodo**, la cui altezza è misurata a runtime perché cambia quando i controlli vanno a capo. La barra del periodo è agganciata **solo da `lg` in su**: sotto è alta 195px e bloccherebbe un quarto dello schermo mentre si scorre l'agenda.
+
+### 12.2 Tipi di intervento
+`rilievo, posa, assistenza, consegna, appuntamento, riunione, ferie, altro` (otto dal 03/09/2026: la migrazione Google porta anche consegne, riunioni e ferie). Catalogo unico in `client/src/lib/calendario.ts` (`CALENDARI`) e in `shared/interventi.ts`; le etichette a schermo vengono da lì e non sono riscritte per pagina.
+
+**Il colore del tipo è una barra piena a sinistra del blocco**, non solo il fondo. I quattro fondi tenui originali stavano a distanza RGB 10–24 l'uno dall'altro e tutti all'82–86% di luminosità: il contrasto del testo era a norma (5,0–7,4) ma i fondi erano indistinguibili di sfuggita, che è l'unico modo in cui si guarda un calendario. La barra satura si riconosce senza leggere, ed è uguale in tutte e tre le viste e nell'agenda mobile.
+
+### 12.2-bis Chi esegue: squadra o tecnico
+Un rilievo lo fa un **tecnico dei rilievi** (utente con ruolo `tecnico_rilievi`); posa, assistenza e consegna una **squadra di posa**. Sono due insiemi di persone diversi, quindi due campi diversi (`squadraId`, `tecnicoId`).
+
+La regola vive in `shared/interventi.ts` (`esecutorePerTipo`) perché la applicano sia il server sia la Dashboard: il server normalizza a ogni scrittura — un rilievo conserva il tecnico e lascia andare la squadra, e una posa che diventa rilievo perde la squadra invece di restare assegnata a chi quel lavoro non lo farà — e la Dashboard la usa per decidere cosa è davvero scoperto. Due copie avrebbero prodotto (e avevano prodotto) un elenco che chiede di assegnare qualcuno a un lavoro già assegnato.
+
+Il form mostra il campo giusto secondo il tipo. Lo strumento Tars `sposta_intervento` accetta `tecnicoId` e **rifiuta esplicitamente** l'accoppiata sbagliata invece di lasciarla cadere in silenzio: il dominio scarterebbe il campo e Tars risponderebbe «spostato» con un'assegnazione inesistente.
+
+### 12.2-ter Titolo dell'appuntamento
+Ordine: **cliente collegato → campo `titolo` → prima riga della nota → tipo**.
+
+Il campo `titolo` esiste dal 03/09/2026 perché metà degli appuntamenti reali non ha un cliente collegato (inseriti al volo) e senza di esso il blocco diceva due volte il tipo — «ALTRO Altro». La migrazione Google lo popola con il titolo dell'evento; per le righe già importate lo estrae il backfill in `onLoad` dalla nota, che ha forma `Importato dal calendario Google «<calendario>»: <titolo>`. La nota resta intatta: è la traccia della provenienza, semplicemente non è un titolo. Quando il chip dice già il tipo, un titolo che ripete il tipo viene taciuto.
+
+### 12.2-quater Ricerca (03/09/2026)
+Campo nella barra del calendario, fra il periodo e «Nuovo appuntamento». `interventi.cerca({ q, limite })` cerca **in tutte le date**, non nel periodo mostrato: filtrare il mese aperto sarebbe un filtro, non una ricerca, perché si cerca proprio quello che non si vede. Ogni risultato porta la sua data; aprirlo sposta il periodo e apre la scheda (`/planning?intervento=<id>`), anche a mesi di distanza.
+
+Campi cercati: cliente (in entrambi gli ordini nome/cognome), titolo, nota, indirizzo dell'intervento o della commessa, città, codice commessa, esecutore, tipo con l'etichetta a schermo. Regole condivise con clienti e commesse (`server/_core/ricerca.ts`): senza accenti da entrambi i lati, numeri confrontati per sole cifre più la forma internazionale. Risultati ordinati per **distanza da oggi**, annullati esclusi, sede-scoped (un appuntamento di un'altra sede non esiste).
+
+### 12.3 Contenuto del blocco (per spazio disponibile)
+Le tre viste condividono una sola forma di voce (`VoceGriglia`), decisa una volta in `Planning.tsx`: prima ogni vista rileggeva l'intervento a modo suo e lo stesso appuntamento diceva il tipo nella settimana e lo taceva nel mese.
+
+Quanto se ne mostra dipende dall'altezza e dalla larghezza reali del blocco, non dal tipo di vista:
+- **Una riga** (mezz'ora, ~24px) — ora d'inizio e nome **sulla stessa riga**: impilati, il nome verrebbe tagliato e si vedrebbe che c'è qualcosa ma non chi.
+- **Due righe** (~40px) — intervallo orario, chip del tipo, nome.
+- **Tre righe** (~86px) — più esecutore e indirizzo.
+- **Blocco stretto** (larghezza < 60%) — sparisce l'ora di fine (dieci caratteri su venti disponibili, al nome non ne restava nessuno: la fine si legge dall'altezza, che è la durata) e le righe secondarie si accorciano togliendo le parti che si ripetono su ogni riga — il caposquadra e la città della sede.
+
+Indirizzo con fallback `intervento.indirizzo → commessa.indirizzo → cliente.indirizzoLavoro → cliente.indirizzo`. Lo **stato si mostra solo se diverso da `pianificato`**: era lo stato del 100% degli appuntamenti e ripeterlo su ogni riga era una riga sprecata. Testo completo sempre nel tooltip e nell'`aria-label`.
+
+In vista Settimana con quattro appuntamenti sovrapposti la colonna è ~150px, divisa in due fa 75px, e un nome lungo si tronca: è un limite fisico, non un difetto. Nome intero nel tooltip e nella vista Giorno.
 
 ### 12.4 Dialog dettagli appuntamento
 In modalità modifica, sopra al form, viene mostrato un blocco di sintesi joined:
@@ -485,8 +520,11 @@ Un intervento può essere collegato a una delle entità: `commessa`, `ticket`, `
 ### 12.9 Eventi Google (overlay read‑only)
 Gli eventi importati dai calendari Google (vedi §38.2) compaiono in tutte e tre le viste, ordinati per ora insieme agli appuntamenti CRM ma **in sola lettura**: stile distinto (badge GOOGLE + lucchetto, bordo sinistro nel colore della sorgente), nessun drag/edit/delete. Il click apre un dialog dettagli (data, orario/tutto il giorno, luogo, calendario di origine). Una legenda sopra la griglia elenca le sorgenti attive.
 
-### 12.10 Card intervento (restyle v4)
-Chip tipo pieno (POSA/RILIEVO/ASSISTENZA/ALTRO) su sfondo tinta + bordo sinistro 4 px nel colore del tipo; ora in mono grassetto. Nel dialog di modifica, accanto al telefono, è presente il bottone **WhatsApp** con messaggio di conferma appuntamento precompilato (vedi §41).
+### 12.10 Agenda mobile (< `lg`)
+Sotto `lg` resta l'elenco per giorno, non la griglia. Dal 03/09/2026 la card è passata da ~230px a ~77px **senza perdere un campo**: barra del tipo come sul desktop, stato solo se notevole, esecutore e indirizzo su una riga sola con le parti ripetute accorciate (caposquadra, città della sede) invece che tagliate a metà parola. Nel dialog di modifica, accanto al telefono, è presente il bottone **WhatsApp** con messaggio di conferma appuntamento precompilato (vedi §41).
+
+### 12.11 Apertura da fuori
+`/planning?intervento=<id>` sposta il periodo sulla data dell'appuntamento e apre la scheda. Il salto avviene una volta sola per id, così chiudere la scheda non la riapre; se la query del periodo è ancora in volo si aspetta che l'intervento ci sia. Usato dalla ricerca (§12.2-quater) e da «Da fare oggi» (§26.2).
 
 ---
 
@@ -987,13 +1025,14 @@ retry. Cambio sede e logout azzerano la cache prima di cambiare principal.
 ### 26.2 "Da fare oggi" — feed azioni personalizzato
 - **Scope**: direzione vede tutta la sede (etichetta "Tutta la sede"); gli altri solo le proprie commesse (`assegnatoA`, fallback `createdBy`) — etichetta "Le tue attività".
 - Fonti, ordinate per urgenza e cap a 8 voci:
-  1. Interventi di **oggi senza squadra** (CTA "Apri calendario").
+  1. Lavoro di **oggi senza nessuno che lo faccia** (CTA "Apri appuntamento", che porta all'evento e non alla pagina). La condizione è `senzaEsecutore` di `shared/interventi.ts`, la stessa funzione che il server applica scrivendo: un rilievo col tecnico assegnato **non** è scoperto (per un rilievo la squadra è vuota per costruzione), e ferie, riunioni e appuntamenti non chiedono nessuno — non sono lavoro da mandare a qualcuno. Prima la condizione guardava solo `squadraId` e segnalava lavoro già assegnato: un elenco che segnala cose fatte insegna a ignorarlo. L'etichetta segue il tipo: «Assegna il tecnico» per un rilievo, «Assegna la squadra» per il resto. Titolo con lo stesso ordine del calendario (§12.2-ter).
   2. Commesse **urgenti** / ticket urgenti / garanzie scadute.
   3. **Da incassare** — residuo pagamenti nelle fasi finali. L'importo compare solo per chi ha `pagamento.read` (il server lo omette agli altri, che leggono «Da incassare il saldo», §37.5).
   4. **Consegne da confermare** (CTA "Conferma consegna").
   5. Ticket aperti sulle proprie commesse.
   6. Garanzie in scadenza 30 gg (direzione/amministrazione).
 - Stato vuoto esplicito: "Niente da fare per ora …" con icona verde (la card non sparisce).
+- **Responsive**: sotto `sm` la riga diventa colonna e il pulsante va sotto a tutta larghezza. A 320px il pulsante prendeva 157px dei 320 e al titolo restava «Ass…», col codice commessa spezzato su tre righe.
 
 ### 26.3 KPI principali
 Cards Commesse attive, Urgenze, Consegne da confermare, Ticket aperti (+ Interventi settimana). Zero = card "spenta" non cliccabile; >0 = accent bar + navigazione alla lista filtrata. Polling live.
@@ -1046,6 +1085,13 @@ per id e revisione.
 
 Il refresh token Google del backup è inoltre **specchiato su file** (`data/backup-oauth.json`, mode 600, gitignored) così i riavvii senza DATABASE_URL non scollegano Drive; la riga DB, quando presente, ha precedenza.
 
+### 28.1-bis Pool di connessioni e scrittura del blob (03/09/2026)
+- **`DB_POOL_MAX`** (default **20**, tetto 50, valori assurdi ignorati). Era 5 per diciotto moduli più i lavori di fondo: le richieste aspettavano il proprio turno in fila dietro i worker, e si vedeva — `tars.smistamentoProposte` 5734 ms, `chat.nonLetti` 2278, `commesse.list` 1020. Dopo il cambio quasi tutte sono scese sotto la soglia di segnalazione.
+- **La scrittura atomica serializza una volta sola.** Congelava ogni collezione con `JSON.parse(JSON.stringify(items))` prima del BEGIN — la fotografia immutabile serve, un `await` fra due store non deve poter osservare revisioni diverse degli array vivi — ma poi passava l'oggetto a `tx.json()`, che lo serializzava di nuovo: tre passate sincrone sugli stessi megabyte per scrivere una cosa sola. Ora la stringa **è** la fotografia e va in colonna così com'è.
+- Il cast si scrive **`::text::jsonb`**, non `::jsonb`. Senza il `::text` di mezzo postgres-js deduce che il parametro è jsonb e codifica la stringa *come* stringa JSON: in colonna finisce `"[...]"` invece di `[...]`. È già successo (v. la migrazione di riparazione in `server/chat/store.ts`); il contratto delle tre forme è fissato su PostgreSQL vero in `server/_core/jsonbSnapshot.pg.test.ts`, che prova anche il percorso pericoloso — `saveStoresAtomically` sugli store registrati — perché una regressione lì non darebbe un test rosso, darebbe una colonna di stringhe jsonb da riparare a posteriori.
+
+**Resta fuori** il costo di fondo: serializzare l'intera collezione per salvare un record cambiato. Non è una svista, è la forma dell'archivio (una riga JSONB per collezione), e cambiarla è una decisione.
+
 ### 28.2 Lifecycle
 - **Bootstrap.** All'avvio `bootstrapAll()` legge ogni raccolta. Tre stati possibili per la singola key:
   - `firstBoot = true`: nessuna row presente → callback `onLoad` può popolare seed.
@@ -1093,6 +1139,21 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 29.4 Empty states
 - Tutte le pagine principali hanno empty state esplicito con istruzioni sul prossimo passo.
 
+### 29.5 Mascotte Tars
+Undici clip WebM con canale alfa in `client/public/mascotte/` (~4,2 MB): due in loop (`idle` — che è una **camminata sul posto**, la posa di riposo — e `indica`) e nove siparietti a colpo singolo, fra cui il cartello «FATTURARE».
+
+**Selezione a mazzo mescolato** (`client/src/lib/mascotteTars.ts`, logica pura e testabile): un giro contiene ogni siparietto una volta più tre copie del cartello, mescolato; finito il giro se ne prepara un altro, e il primo del nuovo giro non ripete l'ultimo del precedente. Così nessuna clip si ripete finché non sono passate tutte, il cartello esce ~27% delle volte contro il ~9% degli altri, e non c'è mai una ripetizione consecutiva. Verificato su 200k estrazioni.
+
+Pausa fra un siparietto e l'altro **4–10 s** (era 20–45): con la posa di riposo che è una camminata, una pausa lunga faceva sembrare che la mascotte camminasse e basta. Le due clip successive sono precaricate, così non c'è stacco fra l'una e l'altra.
+
+### 29.6 Sovrapposizioni dentro la cornice
+La shell desktop è una card centrata (`#root`: `width: calc(100% - 32px)`, `max-width: var(--shell-larghezza-max)` = 1728px, `margin: 16px auto` sopra 1200px). Quello che galleggia sopra la pagina deve restare **dentro quella cornice**, non ai bordi della finestra: su un monitor largo la mascotte usciva dalla card, e i toast facevano lo stesso. La striscia della mascotte replica la scatola della card (`w-[calc(100%-2rem)] max-w-[var(--shell-larghezza-max)] mx-auto`) e i toast sono spostati di `max(16px, (100vw - larghezza-max) / 2)`.
+
+### 29.7 `position: sticky` e antenati che ritagliano
+Uno `sticky` non può sporgere oltre un antenato con `overflow: hidden`: scorre via col resto, **in silenzio, senza errori**. È il muro contro cui è morto il primo tentativo di agganciare le intestazioni del calendario, che stanno dentro un `DataSurface` — il quale ritaglia per tenere gli angoli arrotondati. Il pattern ha ora una prop **`clip`** (default `true`): chi la spegne si arrotonda i bordi per conto suo. Regola generale: prima di aggiungere uno `sticky`, verificare la catena di antenati, e **misurarlo** invece di dedurlo — sembrava funzionare per coincidenza.
+
+Nota correlata: un contenitore di scroll non deve essere `display: flex`. I figli di un flex si restringono per impostazione predefinita, quindi il contenuto collassa all'altezza disponibile invece di traboccare: `scrollHeight` uguale a `clientHeight`, nessuno scroll, e ogni `sticky` interno che non aggancia mai.
+
 ---
 
 ## 30. Errori e telemetria
@@ -1104,6 +1165,21 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ### 30.2 Logging
 - Tutto il logging della persistenza passa da `console.log/warn/error` con prefisso `[persistence]`.
 - I save e i load mostrano sempre il conteggio degli elementi per raccolta.
+
+### 30.3 Dove si perde il tempo (`server/_core/osservabilita.ts`, 03/09/2026)
+In locale ogni endpoint della dashboard sta sotto il millisecondo: se dall'altra parte si aspettano secondi, l'attesa non è nel calcolo della singola procedura. Tre misure la distinguono, con soglie alte di proposito perché queste righe devono restare rare e leggibili, e senza mai dati del cliente dentro — solo il nome della procedura, che è già pubblico nel contratto tRPC:
+
+| riga | soglia | dice |
+|---|---|---|
+| `[lento] procedura=X ms=… esito=…` | 500 ms | la procedura ha lavorato a lungo |
+| `[passo] <nome> ms=…` | 300 ms | quale pezzo dentro una procedura lunga |
+| `[coda] loop bloccato ms=…` | 250 ms | il processo era fermo su altro (Node ha un thread solo: qualunque tratto sincrono mette in coda tutte le richieste in arrivo) |
+
+`misura(nome, azione)` cronometra un tratto e rilancia l'errore; `avviaSondaLoop()` campiona il ritardo del ciclo di eventi ogni 500 ms ed è idempotente.
+
+**Latenza verso il database.** Misurato dai log di produzione il 03/09/2026: ogni round trip verso Postgres costa **~147,4 ms**. Le durate delle procedure sono multipli interi esatti di quel numero su endpoint indipendenti fra loro, con resti sotto i 3 ms — 590 = 4×, 738 = 5×, 885 = 6×, 1179 = 8×, 1326 = 9×, 2066 = 14×. `DATABASE_URL` usa già l'host interno, quindi non è il proxy pubblico; la causa più probabile è che i due servizi Railway stiano in **regioni diverse** (147 ms è circa un Europa↔America), **non verificato** perché la CLI non espone la regione.
+
+Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round trip* — batch, filtri in SQL, join — non rendere più veloce il codice. Ed è anche il tetto: nessun endpoint può scendere sotto qualche round trip finché i due servizi non sono vicini. Prima di ottimizzare un endpoint lento, dividere i millisecondi per 147: il risultato è quante domande fa al database, ed è quello il numero da abbassare.
 
 ---
 
@@ -1151,6 +1227,19 @@ Il refresh token Google del backup è inoltre **specchiato su file** (`data/back
 ---
 
 ## 33. Cronologia significativa
+- **v5.36 (03/09/2026, documentata il 05/09)** — **Calendario riprogettato, prestazioni misurate in produzione, e chi esegue un intervento.** Sei mandati della direzione in sequenza, tutti verificati con misure e non a occhio.
+
+  **Prestazioni.** Strumentazione prima delle correzioni (`server/_core/osservabilita.ts`: `[lento]` a 500 ms, `[passo]` a 300, `[coda]` a 250) e poi lettura dei log Railway. Il collo principale era il **pool di connessioni a 5** per diciotto moduli più i worker: alzato a 20 (`DB_POOL_MAX`, tetto 50), `tars.smistamentoProposte` 5734→sotto soglia, `chat.nonLetti` 2278→719, `commesse.list` 1020→sparita. `tars.briefing` restava a 10 s con un problema suo: i quattro passi indipendenti erano quattro `await` in fila (ora `Promise.all`, si paga il più lungo e non la somma) e due erano N+1 seriali — lo smistamento leggeva fino a 190 comunicazioni una alla volta (ora `getComunicazioniByIds` in una domanda; il controllo «ha già avuto risposta?» a blocchi), e `allCases` si portava a casa l'intero storico dei casi cento righe per pagina per poi buttare via i risolti in memoria (ora il filtro per stato va in SQL). Totale 10,1 s → 3,9 s. Scrittura JSONB atomica da tre passate sincrone a una (`::text::jsonb`, contratto fissato su PostgreSQL vero); cache statica (`assets` immutabile un anno, `index.html` e il service worker mai); `commesse.byPriorita` da 1027 kB a 184 kB con proiezione esplicita dei campi; React Query `staleTime` 15 s invece di 0; rimozione ottimistica delle proposte approvate. **Scoperta di fondo**: ogni round trip verso Postgres costa **~147 ms** — le durate residue sono multipli interi esatti su endpoint indipendenti (590 = 4×, 1179 = 8×, 2066 = 14×). Con quella latenza il lavoro utile è togliere round trip, non velocizzare il codice; la causa probabile è che i due servizi Railway stiano in regioni diverse, **non verificato**. Vedi §30.3.
+
+  **Calendario (§12).** Settimana e Giorno da elenchi a **griglia oraria**: l'altezza di un blocco è la sua durata, i sovrapposti stanno affiancati, i buchi si vedono. Il tipo diventa una **barra piena e satura** a sinistra — i quattro fondi tenui stavano a distanza RGB 10–24 e tutti alla stessa luminosità, indistinguibili di sfuggita. Il mese guadagna una barretta di carico per giornata, quattro voci per cella e weekend stretti. Tolto il rumore che costava righe: «pianificato» ripetuto su ogni voce, la X di eliminazione sempre aperta. Agenda mobile da 230px a 77px per card senza perdere un campo. Ricerca degli appuntamenti **su tutte le date** (`interventi.cerca`, sede-scoped, ordinata per distanza da oggi) e apertura da fuori con `/planning?intervento=<id>`. Tre correzioni successive su segnalazione: **scroll** (due contenitori annidati in settimana/giorno, intestazioni che scorrevano via, barra che su mobile bloccava 195px di 812), **dati veri** (metà appuntamenti senza cliente collegato mostravano due volte il tipo; il testo centrato in verticale in blocchi alti; i sovrapposti a parti uguali che diventavano righelli muti) e **titolo degli importati** (la nota della migrazione Google comincia con 60 caratteri di provenienza identici: ogni appuntamento si chiamava uguale — ora il titolo è un campo suo, con backfill in `onLoad` per le righe già importate).
+
+  **Chi esegue (§12.2-bis).** Un rilievo lo fa un tecnico dei rilievi, non una squadra di posa: nuovo campo `tecnicoId`, regola in `shared/interventi.ts` applicata sia dal server sia dalla Dashboard, form che cambia campo con il tipo, strumento Tars `sposta_intervento` che **rifiuta** l'accoppiata sbagliata invece di lasciarla cadere in silenzio. Di conseguenza «Da fare oggi» non segnala più come scoperto un rilievo già assegnato, né chiede di assegnare una squadra alle ferie di qualcuno, e il suo pulsante porta all'appuntamento e non alla pagina.
+
+  **Altro.** Gate documentale che chiedeva un documento già nel fascicolo (un caricamento avvenuto in uno stato precedente a quello che lo richiede lo soddisfa: `primoStatoUtilePerGate`, §9.1). Ricerca clienti e commesse allargata a numero, mail, indirizzo e città con regole condivise (§6.7). Mascotte: mazzo mescolato senza ripetizioni e pausa 4–10 s (§29.5); quello che galleggia sopra la pagina resta dentro la cornice della card su monitor larghi (§29.6). Lettore email riprogettato e **allegati apribili** con rotta autenticata e sede-scoped (§51.6).
+
+  **Due lezioni registrate** (§29.7): uno `sticky` muore in silenzio dentro un antenato che ritaglia — `DataSurface` ha ora una prop `clip` — e un contenitore di scroll non deve essere `display: flex`, perché i figli si restringono e il contenuto non trabocca mai. Entrambe scoperte misurando dopo che il codice *sembrava* giusto.
+
+  Suite 167 file / 1637 test.
 - **v5.35 (04/09/2026)** - **Semplificazioni chieste dalla direzione: meno passi, meno doppioni, meno pagine.** Cinque interventi di una sessione sola.
   **(1) Cliente e prima commessa in un passo** (§5.3): il dialog «Nuovo cliente» chiude con «Crea cliente e commessa» e apre la commessa appena creata. Nuova `clienti.createConCommessa` (stesso input di `clienti.create`, risposta `{ cliente, commessa }`) che verifica `commessa.create` PRIMA di scrivere — chi può creare clienti ma non commesse non resta con un cliente orfano — e fa nascere la commessa in `preventivo` con indirizzo di lavoro (fallback residenza), telefono, email e assegnatario ereditati. Sotto resta «Crea solo il cliente»; senza la capability il pulsante torna «Crea cliente». `commesse.create` e `clienti.create` passano ora dalle stesse funzioni di dominio `creaCommessa`/`creaCliente`: nessuna regola duplicata.
   **(2) Timeline: via «Invio Fattura al Cliente»** (§35): emettere la fattura significa già mandarla, e lo step restava aperto per sempre falsando la percentuale. 18 → 17 passi.
@@ -1898,9 +1987,21 @@ invio WhatsApp o Email in questa fase.
 
 ### 51.6 Workspace Email
 Email offre code Da gestire, Nuovi lead, Gestite ed Escluse, ricerca e lettore
-operativo con classificazione, collegamento, allegati e corpo. Nel dettaglio
-il corpo completo precede gli allegati; in lista l'anteprima usa due righe e
-badge testuali per allegati, collegamento e stato. Eliminare dal CRM non tocca
+operativo con classificazione, collegamento, allegati e corpo. In lista
+l'anteprima usa due righe e badge testuali per allegati, collegamento e stato.
+
+**Lettore riprogettato il 03/09/2026.** Intestazione, azioni, collegamento e
+riquadro Tars erano tutti fissi: ~500px in cima, e al testo del messaggio ne
+restavano ~170 in fondo, tagliati a metà frase — si leggeva l'analisi di Tars
+e non la mail che l'aveva generata. Ora c'è **un contenitore di scroll solo**:
+intestazione, collegamento e analisi scorrono via insieme al testo, e resta
+agganciata la sola barra delle azioni, che porta con sé l'oggetto per non
+perdere il filo di quale mail si sta leggendo. Il contenitore è un blocco e
+non un flex, per la ragione in §29.7.
+
+**Gli allegati precedono il corpo**: sono spesso il motivo per cui la mail è
+arrivata (un preventivo, una fattura) e in fondo a un messaggio lungo non si
+trovavano. Eliminare dal CRM non tocca
 la casella IMAP: la riga diventa un tombstone per evitare una re-importazione.
 
 Su desktop da 1280 px la lista ha una larghezza stabile e il lettore occupa
@@ -1909,7 +2010,19 @@ lista senza cambiare messaggio, filtri o URL; `Mostra elenco email` ripristina
 la vista affiancata. Sotto 1280 px elenco e lettore non vengono compressi in
 due colonne: si mostra una vista alla volta con ritorno esplicito all'elenco.
 Corpo e allegati usano contenitori distinti: il testo resta entro una misura
-leggibile. Mittente, indirizzi, collegamenti CRM e nomi degli allegati sono
+leggibile.
+
+**Allegati apribili (03/09/2026).** `GET /api/comunicazioni/:id/allegati/:indice`
+serve il file al browser, `?download=1` per lo scaricamento. Prima l'allegato
+si vedeva elencato con nome e peso e non si poteva aprire: il server sapeva già
+leggerlo (`leggiAllegatoRaw` lo prende dallo storage, o lo ripesca da IMAP o da
+Meta), mancava solo la rotta. Stesso guscio dei documenti di commessa: sessione
+obbligatoria, **sede dal contesto e mai dall'URL**, richieste cross-site
+rifiutate prima dell'autenticazione (il cookie viaggerebbe lo stesso), nome del
+file codificato RFC 5987, `Cache-Control: private, no-store` perché è posta di
+un cliente. Un allegato non recuperabile risponde **410 con il motivo**, non
+500: lo storage locale non li conserva e Meta scarta i media dopo ~30 giorni —
+è normale, non un guasto del CRM. Mittente, indirizzi, collegamenti CRM e nomi degli allegati sono
 sempre accessibili nel dettaglio tramite testo a capo, senza ellissi
 distruttive. Nessuna modalità introduce scroll orizzontale globale.
 
