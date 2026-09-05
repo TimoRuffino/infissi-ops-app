@@ -2,6 +2,7 @@
 // voce spiega il proprio numero. «Ricalcola» quando righe o parametri sono
 // cambiati. Nessun calcolo qui: il server è l'unico confine.
 import { toast } from "sonner";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import {
   badgeStato,
@@ -13,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Calculator, Info } from "lucide-react";
+import { AlertTriangle, Calculator, Info, ReceiptText } from "lucide-react";
 
 const TONO: Record<"success" | "warning" | "muted", string> = {
   success: "text-success",
@@ -31,13 +32,16 @@ export default function LimitiTab({
    * Cornice in cui la tab è montata (piano 4). Assente = la tab della scheda
    * commessa, com'è sempre stata. `"guidata"` è il passo 3 del percorso
    * `/fatturazione/:id`: l'intestazione e l'avanzamento sono della pagina,
-   * qui resta il computo. `"lettura"` (Task 6) per ora rende come il default.
+   * qui resta il computo. `"lettura"` (Task 6) è il riassunto in sola
+   * lettura: limite, CHECK1/CHECK2, esito, nessun calcolo, solo «Apri
+   * fatturazione».
    */
   modalita?: "guidata" | "lettura";
   /** Il computo è cambiato: chi monta rilegga lo stato dei passi. */
   onCambiato?: () => void;
 }) {
   const guidata = modalita === "guidata";
+  const lettura = modalita === "lettura";
   const utils = trpc.useUtils();
   const q = trpc.computo.ultimo.useQuery({ commessaId }, { retry: false });
   const esegui = trpc.computo.esegui.useMutation({
@@ -57,6 +61,42 @@ export default function LimitiTab({
   const badge = badgeStato(stato);
   const c = stato.computo;
   const motivo = motivoSintetico(stato.motivo, c?.avvertenze.length ?? 0);
+
+  if (lettura) {
+    return (
+      <div className="space-y-3 min-w-0">
+        {c ? (
+          <dl aria-label="Riepilogo limiti" className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="min-w-0">
+              <dt className="eyebrow">Limite vincolante</dt>
+              <dd className="font-semibold tabular-nums">{formatCent(c.limiteCent)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="eyebrow">CHECK 1</dt>
+              <dd className="tabular-nums">{formatCent(c.check1Cent)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="eyebrow">CHECK 2</dt>
+              <dd className="tabular-nums">{formatCent(c.check2Cent)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="eyebrow">Esito</dt>
+              <dd>{c.esito === "ok" ? "ok" : "incompleto"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">Nessun computo.</p>
+        )}
+        {c && !stato.valido && <Badge variant="warning">da ricalcolare</Badge>}
+        <Button asChild className="min-h-11">
+          <Link href={`/fatturazione/${commessaId}?passo=limiti`}>
+            <ReceiptText className="h-4 w-4" aria-hidden="true" />
+            Apri fatturazione
+          </Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la

@@ -1170,7 +1170,7 @@ export default function CommessaDetail() {
         {/* Prodotti Tab — con FLAG_LIMITI diventa il contratto strutturato */}
         <TabsContent value="prodotti" className="space-y-4 mt-4">
           {interruttori.data?.limiti ? (
-            <ContrattoTab commessaId={commessaId} />
+            <ContrattoTab commessaId={commessaId} modalita="lettura" />
           ) : (
           <>
           <div className="flex justify-end">
@@ -1246,14 +1246,14 @@ export default function CommessaDetail() {
         {/* Limiti Tab */}
         {limitiAttivi && (
           <TabsContent value="limiti">
-            <LimitiTab commessaId={commessaId} />
+            <LimitiTab commessaId={commessaId} modalita="lettura" />
           </TabsContent>
         )}
 
         {/* Fattura Tab */}
         {fatturazioneAttiva && (
           <TabsContent value="fattura">
-            <FatturaTab commessaId={commessaId} />
+            <FatturaTab commessaId={commessaId} modalita="lettura" />
           </TabsContent>
         )}
 

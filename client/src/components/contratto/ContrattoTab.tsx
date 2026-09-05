@@ -7,10 +7,12 @@
 // decide nulla.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Link } from "wouter";
+import { Plus, ReceiptText, Save, Trash2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatEuro, parseEuroNonNegativo } from "@/lib/euro";
 import { euroToCent } from "@shared/euroCent";
+import { formatCent } from "@/lib/limitiView";
 import {
   avvisiForm,
   erroriForm,
@@ -69,8 +71,8 @@ export default function ContrattoTab({
    * commessa, esattamente com'è sempre stata. `"guidata"` è il passo 2 del
    * percorso `/fatturazione/:id`: la pagina porta intestazione e navigazione,
    * qui resta il solo gesto che deve precedere l'avanzamento (il salvataggio).
-   * `"lettura"` è il riassunto in sola lettura della scheda commessa (Task 6):
-   * finché non esiste rende come il default.
+   * `"lettura"` (Task 6) è il riassunto in sola lettura della scheda commessa:
+   * righe, pattuito e cantiere, nessun editor, solo «Apri fatturazione».
    */
   modalita?: "guidata" | "lettura";
   /** Solo in modalità guidata: chiamato dopo un salvataggio riuscito da «Salva e avanti». */
@@ -79,6 +81,7 @@ export default function ContrattoTab({
   onCambiato?: () => void;
 }) {
   const guidata = modalita === "guidata";
+  const lettura = modalita === "lettura";
   const utils = trpc.useUtils();
   const q = trpc.contratti.get.useQuery({ commessaId }, { retry: false });
   // Il catalogo DEI non dipende dalla commessa e cambia solo col listino:
@@ -162,6 +165,57 @@ export default function ContrattoTab({
 
   if (q.isLoading) return <p className="text-sm text-muted-foreground py-6">Caricamento contratto…</p>;
   if (q.error) return <p className="text-sm text-danger py-6">{q.error.message}</p>;
+
+  if (lettura) {
+    if (!q.data) return null;
+    const contratto = q.data.contratto;
+    const nRighe = q.data.righe.length;
+    return (
+      <div className="space-y-3 min-w-0">
+        <dl aria-label="Riepilogo del contratto" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div className="min-w-0">
+            <dt className="eyebrow">Righe</dt>
+            <dd className="font-semibold">
+              {nRighe} {nRighe === 1 ? "riga" : "righe"}
+            </dd>
+          </div>
+          {contratto && (
+            <div className="min-w-0">
+              <dt className="eyebrow">Pattuito</dt>
+              <dd className="font-semibold tabular-nums">
+                {formatCent(contratto.pattuitoCent)}{" "}
+                <span className="font-normal text-text-3">{contratto.pattuitoTipo}</span>
+              </dd>
+            </div>
+          )}
+          {contratto?.comuneCantiere && (
+            <div className="min-w-0">
+              <dt className="eyebrow">Cantiere</dt>
+              <dd className="truncate">{contratto.comuneCantiere}</dd>
+            </div>
+          )}
+          {contratto?.dataFirma && (
+            <div className="min-w-0">
+              <dt className="eyebrow">Data firma</dt>
+              <dd>{contratto.dataFirma}</dd>
+            </div>
+          )}
+        </dl>
+        {!contratto && (
+          <p className="text-sm text-muted-foreground">Contratto non ancora inserito.</p>
+        )}
+        {contratto?.origine === "estrazione" && (
+          <Badge variant="outline">da estrazione</Badge>
+        )}
+        <Button asChild className="min-h-11">
+          <Link href={`/fatturazione/${commessaId}?passo=contratto`}>
+            <ReceiptText className="h-4 w-4" aria-hidden="true" />
+            Apri fatturazione
+          </Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la

@@ -4,7 +4,8 @@
 // modifica sta in `BozzaFatturaEditor`, la lettura in `FatturaEmessaView`.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileText, Plus } from "lucide-react";
+import { Link } from "wouter";
+import { FileText, Plus, ReceiptText } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
 import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
@@ -24,13 +25,15 @@ export default function FatturaTab({
    * Cornice in cui la tab è montata (piano 4). Assente = la tab della scheda
    * commessa, com'è sempre stata. `"guidata"` è il passo 4 (l'ultimo) del
    * percorso `/fatturazione/:id`: nessun «Avanti», la pagina porta solo
-   * «Indietro». `"lettura"` (Task 6) per ora rende come il default.
+   * «Indietro». `"lettura"` (Task 6) è il riassunto in sola lettura: stato,
+   * numero/data, totale se presente, solo «Apri fatturazione».
    */
   modalita?: "guidata" | "lettura";
   /** Bozza creata, emessa, annullata o stato SdI cambiato: chi monta rilegga i passi. */
   onCambiato?: () => void;
 }) {
   const guidata = modalita === "guidata";
+  const lettura = modalita === "lettura";
   const utils = trpc.useUtils();
   const q = trpc.fatture.perCommessa.useQuery({ commessaId }, { retry: false });
   const [selezionata, setSelezionata] = useState<number | null>(null);
@@ -83,6 +86,35 @@ export default function FatturaTab({
     f => f.tipo !== "fattura" || f.stato === "annullata"
   );
   const fattura = elenco.find(f => f.id === selezionata) ?? null;
+
+  if (lettura) {
+    const badge = fattura
+      ? badgeStatoFattura(fattura.stato, fattura.inviataDryRun)
+      : null;
+    return (
+      <div className="space-y-3 min-w-0">
+        {fattura && badge ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
+            <Badge variant={VARIANTE_BADGE[badge.tono]}>{badge.testo}</Badge>
+            <span className="min-w-0 truncate">
+              {fattura.tipo === "nota_credito" ? "Nota di credito " : "Fattura "}
+              {fattura.numero ?? "in bozza"}
+              {fattura.data ? ` · ${fattura.data}` : ""}
+            </span>
+            <span className="tabular-nums font-medium">{formatCent(fattura.totaleCent)}</span>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Nessuna fattura</p>
+        )}
+        <Button asChild className="min-h-11">
+          <Link href={`/fatturazione/${commessaId}?passo=fattura`}>
+            <ReceiptText className="h-4 w-4" aria-hidden="true" />
+            Apri fatturazione
+          </Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
