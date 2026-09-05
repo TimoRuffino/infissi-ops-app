@@ -16,7 +16,8 @@ import {
   CALENDAR_SOFT_MAP,
 } from "@/lib/calendario";
 import { senzaEsecutore } from "@shared/interventi";
-import { permessoNegato } from "@/lib/trpcErrors";
+import { etichettaPulsante } from "@/lib/fatturazioneView";
+import { ETICHETTA_PASSO } from "@shared/fatturazione/passi";
 
 /** Etichetta leggibile di un tipo di evento, dal catalogo condiviso. */
 const etichettaTipo = (tipo: string): string =>
@@ -495,20 +496,23 @@ export default function Dashboard() {
     {},
     { ...liveOpts, enabled: puoVedereCommesse }
   );
-  // Le fatture nate qui dentro: servono a dire quale commessa in «Fatture /
-  // pagamento» non ha ancora la sua. Dietro i due flag, e chi non legge le
-  // fatture riceve FORBIDDEN, che non è un guasto: è una voce che non lo
-  // riguarda.
+  // Le commesse da fatturare e il passo a cui sono: la stessa lettura della
+  // pagina Fatturazione (piano 4), così «Da fare oggi» e l'elenco non
+  // raccontano due storie. Dietro i due flag; chi non ha il permesso riceve
+  // FORBIDDEN, che non è un guasto: è una voce che non lo riguarda. Niente
+  // `liveOpts`: legge contratto e computo di ogni candidata, non si ripete
+  // ogni trenta secondi.
   const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
   });
   const fatturazioneAttiva = Boolean(
     interruttoriQ.data?.fatturazione && interruttoriQ.data?.limiti
   );
-  const fattureCrm = trpc.fatture.lista.useQuery(
-    { limite: 200 },
-    { enabled: fatturazioneAttiva, retry: false, ...liveOpts }
-  );
+  const daFatturare = trpc.fatturazioneGuidata.daFare.useQuery(undefined, {
+    enabled: fatturazioneAttiva,
+    retry: false,
+    staleTime: 60_000,
+  });
   const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, {
     ...liveOpts,
     enabled: puoVedereCommesse,
@@ -652,34 +656,32 @@ export default function Dashboard() {
       });
     }
 
-    // 2b. Fattura da preparare o da chiudere: la commessa è in «Fatture /
-    // pagamento» e il CRM non ha ancora emesso niente, oppure c'è una bozza
-    // ferma. È il passo del processo che più spesso resta indietro, perché
-    // non è di nessuno finché qualcuno non apre la tab.
-    if (fatturazioneAttiva && fattureCrm.data && !permessoNegato(fattureCrm.error)) {
-      const perCommessa = new Map<number, (typeof fattureCrm.data)[number][]>();
-      for (const f of fattureCrm.data) {
-        const lista = perCommessa.get(f.commessaId) ?? [];
-        lista.push(f);
-        perCommessa.set(f.commessaId, lista);
-      }
-      for (const c of commesse) {
-        if (c.stato !== "fatture_pagamento") continue;
-        if (!isMine(c)) continue;
-        const sue = (perCommessa.get(c.id) ?? []).filter(f => f.tipo === "fattura");
-        const viva = sue.find(f => f.stato !== "annullata");
-        if (viva && viva.stato !== "bozza") continue;
+    // 2b. Fattura da preparare o da chiudere: la commessa è in aggiornamento
+    // contratto o in fatture/pagamento e non ha ancora la sua fattura. È il
+    // passo del processo che più spesso resta indietro, perché non è di
+    // nessuno finché qualcuno non apre la pagina Fatturazione: il pulsante
+    // porta dritto al passo a cui la commessa è arrivata.
+    if (fatturazioneAttiva && daFatturare.data) {
+      for (const d of daFatturare.data) {
+        // `daFare` non porta assegnatario né autore: per chi non è direzione
+        // vale la commessa già in mano al feed, altrimenti non è sua.
+        if (!direzione) {
+          const c = byId.get(d.commessaId);
+          if (!c || !isMine(c)) continue;
+        }
+        const inBozza = d.fatturaStato === "bozza";
+        const prossimo = d.prossimoPasso ? ETICHETTA_PASSO[d.prossimoPasso] : null;
         items.push({
-          key: `fatt-${c.id}`,
+          key: `fatt-${d.commessaId}`,
           rank: 1.5,
           icon: Receipt,
           iconClass: "bg-warning-soft text-warning",
-          title: viva
-            ? `Completa la bozza di fattura — ${c.cliente}`
-            : `Prepara la fattura — ${c.cliente}`,
-          sub: c.codice,
-          cta: viva ? "Apri la bozza" : "Apri la fattura",
-          onClick: () => setLocation(`/commesse/${c.id}?tab=fattura`),
+          title: inBozza
+            ? `Completa la bozza di fattura — ${d.cliente}`
+            : `Prepara la fattura — ${d.cliente}`,
+          sub: prossimo ? `${d.codice} · prossimo passo: ${prossimo}` : d.codice,
+          cta: inBozza ? "Apri la bozza" : etichettaPulsante(d.passi),
+          onClick: () => setLocation(`/fatturazione/${d.commessaId}`),
         });
       }
     }
@@ -806,8 +808,7 @@ export default function Dashboard() {
     garanzieListQ.data,
     comStats.data,
     ficListQ.data,
-    fattureCrm.data,
-    fattureCrm.error,
+    daFatturare.data,
     fatturazioneAttiva,
     direzione,
     uid,

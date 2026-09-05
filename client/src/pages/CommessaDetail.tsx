@@ -79,6 +79,7 @@ import ContrattoStatoBanner from "@/components/contratto/ContrattoStatoBanner";
 import LeggiContrattoDialog from "@/components/contratto/LeggiContrattoDialog";
 import LimitiTab from "@/components/computo/LimitiTab";
 import FatturaTab from "@/components/fattura/FatturaTab";
+import { hrefPasso } from "@/lib/fatturazioneView";
 import TimelineOrdine from "@/components/TimelineOrdine";
 import SearchSelect from "@/components/SearchSelect";
 import FilePreviewDialog from "@/components/FilePreviewDialog";
@@ -1112,7 +1113,11 @@ export default function CommessaDetail() {
             onSave={patch =>
               updateCommessa.mutate({ id: commessaId, ...patch })
             }
-            onApriFattura={fatturazioneAttiva ? () => setTab("fattura") : undefined}
+            onApriFattura={
+              fatturazioneAttiva
+                ? () => setLocation(hrefPasso(commessaId, "fattura"))
+                : undefined
+            }
           />
         }
         timeline={<TimelineOrdine commessaId={commessaId} />}
@@ -2518,7 +2523,7 @@ function PagamentiCard({
   /** Da `fatture.perCommessa` letto in pagina: qui non si apre una seconda query. */
   fatture?: Array<{ stato: StatoFattura }>;
   onSave: (patch: { importoTotale?: number | null }) => void;
-  /** Apre la tab Fattura: quando il pattuito viene dalla fattura del CRM, è lì che si va a vederla. */
+  /** Apre il passo Fattura del percorso guidato: quando il pattuito viene dalla fattura del CRM, è lì che si va a vederla. */
   onApriFattura?: () => void;
 }) {
   const utils = trpc.useUtils();
