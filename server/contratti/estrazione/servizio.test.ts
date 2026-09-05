@@ -9,10 +9,13 @@ import { OPZIONI_COMPUTO_DEFAULT, type ContrattoInput, type RigaContrattoInput }
 import type { TrpcContext } from "../../_core/context";
 import { pdfConTesto } from "../../documenti/pdfMinimo";
 import { getClientiStore } from "../../routers/clienti";
-import { creaCommessa } from "../../routers/commesse";
+import { creaCommessa, getCommessaById } from "../../routers/commesse";
 import { caricaDocumentoCommessaDaBuffer } from "../../routers/preventiviContratti";
+import { timelineRouter } from "../../routers/timeline";
+import type { estraiTestoDocumento, EsitoParser } from "../../documenti/parserRegistry";
 import { creaProviderFinto, rispostaTesto } from "../../tars/openai/fake";
 import { leggiContratto } from "../servizio";
+import { PROMPT_ESTRAZIONE_VERSIONE } from "./prompt";
 import { createMemoryEstrazioniRepository, type EstrazioniRepository } from "./repository";
 import type { EsitoModello } from "./schema";
 import {
@@ -126,6 +129,22 @@ function providerCheConta(risposta: () => string) {
     return rispostaTesto(risposta());
   });
   return { provider, conta };
+}
+
+/** Parser finto che conta le letture: serve a provare che il riuso non estrae il testo. */
+function parserCheConta(parser: string) {
+  const conta = { n: 0 };
+  const estraiTesto = async (): Promise<EsitoParser> => {
+    conta.n++;
+    return {
+      esito: "estratto",
+      parser,
+      versione: "test",
+      pagine: [RIGHE_DOCUMENTO.join("\n")],
+      avvertenze: [],
+    };
+  };
+  return { estraiTesto: estraiTesto as unknown as typeof estraiTestoDocumento, conta };
 }
 
 const CONTRATTO_BASE: ContrattoInput = {
@@ -343,6 +362,98 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     await expect(
       scartaEstrazione({ sedeId: SEDE, estrazioneId: estrazione.id, motivo: "di nuovo", actorUserId: 5, repository: repo })
     ).rejects.toThrow("PRECONDIZIONE");
+  });
+
+  // P3-R18: il riuso si decide prima di leggere il testo. Estrarlo (OCR
+  // compreso) è la parte cara: una seconda richiesta non deve pagarla.
+  it("(g) la seconda lettura riusa senza estrarre di nuovo il testo", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estraiTesto, conta } = parserCheConta("pdf-testo-nativo");
+    const input = { sedeId: SEDE, commessaId, documentoId, actorUserId: 5, repository: repo, provider, estraiTesto };
+
+    const prima = await eseguiEstrazioneContratto(input);
+    expect(prima.riusata).toBe(false);
+    expect(conta.n).toBe(1);
+
+    const seconda = await eseguiEstrazioneContratto(input);
+    expect(seconda.riusata).toBe(true);
+    expect(seconda.estrazione.id).toBe(prima.estrazione.id);
+    expect(conta.n).toBe(1); // il testo non è stato riletto
+
+    // Con forza il testo si rilegge davvero.
+    await eseguiEstrazioneContratto({ ...input, forza: true });
+    expect(conta.n).toBe(2);
+  });
+
+  it("(h) il testo che arriva dall'OCR resta segnato nell'estrazione e nella versione del prompt", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estraiTesto } = parserCheConta("pdf-ocr");
+
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+      estraiTesto,
+    });
+    expect(estrazione.ocr).toBe(true);
+    expect(estrazione.parser).toBe("pdf-ocr");
+    expect(estrazione.promptVersione.startsWith(`${PROMPT_ESTRAZIONE_VERSIONE}+ocr:`)).toBe(true);
+    // La lettura OCR si riusa con la sua chiave, senza rileggere il testo.
+    const { estraiTesto: secondoParser, conta } = parserCheConta("pdf-ocr");
+    const seconda = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+      estraiTesto: secondoParser,
+    });
+    expect(seconda.riusata).toBe(true);
+    expect(conta.n).toBe(0);
+  });
+
+  // P3-R19: chi applica la proposta firma anche le milestone che la board
+  // porta avanti, invece di lasciarle senza nome.
+  it("(i) applicaEstrazione firma la timeline con il nome di chi applica", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE,
+      commessaId,
+      documentoId,
+      actorUserId: 5,
+      repository: repo,
+      provider,
+    });
+
+    const timeline = timelineRouter.createCaller(ctx(SEDE) as any);
+    await timeline.byCommessa(commessaId);
+    const commessa = getCommessaById(commessaId) as any;
+    commessa.stato = "misure_esecutive";
+
+    await applicaEstrazione({
+      sedeId: SEDE,
+      commessaId,
+      estrazioneId: estrazione.id,
+      contratto: CONTRATTO_BASE,
+      righe: RIGHE_BASE,
+      actorUserId: 5,
+      actorNome: "Mario Bianchi",
+      repository: repo,
+    });
+
+    const steps = await timeline.byCommessa(commessaId);
+    expect(steps[0].stato).toBe("completato");
+    expect(steps[0].utente).toBe("Mario Bianchi");
   });
 
   it("(f) disponibilitaEstrazione segnala il flag spento con un motivo", () => {

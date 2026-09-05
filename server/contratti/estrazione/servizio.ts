@@ -221,24 +221,28 @@ async function eseguiEstrazioneCorpo(
 
   const checksum = documento.checksum ?? sha256Hex(buffer);
 
-  // Il testo va letto PRIMA di sapere se questa lettura userà l'OCR: solo
-  // da lì si sa quale parser ha risposto, e quindi se la firma OCR entra
-  // nella versione del prompt (P3-R3/P3-R4) o no.
+  // P3-R18: il riuso si decide PRIMA di leggere il testo. Estrarlo è la
+  // parte cara (una scansione passa dall'OCR) e le chiavi possibili di una
+  // lettura precedente si conoscono già senza leggere niente: la versione
+  // del prompt nuda, se il PDF aveva un testo nativo, o con la firma OCR
+  // corrente (P3-R3/P3-R4). Se una delle due risponde, il testo non serve.
+  const versioneOcr = `${PROMPT_ESTRAZIONE_VERSIONE}+ocr:${await firmaOcrCorrente()}`;
+  if (!forza) {
+    for (const versione of [PROMPT_ESTRAZIONE_VERSIONE, versioneOcr]) {
+      const precedente = await repo.riusabile(sedeId, documentoId, checksum, versione);
+      if (precedente) return { estrazione: precedente, riusata: true };
+    }
+  }
+
   const esitoParser = await estrai(buffer, documento.mimeType, documento.nome);
   if (esitoParser.esito !== "estratto") {
     throw new Error(`PRECONDIZIONE: ${motivoLetturaFallita(esitoParser)}`);
   }
 
+  // La chiave definitiva la dice il parser che ha risposto davvero.
   const testoNativo = esitoParser.parser === PARSER_TESTO_NATIVO;
   const ocr = !testoNativo;
-  const promptVersione = ocr
-    ? `${PROMPT_ESTRAZIONE_VERSIONE}+ocr:${await firmaOcrCorrente()}`
-    : PROMPT_ESTRAZIONE_VERSIONE;
-
-  if (!forza) {
-    const precedente = await repo.riusabile(sedeId, documentoId, checksum, promptVersione);
-    if (precedente) return { estrazione: precedente, riusata: true };
-  }
+  const promptVersione = ocr ? versioneOcr : PROMPT_ESTRAZIONE_VERSIONE;
 
   let provider = input.provider;
   if (!provider) {
@@ -333,6 +337,8 @@ export async function applicaEstrazione(
     contratto: ContrattoInput;
     righe: RigaContrattoInput[];
     actorUserId: number | null;
+    /** Nome di chi applica: firma le milestone che la board porta avanti (P3-R19). */
+    actorNome?: string | null;
   } & DipendenzeEstrazione
 ): Promise<{ contratto: Contratto; righe: RigaContratto[]; avvertenze: string[] }> {
   const repo = repoDi(input);
@@ -376,7 +382,7 @@ export async function applicaEstrazione(
 
   const commessa: any = getCommessaById(input.commessaId);
   if (commessa) {
-    allineaTimelineAlBoard(input.commessaId, commessa.stato, null);
+    allineaTimelineAlBoard(input.commessaId, commessa.stato, input.actorNome ?? null);
   }
 
   return esito;
