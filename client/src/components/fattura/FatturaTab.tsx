@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
-import { FileText, Plus, ReceiptText } from "lucide-react";
+import { FileText, Plus, ReceiptText, Trash2 } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
 import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
@@ -14,6 +14,7 @@ import BozzaFatturaEditor from "@/components/fattura/BozzaFatturaEditor";
 import FatturaEmessaView from "@/components/fattura/FatturaEmessaView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function FatturaTab({
   commessaId,
@@ -66,6 +67,21 @@ export default function FatturaTab({
       setSelezionata(esito.fattura.id);
       toast.success("Bozza generata dai limiti");
       esito.avvertenze.forEach(a => toast.warning(a));
+      onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // Cancellazione definitiva: solo bozze, annullate o emissioni ferme senza
+  // documento FiC (lo decide il server); conferma umana prima del click.
+  const [daEliminare, setDaEliminare] = useState<number | null>(null);
+  const elimina = trpc.fatture.elimina.useMutation({
+    onSuccess: esito => {
+      void utils.fatture.perCommessa.invalidate({ commessaId });
+      void utils.fatturazioneGuidata.passi.invalidate({ commessaId: esito.commessaId });
+      void utils.fatturazioneGuidata.daFare.invalidate();
+      setDaEliminare(null);
+      if (selezionata === esito.id) setSelezionata(null);
+      toast.success("Bozza eliminata");
       onCambiato?.();
     },
     onError: e => toast.error(e.message),
@@ -192,7 +208,7 @@ export default function FatturaTab({
             const badge = badgeStatoFattura(f.stato, f.inviataDryRun);
             const scelta = f.id === selezionata;
             return (
-              <li key={f.id} className="min-w-0">
+              <li key={f.id} className="flex min-w-0 items-stretch gap-1">
                 <button
                   type="button"
                   aria-current={scelta ? "true" : undefined}
@@ -221,6 +237,20 @@ export default function FatturaTab({
                     {formatCent(f.totaleCent)}
                   </span>
                 </button>
+                {q.data.puoDraft && f.ficDocumentId == null && (f.stato === "bozza" || f.stato === "annullata" || f.stato === "in_emissione") && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-11 w-11 shrink-0 text-danger hover:text-danger hover:bg-danger-soft"
+                    aria-label={`Elimina ${f.tipo === "nota_credito" ? "la nota di credito" : "la bozza"} #${f.id}`}
+                    title="Elimina definitivamente"
+                    disabled={elimina.isPending}
+                    onClick={() => setDaEliminare(f.id)}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                )}
               </li>
             );
           })}
@@ -238,6 +268,16 @@ export default function FatturaTab({
       ) : (
         editor
       )}
+      <ConfirmDialog
+        open={daEliminare != null}
+        onOpenChange={aperto => { if (!aperto) setDaEliminare(null); }}
+        title="Eliminare definitivamente?"
+        description="La bozza sparisce dal CRM con righe, scadenze e cronologia. Non tocca Fatture in Cloud: si può eliminare solo ciò che non è mai uscito dal CRM."
+        confirmLabel="Elimina"
+        cancelLabel="Resta"
+        busy={elimina.isPending}
+        onConfirm={() => { if (daEliminare != null) elimina.mutate({ id: daEliminare }); }}
+      />
     </div>
   );
 }

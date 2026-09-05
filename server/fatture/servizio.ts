@@ -1010,6 +1010,31 @@ function parole(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9àèéìòù]+/g, " ").trim().split(" ").filter(Boolean).sort().join(" ");
 }
 
+/**
+ * Cancellazione definitiva di una fattura mai uscita dal CRM: bozza,
+ * annullata, o emissione ferma prima del documento su Fatture in Cloud.
+ * Tutto il resto (documento FiC creato, emessa, inviata…) resta: si
+ * corregge con la nota di credito. Conferma umana a carico della UI
+ * (CLAUDE.md: cancellazioni definitive).
+ */
+export async function eliminaBozza(
+  input: { sedeId: number; id: number; actorUserId: number | null } & Dipendenze
+): Promise<{ id: number; commessaId: number }> {
+  const repository = repo(input);
+  const fattura = await repository.perId(input.sedeId, input.id);
+  if (!fattura) throw new Error("NOT_FOUND: Fattura non trovata.");
+  const eliminabile =
+    fattura.ficDocumentId == null &&
+    (fattura.stato === "bozza" || fattura.stato === "annullata" || fattura.stato === "in_emissione");
+  if (!eliminabile) {
+    throw new Error(
+      `FATTURA_IMMUTABILE: la fattura #${fattura.id} è in stato «${fattura.stato}»${fattura.ficDocumentId != null ? " con un documento su Fatture in Cloud" : ""}: non si cancella, si corregge con una nota di credito.`
+    );
+  }
+  await repository.elimina(input.sedeId, input.id);
+  return { id: fattura.id, commessaId: fattura.commessaId };
+}
+
 // ── Annullamento ────────────────────────────────────────────────────────
 
 export async function annullaBozza(

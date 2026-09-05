@@ -27,6 +27,7 @@ import { sdiDryRun } from "../fatture/dryRun";
 import {
   aggiornaBozza as aggiornaBozzaServizio,
   annullaBozza as annullaBozzaServizio,
+  eliminaBozza as eliminaBozzaServizio,
   creaBozza as creaBozzaServizio,
   fatturePerCommessa,
   leggiFattura,
@@ -343,6 +344,27 @@ export const fattureRouter = router({
           selezione: input.selezione,
           motivo: input.motivo,
         });
+      } catch (errore) {
+        erroreServizioComeTrpc(errore);
+      }
+    }),
+
+  /** Cancellazione definitiva di una bozza (o annullata, o emissione ferma senza documento FiC): la UI chiede conferma. */
+  elimina: procedura
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("limiti");
+      const sedeId = sedeCorrente(ctx);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "fatture.elimina",
+        capability: "fattura.draft",
+        resourceType: "fattura",
+        resource: { sedeId },
+        legacyAllowed: "capability",
+      });
+      try {
+        return await eliminaBozzaServizio({ sedeId, id: input.id, actorUserId: ctx.user.id });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
       }

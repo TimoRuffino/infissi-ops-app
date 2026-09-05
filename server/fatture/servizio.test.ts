@@ -21,6 +21,7 @@ import { createMemoryFattureRepository, type FattureRepository, type FatturaPers
 import {
   aggiornaBozza,
   annullaBozza,
+  eliminaBozza,
   creaBozza,
   fatturePerCommessa,
   leggiFattura,
@@ -1482,6 +1483,38 @@ describe("validaPerEmissione — doppione sospetto dalle fatture FiC sincronizza
     expect(diverso.controlli.some(c => c.codice === "doppione_fic_sospetto")).toBe(false);
     const vecchia = await validaPerEmissione(SEDE, fattura.id, fic([{ numero: "12", data: "2025-01-10", clienteNome: nome, importoLordo: lordo, commessaId: null }]));
     expect(vecchia.controlli.some(c => c.codice === "doppione_fic_sospetto")).toBe(false);
+  });
+});
+
+describe("eliminaBozza — cancellazione definitiva di ciò che non è mai uscito dal CRM", () => {
+  it("bozza e annullata si eliminano con righe ed eventi; emessa e altra sede no", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await expect(
+      eliminaBozza({ sedeId: ALTRA_SEDE, id: fattura.id, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow("NOT_FOUND: Fattura non trovata.");
+
+    const esito = await eliminaBozza({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, ...dip() });
+    expect(esito).toEqual({ id: fattura.id, commessaId });
+    expect(await repository.perId(SEDE, fattura.id)).toBeNull();
+    expect(await repository.eventi(SEDE, fattura.id)).toEqual([]);
+    expect((await fatturePerCommessa(SEDE, commessaId, dip())).map(f => f.id)).not.toContain(fattura.id);
+
+    // Annullata: si elimina. Emessa (o con documento FiC): mai.
+    const { fattura: seconda } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await annullaBozza({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, motivo: null, ...dip() });
+    await eliminaBozza({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, ...dip() });
+    expect(await repository.perId(SEDE, seconda.id)).toBeNull();
+
+    const { fattura: terza } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await repository.aggiornaStato({ sedeId: SEDE, id: terza.id, patch: { stato: "in_emissione", ficDocumentId: 4242 }, now: ora });
+    await expect(
+      eliminaBozza({ sedeId: SEDE, id: terza.id, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
+    await repository.aggiornaStato({ sedeId: SEDE, id: terza.id, patch: { stato: "emessa", numero: "1/2026" }, now: ora });
+    await expect(
+      eliminaBozza({ sedeId: SEDE, id: terza.id, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
   });
 });
 

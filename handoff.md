@@ -3697,7 +3697,12 @@ dal vivo della lettura del contratto (`scripts/eval-contratti-reali.ts`,
 casi in `server/contratti/eval/casi-reali/` gitignored: 95/111 campi, 100 %
 sui blocchi tabellari WnD), schema strict che accetta `pagina: 0` (prima
 buttava via la lettura), pattuito lordo/imponibile «da confermare» con IVA
-22 % nel preventivo. Runbook della prova: PostgreSQL locale per il ledger
+22 % nel preventivo. **Eliminazione delle bozze** (richiesta della direzione
+05/09 notte): `fatture.elimina` (fattura.draft) cancella per sempre una
+fattura mai uscita dal CRM (bozza, annullata, emissione ferma senza
+documento FiC) con righe, riepilogo, scadenze ed eventi; cestino con
+conferma sulle righe dell'elenco nel tab Fattura. Con un documento FiC
+creato non si cancella: nota di credito. Runbook della prova: PostgreSQL locale per il ledger
 (`docker run … postgres:16`), `EVAL_CONTRATTI_REALE=on TARS_PROVIDER=openai
 FLAG_TARS=on FLAG_CONTRATTO_ESTRAZIONE=on FLAG_DOCUMENT_INTELLIGENCE=on` +
 budget `TARS_*` + `OPENAI_API_KEY`; la chiave della launch config demo è

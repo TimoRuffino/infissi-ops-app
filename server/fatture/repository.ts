@@ -119,6 +119,8 @@ export type FattureRepository = {
     now: Date;
   }): Promise<Fattura>;
   perId(sedeId: number, id: number): Promise<Fattura | null>;
+  /** Cancella per sempre una fattura mai uscita dal CRM (righe, riepilogo, scadenze ed eventi compresi). Torna false se non c'è nella sede. Chi chiama ha già verificato lo stato. */
+  elimina(sedeId: number, id: number): Promise<boolean>;
   perCommessa(sedeId: number, commessaId: number): Promise<Fattura[]>; // più recente prima
   perFicDocumentId(sedeId: number, ficDocumentId: number): Promise<Fattura | null>;
   /** Le fatture della sede il cui `ficDocumentId` è in elenco, senza righe e SENZA tetto: la mappa CRM↔FiC del sync deve coprirle tutte (Ruling R37). */
@@ -247,6 +249,13 @@ export function createMemoryFattureRepository(): FattureRepository {
     async perId(sedeId, id) {
       const f = trova(sedeId, id);
       return f ? clona(f) : null;
+    },
+    async elimina(sedeId, id) {
+      const f = trova(sedeId, id);
+      if (!f) return false;
+      fatture.delete(id);
+      for (let i = eventi.length - 1; i >= 0; i--) if (eventi[i].fatturaId === id) eventi.splice(i, 1);
+      return true;
     },
     async perCommessa(sedeId, commessaId) {
       return [...fatture.values()]
@@ -758,6 +767,19 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       if (!rows[0]) return null;
       const figli = await caricaFigli(id);
       return rowToFattura(rows[0], figli.righe, figli.riepilogo, figli.scadenze);
+    },
+    async elimina(sedeId, id) {
+      return sql.begin(async tx => {
+        const rows = await tx`SELECT id, commessa_id FROM fatture WHERE sede_id = ${sedeId} AND id = ${id}`;
+        if (rows.length === 0) return false;
+        await tx`DELETE FROM fattura_eventi WHERE fattura_id = ${id}`;
+        await tx`DELETE FROM fattura_righe WHERE fattura_id = ${id}`;
+        await tx`DELETE FROM fattura_riepilogo_iva WHERE fattura_id = ${id}`;
+        await tx`DELETE FROM fattura_scadenze WHERE fattura_id = ${id}`;
+        await tx`DELETE FROM fatture WHERE sede_id = ${sedeId} AND id = ${id}`;
+        toccaFattureCommessa(sedeId, Number(rows[0].commessa_id));
+        return true;
+      });
     },
     async perCommessa(sedeId, commessaId) {
       await ensureSchema();
