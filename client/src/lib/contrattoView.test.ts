@@ -128,6 +128,7 @@ const rigaProposta = (patch: Partial<RigaProposta> = {}): RigaProposta => ({
   prezzoTotCent: campo<number | null>(null),
   oscuranteIntegrato: campo<OscuranteIntegrato | null>(null),
   oscuranteTipologia: campo<string | null>(null),
+  quotaOscuranteCent: null,
   accessori: [],
   beneSignificativo: true,
   note: null,

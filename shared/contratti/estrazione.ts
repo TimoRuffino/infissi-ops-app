@@ -34,6 +34,16 @@ export type RigaProposta = {
   prezzoTotCent: CampoProposto<number | null>;
   oscuranteIntegrato: CampoProposto<OscuranteIntegrato | null>;
   oscuranteTipologia: CampoProposto<string | null>;
+  /**
+   * Quanto del `prezzoTotCent` viene dall'oscurante fuso da una riga a sé
+   * (D-E, P3-R36): `null` quando non c'è stato nessun abbinamento. Non è un
+   * campo del contratto — non entra in `RigaContrattoInput` — ma senza di
+   * esso chi RISCRIVE il prezzo della riga (l'arricchimento dal layout WnD)
+   * cancella la quota e lascia una riga che promette un oscurante fuori dal
+   * prezzo. Le proposte salvate prima di questo campo non lo hanno: chi
+   * legge tratta l'assenza come zero.
+   */
+  quotaOscuranteCent: number | null;
   accessori: Array<{ codice: string; quantita: number; etichetta: string }>;
   beneSignificativo: boolean;
   note: string | null;

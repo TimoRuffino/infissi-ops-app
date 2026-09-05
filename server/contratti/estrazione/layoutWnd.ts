@@ -169,6 +169,24 @@ function punteggio(descrizione: string, nome: string): number {
   return comuni + contenuto;
 }
 
+/**
+ * P3-R36: il blocco del layout prezza il SOLO serramento. Se la riga si è
+ * già presa la quota di un oscurante elencato a parte (D-E,
+ * `abbinaOscuranti`), quella quota va risommata: riscrivere il prezzo e
+ * basta lascerebbe `oscuranteIntegrato` a promettere una persiana che nel
+ * prezzo non c'è più, e la somma delle righe non tornerebbe col pattuito.
+ * Il prezzo composto resta «da verificare» con la sua nota: certo è il
+ * numero del documento, non la somma che questo codice ne ricava.
+ */
+function prezzoArricchito(riga: RigaProposta, blocco: BloccoWnd) {
+  const quota = riga.quotaOscuranteCent ?? 0;
+  if (quota === 0) return campo<number | null>(blocco.prezzoTotCent, blocco.evidenza, { daVerificare: false });
+  return campo<number | null>(blocco.prezzoTotCent + quota, blocco.evidenza, {
+    daVerificare: true,
+    nota: riga.prezzoTotCent.nota,
+  });
+}
+
 function rigaArricchita(riga: RigaProposta, blocco: BloccoWnd): RigaProposta {
   const certo = { daVerificare: false };
   return {
@@ -177,7 +195,7 @@ function rigaArricchita(riga: RigaProposta, blocco: BloccoWnd): RigaProposta {
       blocco.larghezzaMm != null ? campo<number | null>(blocco.larghezzaMm, blocco.evidenza, certo) : riga.larghezzaMm,
     altezzaMm: blocco.altezzaMm != null ? campo<number | null>(blocco.altezzaMm, blocco.evidenza, certo) : riga.altezzaMm,
     quantita: campo(blocco.quantita, blocco.evidenza, certo),
-    prezzoTotCent: campo<number | null>(blocco.prezzoTotCent, blocco.evidenza, certo),
+    prezzoTotCent: prezzoArricchito(riga, blocco),
   };
 }
 

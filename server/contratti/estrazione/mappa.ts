@@ -905,6 +905,11 @@ export function abbinaOscuranti(
           serramento.prezzoTotCent.evidenza,
           { daVerificare: true, nota: `comprende ${categoria} (€ ${euroTesto(quota)})` }
         );
+        // P3-R36: la quota resta scritta sulla riga, non solo sommata. Chi
+        // riscrive il prezzo dopo di qui (l'arricchimento dal layout WnD)
+        // la ritrova e la somma di nuovo, invece di cancellarla lasciando
+        // `oscuranteIntegrato` a promettere una persiana fuori dal prezzo.
+        serramento.quotaOscuranteCent = (serramento.quotaOscuranteCent ?? 0) + quota;
       }
       serramento.note = unisci(serramento.note, `${categoria} abbinata (€ ${euroTesto(quota)})`);
 
@@ -1041,6 +1046,10 @@ function costruisciRiga(
         (oscurante != null && (sceltaOscuranteRiga?.codice == null || notaOscurante != null)) || evidenza == null,
       nota: notaOscurante,
     }),
+    // L'oscurante dichiarato dal modello sulla riga è già dentro al prezzo
+    // della riga: nessuna quota da ricordare (la valorizza `abbinaOscuranti`
+    // quando fonde una riga oscurante a sé).
+    quotaOscuranteCent: null,
     accessori,
     beneSignificativo: tariffe.beneSignificativoDefault[categoria],
     note: nonRiconosciute.length > 0 ? `accessori da verificare: ${nonRiconosciute.join(", ")}` : null,

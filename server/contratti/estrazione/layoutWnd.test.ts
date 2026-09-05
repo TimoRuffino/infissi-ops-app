@@ -206,3 +206,82 @@ describe("arricchisciDaLayoutWnd", () => {
     expect(JSON.parse(JSON.stringify(originale))).toEqual(copia);
   });
 });
+
+// ── I2/P3-R36: la quota dell'oscurante abbinato sopravvive all'arricchimento ─
+//
+// `abbinaOscuranti` (D-E) fonde nella riga della finestra il prezzo della
+// persiana elencata a parte. L'arricchimento riscriveva il prezzo con quello
+// del blocco WnD — che la persiana non la comprende — e la quota spariva,
+// mentre `oscuranteIntegrato` restava: la riga prometteva una persiana fuori
+// dal prezzo, e la somma delle righe non tornava più col pattuito.
+
+const RIGHE_WND_CON_PERSIANA = [
+  "Konfortline - Preventivo n. 900 del 12/03/2026",
+  "Cliente: Rossi Mario",
+  "",
+  "1. Rif. Stanza: Cucina",
+  "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
+  "Larghezza 1400 mm Altezza 1300 mm",
+  "Riepilogo",
+  "Finestra 2 ante 2.400,00 € 0,00 € 1 0,00 € (0%) 2.400,00 €",
+  "",
+  "Riepilogo Costi",
+  "Prodotto Prezzo unit. Installazione Quantità Sconto Totale",
+  "Finestra 2 ante 2.400,00 € 0,00 € 1 0,00 € (0%) 2.400,00 €",
+  "Persiana in alluminio 600,00 € 0,00 € 1 0,00 € (0%) 600,00 €",
+  "Totale IVA Esc. 3.000,00 €",
+];
+
+describe("arricchisciDaLayoutWnd — oscurante abbinato (P3-R36)", () => {
+  const pagine = [RIGHE_WND_CON_PERSIANA.join("\n")];
+  const esitoConPersiana: EsitoModello = {
+    ...ESITO_INCERTO,
+    righe: [
+      riga({
+        descrizione: "Finestra 2 ante in PVC Konfortline bianco",
+        larghezzaMm: 1400,
+        altezzaMm: 1300,
+        // Prezzo letto male dal modello: il layout lo corregge a 2.400,00.
+        prezzoTotale: 2000,
+        frammento: "Prodotto: Finestra 2 ante in PVC Konfortline bianco",
+      }),
+      riga({
+        descrizione: "Persiana in alluminio",
+        tipoProdotto: "persiana",
+        materiale: "alluminio",
+        larghezzaMm: 1400,
+        altezzaMm: 1300,
+        prezzoTotale: 600,
+        frammento: "Persiana in alluminio 600,00",
+      }),
+    ],
+    posa: { inclusa: false, prezzo: null, descrizione: null, pagina: 1, frammento: "" },
+  };
+  const proposta = costruisciProposta(esitoConPersiana, { ...CONTESTO, pagine }, false);
+  const arricchita = arricchisciDaLayoutWnd(pagine, proposta);
+
+  it("l'abbinamento fonde la quota nella riga della finestra", () => {
+    expect(proposta.righe).toHaveLength(1);
+    expect(proposta.righe[0].oscuranteIntegrato.valore).toBe("persiana");
+    expect(proposta.righe[0].quotaOscuranteCent).toBe(60000);
+    expect(proposta.righe[0].prezzoTotCent.valore).toBe(260000);
+  });
+
+  it("il prezzo del layout si somma alla quota, non la cancella", () => {
+    const finestra = arricchita.righe[0];
+    expect(finestra.prezzoTotCent.valore).toBe(300000);
+    expect(finestra.oscuranteIntegrato.valore).toBe("persiana");
+    expect(finestra.quotaOscuranteCent).toBe(60000);
+    // Il prezzo non è più solo quello letto nel documento: resta da
+    // verificare, con la nota che dice cosa comprende.
+    expect(finestra.prezzoTotCent.daVerificare).toBe(true);
+    expect(finestra.prezzoTotCent.nota).toContain("persiana");
+    expect(finestra.prezzoTotCent.evidenza?.frammento).toContain("2.400,00");
+  });
+
+  it("la somma delle righe torna col pattuito del documento", () => {
+    expect(arricchita.pattuitoCent.valore).toBe(300000);
+    const somma = arricchita.controlli.find(c => c.codice === "righe_vs_pattuito");
+    expect(somma?.esito).toBe("ok");
+  });
+});

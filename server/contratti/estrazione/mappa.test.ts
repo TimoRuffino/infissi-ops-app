@@ -74,6 +74,7 @@ function rigaProposta(p: {
     prezzoTotCent: campoTest(p.prezzoTotCent),
     oscuranteIntegrato: campoTest(null),
     oscuranteTipologia: campoTest<string | null>(null),
+    quotaOscuranteCent: null,
     accessori: [],
     beneSignificativo: true,
     note: null,
