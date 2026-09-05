@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026).
-**Versione:** 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026, fasi 1-2 dello studio sui dati reali).
+**Versione:** 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -1317,6 +1317,7 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 ---
 
 ## 33. Cronologia significativa
+- **v5.42 (06/09/2026)** - **Studio sui dati reali, fasi 1 e 2** (ramo `feature/fatture-come-la-commercialista`, commit `e1a696f` e `5d3916c`; spec `docs/superpowers/specs/2026-09-05-studio-fatture-reali.md` §7-§8). **Fase 1, il motore su tutti i fogli del backup** (94 fogli «CALCOLO NUOVI LIMITI» 2022-2026 sulla scrivania della direzione, mai nel repository): tariffe a **edizioni** (`tariffeEdizione`: `corrente` = prezzario II 2022 usato anche nel 2026, `2023-i` = Ver.31/32 DEI 1° semestre 2023, `2022-ver27`; seed estratti dai fogli maestri; il CRM calcola sempre con «corrente»), **prezzi del singolo foglio** registrati nel caso (`tariffeFoglio`: le copie compilate ritoccano a mano sviluppo ordine, spese minime, €/mc dello smaltimento), finestre da tetto nel blocco PVC senza minimo né accessori, piano «T» riprodotto. `casi-reali.json` passa da 20 a **77 casi**, **67 al centesimo** (corrente 28/31, 2023-i 35/42, 2022-ver27 4/4), 10 saltati con motivo (avvolgibili nei fogli 2023 a +60-67 € il pezzo, schermature a pezzo, una riga alluminio+persiana, doppio prezzo). **Fase 2, le regole di fattura**: 29 fogli 2025-2026 con la colonna «Da fattura» abbinati alla fattura vera su Fatture in Cloud (201 fatture 2025 lette con le righe, più le 131 del 2026); su 21 lavori su 22 l'identità torna al centesimo: **il prezzo di contratto dei beni resta intero**, diviso in riga bene al 22 % (cifra tonda, mediana 85 %) e markup / servizi di vendita al 10 %; **i servizi prendono il residuo** e, quando non basta, restano ai limiti sviluppo ordine, posa, progettazione, rilievo, protezione, tiro al piano mentre spariscono assistenza muraria (14 fatture su 18), smaltimento e rimozione. Il bilanciamento «beni prima» del 05/09 notte era una lettura sbagliata della fattura 129. `bilancia` ora: `QUOTA_BENI_SIGNIFICATIVI` 85 % ai 10 €, `ORDINE_SERVIZI_DA_TENERE`, voci che non ci stanno tolte dalla bozza con avvertenza, beni ridotti solo se il pattuito non copre il contratto, nessuna quota senza detrazione; replay: imponibile uguale alla fattura vera in 18 lavori su 22, servizi uguali in 13. Corretti insieme: il classificatore del confronto con la fattura vera riconosce le righe bene dalla prima riga del testo (le persiane con «Posa su cardini» finivano fra i servizi) e «Riequilibra i beni» non lascia più il markup a −0,01 sul lordo. Suite: 240 file passati e 9 saltati, **2.511 test passati e 53 saltati** (2.564); `pnpm check` e build puliti.
 - **v5.41 (06/09/2026)** - **Fatturazione guidata su `main` e il passo Fattura che si spiega da solo.** Il piano 4 (§58) è su `main` dal 05/09 sera (7 task, review finale e tre giri di fix su `feature/fatturazione-guidata`, push fast-forward `f3b551b`→`6570317` su istruzione della direzione, verifica browser rimandata): `/fatturazione` elenca le commesse da fatturare, `/fatturazione/:id` è il percorso Documenti → Contratto → Limiti → Fattura, le tre tab della scheda commessa sono riassunti in sola lettura con «Apri fatturazione». Sopra, la UX del passo Fattura e dei rimandi del processo (§59; commit `2a704b8`, `bb75931`, `85ed99b`, rebase sopra il piano 4): il percorso interno della fattura — bozza → controlli → emissione → SdI — deciso da `passiFattura` (pura, provata) e disegnato da `FatturaPercorso`; ogni controllo di emissione ha il pulsante che porta dove si sistema (`azionePerControllo`: anagrafica, Impostazioni `#fatturazione`, passo Limiti, campo con scorrimento e fuoco, dialogo di riequilibrio) e l'editor apre con «Prima di emettere: N cose da risolvere»; «Genera bozza dai limiti» dice perché è spento e linka il passo mancante; banner «Invio allo SdI in prova»; riepilogo che sa quando le righe sono cambiate («Ricalcola e salva»); «Ridistribuisci dalle quote» sulle scadenze (`distribuisciScadenze`, al centesimo, resto sull'ultima); diciture con titolo e testo, tipi di riga per esteso, «significativo» e limite come badge; cronologia dell'emessa in parole e in euro (`descriviEvento`); Impostazioni → Fatturazione con i cinque requisiti dell'emissione in cima; «Da fare oggi» con «Prepara la fattura» / «Completa la bozza» da `fatturazioneGuidata.daFare` (prossimo passo scritto, pulsante sul percorso); «Vai alla fattura» nella card Pagamenti; `?tab=` sull'URL della scheda commessa; `hrefPasso` come unica forma dell'URL di un passo. La tab in sola lettura non chiede più contratto e computo. **Non verificato a schermo**: il demo locale non aveva una sessione e il controller non inserisce credenziali — verifica 1440×900 e 390×844 rimandata, come per il piano 4. Suite: 240 file passati e 9 saltati, **2.473 test passati e 50 saltati** (2.523); `pnpm check` e build puliti (solito avviso `dist/index.js` 3,1 MB).
 - **v5.40 (05/09/2026)** - **Fixture d'oro del motore limiti dai fogli reali, due bug corretti, piano 4 pianificato** (Ruling R22 del piano 2). Su `feature/fixture-limiti-reali` (commit `5690958`, `f7b713b`, `eced152`, `528a59c`, `ea06ec2`), **non ancora integrato su `main`**. Nuovo `scripts/harvest-fixture-limiti.py`: un solo comando trasforma una copia compilata del foglio «CALCOLO NUOVI LIMITI» in un caso d'oro **anonimo** (legge misure, codici DEI, prezzi di riga, totali e le celle di CHECK1; **non** legge nominativo, indirizzo e comune; il foglio non entra mai nel repository, il caso si chiama come dice `--nome`; un prodotto ignoto ferma lo script invece di indovinare). `server/computo/__fixtures__/casi-reali.json` passa da 3 a **20 casi**: **13 verdi al centesimo**, **7 saltati** col motivo scritto nel campo `salta` di ciascuno — divergenze capite e dichiarate, non tolleranza allargata. L'harvest ha trovato e corretto due bug del motore: **H1**, la maggiorazione dell'avvolgibile abbinato aveva larghezza e altezza scambiate (coefficienti rinominati `avvolgibileExtraLarghezza`/`avvolgibileExtraAltezza`, stesso valore, dimensione giusta); **H2**, un cassonetto venduto insieme al serramento (blocco B del foglio) pesava nel massimale A invece che in B — nuova chiave `cassonettiB` in `aggregati.ts`, che si somma ad A ovunque conti il prodotto (rilievo, rimozione tapparelle, smaltimento, tiro, posa) e non fa posare due volte la tapparella che ospita. **H7** chiuso: il form dichiara l'oscurante abbinato anche su una riga cassonetto e le avvertenze «oscurante senza voce DEI» non scattano più su un cassonetto abbinato senza tipologia propria. Parcheggiate in attesa di direzione o commercialista **H3-H6** (veneziane a pezzo o a mq, cinque fogli su un'edizione precedente del listino DEI, inclusione «solo fatturato» che `OpzioniComputo` non sa rappresentare, doppio prezzo dell'avvolgibile PVC nello stesso foglio); un settimo caso resta fuori senza decisioni da prendere (riga «serramento + persiana» senza prodotto persiana: CHECK2 non calcolabile, fail-closed per progetto). Manca ancora un foglio reale con serramenti in legno. Stesso giorno: **spec e piano del piano 4 «Fatturazione guidata»** (§58, commit `1e5f51d`), scritti e approvati ma **non implementati**, e questo PRD portato a 5.40 con le sezioni §55-§58. Suite: 234 file passati e 9 saltati, **2.350 test passati e 50 saltati** (i saltati sono le suite `*.pg.test.ts`, che girano solo con `DATABASE_URL`, più i 7 casi d'oro dichiarati).
 - **v5.39 (05/09/2026)** - **Lettura del contratto PDF** su `main` (piano 3 di 3, 9 task, `docs/superpowers/plans/2026-09-04-lettura-contratto.md`; tip `d7e0ab5`), dietro il nuovo interruttore fail-closed `FLAG_CONTRATTO_ESTRAZIONE`, che richiede anche `FLAG_LIMITI` e un provider Tars reale (classe di costo `document_intelligence`, modello `TARS_MODEL_ESTRAZIONE_CONTRATTO`). §57. Il modello legge il PDF del contratto firmato e **propone** righe, pattuito, posa, rate e cantiere; nulla viene salvato senza revisione umana. Schema JSON **strict** (`estrazione/schema.ts`, nullable come union con `null`) con `SCHEMA_JSON_ESTRAZIONE` come proiezione dello zod, mai il contrario; input a pagine intere fra marcatori neutralizzati (un documento non può fingere una pagina che non esiste), un solo ritentativo, prompt versionato `1.0.0` con l'impronta della configurazione OCR nella chiave di riuso. Il riuso si decide **prima** di estrarre il testo (OCR e lettura visiva costano) e `estraiTestoDocumento` è chiamato senza lettura visiva: una scansione illeggibile è un errore esplicito, mai una spesa silenziosa. **Mappatura deterministica** (`estrazione/mappa.ts`, il pezzo più delicato): codici DEI **solo dal catalogo**, ogni valore con `{valore, evidenza, daVerificare, nota}` e l'evidenza verificata sul testo vero; natura scorrevole/alzante decisa dal sostantivo più vicino, con l'apertura esplicita del serramento che prevale e lo dichiara; materiale per posizione (primo nominato, avvertenza se più d'uno); oscuranti autonomi fusi nel serramento solo a misure uguali (±10 mm) e pezzi sufficienti, altrimenti righe a sé con avvertenza; accessori solo da etichette note; posa per parole chiave solo su righe senza misure. Arricchimento facoltativo dal layout WnD (riconoscimento su «Riepilogo Costi», poi totali e termini di pagamento) che riscrive numeri con evidenza certa senza cancellare la quota dell'oscurante già fusa. `contratto_estrazioni` idempotente per documento e versione di prompt; `applicaEstrazione` scrive **solo** tramite `salvaContratto`, con stato e timeline in try/catch (un loro errore è un'avvertenza, mai un contratto scomparso); `eseguiEstrazioneContratto` è fail-closed da solo, non si fida del router. Router `estrazioniContratto` (`stato`, `esegui`, `applica`, `scarta`) con sede verificata anche sullo scarto; nessuna capability nuova (riusa `contratto.read`/`contratto.manage`). UI: dialog «Leggi il contratto» con evidenze, note del lettore e revisione inline; «Compila a mano» sempre disponibile quando la lettura non è configurata. Eval `pnpm eval:contratti` su tre fixture sintetiche (WnD, Word, scansione) senza rete, chiamata reale solo con `EVAL_CONTRATTI_REALE=on` **e** provider realmente disponibile; `server/contratti/eval/casi-reali/` resta vuota, quindi l'eval misura parser e mappatura, non l'accuratezza reale del modello. Ruling P3-R1…P3-R42 nel ledger del piano. `pnpm check` pulito; suite 234 file passati e 9 saltati (243), **2.332 test passati e 43 saltati** (2.375); build con l'unico avviso noto (`dist/index.js` 3,1 MB). Fuori taglio: nessuno strumento Tars, nessun formato diverso dal PDF, nessuna applicazione automatica.
@@ -2867,15 +2868,25 @@ rivaluta a ogni tappa e senza scavalco si ferma dicendo che manca il
   Questo documento non attesta lo stato del flag in un ambiente esterno.
 
 ### 55.7 Fixture d'oro dai fogli reali
-`server/computo/__fixtures__/casi-reali.json` contiene **20 casi**: i 3
-storici del 03/09 più 17 ricavati il 05/09 dai fogli «CALCOLO NUOVI LIMITI»
-compilati a mano nel 2026. **13 sono verdi al centesimo**; **7 sono saltati**
-con il motivo scritto nel campo `salta` di ciascun caso — divergenze capite e
-dichiarate, non tolleranza allargata.
+`server/computo/__fixtures__/casi-reali.json` contiene **77 casi** (dal
+06/09/2026, fase 1 dello studio sui dati reali): i 3 storici del 03/09, 17
+ricavati il 05/09 dai fogli 2026 e 57 dai fogli 2022-2025 del backup del NAS.
+**67 sono verdi al centesimo** (edizione `corrente` 28/31, `2023-i` 35/42,
+`2022-ver27` 4/4); **10 sono saltati** con il motivo scritto nel campo
+`salta` di ciascun caso — divergenze capite e dichiarate, non tolleranza
+allargata (tre fogli 2023 hanno i massimali a 1-2 € su ~10.000: tolleranza
+dichiarata nel caso, non salto). Ogni caso porta l'**edizione** del listino
+(`tariffeEdizione`: `corrente` = prezzario II 2022, usato anche nel 2026;
+`2023-i` = Ver.31/32 sul DEI 1° semestre 2023; `2022-ver27`) e i **prezzi
+del singolo foglio** (`tariffeFoglio`: colonna E di CHECK1 e €/mc dello
+smaltimento), perché le copie compilate ritoccano a mano sviluppo ordine,
+spese minime e smaltimento e nessuna edizione le riproduce da sola. Il CRM
+calcola sempre con «corrente»: le edizioni servono a riprodurre i computi
+passati.
 
 Un caso si rigenera con
 `python3 scripts/harvest-fixture-limiti.py <foglio.xlsm> --nome <nome>
---detrazione ecobonus|ristrutturazione`: lo script stampa il caso JSON su
+--detrazione ecobonus|ristrutturazione [--edizione corrente|2023-i|2022-ver27]`: lo script stampa il caso JSON su
 stdout e i dubbi su stderr, legge solo misure, codici DEI, prezzi di riga e
 totali, e **non legge** le celle con nominativo, indirizzo e comune. I fogli
 non entrano mai nel repository e il caso si chiama come dice `--nome`.
@@ -2886,14 +2897,17 @@ commercialista — finché non arrivano, i casi che le toccano restano `salta`:
 | | Divergenza |
 |---|---|
 | H3 | le veneziane del blocco D sono contate a pezzo nel foglio, a mq nel seed |
-| H4 | cinque fogli vengono da un'edizione precedente del listino DEI (44 prezzi diversi dal seed, che è a versione unica) |
+| H4 | chiuso il 06/09: le edizioni precedenti del listino sono seed a sé (`tariffeEdizione`) |
 | H5 | nei totali il foglio somma solo le opere davvero fatturate (colonna «Da fattura»), il motore un insieme fisso: `OpzioniComputo` non sa escludere una singola opera |
 | H6 | lo stesso foglio prezza l'avvolgibile PVC standard a due prezzi diversi (111,11 €/mq nel primo blocco, 110,63 dal secondo in poi) |
 
-Un settimo caso resta fuori senza decisioni da prendere: una riga dichiarata
+Un altro caso resta fuori senza decisioni da prendere: una riga dichiarata
 «serramento + persiana» senza prodotto persiana scelto rende CHECK2 non
-calcolabile — fail‑closed per progetto. Resta da raccogliere un foglio reale
-con serramenti **in legno**: nessuno dei 19 ne usava.
+calcolabile — fail‑closed per progetto. Dalla fase 1 restano da indagare gli
+avvolgibili nei fogli 2023 (ogni pezzo vale 60-67 € in più nel foglio:
+formula o accessorio del blocco B di quell'edizione), una riga alluminio con
+persiana a +653,80 € e le schermature prezzate a pezzo (H3); i sei fogli
+Ver.9 del 2022 hanno un altro layout e restano fuori per decisione.
 
 ### 55.8 Fuori taglio e debito
 - Tariffe modificabili con validità dalla UI (D10): il pannello è in sola
@@ -2950,11 +2964,13 @@ servizi, **M** markup, **P = N + S + M** (prestazione).
 - Pattuito `lordo`: ipotesi B > P → `P = (G − 1,22·B) / 0,98`; se P ≥ B
   l'ipotesi cade → `P = G / 1,10 − B`. Poi `M = P − N − S`.
 - **M è sempre derivato**, mai un input. Con `M < 0` la bozza resta salvabile
-  ma non emettibile (`markup_negativo`): la prassi della commercialista è
-  **abbassare i beni**, non tagliare i servizi, e il pulsante «Riequilibra i
-  beni» scala le righe dei beni significativi in proporzione fino al markup
+  ma non emettibile (`markup_negativo`). Il pulsante «Riequilibra i beni»
+  scala le righe dei beni significativi in proporzione fino al markup
   desiderato (default 0) — arrotondamento cumulativo, somma sempre esatta al
-  target, righe mai negative, scarto ≤ 1 centesimo a riga.
+  target, righe mai negative, scarto ≤ 1 centesimo a riga; col pattuito lordo
+  il centesimo dell'IVA mista si toglie ai beni, così il markup non resta
+  mai sotto il desiderato (dal 06/09/2026). La prassi vera della
+  commercialista è in §56.3: beni a contratto, servizi al residuo.
 - Tutto in centesimi; imposta per aliquota con arrotondamento half‑up. Se il
   totale non coincide con G si cercano P ± 1…3 centesimi, altrimenti resta uno
   scarto dichiarato che l'operatore accetta.
@@ -2963,10 +2979,26 @@ servizi, **M** markup, **P = N + S + M** (prestazione).
 Dalla commessa con computo valido, funzione pura:
 - riga `intestazione` («Fattura per la prossima fornitura e posa di:» +
   categorie dal contratto);
-- una riga **bene** per riga di contratto, aliquota 22 %;
+- una riga **bene** per riga di contratto: al 22 % se significativa, al
+  10 % se autonoma (persiane, tapparelle, zanzariere, grate, tende: stanno
+  nella prestazione, dal 05/09/2026);
 - una riga **servizio** per ogni voce di computo con limite > 0, importo
   proposto = limite arrotondato all'euro **mai per eccesso**, aliquota 10 %,
   con il limite scritto sulla riga;
+- **bilanciamento** (`bilancia`, dal 06/09/2026, fase 2 dello studio: identità
+  al centesimo su 21 fatture vere su 22): il prezzo di contratto dei beni
+  significativi resta intero ma diviso in due — la riga bene al 22 % vale
+  `QUOTA_BENI_SIGNIFICATIVI` (85 %, ai 10 €, in proporzione fra le righe) e il
+  resto è il markup al 10 %; **i servizi prendono il residuo** (pattuito −
+  beni − beni autonomi − spese): se copre i limiti restano ai limiti e il
+  markup cresce, se no si tengono ai limiti le voci in
+  `ORDINE_SERVIZI_DA_TENERE` (sviluppo ordine, progettazione, rilievo,
+  protezione, posa, tiro al piano, trasporto, pulizia, rimozione tapparelle,
+  rimozione serramenti, smaltimento, assistenza muraria, eventuali), la voce
+  che non ci sta prende quel che resta e le successive escono dalla bozza con
+  avvertenza; i beni scendono solo se il pattuito non copre il contratto;
+  senza detrazione nessuna quota. Il seam `bilancia: false` dà la proposta
+  grezza (beni a contratto, servizi ai limiti);
 - riga **markup** «MarkUp servizi di vendita» al 10 %, dal risolutore;
 - coppia **storno/riaddebito** dei beni significativi (−Q al 22 %, +Q al 10 %);
 - riga **spese di documentazione**: è un **bene al 22 %** (non un servizio),
