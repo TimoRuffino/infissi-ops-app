@@ -147,11 +147,15 @@ export default function FatturazioneCommessa() {
   // Alla prima lettura, o quando l'URL chiede un passo che i prerequisiti
   // non permettono ancora, il passo calcolato finisce nell'URL: da lì in poi
   // è l'URL a comandare, e un passo che si chiude mentre lo si guarda non
-  // sposta più l'operatore da solo.
+  // sposta più l'operatore da solo. Mentre `passiQ` sta rileggendo
+  // (`isFetching`) `record` può essere ancora lo snapshot precedente al
+  // cambiamento appena fatto: si aspetta che il refetch arrivi prima di
+  // decidere, altrimenti un salvataggio riporterebbe l'operatore sul passo
+  // appena lasciato.
   useEffect(() => {
-    if (!record || passoUrl === corrente) return;
+    if (!record || passoUrl === corrente || passiQ.isFetching) return;
     setLocation(hrefPasso(commessaId, corrente), { replace: true });
-  }, [passoUrl, corrente, record, commessaId, setLocation]);
+  }, [passoUrl, corrente, record, passiQ.isFetching, commessaId, setLocation]);
 
   // Il passo Contratto intercetta ogni uscita mentre ha modifiche non
   // salvate (ruling P4-R7): la pagina tiene lo stato, `ContrattoTab` si
@@ -166,11 +170,16 @@ export default function FatturazioneCommessa() {
   const naviga = (passo: PassoFatturazione) =>
     setLocation(hrefPasso(commessaId, passo), { replace: true });
 
-  /** Uscita dal passo corrente: se è Contratto con modifiche non salvate,
-   * chiede conferma invece di navigare subito. «Salva e avanti» non passa
-   * da qui — chiama `naviga` direttamente perché ha appena salvato con
-   * successo: resta l'unico modo di avanzare col contratto sporco. */
+  /** Uscita dal passo corrente: il passo già attivo torna su se stesso senza
+   * alcun effetto — né dialogo né navigazione (come dice il commento su
+   * `raggiungibile` in `PassiFatturazione.tsx`; il pulsante resta comunque
+   * premibile, solo per l'accessibilità da tastiera). Se invece si cambia
+   * passo e si è su Contratto con modifiche non salvate, chiede conferma
+   * invece di navigare subito. «Salva e avanti» non passa da qui — chiama
+   * `naviga` direttamente perché ha appena salvato con successo: resta
+   * l'unico modo di avanzare col contratto sporco. */
   const vai = (passo: PassoFatturazione) => {
+    if (passo === corrente) return;
     if (corrente === "contratto" && contrattoSporco) {
       setPassoDaConfermare(passo);
       return;
@@ -182,13 +191,19 @@ export default function FatturazioneCommessa() {
     const passo = passoDaConfermare;
     setContrattoSporco(false);
     setPassoDaConfermare(null);
-    if (passo) naviga(passo);
+    // Difesa in profondità: `vai` non propone mai conferma per il passo
+    // corrente, ma se mai divergessero questo evita una navigazione a vuoto.
+    if (passo && passo !== corrente) naviga(passo);
   };
 
-  /** Un passo è cambiato sul server: rileggi questo percorso e l'elenco. */
+  /** Un passo è cambiato sul server: rileggi questo percorso e l'elenco.
+   * Restituisce la Promise dell'invalidazione dei passi (quella dell'elenco
+   * `daFare` resta `void`, non blocca nessuna navigazione): «Salva e
+   * avanti» del contratto la aspetta prima di muoversi, per non navigare su
+   * uno snapshot ancora pre-salvataggio. */
   const segnalaCambio = () => {
-    void utils.fatturazioneGuidata.passi.invalidate({ commessaId });
     void utils.fatturazioneGuidata.daFare.invalidate();
+    return utils.fatturazioneGuidata.passi.invalidate({ commessaId });
   };
 
   // Il riepilogo guarda solo indietro: righe e limite si leggono soltanto
@@ -399,8 +414,15 @@ export default function FatturazioneCommessa() {
                 modalita="guidata"
                 // Bypassa il controllo di `vai`: «Salva e avanti» ha appena
                 // salvato con successo, è l'unico modo di avanzare col
-                // contratto sporco (P4-R7).
-                onAvanti={() => naviga("limiti")}
+                // contratto sporco (P4-R7). Naviga solo dopo che i passi
+                // sono stati riletti dal server: senza aspettare, `record`
+                // sarebbe ancora lo snapshot pre-salvataggio, `passoIniziale`
+                // calcolerebbe di nuovo «contratto» e l'effetto di
+                // riscrittura URL rimbalzerebbe l'operatore indietro.
+                onAvanti={async () => {
+                  await segnalaCambio();
+                  naviga("limiti");
+                }}
                 onCambiato={segnalaCambio}
                 onSporco={setContrattoSporco}
               />

@@ -56,8 +56,10 @@ export default function PassiFatturazione({
           const esito = passi[passo];
           const attivo = passo === corrente;
           // Il passo corrente resta sempre premibile (torna su se stesso,
-          // senza effetti): un pulsante disabilitato sotto `aria-current`
-          // sarebbe un punto morto per chi naviga da tastiera.
+          // senza effetti — lo garantisce `vai` in `FatturazioneCommessa.tsx`,
+          // che esce subito quando il passo richiesto è già quello attivo):
+          // un pulsante disabilitato sotto `aria-current` sarebbe un punto
+          // morto per chi naviga da tastiera.
           const raggiungibile = attivo || passoRaggiungibile(passi, passo);
           return (
             <li key={passo} className="min-w-0 shrink-0 snap-start">
