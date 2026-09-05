@@ -1,24 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
+import type {
+  CategoriaRiga,
+  DetrazioneTipo,
+  OscuranteIntegrato,
+  PattuitoTipo,
+  RataContratto,
+} from "@shared/limiti/tipi";
+import type {
+  CampoProposto,
+  PropostaContratto,
+  RigaProposta,
+} from "@shared/contratti/estrazione";
 import {
   accessoriCompatibili,
   accessoriDisponibili,
   avvisiForm,
   beneSignificativoDefault,
+  campiDaVerificare,
   erroriForm,
   etichettaAccessorio,
   etichettaCategoria,
   etichettaTipologia,
   mqRigaForm,
   opzioniTipologia,
+  parametriDaProposta,
   parametriDaServer,
   parametriVuoti,
   prodottiPerOscurante,
   prodottiPerRiga,
   quantitaAccessorioModificabile,
   rateDefault,
+  riepilogoControlli,
   riepilogoContratto,
   rigaDaLegacy,
+  rigaDaProposta,
   rigaDaServer,
   rigaVuota,
   totaleRigheCent,
@@ -64,6 +80,58 @@ const accessorio = (a: Partial<AccessorioCatalogo> & { codice: string }): Access
   valore: 10,
   soloPortafinestra: false,
   ...a,
+});
+
+// Fabbriche della proposta di estrazione (piano 3): un campo proposto è
+// sempre valore + evidenza + verifica, e il default qui è il caso pessimo —
+// niente valore, niente evidenza — così ogni test dichiara solo ciò che
+// conta per sé.
+const campo = <T>(valore: T, extra: Partial<CampoProposto<T>> = {}): CampoProposto<T> => ({
+  valore,
+  evidenza: null,
+  daVerificare: false,
+  nota: null,
+  ...extra,
+});
+
+const proposta = (patch: Partial<PropostaContratto> = {}): PropostaContratto => ({
+  righe: [],
+  pattuitoCent: campo<number | null>(null),
+  pattuitoTipo: campo<PattuitoTipo | null>(null),
+  posaInclusa: campo(true),
+  posaCent: campo<number | null>(null),
+  notePosa: null,
+  rate: campo<RataContratto[]>([]),
+  comuneCantiere: campo<string | null>(null),
+  indirizzoCantiere: campo<string | null>(null),
+  provinciaCantiere: null,
+  piano: campo<number | null>(null),
+  dataFirma: campo<string | null>(null),
+  riferimento: campo<string | null>(null),
+  clienteCitato: campo<string | null>(null),
+  detrazioneTipo: campo<DetrazioneTipo | null>(null),
+  note: null,
+  controlli: [],
+  avvertenze: [],
+  ...patch,
+});
+
+const rigaProposta = (patch: Partial<RigaProposta> = {}): RigaProposta => ({
+  ordine: 1,
+  categoria: campo<CategoriaRiga>("serramento_pvc"),
+  tipologia: campo<string | null>(null),
+  descrizione: campo("Finestra"),
+  quantita: campo(1),
+  larghezzaMm: campo<number | null>(null),
+  altezzaMm: campo<number | null>(null),
+  prezzoTotCent: campo<number | null>(null),
+  oscuranteIntegrato: campo<OscuranteIntegrato | null>(null),
+  oscuranteTipologia: campo<string | null>(null),
+  accessori: [],
+  beneSignificativo: true,
+  note: null,
+  avvertenze: [],
+  ...patch,
 });
 
 describe("contrattoView", () => {
@@ -328,5 +396,135 @@ describe("contrattoView", () => {
     expect(Object.keys(r)).not.toContain("mq");
     expect(Object.keys(r)).not.toContain("sedeId");
     expect(Object.keys(r)).not.toContain("createdAt");
+  });
+
+  it("una proposta senza pattuito apre il form su zero e «lordo», non su un buco", () => {
+    const p = parametriDaProposta(proposta(), 31);
+    // Il contratto è di origine estrazione e sa da quale documento viene;
+    // l'id dell'estrazione lo scrive il server quando applica (P3-R21).
+    expect(p.pattuitoCent).toBe(0);
+    expect(p.pattuitoTipo).toBe("lordo");
+    expect(p.detrazioneTipo).toBe("nessuna");
+    expect(p.origine).toBe("estrazione");
+    expect(p.documentoId).toBe(31);
+    expect(p.estrazioneId).toBeNull();
+    // La zona la deriva il server dal comune: la proposta non la sceglie
+    // a mano, altrimenti il form partirebbe con un override mai chiesto.
+    expect(p.zonaManuale).toBe(false);
+    expect(p.zonaClimatica).toBeNull();
+    expect(p.distanzaKm).toBeNull();
+    expect(p.detrazioneImmobile).toBeNull();
+    expect(p.detrazionePct).toBeNull();
+    expect(p.opzioniComputo).toEqual(OPZIONI_COMPUTO_DEFAULT);
+    // Niente riferimenti condivisi con la costante, come per `parametriVuoti`.
+    p.opzioniComputo.eventuali.push("dime");
+    expect(OPZIONI_COMPUTO_DEFAULT.eventuali).toEqual([]);
+  });
+
+  it("i valori letti dal contratto arrivano nel form come sono", () => {
+    const rate: RataContratto[] = [
+      { numero: 1, quotaPct: 30, giorni: 0, data: null, descrizione: "All'ordine" },
+      { numero: 2, quotaPct: 70, giorni: 30, data: null, descrizione: null },
+    ];
+    const p = parametriDaProposta(
+      proposta({
+        pattuitoCent: campo<number | null>(1539500, { evidenza: { pagina: 2, frammento: "€ 15.395,00" } }),
+        pattuitoTipo: campo<PattuitoTipo | null>("imponibile"),
+        posaInclusa: campo(true),
+        posaCent: campo<number | null>(110000),
+        notePosa: "Posa compresa a corpo",
+        comuneCantiere: campo<string | null>("Sarzana"),
+        piano: campo<number | null>(2),
+        dataFirma: campo<string | null>("2026-08-20"),
+        detrazioneTipo: campo<DetrazioneTipo | null>("ristrutturazione"),
+        rate: campo(rate),
+      }),
+      31
+    );
+    expect(p.pattuitoCent).toBe(1539500);
+    expect(p.pattuitoTipo).toBe("imponibile");
+    expect(p.posaInclusa).toBe(true);
+    expect(p.posaCent).toBe(110000);
+    expect(p.notePosa).toBe("Posa compresa a corpo");
+    expect(p.comuneCantiere).toBe("Sarzana");
+    expect(p.piano).toBe(2);
+    expect(p.dataFirma).toBe("2026-08-20");
+    expect(p.detrazioneTipo).toBe("ristrutturazione");
+    expect(p.rate).toEqual(rate);
+    // Copiate, non condivise: correggere una quota nel form non riscrive
+    // la proposta che l'operatore sta confrontando col PDF.
+    p.rate[0].quotaPct = 50;
+    expect(rate[0].quotaPct).toBe(30);
+  });
+
+  it("una riga proposta conserva evidenza e accessori, e nasce «estrazione»", () => {
+    const r = rigaDaProposta(
+      rigaProposta({
+        categoria: campo<CategoriaRiga>("serramento_alluminio"),
+        tipologia: campo<string | null>("C25077-c"),
+        descrizione: campo("Finestra 2 ante", {
+          evidenza: { pagina: 3, frammento: "n. 2 finestra due ante" },
+          daVerificare: true,
+        }),
+        quantita: campo(2),
+        larghezzaMm: campo<number | null>(1660),
+        altezzaMm: campo<number | null>(1540),
+        prezzoTotCent: campo<number | null>(300000),
+        oscuranteIntegrato: campo<OscuranteIntegrato | null>("tapparella"),
+        oscuranteTipologia: campo<string | null>("C15078-a"),
+        accessori: [{ codice: "serramento.pellicola", quantita: 2, etichetta: "Pellicola" }],
+        beneSignificativo: false,
+        note: "Da rilevare",
+      })
+    );
+    expect(r.categoria).toBe("serramento_alluminio");
+    expect(r.tipologia).toBe("C25077-c");
+    expect(r.descrizione).toBe("Finestra 2 ante");
+    expect(r.quantita).toBe(2);
+    expect(r.larghezzaMm).toBe(1660);
+    expect(r.altezzaMm).toBe(1540);
+    expect(r.prezzoTotCent).toBe(300000);
+    expect(r.oscuranteIntegrato).toBe("tapparella");
+    expect(r.oscuranteTipologia).toBe("C15078-a");
+    expect(r.beneSignificativo).toBe(false);
+    expect(r.note).toBe("Da rilevare");
+    expect(r.origine).toBe("estrazione");
+    // L'evidenza della riga è quella della descrizione: il servizio non la
+    // ricalcola in `applicaEstrazione`, arriva da qui e resta sulla riga.
+    expect(r.evidenza).toEqual({ pagina: 3, frammento: "n. 2 finestra due ante" });
+    // L'etichetta serve solo a mostrare l'accessorio: al server va il codice.
+    expect(r.accessori).toEqual([{ codice: "serramento.pellicola", quantita: 2 }]);
+    // Campi che il contratto strutturato calcola o chiede a mano.
+    expect(r.misuraDei).toBeNull();
+    expect(r.prezzoUnitCent).toBeNull();
+    // Due righe uguali restano due voci distinte nel form.
+    expect(rigaDaProposta(rigaProposta()).chiave).not.toBe(rigaDaProposta(rigaProposta()).chiave);
+  });
+
+  it("i controlli della proposta si dividono in errori e avvisi", () => {
+    const { errori, avvisi } = riepilogoControlli([
+      { codice: "somma_righe", esito: "errore", messaggio: "Le righe sommano meno del pattuito." },
+      { codice: "misure", esito: "avviso", messaggio: "Riga 2 senza misure." },
+      { codice: "iva", esito: "ok", messaggio: "IVA coerente col layout." },
+      { codice: "rate", esito: "errore", messaggio: "Le rate non fanno 100%." },
+    ]);
+    expect(errori).toEqual([
+      "Le righe sommano meno del pattuito.",
+      "Le rate non fanno 100%.",
+    ]);
+    expect(avvisi).toEqual(["Riga 2 senza misure."]);
+  });
+
+  it("i campi da verificare arrivano con l'etichetta del form, in ordine", () => {
+    const etichette = campiDaVerificare(
+      proposta({
+        pattuitoCent: campo<number | null>(1539500, { daVerificare: true }),
+        comuneCantiere: campo<string | null>("Sarzana", { daVerificare: true }),
+        dataFirma: campo<string | null>(null, { daVerificare: true }),
+        piano: campo<number | null>(2),
+      })
+    );
+    expect(etichette).toEqual(["Pattuito", "Comune del cantiere", "Data firma"]);
+    expect(campiDaVerificare(proposta())).toEqual([]);
   });
 });

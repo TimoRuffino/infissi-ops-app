@@ -21,6 +21,11 @@ import {
   type RigaContrattoInput,
   type ZonaClimatica,
 } from "@shared/limiti/tipi";
+import type {
+  ControlloProposta,
+  PropostaContratto,
+  RigaProposta,
+} from "@shared/contratti/estrazione";
 import { formatEuro } from "./euro";
 
 export type RigaForm = RigaContrattoInput & { chiave: string };
@@ -427,6 +432,117 @@ export function rigaDaLegacy(p: RigaLegacy): RigaForm {
     quantita: Math.max(1, p.quantita),
     note: [p.dimensioni, p.note].filter(Boolean).join(" · ") || null,
     origine: "prodotto_legacy",
+  };
+}
+
+/**
+ * Etichette dei campi della testata proposta dalla lettura del PDF: le
+ * stesse che l'operatore legge sopra le caselle del dialog, così un campo
+ * «da verificare» si trova a colpo d'occhio invece di dover essere cercato.
+ * L'ordine di questa mappa è l'ordine del riepilogo.
+ */
+const ETICHETTE_CAMPI_PROPOSTA: Array<[keyof PropostaContratto, string]> = [
+  ["pattuitoCent", "Pattuito"],
+  ["pattuitoTipo", "Tipo di pattuito"],
+  ["posaInclusa", "Posa"],
+  ["posaCent", "Prezzo della posa"],
+  ["comuneCantiere", "Comune del cantiere"],
+  ["indirizzoCantiere", "Indirizzo del cantiere"],
+  ["piano", "Piano"],
+  ["dataFirma", "Data firma"],
+  ["detrazioneTipo", "Detrazione"],
+  ["rate", "Rate"],
+  ["riferimento", "Riferimento del contratto"],
+  ["clienteCitato", "Cliente citato"],
+];
+
+/**
+ * I campi della testata che il modello non si sente di garantire. Le righe
+ * portano il proprio badge accanto alla riga: qui c'è solo la testata, che
+ * altrimenti resterebbe senza un punto in cui guardare prima di applicare.
+ */
+export function campiDaVerificare(p: PropostaContratto): string[] {
+  return ETICHETTE_CAMPI_PROPOSTA.filter(([chiave]) => {
+    const campo = p[chiave];
+    return typeof campo === "object" && campo !== null && "daVerificare" in campo && campo.daVerificare;
+  }).map(([, etichetta]) => etichetta);
+}
+
+/**
+ * I controlli della proposta divisi per gravità: gli errori dicono che la
+ * lettura non torna (il pattuito non quadra con le righe), gli avvisi che
+ * manca qualcosa di recuperabile a mano. Gli «ok» non si mostrano: un
+ * elenco di cose andate bene nasconde le due che non lo sono.
+ */
+export function riepilogoControlli(
+  controlli: ReadonlyArray<ControlloProposta>
+): { errori: string[]; avvisi: string[] } {
+  return {
+    errori: controlli.filter(c => c.esito === "errore").map(c => c.messaggio),
+    avvisi: controlli.filter(c => c.esito === "avviso").map(c => c.messaggio),
+  };
+}
+
+/**
+ * Proposta → parametri del form. Ciò che il modello non ha trovato prende
+ * il default del contratto scritto a mano (pattuito 0, «lordo», nessuna
+ * detrazione): il form si apre su un contratto legittimo da correggere, non
+ * su un buco. La zona resta derivata dal comune (`zonaManuale: false`): una
+ * lettura automatica non ha titolo per dichiarare un override manuale.
+ * `estrazioneId` lo scrive il servizio quando applica, non il client.
+ */
+export function parametriDaProposta(p: PropostaContratto, documentoId: number): ContrattoInput {
+  return {
+    pattuitoCent: p.pattuitoCent.valore ?? 0,
+    pattuitoTipo: p.pattuitoTipo.valore ?? "lordo",
+    posaInclusa: p.posaInclusa.valore,
+    posaCent: p.posaCent.valore,
+    notePosa: p.notePosa,
+    comuneCantiere: p.comuneCantiere.valore,
+    zonaClimatica: null,
+    zonaManuale: false,
+    piano: p.piano.valore,
+    distanzaKm: null,
+    detrazioneTipo: p.detrazioneTipo.valore ?? "nessuna",
+    // Immobile e percentuale non si leggono dal contratto: la detrazione la
+    // calcola il servizio da tipo, immobile e anno di firma (v. parametriDaServer).
+    detrazioneImmobile: null,
+    detrazionePct: null,
+    dataFirma: p.dataFirma.valore,
+    rate: p.rate.valore.map(r => ({ ...r })),
+    opzioniComputo: { ...OPZIONI_COMPUTO_DEFAULT, eventuali: [] },
+    origine: "estrazione",
+    documentoId,
+    estrazioneId: null,
+  };
+}
+
+/**
+ * Riga proposta → riga del form. L'evidenza è quella della descrizione: è
+ * la citazione che dice da dove viene la riga, e `applicaEstrazione` non la
+ * ricalcola — arriva da qui e resta sulla riga salvata. Misura DEI e prezzo
+ * unitario non si leggono dal contratto: restano da compilare a mano.
+ */
+export function rigaDaProposta(r: RigaProposta): RigaForm {
+  return {
+    chiave: nuovaChiave(),
+    categoria: r.categoria.valore,
+    tipologia: r.tipologia.valore,
+    oscuranteIntegrato: r.oscuranteIntegrato.valore,
+    oscuranteTipologia: r.oscuranteTipologia.valore,
+    descrizione: r.descrizione.valore,
+    quantita: r.quantita.valore,
+    larghezzaMm: r.larghezzaMm.valore,
+    altezzaMm: r.altezzaMm.valore,
+    misuraDei: null,
+    prezzoUnitCent: null,
+    prezzoTotCent: r.prezzoTotCent.valore,
+    beneSignificativo: r.beneSignificativo,
+    // L'etichetta serve alla proposta per farsi leggere; al servizio va il codice.
+    accessori: r.accessori.map(a => ({ codice: a.codice, quantita: a.quantita })),
+    note: r.note,
+    origine: "estrazione",
+    evidenza: r.descrizione.evidenza,
   };
 }
 

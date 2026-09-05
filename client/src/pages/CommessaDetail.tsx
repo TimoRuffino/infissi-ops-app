@@ -55,6 +55,7 @@ import {
   ChevronDown,
   HardHat,
   Link2,
+  ScanText,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
@@ -77,6 +78,7 @@ import DeleteCommessaDialog from "@/components/DeleteCommessaDialog";
 import TarsFascicoloCard from "@/components/TarsFascicoloCard";
 import ContrattoTab from "@/components/contratto/ContrattoTab";
 import ContrattoStatoBanner from "@/components/contratto/ContrattoStatoBanner";
+import LeggiContrattoDialog from "@/components/contratto/LeggiContrattoDialog";
 import LimitiTab from "@/components/computo/LimitiTab";
 import FatturaTab from "@/components/fattura/FatturaTab";
 import TimelineOrdine from "@/components/TimelineOrdine";
@@ -174,6 +176,10 @@ export default function CommessaDetail() {
   // apre (`fatture.byId`).
   const fatturazioneAttiva =
     Boolean(interruttori.data?.fatturazione) && limitiAttivi;
+  // La lettura del contratto PDF vive dietro due interruttori come la
+  // fatturazione: senza contratto strutturato non c'è nulla da applicare.
+  const estrazioneAttiva =
+    Boolean(interruttori.data?.contrattoEstrazione) && limitiAttivi;
   const fattureQ = trpc.fatture.perCommessa.useQuery(
     { commessaId },
     { enabled: fatturazioneAttiva && statoUsaLimiti, retry: false },
@@ -187,6 +193,15 @@ export default function CommessaDetail() {
     enabled: clienteIdOfCommessa != null,
   });
   const documenti = trpc.preventiviContratti.byCommessa.useQuery(commessaId);
+  // Il contratto da leggere per il banner: il primo PDF classificato
+  // «contratto» nel fascicolo. Le azioni per documento restano nell'elenco.
+  const documentoDaLeggere = estrazioneAttiva
+    ? ((documenti.data as any[] | undefined) ?? []).find(
+        (d) =>
+          d.tipo === "contratto" &&
+          (d.mimeType ?? "").toLowerCase().includes("pdf"),
+      ) ?? null
+    : null;
   const statoGate = trpc.preventiviContratti.statoGate.useQuery(commessaId);
   const interventi = trpc.interventi.list.useQuery({ commessaId });
   const anomalie = trpc.anomalie.list.useQuery({ commessaId });
@@ -265,6 +280,9 @@ export default function CommessaDetail() {
   const [rinominaForm, setRinominaForm] = useState({ nome: "", tipo: "altro" });
   // Collegamento assistito documento → ordine fornitore (D7 slice 2).
   const [collegaDoc, setCollegaDoc] = useState<any>(null);
+  // Lettura assistita del contratto PDF (piano 3): la proposta si rivede in
+  // un dialog e si applica al contratto strutturato, mai da sola.
+  const [leggiDoc, setLeggiDoc] = useState<{ id: number; nome: string } | null>(null);
 
   // Nuovo cliente inline
   const [nuovoClienteDialog, setNuovoClienteDialog] = useState(false);
@@ -1176,6 +1194,12 @@ export default function CommessaDetail() {
           stato={c.stato}
           flagAttivo={limitiAttivi}
           fatturazioneAttiva={fatturazioneAttiva}
+          documentoContratto={
+            documentoDaLeggere
+              ? { id: documentoDaLeggere.id, nome: documentoDaLeggere.nome }
+              : null
+          }
+          onLeggi={estrazioneAttiva ? setLeggiDoc : undefined}
           onApri={setTab}
         />
 
@@ -1482,6 +1506,20 @@ export default function CommessaDetail() {
                           onClick={() => setCollegaDoc(d)}
                         >
                           <Link2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {d.tipo === "contratto" &&
+                        (d.mimeType ?? "").toLowerCase().includes("pdf") &&
+                        estrazioneAttiva && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Leggi il contratto"
+                          aria-label={`Leggi il contratto ${d.nome}`}
+                          onClick={() => setLeggiDoc({ id: d.id, nome: d.nome })}
+                        >
+                          <ScanText className="h-3.5 w-3.5" />
                         </Button>
                       )}
                       <Button
@@ -2471,6 +2509,14 @@ export default function CommessaDetail() {
       <CollegaOrdineDialog
         documento={collegaDoc}
         onClose={() => setCollegaDoc(null)}
+      />
+
+      {/* Lettura assistita del contratto PDF: proposta, revisione, applicazione */}
+      <LeggiContrattoDialog
+        commessaId={commessaId}
+        documento={leggiDoc}
+        onClose={() => setLeggiDoc(null)}
+        onApplicato={() => setTab("prodotti")}
       />
 
       {/* Email preventivo dialog (mailto + auto-download) */}
