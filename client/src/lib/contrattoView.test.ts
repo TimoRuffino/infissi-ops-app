@@ -18,6 +18,7 @@ import {
   avvisiForm,
   beneSignificativoDefault,
   campiDaVerificare,
+  dataItaliana,
   erroriForm,
   etichettaAccessorio,
   etichettaCategoria,
@@ -184,6 +185,14 @@ describe("contrattoView", () => {
     expect(riepilogoContratto({ pattuitoCent: 1539500, pattuitoTipo: "lordo", zonaClimatica: "D" }, 6)).toBe("6 righe · pattuito € 15.395,00 lordo · zona D");
     expect(riepilogoContratto({ pattuitoCent: 100000, pattuitoTipo: "imponibile", zonaClimatica: null }, 1)).toBe("1 riga · pattuito € 1.000,00 imponibile");
     expect(riepilogoContratto(null, 0)).toBe("Contratto non ancora inserito");
+  });
+
+  // M3 (Task 6): mai `new Date("YYYY-MM-DD")` per la data firma — mezzanotte
+  // UTC può mostrare il giorno sbagliato secondo il fuso del browser. Uno
+  // split di stringa non ha questo problema.
+  it("la data firma in gg/mm/aaaa, senza passare da Date", () => {
+    expect(dataItaliana("2026-08-20")).toBe("20/08/2026");
+    expect(dataItaliana("non-una-data")).toBe("non-una-data");
   });
 
   it("gli errori del form anticipano quelli del server", () => {

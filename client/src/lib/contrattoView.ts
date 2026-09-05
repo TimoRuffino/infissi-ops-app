@@ -348,6 +348,20 @@ export function riepilogoContratto(
   return parti.join(" · ");
 }
 
+/**
+ * `dataFirma` ("YYYY-MM-DD") → "gg/mm/aaaa" con uno split di stringa: mai
+ * `new Date("YYYY-MM-DD")`, che la legge a mezzanotte UTC e può mostrare il
+ * giorno prima o dopo secondo il fuso del browser. Una stringa che non
+ * rispetta il formato torna così com'è — un valore strano ma riconoscibile
+ * batte un errore silenzioso.
+ */
+export function dataItaliana(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const [, anno, mese, giorno] = m;
+  return `${giorno}/${mese}/${anno}`;
+}
+
 /** Ciò che il servizio rifiuterebbe: blocca il salvataggio. */
 export function erroriForm(
   parametri: ContrattoInput,

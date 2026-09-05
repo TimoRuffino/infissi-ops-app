@@ -1072,14 +1072,12 @@ export default function CommessaDetail() {
           commessaId={commessaId}
           stato={c.stato}
           flagAttivo={limitiAttivi}
-          fatturazioneAttiva={fatturazioneAttiva}
           documentoContratto={
             documentoDaLeggere
               ? { id: documentoDaLeggere.id, nome: documentoDaLeggere.nome }
               : null
           }
           onLeggi={estrazioneAttiva ? setLeggiDoc : undefined}
-          onApri={setTab}
         />
 
       </div>
@@ -1245,14 +1243,14 @@ export default function CommessaDetail() {
 
         {/* Limiti Tab */}
         {limitiAttivi && (
-          <TabsContent value="limiti">
+          <TabsContent value="limiti" className="mt-4">
             <LimitiTab commessaId={commessaId} modalita="lettura" />
           </TabsContent>
         )}
 
         {/* Fattura Tab */}
         {fatturazioneAttiva && (
-          <TabsContent value="fattura">
+          <TabsContent value="fattura" className="mt-4">
             <FatturaTab commessaId={commessaId} modalita="lettura" />
           </TabsContent>
         )}

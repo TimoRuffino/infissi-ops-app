@@ -15,6 +15,7 @@ import { euroToCent } from "@shared/euroCent";
 import { formatCent } from "@/lib/limitiView";
 import {
   avvisiForm,
+  dataItaliana,
   erroriForm,
   parametriDaServer,
   parametriVuoti,
@@ -189,15 +190,27 @@ export default function ContrattoTab({
     if (!q.data) return null;
     const contratto = q.data.contratto;
     const nRighe = q.data.righe.length;
+    const nLegacy = q.data.righeLegacy.length;
     return (
       <div className="space-y-3 min-w-0">
-        <dl aria-label="Riepilogo del contratto" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+        {/* M8: senza contratto, l'assenza si legge prima del dettaglio —
+            non dopo una «Righe» che altrimenti sembrerebbe l'unico dato. */}
+        {!contratto && (
+          <p className="text-sm text-muted-foreground">Contratto non ancora inserito.</p>
+        )}
+        <dl role="group" aria-label="Riepilogo del contratto" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
           <div className="min-w-0">
             <dt className="eyebrow">Righe</dt>
             <dd className="font-semibold">
               {nRighe} {nRighe === 1 ? "riga" : "righe"}
             </dd>
           </div>
+          {nLegacy > 0 && (
+            <div className="min-w-0">
+              <dt className="eyebrow">Prodotti da convertire</dt>
+              <dd className="font-semibold">{nLegacy}</dd>
+            </div>
+          )}
           {contratto && (
             <div className="min-w-0">
               <dt className="eyebrow">Pattuito</dt>
@@ -216,13 +229,10 @@ export default function ContrattoTab({
           {contratto?.dataFirma && (
             <div className="min-w-0">
               <dt className="eyebrow">Data firma</dt>
-              <dd>{contratto.dataFirma}</dd>
+              <dd>{dataItaliana(contratto.dataFirma)}</dd>
             </div>
           )}
         </dl>
-        {!contratto && (
-          <p className="text-sm text-muted-foreground">Contratto non ancora inserito.</p>
-        )}
         {contratto?.origine === "estrazione" && (
           <Badge variant="outline">da estrazione</Badge>
         )}

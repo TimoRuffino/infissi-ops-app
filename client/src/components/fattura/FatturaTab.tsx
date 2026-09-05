@@ -88,20 +88,25 @@ export default function FatturaTab({
   const fattura = elenco.find(f => f.id === selezionata) ?? null;
 
   if (lettura) {
-    const badge = fattura
-      ? badgeStatoFattura(fattura.stato, fattura.inviataDryRun)
+    // M1 (Task 6): mai `selezionata` — resta `null` fino al primo giro di
+    // effetti, e quel primo render mostrerebbe «Nessuna fattura» anche
+    // quando ce n'è una. `predefinita` è già pronta al primo render (stessa
+    // logica: bozza, poi la più recente viva, poi l'ultima).
+    const fatturaLettura = elenco.find(f => f.id === predefinita) ?? null;
+    const badge = fatturaLettura
+      ? badgeStatoFattura(fatturaLettura.stato, fatturaLettura.inviataDryRun)
       : null;
     return (
       <div className="space-y-3 min-w-0">
-        {fattura && badge ? (
+        {fatturaLettura && badge ? (
           <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
             <Badge variant={VARIANTE_BADGE[badge.tono]}>{badge.testo}</Badge>
             <span className="min-w-0 truncate">
-              {fattura.tipo === "nota_credito" ? "Nota di credito " : "Fattura "}
-              {fattura.numero ?? "in bozza"}
-              {fattura.data ? ` · ${fattura.data}` : ""}
+              {fatturaLettura.tipo === "nota_credito" ? "Nota di credito " : "Fattura "}
+              {fatturaLettura.numero ?? "in bozza"}
+              {fatturaLettura.data ? ` · ${fatturaLettura.data}` : ""}
             </span>
-            <span className="tabular-nums font-medium">{formatCent(fattura.totaleCent)}</span>
+            <span className="tabular-nums font-medium">{formatCent(fatturaLettura.totaleCent)}</span>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Nessuna fattura</p>

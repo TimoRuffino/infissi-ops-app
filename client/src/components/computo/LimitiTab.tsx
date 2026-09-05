@@ -66,7 +66,7 @@ export default function LimitiTab({
     return (
       <div className="space-y-3 min-w-0">
         {c ? (
-          <dl aria-label="Riepilogo limiti" className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <dl role="group" aria-label="Riepilogo limiti" className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="min-w-0">
               <dt className="eyebrow">Limite vincolante</dt>
               <dd className="font-semibold tabular-nums">{formatCent(c.limiteCent)}</dd>
