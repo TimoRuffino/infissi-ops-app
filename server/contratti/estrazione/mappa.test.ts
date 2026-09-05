@@ -12,6 +12,7 @@
 // frammenti citati dall'esito finto: le evidenze si verificano sul testo.
 
 import { describe, expect, it } from "vitest";
+import type { CampoProposto, RigaProposta } from "@shared/contratti/estrazione";
 import type { CategoriaRiga, ZonaClimatica } from "@shared/limiti/tipi";
 import { prodottiPer, tariffeAttive } from "../../computo/tariffe";
 import {
@@ -46,6 +47,61 @@ function riga(parziale: Partial<EsitoModello["righe"][number]>): EsitoModello["r
     frammento: "riga",
     ...parziale,
   };
+}
+
+/** Righe di proposta costruite a mano: servono a provare `abbinaOscuranti` da sola. */
+function campoTest<T>(valore: T): CampoProposto<T> {
+  return { valore, evidenza: null, daVerificare: false, nota: null };
+}
+
+function rigaProposta(p: {
+  ordine: number;
+  categoria: CategoriaRiga;
+  descrizione: string;
+  quantita: number;
+  larghezzaMm: number | null;
+  altezzaMm: number | null;
+  prezzoTotCent: number | null;
+}): RigaProposta {
+  return {
+    ordine: p.ordine,
+    categoria: campoTest(p.categoria),
+    tipologia: campoTest<string | null>(null),
+    descrizione: campoTest(p.descrizione),
+    quantita: campoTest(p.quantita),
+    larghezzaMm: campoTest(p.larghezzaMm),
+    altezzaMm: campoTest(p.altezzaMm),
+    prezzoTotCent: campoTest(p.prezzoTotCent),
+    oscuranteIntegrato: campoTest(null),
+    oscuranteTipologia: campoTest<string | null>(null),
+    accessori: [],
+    beneSignificativo: true,
+    note: null,
+    avvertenze: [],
+  };
+}
+
+function finestraEPersiana(finestre: number, persiane: number): RigaProposta[] {
+  return [
+    rigaProposta({
+      ordine: 1,
+      categoria: "serramento_pvc",
+      descrizione: "Finestra 1 anta in PVC",
+      quantita: finestre,
+      larghezzaMm: 900,
+      altezzaMm: 1200,
+      prezzoTotCent: 120000 * finestre,
+    }),
+    rigaProposta({
+      ordine: 2,
+      categoria: "persiana",
+      descrizione: "Persiana in alluminio",
+      quantita: persiane,
+      larghezzaMm: 900,
+      altezzaMm: 1200,
+      prezzoTotCent: 60000 * persiane,
+    }),
+  ];
 }
 
 function esito(parziale: Partial<EsitoModello>): EsitoModello {
@@ -247,6 +303,8 @@ describe("costruisciProposta — caso 127", () => {
     expect(proposta.indirizzoCantiere.valore).toBe("Via delle Mimose 4");
     expect(proposta.indirizzoCantiere.daVerificare).toBe(true);
     expect(proposta.controlli.find(c => c.codice === "zona_cantiere")).toBeUndefined();
+    // La zona dei codici DEI viene dal cliente, non dal cantiere: va detto.
+    expect(proposta.controlli.find(c => c.codice === "zona_da_cliente")?.esito).toBe("avviso");
   });
 
   it("la data del documento diventa data firma da verificare", () => {
@@ -337,6 +395,113 @@ describe("controlli", () => {
     expect(controllo?.esito).toBe("avviso");
     expect(controllo?.messaggio).toContain("Verdi Giuseppe");
   });
+
+  // I1/P3-R12: «Condominio» e «Via» non identificano nessuno.
+  it("due condomini di vie diverse non sono lo stesso cliente", () => {
+    const proposta = costruisciProposta(
+      esito({ cliente: { nome: "Condominio Via Roma 12", codiceFiscale: null, pagina: 1, frammento: "" } }),
+      { ...CONTESTO_127, clienteCommessa: { ...CONTESTO_127.clienteCommessa, nome: "Condominio Via Milano 5" }, pagine: [""] },
+      false
+    );
+    const controllo = proposta.controlli.find(c => c.codice === "cliente_citato");
+    expect(controllo?.esito).toBe("avviso");
+    expect(controllo?.messaggio).toContain("Condominio Via Roma 12");
+  });
+
+  it("lo stesso condominio della stessa via resta coerente", () => {
+    const proposta = costruisciProposta(
+      esito({ cliente: { nome: "Condominio Via Roma 12", codiceFiscale: null, pagina: 1, frammento: "" } }),
+      { ...CONTESTO_127, clienteCommessa: { ...CONTESTO_127.clienteCommessa, nome: "Condominio Via Roma" }, pagine: [""] },
+      false
+    );
+    expect(proposta.controlli.find(c => c.codice === "cliente_citato")?.esito).toBe("ok");
+  });
+
+  it("un nome fatto solo di parole comuni non è confrontabile, e lo dice", () => {
+    const proposta = costruisciProposta(
+      esito({ cliente: { nome: "Condominio di Via 12", codiceFiscale: null, pagina: 1, frammento: "" } }),
+      { ...CONTESTO_127, pagine: [""] },
+      false
+    );
+    const controllo = proposta.controlli.find(c => c.codice === "cliente_citato");
+    expect(controllo?.esito).toBe("avviso");
+    expect(controllo?.messaggio).toContain("non confrontabile");
+  });
+
+  it("avvisa sul codice fiscale diverso e sul comune che non risolve la zona", () => {
+    const proposta = costruisciProposta(
+      esito({
+        cliente: { nome: "Rossi Mario", codiceFiscale: "RSSMRA80A01H501U", pagina: 1, frammento: "" },
+        cantiere: { indirizzo: null, comune: "Comune Inesistente", provincia: null, piano: null, pagina: 1, frammento: "" },
+      }),
+      {
+        ...CONTESTO_127,
+        clienteCommessa: { ...CONTESTO_127.clienteCommessa, codiceFiscale: "VRDGPP70B02F205Z" },
+        pagine: [""],
+      },
+      false
+    );
+    expect(proposta.controlli.find(c => c.codice === "codice_fiscale")?.esito).toBe("avviso");
+    const zona = proposta.controlli.find(c => c.codice === "zona_cantiere");
+    expect(zona?.esito).toBe("avviso");
+    expect(zona?.messaggio).toContain("Comune Inesistente");
+  });
+
+  // Minore: uno sconto in percentuale non rende «mista» l'IVA.
+  it("uno sconto in percentuale non impedisce lo scorporo dell'IVA", () => {
+    const proposta = costruisciProposta(
+      esito({
+        righe: [riga({ prezzoTotale: 1000, larghezzaMm: 1200, altezzaMm: 1400 })],
+        pattuito: {
+          totaleLordo: 1100,
+          totaleImponibile: null,
+          ivaDescrizione: "sconto 5% — IVA 10%",
+          pagina: 1,
+          frammento: "",
+        },
+      }),
+      { ...CONTESTO_127, pagine: [""] },
+      false
+    );
+    expect(proposta.controlli.find(c => c.codice === "righe_vs_pattuito")?.esito).toBe("ok");
+  });
+
+  // I5/P3-R16: la posa si porta via i servizi, non i prodotti.
+  it("una riga con misure che cita la posa resta una riga, dichiarandolo", () => {
+    const proposta = costruisciProposta(
+      esito({
+        righe: [
+          riga({
+            descrizione: "Fornitura e posa in opera di n. 3 finestre in PVC",
+            tipoProdotto: "altro",
+            nAnte: 2,
+            quantita: 3,
+            larghezzaMm: 1200,
+            altezzaMm: 1400,
+            prezzoTotale: 3000,
+            frammento: "",
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: [""] },
+      false
+    );
+    expect(proposta.righe).toHaveLength(1);
+    expect(proposta.righe[0].avvertenze.join(" ")).toContain("cita la posa");
+    expect(proposta.posaCent.valore).toBeNull();
+  });
+
+  it("una riga di posa senza misure resta un servizio", () => {
+    const proposta = costruisciProposta(
+      esito({
+        righe: [riga({ descrizione: "Posa in opera", tipoProdotto: "altro", nAnte: 0, prezzoTotale: 900, frammento: "" })],
+      }),
+      { ...CONTESTO_127, pagine: [""] },
+      false
+    );
+    expect(proposta.righe).toHaveLength(0);
+    expect(proposta.posaCent.valore).toBe(90000);
+  });
 });
 
 // ── Caso 129 ridotto: persiane elencate come righe a sé (D-E) ───────────────
@@ -403,12 +568,14 @@ describe("abbinamento degli oscuranti (D-E)", () => {
     expect(finestre.note).toContain("persiana abbinata");
   });
 
-  it("la persiana senza finestra corrispondente resta una riga persiana", () => {
+  it("la persiana senza finestra corrispondente resta una riga persiana, con la sua voce DEI", () => {
     const persiana = proposta.righe[1];
     expect(persiana.categoria.valore).toBe("persiana");
     expect(persiana.quantita.valore).toBe(1);
     expect(persiana.prezzoTotCent.valore).toBe(90000);
     expect(persiana.larghezzaMm.valore).toBe(1500);
+    // Stessa scelta del percorso abbinato: 2 ante, senza lamelle orientabili.
+    expect(persiana.tipologia.valore).toBe("C15079-b");
   });
 
   it("il cantiere esplicito vince sull'indirizzo del cliente", () => {
@@ -416,13 +583,56 @@ describe("abbinamento degli oscuranti (D-E)", () => {
     expect(proposta.comuneCantiere.daVerificare).toBe(false);
     expect(proposta.provinciaCantiere).toBe("SP");
     expect(proposta.piano.valore).toBe(1);
+    expect(proposta.controlli.find(c => c.codice === "zona_da_cliente")).toBeUndefined();
   });
 
-  it("non tocca le righe ricevute (funzione pura)", () => {
-    const righe = costruisciProposta(ESITO_129, { ...CONTESTO_127, pagine: PAGINE_129 }, false).righe;
+  it("non tocca le righe ricevute, nemmeno quando l'abbinamento avviene davvero", () => {
+    const righe = finestraEPersiana(2, 2);
     const copia = JSON.parse(JSON.stringify(righe));
-    abbinaOscuranti(righe);
-    expect(righe).toEqual(copia);
+    const abbinate = abbinaOscuranti(righe);
+    expect(JSON.parse(JSON.stringify(righe))).toEqual(copia);
+    // L'abbinamento è successo: il test non è vacuo.
+    expect(abbinate).toHaveLength(1);
+    expect(abbinate[0].oscuranteIntegrato.valore).toBe("persiana");
+  });
+
+  it("la tolleranza è di 10 mm: a 11 mm le due righe non sono lo stesso foro", () => {
+    const dieci = finestraEPersiana(1, 1);
+    dieci[1].larghezzaMm = campoTest<number | null>(910);
+    expect(abbinaOscuranti(dieci)).toHaveLength(1);
+
+    const undici = finestraEPersiana(1, 1);
+    undici[1].larghezzaMm = campoTest<number | null>(911);
+    expect(abbinaOscuranti(undici)).toHaveLength(2);
+  });
+});
+
+// ── I3: l'abbinamento non gonfia le quantità (P3-R14) ───────────────────────
+
+describe("abbinaOscuranti — quantità (P3-R14)", () => {
+  it("3 finestre e 1 persiana non si abbinano: marcarle tutte gonfierebbe il computo", () => {
+    const righe = abbinaOscuranti(finestraEPersiana(3, 1));
+    expect(righe).toHaveLength(2);
+    expect(righe[0].oscuranteIntegrato.valore).toBeNull();
+    expect(righe[0].prezzoTotCent.valore).toBe(360000);
+    expect(righe[1].quantita.valore).toBe(1);
+    expect(righe[1].avvertenze.join(" ")).toContain("non abbinata: quantità diversa");
+  });
+
+  it("2 finestre e 2 persiane si abbinano e la riga oscurante sparisce", () => {
+    const righe = abbinaOscuranti(finestraEPersiana(2, 2));
+    expect(righe).toHaveLength(1);
+    expect(righe[0].oscuranteIntegrato.valore).toBe("persiana");
+    expect(righe[0].prezzoTotCent.valore).toBe(240000 + 120000);
+  });
+
+  it("1 finestra e 3 persiane: si abbina la quota di una, le altre due restano riga", () => {
+    const righe = abbinaOscuranti(finestraEPersiana(1, 3));
+    expect(righe).toHaveLength(2);
+    expect(righe[0].oscuranteIntegrato.valore).toBe("persiana");
+    expect(righe[0].prezzoTotCent.valore).toBe(120000 + 60000);
+    expect(righe[1].quantita.valore).toBe(2);
+    expect(righe[1].prezzoTotCent.valore).toBe(120000);
   });
 });
 
@@ -457,12 +667,27 @@ describe("categoriaPer", () => {
 
   it("il materiale non riconosciuto lascia un'avvertenza sulla riga", () => {
     const proposta = costruisciProposta(
-      esito({ righe: [riga({ materiale: "sconosciuto", descrizione: "Serramento su misura", larghezzaMm: 1000, altezzaMm: 1000, prezzoTotale: 100 })] }),
-      { ...CONTESTO_127, pagine: [""] },
+      esito({
+        righe: [
+          riga({
+            materiale: "sconosciuto",
+            descrizione: "Serramento su misura",
+            larghezzaMm: 1000,
+            altezzaMm: 1000,
+            prezzoTotale: 100,
+            frammento: "Serramento su misura",
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: ["Serramento su misura 1000 x 1000"] },
       false
     );
+    // L'evidenza c'è: il «da verificare» viene dal materiale indovinato.
+    expect(proposta.righe[0].descrizione.evidenza).not.toBeNull();
     expect(proposta.righe[0].categoria.valore).toBe("serramento_pvc");
     expect(proposta.righe[0].avvertenze.join(" ")).toContain("materiale non riconosciuto");
+    // Una categoria indovinata nasce da verificare.
+    expect(proposta.righe[0].categoria.daVerificare).toBe(true);
   });
 });
 
@@ -504,15 +729,25 @@ describe("tipologiaDei", () => {
     });
   });
 
-  it("per una riga persiana autonoma prende la prima voce della famiglia dedotta", () => {
-    const scelta = tipologiaDei(
+  // Minore: una riga persiana autonoma sceglie come il percorso abbinato
+  // (lamelle e forma), non «la prima voce della famiglia».
+  it("per una riga persiana autonoma sceglie per lamelle e forma", () => {
+    const senzaLamelle = tipologiaDei(
       TARIFFE,
       "persiana",
       { tipoProdotto: "persiana", nAnte: 2, descrizione: "Persiane in alluminio verniciato" },
       null
     );
-    expect(scelta.codice).toBe("C15078-a");
-    expect(scelta.avvertenza).toContain("più voci DEI possibili");
+    expect(senzaLamelle.codice).toBe("C15079-b");
+    expect(senzaLamelle.avvertenza).toBeNull();
+
+    const conLamelle = tipologiaDei(
+      TARIFFE,
+      "persiana",
+      { tipoProdotto: "persiana", nAnte: 1, descrizione: "Persiane in alluminio per portafinestra", lamelleOrientabili: true },
+      null
+    );
+    expect(conLamelle.codice).toBe("C15078-c");
   });
 });
 
@@ -640,24 +875,42 @@ describe("tipologiaDei — scorrevoli, portefinestre e fogli (P3-R10, P3-R15)", 
 
 describe("oscuranteDei", () => {
   it("persiane in alluminio: distingue lamelle orientabili e forma", () => {
-    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 1, false)).toBe("C15079-a");
-    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 2, true)).toBe("C15078-b");
-    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", true, 2, true)).toBe("C15078-d");
+    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 1, false).codice).toBe("C15079-a");
+    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 2, true).codice).toBe("C15078-b");
+    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", true, 2, true).codice).toBe("C15078-d");
+    // Voce unica dopo i filtri: nessuna scelta da dichiarare.
+    expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 1, false).avvertenza).toBeNull();
   });
 
   it("persiane in legno: finestra o portafinestra, 1 o 2 ante", () => {
-    expect(oscuranteDei(TARIFFE, "persiana", "legno", false, 2, false)).toBe("C25063-b");
-    expect(oscuranteDei(TARIFFE, "persiana", "legno", true, 1, false)).toBe("C25063-a");
+    expect(oscuranteDei(TARIFFE, "persiana", "legno", false, 2, false).codice).toBe("C25063-b");
+    expect(oscuranteDei(TARIFFE, "persiana", "legno", true, 1, false).codice).toBe("C25063-a");
   });
 
   it("tapparelle: la prima voce della famiglia", () => {
-    expect(oscuranteDei(TARIFFE, "tapparella", "pvc", false, 1, false)).toBe("C25089-a");
-    expect(oscuranteDei(TARIFFE, "tapparella", "alluminio", false, 1, false)).toBe("C15084-b");
-    expect(oscuranteDei(TARIFFE, "tapparella", "acciaio", false, 1, false)).toBe("C15085-a");
+    expect(oscuranteDei(TARIFFE, "tapparella", "pvc", false, 1, false).codice).toBe("C25089-a");
+    expect(oscuranteDei(TARIFFE, "tapparella", "alluminio", false, 1, false).codice).toBe("C15084-b");
+    expect(oscuranteDei(TARIFFE, "tapparella", "acciaio", false, 1, false).codice).toBe("C15085-a");
   });
 
   it("scuri: unica famiglia legno, forma dal nome", () => {
-    expect(oscuranteDei(TARIFFE, "scuro", "legno", true, 2, false)).toBe("C25068-d");
+    expect(oscuranteDei(TARIFFE, "scuro", "legno", true, 2, false).codice).toBe("C25068-d");
+  });
+
+  // I2/P3-R13: più voci valide → la scelta si dichiara, non si prende in silenzio.
+  it("con più voci valide dichiara quale ha scelto", () => {
+    const scelta = oscuranteDei(TARIFFE, "persiana", "pvc", false, 1, false);
+    expect(scelta.codice).toBe("C25081-a");
+    expect(scelta.avvertenza).toContain("più voci DEI possibili");
+
+    const tapparella = oscuranteDei(TARIFFE, "tapparella", "pvc", false, 1, false);
+    expect(tapparella.avvertenza).toContain("più voci DEI possibili");
+  });
+
+  it("senza famiglia riconoscibile non inventa un codice", () => {
+    const scelta = oscuranteDei(TARIFFE, "persiana", "acciaio", false, 1, false);
+    expect(scelta.codice).toBeNull();
+    expect(scelta.avvertenza).toContain("acciaio");
   });
 });
 
@@ -739,6 +992,26 @@ describe("accessoriDaEtichette", () => {
     expect(accessoriDaEtichette(TARIFFE, "serramento_legno_alluminio", ["anta a ribalta"], false, 2)[0].codice).toBe(
       "serramento.C25124"
     );
+  });
+
+  // Minore: «coprifilo 180 mm» non è un coprifilo da 80.
+  it("il numero del coprifilo si legge intero, non come sottostringa", () => {
+    expect(accessoriDaEtichette(TARIFFE, "serramento_pvc", ["coprifilo 180 mm"], false, 2)).toEqual([]);
+    expect(accessoriDaEtichette(TARIFFE, "serramento_pvc", ["coprifili da 80 mm"], false, 2)[0].codice).toBe(
+      "serramento.C25088-h"
+    );
+  });
+
+  // Minore: le categorie senza famiglia fissa la deducono dalla descrizione,
+  // altrimenti il loro catalogo accessori resta vuoto.
+  it("gli accessori di persiane e tapparelle escono dal catalogo del loro gruppo", () => {
+    expect(
+      accessoriDaEtichette(TARIFFE, "persiana", ["finitura pellicolata"], false, 1, "Persiane in PVC bianco")[0].codice
+    ).toBe("persiana.C25084-a");
+    expect(
+      accessoriDaEtichette(TARIFFE, "tapparella", ["motore elettrico fino a 60 kg"], false, 1, "Tapparella in PVC")[0]
+        .codice
+    ).toBe("avvolgibile.C25091-e");
   });
 
   it("le etichette non riconosciute finiscono nella nota della riga", () => {

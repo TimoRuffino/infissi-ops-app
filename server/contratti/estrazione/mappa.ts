@@ -259,6 +259,11 @@ function naturaRichiesta(tipo: TipoProdotto, descrizione: string): NaturaSerrame
   return /alzante/.test(testo) ? "alzante" : "complanare";
 }
 
+/** Il testo parla di una portafinestra (e non della finestra che le sta dentro come parola). */
+function citaPortafinestra(testo: string): boolean {
+  return /portafinestra|porta\s*-?\s*finestra|\bpf\b/.test(testo);
+}
+
 /**
  * P3-R10: finestra o portafinestra. Il tipo del modello decide quando lo
  * dice; per `scorrevole` (che non distingue le due forme) decide la
@@ -269,7 +274,7 @@ function portafinestraRichiesta(tipo: TipoProdotto, descrizione: string): boolea
   if (tipo === "portafinestra") return true;
   if (tipo !== "scorrevole") return false;
   const testo = normalizzaTesto(descrizione);
-  if (/portafinestra|porta\s*-?\s*finestra|\bpf\b/.test(testo)) return true;
+  if (citaPortafinestra(testo)) return true;
   if (/finestra/.test(testo)) return false;
   return null;
 }
@@ -317,7 +322,7 @@ function restringi(candidati: Prodotto[], test: (p: Prodotto) => boolean): Prodo
 export function tipologiaDei(
   t: Tariffe,
   categoria: CategoriaRiga,
-  r: { tipoProdotto: TipoProdotto; nAnte: number; descrizione: string },
+  r: { tipoProdotto: TipoProdotto; nAnte: number; descrizione: string; lamelleOrientabili?: boolean },
   zona: ZonaClimatica | null
 ): { codice: string | null; avvertenza: string | null } {
   const { gruppo, famiglia } = gruppoPerCategoria(categoria);
@@ -328,12 +333,22 @@ export function tipologiaDei(
   if (famigliaVoce == null) {
     return { codice: null, avvertenza: `nessuna voce DEI per ${categoria}: materiale non riconosciuto` };
   }
+  // Persiane, tapparelle e scuri elencati come righe a sé: stessa scelta del
+  // percorso abbinato (lamelle orientabili e forma), altrimenti una persiana
+  // «senza lamelle» finirebbe sulla voce con le lamelle.
+  if (CATEGORIE_OSCURANTE.includes(categoria)) {
+    return sceltaOscurante(t, gruppo, famigliaVoce, {
+      portafinestra: citaPortafinestra(normalizzaTesto(r.descrizione)),
+      nAnte: r.nAnte,
+      lamelleOrientabili: r.lamelleOrientabili ?? false,
+    });
+  }
   const candidati = prodottiPer(t, gruppo, famigliaVoce, zona);
   if (candidati.length === 0) {
     return { codice: null, avvertenza: `nessuna voce DEI per ${categoria} (${famigliaVoce})` };
   }
   // Righe autonome: il seed elenca le voci nell'ordine del foglio, la prima è
-  // quella standard (avvolgibile PVC standard, alluminio da 55 mm…).
+  // quella standard (cassonetto in PVC da 100 × 40…).
   const scelto = candidati[0];
   return {
     codice: scelto.codice,
@@ -409,11 +424,48 @@ function formaDalNome(nome: string): { portafinestra: boolean; ante: number[] } 
 }
 
 /**
+ * La voce DEI dell'oscurante dentro una famiglia già scelta: persiane e
+ * scuri per lamelle orientabili e per forma (finestra o portafinestra,
+ * numero di ante); le tapparelle non hanno forma e vale la prima voce della
+ * famiglia (PVC standard, alluminio 55 mm, acciaio 40 mm). Più voci valide →
+ * la prima, DICHIARANDOLO (P3-R13).
+ */
+function sceltaOscurante(
+  t: Tariffe,
+  gruppo: GruppoProdotto,
+  famiglia: string,
+  forma: { portafinestra: boolean; nAnte: number; lamelleOrientabili: boolean }
+): { codice: string | null; avvertenza: string | null } {
+  let candidati = prodottiPer(t, gruppo, famiglia);
+  if (candidati.length === 0) return { codice: null, avvertenza: `nessuna voce DEI per ${gruppo} (${famiglia})` };
+
+  if (gruppo === "persiana" || gruppo === "scuro") {
+    const perLamelle = candidati.filter(p => haOrientabili(p.nome) === forma.lamelleOrientabili);
+    if (perLamelle.length > 0) candidati = perLamelle;
+    const ante = forma.nAnte > 0 ? forma.nAnte : 1;
+    const perForma = candidati.filter(p => {
+      const dalNome = formaDalNome(p.nome);
+      return (
+        dalNome != null &&
+        dalNome.portafinestra === forma.portafinestra &&
+        (dalNome.ante.length === 0 || dalNome.ante.includes(ante))
+      );
+    });
+    if (perForma.length > 0) candidati = perForma;
+  }
+
+  const scelto = candidati[0];
+  return {
+    codice: scelto.codice,
+    avvertenza: candidati.length > 1 ? `più voci DEI possibili: scelta ${scelto.codice}` : null,
+  };
+}
+
+/**
  * Codice DEI dell'oscurante abbinato al serramento. Famiglia = materiale
- * dell'oscurante (l'unica del gruppo quando ce n'è una sola); persiane e
- * scuri si scelgono per lamelle orientabili e per forma (finestra o
- * portafinestra, numero di ante); le tapparelle non hanno forma: vale la
- * prima voce della famiglia (PVC standard, alluminio 55 mm, acciaio 40 mm).
+ * dell'oscurante (l'unica del gruppo quando ce n'è una sola); da lì decide
+ * `sceltaOscurante`. Materiale che il gruppo non conosce → nessun codice,
+ * con l'avvertenza che lo dice.
  */
 export function oscuranteDei(
   t: Tariffe,
@@ -422,7 +474,7 @@ export function oscuranteDei(
   portafinestra: boolean,
   nAnte: number,
   lamelleOrientabili: boolean
-): string | null {
+): { codice: string | null; avvertenza: string | null } {
   const gruppo = gruppoPerOscurante(oscurante);
   const famiglie = famiglieDelGruppo(t, gruppo);
   const famiglia = famiglie.includes(materialeOscurante)
@@ -430,23 +482,10 @@ export function oscuranteDei(
     : famiglie.length === 1
       ? famiglie[0]
       : null;
-  if (famiglia == null) return null;
-
-  let candidati = prodottiPer(t, gruppo, famiglia);
-  if (candidati.length === 0) return null;
-
-  if (gruppo === "persiana" || gruppo === "scuro") {
-    const perLamelle = candidati.filter(p => haOrientabili(p.nome) === lamelleOrientabili);
-    if (perLamelle.length > 0) candidati = perLamelle;
-    const ante = nAnte > 0 ? nAnte : 1;
-    const perForma = candidati.filter(p => {
-      const forma = formaDalNome(p.nome);
-      return forma != null && forma.portafinestra === portafinestra && (forma.ante.length === 0 || forma.ante.includes(ante));
-    });
-    if (perForma.length > 0) candidati = perForma;
+  if (famiglia == null) {
+    return { codice: null, avvertenza: `nessuna voce DEI per ${oscurante} in ${materialeOscurante}` };
   }
-
-  return candidati[0].codice;
+  return sceltaOscurante(t, gruppo, famiglia, { portafinestra, nAnte, lamelleOrientabili });
 }
 
 type RegolaEtichetta = {
@@ -467,34 +506,58 @@ const REGOLE_ETICHETTA: RegolaEtichetta[] = [
     prova: /ribalta|oscillobattent/,
     codici: ["serramento.C25126", "serramento.C15142", "serramento.C25123", "serramento.C25124"],
   },
-  { prova: /pellicol|real wood|effetto legno|rovere/, famiglie: ["pvc", "velux"], codici: ["serramento.C25088-a"] },
+  {
+    prova: /pellicol|real wood|effetto legno|rovere/,
+    famiglie: ["pvc", "velux"],
+    codici: ["serramento.C25088-a", "persiana.C25084-a"],
+  },
   { prova: /incollaggio/, codici: ["serramento.C25088-b"] },
   { prova: /soglia\s+ribassata/, codici: ["serramento.C25088-c"] },
-  { prova: /coprifil.*80/, codici: ["serramento.C25088-h"] },
-  { prova: /coprifil.*100/, codici: ["serramento.C25088-i"] },
-  { prova: /anodizz|elettrocolore/, famiglie: ["alluminio"], codici: ["serramento.C15054-b"] },
-  { prova: /vernic.*special/, codici: ["serramento.C15054-c"] },
-  { prova: /effetto legno/, famiglie: ["alluminio"], codici: ["serramento.C15054-d"] },
+  // Il numero è un numero intero: «coprifilo 180 mm» non è un coprifilo da 80.
+  { prova: /coprifil.*\b80\b/, codici: ["serramento.C25088-h"] },
+  { prova: /coprifil.*\b100\b/, codici: ["serramento.C25088-i"] },
+  // Motori degli avvolgibili: la classe di peso deve essere SCRITTA
+  // nell'etichetta, altrimenti sceglierla sarebbe indovinare un prezzo.
+  { prova: /motor.*\b25\b/, codici: ["avvolgibile.C25091-d"] },
+  { prova: /motor.*\b60\b/, codici: ["avvolgibile.C25091-e"] },
+  { prova: /motor.*\b80\b/, codici: ["avvolgibile.C25091-f"] },
+  { prova: /motor.*\b100\b/, codici: ["avvolgibile.C25091-g"] },
+  { prova: /anodizz|elettrocolore/, famiglie: ["alluminio"], codici: ["serramento.C15054-b", "persiana.C15154-b"] },
+  { prova: /vernic.*special/, codici: ["serramento.C15054-c", "persiana.C15154-c"] },
+  { prova: /effetto legno/, famiglie: ["alluminio"], codici: ["serramento.C15054-d", "persiana.C15154-d"] },
   { prova: /acustic/, codici: ["serramento.C15055", "serramento.C15075"] },
 ];
 
-/** Famiglia con cui interrogare il catalogo accessori (il legno-alluminio ne ha due, vale la prima). */
-function famigliaAccessori(categoria: CategoriaRiga, famiglia: string | null): string {
+/**
+ * Famiglia con cui interrogare il catalogo accessori. Il legno-alluminio ne
+ * ha due e vale la prima; le categorie senza famiglia fissa (persiane,
+ * tapparelle, cassonetti) la deducono dalla descrizione, altrimenti il loro
+ * catalogo tornerebbe sempre vuoto e nessun accessorio sarebbe raggiungibile.
+ */
+function famigliaAccessori(
+  t: Tariffe,
+  categoria: CategoriaRiga,
+  gruppo: GruppoProdotto,
+  famiglia: string | null,
+  descrizione: string
+): string {
   if (famiglia != null) return famiglia;
-  return categoria === "serramento_legno_alluminio" ? "legno_alluminio" : "";
+  if (categoria === "serramento_legno_alluminio") return "legno_alluminio";
+  return famigliaDedotta(t, gruppo, descrizione) ?? "";
 }
 
 function risolviAccessori(
   t: Tariffe,
   categoria: CategoriaRiga,
   etichette: readonly string[],
-  portafinestra: boolean
+  portafinestra: boolean,
+  descrizione: string
 ): { accessori: RigaProposta["accessori"]; nonRiconosciute: string[] } {
   const pulite = etichette.map(e => e.trim()).filter(e => e !== "");
   const { gruppo, famiglia } = gruppoPerCategoria(categoria);
   if (gruppo == null) return { accessori: [], nonRiconosciute: pulite };
 
-  const famigliaRiga = famigliaAccessori(categoria, famiglia);
+  const famigliaRiga = famigliaAccessori(t, categoria, gruppo, famiglia, descrizione);
   const catalogo = accessoriPer(t, gruppo, famigliaRiga, portafinestra);
   const accessori: RigaProposta["accessori"] = [];
   const nonRiconosciute: string[] = [];
@@ -530,10 +593,11 @@ export function accessoriDaEtichette(
   categoria: CategoriaRiga,
   etichette: string[],
   portafinestra: boolean,
-  nAnte: number
+  nAnte: number,
+  descrizione = ""
 ): RigaProposta["accessori"] {
   void nAnte; // le voci DEI sono a pezzo: la quantità è 1 per riga, non per anta.
-  return risolviAccessori(t, categoria, etichette, portafinestra).accessori;
+  return risolviAccessori(t, categoria, etichette, portafinestra, descrizione).accessori;
 }
 
 function clonaRiga(r: RigaProposta): RigaProposta {
@@ -555,9 +619,11 @@ function clonaRiga(r: RigaProposta): RigaProposta {
 
 /**
  * D-E: persiane, tapparelle e scuri elencati come righe a sé tornano sul
- * serramento con lo stesso foro (±10 mm) e quantità capiente, portandosi la
- * quota di prezzo; l'oscurante che non trova serramento resta una riga sua.
- * Le righe restano nell'ordine di lettura.
+ * serramento con lo stesso foro (±10 mm) quando i PEZZI BASTANO per tutta la
+ * riga serramento (P3-R14: il computo prezza l'oscurante su L × H × quantità,
+ * quindi marcare 3 finestre con 1 sola persiana gonfierebbe il CHECK2),
+ * portandosi la quota di prezzo; l'oscurante che non trova serramento resta
+ * una riga sua. Le righe restano nell'ordine di lettura.
  *
  * `contesto` porta le tariffe e i dati del modello allineati per indice alle
  * righe ricevute: senza di esso l'abbinamento avviene lo stesso ma il codice
@@ -581,6 +647,8 @@ export function abbinaOscuranti(
     const prezzoOscurante = oscurante.prezzoTotCent.valore;
     const pezzi = oscurante.quantita.valore;
     let residuo = pezzi;
+    let quotaCeduta = 0;
+    let quantitaDiversa = false;
 
     for (let j = 0; j < lavorate.length && residuo > 0; j++) {
       const serramento = lavorate[j];
@@ -590,12 +658,17 @@ export function abbinaOscuranti(
       const sh = serramento.altezzaMm.valore;
       if (sl == null || sh == null) continue;
       if (Math.abs(sl - larghezza) > TOLLERANZA_MM || Math.abs(sh - altezza) > TOLLERANZA_MM) continue;
-      if (serramento.quantita.valore < residuo) continue;
+      // Lo stesso foro, ma non abbastanza oscuranti per tutti i pezzi della
+      // riga: meglio due righe separate che un oscurante contato più volte.
+      if (residuo < serramento.quantita.valore) {
+        quantitaDiversa = true;
+        continue;
+      }
 
-      const abbinata = Math.min(serramento.quantita.valore, residuo);
+      const abbinata = serramento.quantita.valore;
       const quota = prezzoOscurante == null || pezzi === 0 ? 0 : Math.round((prezzoOscurante * abbinata) / pezzi);
       const evidenza = oscurante.descrizione.evidenza;
-      const codice = contesto
+      const scelta = contesto
         ? oscuranteDei(
             contesto.tariffe,
             categoria as OscuranteIntegrato,
@@ -610,7 +683,10 @@ export function abbinaOscuranti(
         daVerificare: true,
         nota: "oscurante abbinato dalla riga a sé",
       });
-      serramento.oscuranteTipologia = campo<string | null>(codice, evidenza, { daVerificare: true });
+      serramento.oscuranteTipologia = campo<string | null>(scelta?.codice ?? null, evidenza, {
+        daVerificare: true,
+        nota: scelta?.avvertenza ?? null,
+      });
       if (prezzoOscurante != null) {
         serramento.prezzoTotCent = campo<number | null>(
           (serramento.prezzoTotCent.valore ?? 0) + quota,
@@ -621,12 +697,17 @@ export function abbinaOscuranti(
       serramento.note = unisci(serramento.note, `${categoria} abbinata (€ ${euroTesto(quota)})`);
 
       residuo -= abbinata;
+      quotaCeduta += quota;
       oscurante.quantita = campo(residuo, oscurante.quantita.evidenza, { daVerificare: true });
       if (prezzoOscurante != null) {
-        oscurante.prezzoTotCent = campo<number | null>(prezzoOscurante - quota, oscurante.prezzoTotCent.evidenza, {
+        oscurante.prezzoTotCent = campo<number | null>(prezzoOscurante - quotaCeduta, oscurante.prezzoTotCent.evidenza, {
           daVerificare: true,
         });
       }
+    }
+
+    if (residuo > 0 && quantitaDiversa) {
+      oscurante.avvertenze = [...oscurante.avvertenze, "non abbinata: quantità diversa dal serramento con le stesse misure"];
     }
   }
 
@@ -645,16 +726,26 @@ function misuraValida(valore: number | null, nome: string, avvertenze: string[])
 
 const PAROLE_SERVIZIO = /\b(posa|installazione|trasporto|montaggio)/;
 
+/** Una riga «altro»/«accessorio» che parla di posa, trasporto o montaggio. */
+function citaLaPosa(r: RigaModello): boolean {
+  if (r.tipoProdotto !== "accessorio" && r.tipoProdotto !== "altro") return false;
+  return PAROLE_SERVIZIO.test(normalizzaTesto(r.descrizione));
+}
+
 /**
  * D-F: le righe di servizio non diventano righe di contratto. Oltre al tipo
  * dichiarato dal modello si accettano accessori e «altro» che parlano di posa,
  * trasporto o montaggio; NON i prodotti (un serramento «fornitura e posa in
  * opera» resta un serramento, altrimenti sparirebbe dal contratto).
+ *
+ * P3-R16: una riga CON misure non è mai una riga di servizio, per quanto citi
+ * la posa — «fornitura e posa in opera di n. 3 finestre 1200 × 1400» è un
+ * prodotto, e assorbirla nella posa farebbe sparire misure e prezzo.
  */
 function rigaDiServizio(r: RigaModello): boolean {
   if (r.tipoProdotto === "servizio") return true;
-  if (r.tipoProdotto !== "accessorio" && r.tipoProdotto !== "altro") return false;
-  return PAROLE_SERVIZIO.test(normalizzaTesto(r.descrizione));
+  if (r.larghezzaMm != null || r.altezzaMm != null) return false;
+  return citaLaPosa(r);
 }
 
 function costruisciRiga(
@@ -673,8 +764,12 @@ function costruisciRiga(
   const portafinestra = portafinestraRichiesta(r.tipoProdotto, r.descrizione) ?? false;
   const avvertenze: string[] = [];
 
-  if (TIPI_SERRAMENTO.includes(r.tipoProdotto) && !MATERIALI_SERRAMENTO.includes(materiale)) {
+  const materialeIndovinato = TIPI_SERRAMENTO.includes(r.tipoProdotto) && !MATERIALI_SERRAMENTO.includes(materiale);
+  if (materialeIndovinato) {
     avvertenze.push("materiale non riconosciuto: verificato come PVC");
+  }
+  if (citaLaPosa(r)) {
+    avvertenze.push("cita la posa: verifica se è un prodotto o un servizio");
   }
 
   const larghezza = misuraValida(r.larghezzaMm, "larghezza", avvertenze);
@@ -686,22 +781,33 @@ function costruisciRiga(
 
   const oscurante: OscuranteIntegrato | null = r.oscuranteAbbinato === "nessuno" ? null : r.oscuranteAbbinato;
   const materialeOscurante = oscurante ? materialeOscuranteDelTesto(r.descrizione) : null;
-  const oscuranteTipologia =
+  const sceltaOscuranteRiga =
     oscurante && materialeOscurante
       ? oscuranteDei(tariffe, oscurante, materialeOscurante.materiale, portafinestra, r.nAnte, r.lamelleOrientabili)
       : null;
   if (materialeOscurante?.indovinato) {
     avvertenze.push("materiale dell'oscurante non indicato: verificato come PVC");
   }
-  if (oscurante != null && oscuranteTipologia == null) {
+  if (sceltaOscuranteRiga?.avvertenza) avvertenze.push(sceltaOscuranteRiga.avvertenza);
+  if (oscurante != null && sceltaOscuranteRiga?.codice == null) {
     avvertenze.push(`nessuna voce DEI per l'oscurante (${oscurante})`);
   }
+  const notaOscurante = unisci(
+    materialeOscurante?.indovinato ? "materiale dell'oscurante verificato come PVC" : null,
+    sceltaOscuranteRiga?.avvertenza ?? null
+  );
 
-  const { accessori, nonRiconosciute } = risolviAccessori(tariffe, categoria, r.accessori, portafinestra);
+  const { accessori, nonRiconosciute } = risolviAccessori(
+    tariffe,
+    categoria,
+    r.accessori,
+    portafinestra,
+    r.descrizione
+  );
 
   const riga: RigaProposta = {
     ordine,
-    categoria: campo(categoria, evidenza),
+    categoria: campo(categoria, evidenza, { daVerificare: materialeIndovinato || evidenza == null }),
     tipologia: campo<string | null>(tipologia.codice, evidenza, {
       daVerificare: tipologia.codice == null || tipologia.avvertenza != null || evidenza == null,
       nota: tipologia.avvertenza,
@@ -712,11 +818,10 @@ function costruisciRiga(
     altezzaMm: campo<number | null>(altezza, evidenza, { daVerificare: altezza == null || evidenza == null }),
     prezzoTotCent: campo<number | null>(prezzo, evidenza, { daVerificare: prezzo == null || evidenza == null }),
     oscuranteIntegrato: campo<OscuranteIntegrato | null>(oscurante, evidenza),
-    oscuranteTipologia: campo<string | null>(oscuranteTipologia, evidenza, {
+    oscuranteTipologia: campo<string | null>(sceltaOscuranteRiga?.codice ?? null, evidenza, {
       daVerificare:
-        (oscurante != null && (oscuranteTipologia == null || materialeOscurante?.indovinato === true)) ||
-        evidenza == null,
-      nota: materialeOscurante?.indovinato ? "materiale dell'oscurante verificato come PVC" : null,
+        (oscurante != null && (sceltaOscuranteRiga?.codice == null || notaOscurante != null)) || evidenza == null,
+      nota: notaOscurante,
     }),
     accessori,
     // D-F: coprifili, maniglie e simili non sono beni significativi, anche se
@@ -762,19 +867,62 @@ function siglaProvincia(citta: string | null): string | null {
   return trovata ? trovata[1].toUpperCase() : null;
 }
 
-function parole(nome: string): string[] {
+/**
+ * P3-R12: parole che compaiono in mezza rubrica («Condominio», «Via», «srl»)
+ * o che sono solo numeri civici non identificano nessuno: due condomini di
+ * vie diverse non sono lo stesso cliente.
+ */
+const PAROLE_NON_DISTINTIVE = new Set([
+  "condominio",
+  "via",
+  "piazza",
+  "corso",
+  "viale",
+  "srl",
+  "srls",
+  "snc",
+  "spa",
+  "sas",
+  "ditta",
+  "impresa",
+  "sig",
+  "sigra",
+  "dott",
+  "ing",
+  "geom",
+  "arch",
+  "del",
+  "della",
+  "dei",
+  "delle",
+]);
+
+/** Parole di un nome che valgono per il confronto: almeno 3 lettere, non numeri, non generiche. */
+function paroleUtili(nome: string): string[] {
   return normalizzaTesto(nome)
     .split(/[^a-z0-9]+/)
-    .filter(p => p.length >= 3);
+    .filter(p => p.length >= 3 && !/^\d+$/.test(p) && !PAROLE_NON_DISTINTIVE.has(p));
 }
 
-/** Aliquota unica citata dal documento: 10 o 22, altrimenti `null` (IVA mista o non detta). */
+/** Aliquote IVA possibili su questi lavori: 4 % prima casa, 10 % agevolata, 22 % ordinaria. */
+const ALIQUOTE_IVA = new Set([4, 10, 22]);
+
+/**
+ * Aliquota unica citata dal documento, altrimenti `null` (IVA mista o non
+ * detta). Contano solo le percentuali che POSSONO essere un'IVA o che sono
+ * scritte accanto alla parola: «sconto 5% — IVA 10%» è un documento al 10 %,
+ * non un documento a IVA mista.
+ */
 function aliquotaUnica(descrizione: string | null): number | null {
   if (!descrizione) return null;
-  const trovate = new Set([...descrizione.matchAll(/(\d{1,2})\s*%/g)].map(m => Number(m[1])));
-  if (trovate.size !== 1) return null;
-  const [aliquota] = [...trovate];
-  return aliquota === 10 || aliquota === 22 ? aliquota : null;
+  const testo = normalizzaTesto(descrizione);
+  const candidate = new Set<number>();
+  for (const trovata of testo.matchAll(/(\d{1,2})\s*%/g)) {
+    const valore = Number(trovata[1]);
+    if (ALIQUOTE_IVA.has(valore)) candidate.add(valore);
+  }
+  for (const trovata of testo.matchAll(/iva[^\d%]{0,20}?(\d{1,2})\s*%/g)) candidate.add(Number(trovata[1]));
+  return candidate.size === 1 ? [...candidate][0] : null;
 }
 
 /**
@@ -918,6 +1066,14 @@ export function costruisciProposta(
         ? `comune non risolto: indica la zona a mano (${comuneCantiere.valore})`
         : "comune del cantiere assente: indica la zona a mano",
     });
+  } else if (comuneDocumento == null) {
+    // I codici DEI dipendono dalla zona climatica: se la zona viene dalla
+    // città del cliente e non dal cantiere, va detto (i massimali cambiano).
+    controlli.push({
+      codice: "zona_da_cliente",
+      esito: "avviso",
+      messaggio: `zona ${zona} dedotta dalla città del cliente (${comuneCantiere.valore}): il documento non indica il cantiere`,
+    });
   }
 
   // ── Righe e servizi (D-F) ────────────────────────────────────────────────
@@ -984,16 +1140,26 @@ export function costruisciProposta(
   const nomeCitato = esito.cliente.nome?.trim() || null;
   const clienteCitato = campo<string | null>(nomeCitato, evCliente, { daVerificare: nomeCitato == null || evCliente == null });
   if (nomeCitato && clienteCommessa.nome) {
-    const comuni = parole(nomeCitato).filter(p => parole(clienteCommessa.nome ?? "").includes(p));
-    controlli.push(
-      comuni.length > 0
-        ? { codice: "cliente_citato", esito: "ok", messaggio: "cliente coerente con la commessa" }
-        : {
-            codice: "cliente_citato",
-            esito: "avviso",
-            messaggio: `il documento cita ${nomeCitato}, la commessa è di ${clienteCommessa.nome}`,
-          }
-    );
+    const citate = paroleUtili(nomeCitato);
+    const dellaCommessa = paroleUtili(clienteCommessa.nome);
+    const comuni = citate.filter(p => dellaCommessa.includes(p));
+    if (citate.length === 0 || dellaCommessa.length === 0) {
+      controlli.push({
+        codice: "cliente_citato",
+        esito: "avviso",
+        messaggio: `cliente non confrontabile: il documento cita ${nomeCitato}, la commessa è di ${clienteCommessa.nome}`,
+      });
+    } else {
+      controlli.push(
+        comuni.length > 0
+          ? { codice: "cliente_citato", esito: "ok", messaggio: "cliente coerente con la commessa" }
+          : {
+              codice: "cliente_citato",
+              esito: "avviso",
+              messaggio: `il documento cita ${nomeCitato}, la commessa è di ${clienteCommessa.nome}`,
+            }
+      );
+    }
   }
   const cfCitato = esito.cliente.codiceFiscale?.trim() ?? null;
   if (cfCitato && clienteCommessa.codiceFiscale) {
