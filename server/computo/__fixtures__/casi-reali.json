@@ -1,49 +1,339 @@
 {
- "_nota": "Tre commesse reali del 2026 (fatture 127, 129, 130) ricalcolate dal foglio «CALCOLO NUOVI LIMITI». Solo misure, codici DEI e totali: nessun dato personale. Attesi in euro; i valori del caso 127 vengono da un PDF stampato a 2 decimali (tolleranza 2 centesimi sui totali). Fonte: docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md §4.",
+ "_nota": "Casi reali 2026 ricalcolati dal foglio «CALCOLO NUOVI LIMITI» compilato a mano (scripts/harvest-fixture-limiti.py). Solo misure, codici DEI e totali: nessun dato personale. `attesi.voci` sono i limiti del foglio voce per voce (in euro; `dei_riga_n` viene dalla colonna «Limite Costo» del foglio Stampa); `check1`/`check2` sommano quegli stessi numeri con la regola di inclusione del motore, mentre `attesi.foglio` conserva i totali del foglio e le opere su cui le due inclusioni divergono (il foglio somma solo ciò che è stato fatturato). Un caso con `salta` è atteso ma non verificabile finché il motore non modella quel caso: il motivo è nel campo. I primi tre casi (fatture 127, 129, 130) vengono dall'analisi di docs/superpowers/specs/2026-09-03-limiti-analisi-fogli-reali.md §4 e restano invariati.",
  "casi": [
   {
    "nome": "fattura-130-2026",
-   "parametri": { "zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 571278, "pattuitoTipo": "imponibile", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50,
-                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "parametri": {"zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 571278, "pattuitoTipo": "imponibile", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
    "righe": [
-    { "categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 1, "larghezzaMm": 1900, "altezzaMm": 2500, "prezzoTotCent": 129462, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-c", "serramento.C25088-h", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1200, "altezzaMm": 1720, "prezzoTotCent": 126863, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1100, "altezzaMm": 1720, "prezzoTotCent": 117140, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 740, "altezzaMm": 1720, "prezzoTotCent": 62658, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"] }
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 1, "larghezzaMm": 1900, "altezzaMm": 2500, "prezzoTotCent": 129462, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-c", "serramento.C25088-h", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1200, "altezzaMm": 1720, "prezzoTotCent": 126863, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1100, "altezzaMm": 1720, "prezzoTotCent": 117140, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 740, "altezzaMm": 1720, "prezzoTotCent": 62658, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-h", "serramento.C25126"]}
    ],
    "attesi": {
-    "voci": { "massimale_A": 10869.144, "massimale_B": 0, "massimale_C": 0, "rilievo_pezzo": 105.2975, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 281.761656, "rimozione_tapparelle": 0, "smaltimento": 330.7204212, "trasporto": 0, "tiro_piano": 243.33333, "assistenza_muraria": 319.5012, "posa": 1314, "pulizia": 171.66667, "spese_professionali": 600, "assistenze_murarie_eventuali": 386.16, "dime": 1293.84618, "piattaforma": 517.92, "permessi_suolo": 300 },
-    "deiProdotti": 9239.054236, "check1": 13999.912277, "check2": 10965.567513, "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
+    "voci": {"massimale_A": 10869.144, "massimale_B": 0, "massimale_C": 0, "rilievo_pezzo": 105.2975, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 281.761656, "rimozione_tapparelle": 0, "smaltimento": 330.7204212, "trasporto": 0, "tiro_piano": 243.33333, "assistenza_muraria": 319.5012, "posa": 1314, "pulizia": 171.66667, "spese_professionali": 600, "assistenze_murarie_eventuali": 386.16, "dime": 1293.84618, "piattaforma": 517.92, "permessi_suolo": 300},
+    "deiProdotti": 9239.054236, "check1": 13999.912277, "check2": 10965.567513,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
    }
   },
   {
    "nome": "fattura-129-2026",
-   "parametri": { "zona": "E", "piano": null, "distanzaKm": 12, "pattuitoCent": 1409271, "pattuitoTipo": "lordo", "detrazioneTipo": "ecobonus", "detrazionePct": 50,
-                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "parametri": {"zona": "E", "piano": null, "distanzaKm": 12, "pattuitoCent": 1409271, "pattuitoTipo": "lordo", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
    "righe": [
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 500, "altezzaMm": 1460, "prezzoTotCent": 38792, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 510, "altezzaMm": 1340, "prezzoTotCent": 36341, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15079-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Portafinestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 1000, "altezzaMm": 2540, "prezzoTotCent": 83342, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 2, "larghezzaMm": 1000, "altezzaMm": 1660, "prezzoTotCent": 107200, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 3, "larghezzaMm": 1060, "altezzaMm": 1900, "prezzoTotCent": 184532, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"] }
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta", "quantita": 1, "larghezzaMm": 500, "altezzaMm": 1460, "prezzoTotCent": 38792, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 510, "altezzaMm": 1340, "prezzoTotCent": 36341, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15079-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Portafinestra 1 anta + persiana", "quantita": 1, "larghezzaMm": 1000, "altezzaMm": 2540, "prezzoTotCent": 83342, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 2, "larghezzaMm": 1000, "altezzaMm": 1660, "prezzoTotCent": 107200, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "Finestra 1 anta + persiana", "quantita": 3, "larghezzaMm": 1060, "altezzaMm": 1900, "prezzoTotCent": 184532, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-b", "persiana.C15155-a"]}
    ],
    "attesi": {
-    "voci": { "massimale_A": 569.4, "massimale_B": 11326.86, "massimale_C": 0, "rilievo_pezzo": 172.98875, "rilievo_foro": 220.62333, "progettazione": 119.36, "sviluppo_ordine": 110.31167, "protezione": 146, "rimozione_serramenti": 523.714176, "rimozione_tapparelle": 0, "smaltimento": 323.4740101, "trasporto": 84, "tiro_piano": 444.08333, "assistenza_muraria": 317.2947, "posa": 2518.5, "pulizia": 272.04167, "spese_professionali": 600, "assistenze_murarie_eventuali": 514.88, "dime": 1236.33489, "piattaforma": 517.92, "permessi_suolo": 300 },
-    "deiProdotti": 17369.395892, "check1": 16975.662886, "check2": 19735.987111, "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
+    "voci": {"massimale_A": 569.4, "massimale_B": 11326.86, "massimale_C": 0, "rilievo_pezzo": 172.98875, "rilievo_foro": 220.62333, "progettazione": 119.36, "sviluppo_ordine": 110.31167, "protezione": 146, "rimozione_serramenti": 523.714176, "rimozione_tapparelle": 0, "smaltimento": 323.4740101, "trasporto": 84, "tiro_piano": 444.08333, "assistenza_muraria": 317.2947, "posa": 2518.5, "pulizia": 272.04167, "spese_professionali": 600, "assistenze_murarie_eventuali": 514.88, "dime": 1236.33489, "piattaforma": 517.92, "permessi_suolo": 300},
+    "deiProdotti": 17369.395892, "check1": 16975.662886, "check2": 19735.987111,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5
    }
   },
   {
    "nome": "fattura-127-2026",
-   "parametri": { "zona": "D", "piano": 2, "distanzaKm": null, "pattuitoCent": 1549472, "pattuitoTipo": "lordo", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50,
-                  "opzioni": { "rilievo": "foro", "speseProfessionali": false, "eventuali": [] } },
+   "parametri": {"zona": "D", "piano": 2, "distanzaKm": null, "pattuitoCent": 1549472, "pattuitoTipo": "lordo", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
    "righe": [
-    { "categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 3, "larghezzaMm": 1900, "altezzaMm": 2400, "prezzoTotCent": 778373, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1660, "altezzaMm": 1540, "prezzoTotCent": 295082, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] },
-    { "categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 1, "larghezzaMm": 1150, "altezzaMm": 1540, "prezzoTotCent": 126222, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"] }
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "Portafinestra 2 ante", "quantita": 3, "larghezzaMm": 1900, "altezzaMm": 2400, "prezzoTotCent": 778373, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 2, "larghezzaMm": 1660, "altezzaMm": 1540, "prezzoTotCent": 295082, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "Finestra 2 ante", "quantita": 1, "larghezzaMm": 1150, "altezzaMm": 1540, "prezzoTotCent": 126222, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]}
    ],
    "attesi": {
-    "voci": { "massimale_A": 16039.764, "massimale_B": 0, "massimale_C": 0, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 415.80, "rimozione_tapparelle": 0, "smaltimento": 416.69, "trasporto": 0, "tiro_piano": 243.33, "assistenza_muraria": 448.80, "posa": 1314, "pulizia": 171.67, "spese_professionali": 600 },
-    "deiProdotti": 17231.46, "check1": 19519.84, "check2": 19307.28, "tolleranzaCent": 2, "tolleranzaTotaliCent": 6
+    "voci": {"massimale_A": 16039.764, "massimale_B": 0, "massimale_C": 0, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 415.8, "rimozione_tapparelle": 0, "smaltimento": 416.69, "trasporto": 0, "tiro_piano": 243.33, "assistenza_muraria": 448.8, "posa": 1314, "pulizia": 171.67, "spese_professionali": 600},
+    "deiProdotti": 17231.46, "check1": 19519.84, "check2": 19307.28,
+    "tolleranzaCent": 2, "tolleranzaTotaliCent": 6
+   }
+  },
+  {
+   "nome": "fattura-32-2026",
+   "salta": "il foglio è la copia di un'altra edizione del listino DEI (44 prezzi prodotto diversi dal seed, rilievo 61,22 €/h invece di 60,17, progettazione 30,36 invece di 29,84, smaltimento 112,64 €/mc invece di 104,69): con un seed a versione unica le voci non possono coincidere",
+   "_fonte": "fattura-32-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 479090, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente + persiana", "quantita": 3, "larghezzaMm": 1050, "altezzaMm": 1770, "prezzoTotCent": 285100, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-a", "accessori": ["persiana.C15154-c", "persiana.C15155-a"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 5017.95, "massimale_C": 0.0, "rilievo_pezzo": 107.13499999999999, "rilievo_foro": 122.44, "progettazione": 45.54, "sviluppo_ordine": 61.22, "protezione": 54.75, "rimozione_serramenti": 225.47321999999997, "rimozione_tapparelle": 0.0, "smaltimento": 227.08965075, "trasporto": 0.0, "tiro_piano": 188.58333333333334, "assistenza_muraria": 139.0095, "posa": 985.5, "pulizia": 144.29166666666669, "spese_professionali": 600.0, "altri_servizi": 57.02, "assistenze_murarie_eventuali": 193.07999999999998, "dime": 517.685175, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 6683.655930000001},
+    "deiProdotti": 6683.655930000001, "check1": 7211.84737075, "check2": 7830.8333007500005,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 7068.40534825, "check2": 7687.39127825, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["assistenza_muraria"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-37-2026",
+   "salta": "il foglio è la copia di un'altra edizione del listino DEI (44 prezzi prodotto diversi dal seed, rilievo 61,22 €/h invece di 60,17, progettazione 30,36 invece di 29,84, smaltimento 112,64 €/mc invece di 104,69): con un seed a versione unica le voci non possono coincidere",
+   "_fonte": "fattura-37-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 1363636, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente + persiana", "quantita": 1, "larghezzaMm": 1150, "altezzaMm": 1750, "prezzoTotCent": 1030136, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-b", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-a"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente + persiana", "quantita": 1, "larghezzaMm": 1200, "altezzaMm": 2620, "prezzoTotCent": null, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-d", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-a"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente + persiana", "quantita": 2, "larghezzaMm": 2000, "altezzaMm": 2620, "prezzoTotCent": null, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15078-d", "accessori": ["serramento.C25088-b", "serramento.C25126", "persiana.C15154-a"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 14072.849999999999, "massimale_C": 0.0, "rilievo_pezzo": 122.44, "rilievo_foro": 142.84666666666664, "progettazione": 60.72, "sviluppo_ordine": 71.42333333333332, "protezione": 73.0, "rimozione_serramenti": 632.3400599999999, "rimozione_tapparelle": 0.0, "smaltimento": 366.19806725, "trasporto": 0.0, "tiro_piano": 243.33333333333334, "assistenza_muraria": 280.2255, "posa": 1314.0, "pulizia": 171.66666666666669, "spese_professionali": 600.0, "altri_servizi": 206.02720000000002, "assistenze_murarie_eventuali": 257.44, "dime": 1451.8490249999998, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 2533.813675, "dei_riga_2": 3628.1197599999996, "dei_riga_3": 11662.4088},
+    "deiProdotti": 17824.342234999996, "check1": 17428.60362725, "check2": 19794.672528916664,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 17416.17260975, "check2": 19782.241511416665, "opereSoloNelFoglio": [], "opereSoloNelMotore": [], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-39-2026",
+   "salta": "il foglio è la copia di un'altra edizione del listino DEI (44 prezzi prodotto diversi dal seed, rilievo 61,22 €/h invece di 60,17, progettazione 30,36 invece di 29,84, smaltimento 112,64 €/mc invece di 104,69): con un seed a versione unica le voci non possono coincidere",
+   "_fonte": "fattura-39-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 516755, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 1, "larghezzaMm": 1595, "altezzaMm": 2500, "prezzoTotCent": 266813, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-d", "descrizione": "PVC portafinestra 1 anta, a battente", "quantita": 1, "larghezzaMm": 800, "altezzaMm": 2500, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 600, "altezzaMm": 1605, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 2, "larghezzaMm": 1590, "altezzaMm": 1590, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 700, "altezzaMm": 1590, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 10233.365999999998, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 107.13499999999999, "rilievo_foro": 183.66, "progettazione": 91.08, "sviluppo_ordine": 91.83, "protezione": 109.5, "rimozione_serramenti": 265.2803339999999, "rimozione_tapparelle": 0.0, "smaltimento": 330.57955079999994, "trasporto": 0.0, "tiro_piano": 243.33333333333334, "assistenza_muraria": 303.39375, "posa": 1314.0, "pulizia": 171.66666666666669, "spese_professionali": 600.0, "altri_servizi": 53.3626, "assistenze_murarie_eventuali": 386.15999999999997, "dime": 1218.1641449999997, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 2637.803375, "dei_riga_2": 1310.32, "dei_riga_3": 721.07, "dei_riga_4": 3460.983834, "dei_riga_5": 788.9909100000001},
+    "deiProdotti": 8919.168119, "check1": 13337.689634799997, "check2": 10617.6617538,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 13023.865723299998, "check2": 10303.8378423, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["assistenza_muraria"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-49-2026",
+   "salta": "il foglio è la copia di un'altra edizione del listino DEI (44 prezzi prodotto diversi dal seed, rilievo 61,22 €/h invece di 60,17, progettazione 30,36 invece di 29,84, smaltimento 112,64 €/mc invece di 104,69): con un seed a versione unica le voci non possono coincidere",
+   "_fonte": "fattura-49-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 1300000, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 5, "larghezzaMm": 1550, "altezzaMm": 1530, "prezzoTotCent": 750000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 1, "larghezzaMm": 1080, "altezzaMm": 1530, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 3, "larghezzaMm": 1200, "altezzaMm": 2300, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 2, "larghezzaMm": 960, "altezzaMm": 1530, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 19287.45, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 145.3975, "rilievo_foro": 285.69333333333327, "progettazione": 166.98, "sviluppo_ordine": 142.84666666666664, "protezione": 200.75, "rimozione_serramenti": 499.99004999999994, "rimozione_tapparelle": 0.0, "smaltimento": 490.34931, "trasporto": 0.0, "tiro_piano": 425.8333333333333, "assistenza_muraria": 633.2655, "posa": 2409.0, "pulizia": 262.91666666666663, "spese_professionali": 600.0, "altri_servizi": 150.0, "assistenze_murarie_eventuali": 707.96, "dime": 2295.948375, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 9589.45021625, "dei_riga_2": 1430.3362882, "dei_riga_3": 6655.864259999999, "dei_riga_4": 2611.7089568},
+    "deiProdotti": 20287.35972125, "check1": 24805.07486, "check2": 23253.13791458333,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 24785.416497500002, "check2": 23233.479552083332, "opereSoloNelFoglio": [], "opereSoloNelMotore": [], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-55-2026",
+   "salta": "riga dichiarata «serramento + persiana» ma senza prodotto persiana scelto: il foglio la conta lo stesso nel massimale B, il motore rende CHECK2 non calcolabile (fail-closed)",
+   "_fonte": "fattura-55-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 82045, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente + persiana", "quantita": 1, "larghezzaMm": 700, "altezzaMm": 690, "prezzoTotCent": 43000, "oscuranteIntegrato": "persiana", "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 434.7, "massimale_C": 0.0, "rilievo_pezzo": 75.2125, "rilievo_foro": 80.22666666666666, "progettazione": 14.92, "sviluppo_ordine": 40.11333333333333, "protezione": 18.25, "rimozione_serramenti": 19.532519999999998, "rimozione_tapparelle": 0.0, "smaltimento": 156.2942145, "trasporto": 0.0, "tiro_piano": 79.08333333333333, "assistenza_muraria": 30.891, "posa": 328.5, "pulizia": 89.54166666666666, "spese_professionali": 600.0, "altri_servizi": 8.6, "assistenze_murarie_eventuali": 64.36, "dime": 44.84654999999999, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 881.2305},
+    "deiProdotti": 881.2305, "check1": 1292.0527345, "check2": 1369.9699011666667,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 843.4266666666667, "check2": 961.4571666666667, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["progettazione", "sviluppo_ordine", "protezione", "rimozione_serramenti", "smaltimento", "tiro_piano", "assistenza_muraria", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-59-2026",
+   "_fonte": "fattura-59-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": 13.0, "pattuitoCent": 444909, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente + persiana", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 2200, "prezzoTotCent": 283609, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15079-d", "accessori": ["persiana.C15154-c"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente + persiana", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 2200, "prezzoTotCent": null, "oscuranteIntegrato": "persiana", "oscuranteTipologia": "C15079-d", "accessori": ["persiana.C15154-c"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 3761.9999999999995, "massimale_C": 0.0, "rilievo_pezzo": 90.255, "rilievo_foro": 100.28333333333333, "progettazione": 29.84, "sviluppo_ordine": 50.141666666666666, "protezione": 36.5, "rimozione_serramenti": 169.03919999999997, "rimozione_tapparelle": 0.0, "smaltimento": 204.47167000000002, "trasporto": 36.4, "tiro_piano": 133.83333333333331, "assistenza_muraria": 83.847, "posa": 657.0, "pulizia": 116.91666666666666, "spese_professionali": 600.0, "altri_servizi": 56.7218, "assistenze_murarie_eventuali": 128.72, "dime": 388.11299999999994, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 2310.6077, "dei_riga_2": 2310.6077},
+    "deiProdotti": 4621.2154, "check1": 5380.27287, "check2": 5495.946603333333,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 5380.27287, "check2": 5495.946603333334, "opereSoloNelFoglio": [], "opereSoloNelMotore": [], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-88-2026",
+   "_fonte": "fattura-88-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": 19.0, "pattuitoCent": 600000, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "persiana", "tipologia": "C15078-b", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 2 ante", "quantita": 1, "larghezzaMm": 1200, "altezzaMm": 1500, "prezzoTotCent": 470000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C25084-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-b", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 2 ante", "quantita": 2, "larghezzaMm": 2410, "altezzaMm": 1900, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C25084-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 700, "altezzaMm": 1500, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C25084-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-b", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 2 ante", "quantita": 2, "larghezzaMm": 1100, "altezzaMm": 2350, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C25084-a"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 0.0, "massimale_C": 4741.127999999999, "rilievo_pezzo": 105.2975, "rilievo_foro": 60.17, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 347.33915999999994, "rimozione_tapparelle": 0.0, "smaltimento": 151.073625, "trasporto": 53.199999999999996, "tiro_piano": 133.83333333333331, "assistenza_muraria": 0.0, "posa": 657.0, "pulizia": 116.91666666666666, "spese_professionali": 600.0, "altri_servizi": 94.0, "assistenze_murarie_eventuali": 386.15999999999997, "dime": 1594.9772999999996, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 914.1479999999999, "dei_riga_2": 4650.98188, "dei_riga_3": 604.7895000000001, "dei_riga_4": 2625.6362},
+    "deiProdotti": 8795.55558, "check1": 6549.935784999999, "check2": 9803.908365,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 6549.935784999999, "check2": 9803.908365, "opereSoloNelFoglio": [], "opereSoloNelMotore": [], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "fattura-91-2026",
+   "_fonte": "fattura-91-2026",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": 10.0, "pattuitoCent": 263636, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": true, "eventuali": []}},
+   "righe": [
+    {"categoria": "tenda", "tipologia": "C55011", "descrizione": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m", "quantita": 1, "larghezzaMm": 3000, "altezzaMm": 2000, "prezzoTotCent": 157236, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "tenda", "tipologia": "C55011", "descrizione": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m", "quantita": 1, "larghezzaMm": 3600, "altezzaMm": 2000, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 0.0, "massimale_C": 3643.2, "rilievo_pezzo": 75.2125, "rilievo_foro": 60.17, "progettazione": 29.84, "sviluppo_ordine": 50.141666666666666, "protezione": 0.0, "rimozione_serramenti": 0.0, "rimozione_tapparelle": 0.0, "smaltimento": 150.0, "trasporto": 14.0, "tiro_piano": 170.33333333333334, "assistenza_muraria": 0.0, "posa": 584.0, "pulizia": 135.16666666666669, "spese_professionali": 600.0, "altri_servizi": 31.4472, "assistenze_murarie_eventuali": 128.72, "dime": 1225.62, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1691.1000000000001, "dei_riga_2": 2029.32},
+    "deiProdotti": 3720.42, "check1": 5436.8516666666665, "check2": 4865.93,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 4972.8516666666665, "check2": 4415.93, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["trasporto"], "speseProfessionaliFatturate": 150.0}
+   }
+  },
+  {
+   "nome": "fattura-118-2026",
+   "_fonte": "fattura-118-2026",
+   "parametri": {"zona": "E", "piano": 1, "distanzaKm": 21.7, "pattuitoCent": 868400, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": true, "eventuali": ["altri_servizi", "assistenze_murarie_eventuali", "piattaforma"]}},
+   "righe": [
+    {"categoria": "porta_blindata", "tipologia": "C25050-b", "descrizione": "Un'anta, posa muraria", "quantita": 1, "larghezzaMm": 1124, "altezzaMm": 2170, "prezzoTotCent": 190200, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 2, "larghezzaMm": 950, "altezzaMm": 1500, "prezzoTotCent": 302100, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 1500, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 900, "altezzaMm": 1450, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 1450, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 1400, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 1400, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]},
+    {"categoria": "persiana", "tipologia": "C15078-a", "descrizione": "Persiane in ALLUMINIO - lamelle orientabili - per finestra 1 anta", "quantita": 1, "larghezzaMm": 950, "altezzaMm": 1400, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["persiana.C15154-c", "persiana.C15155-a"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 1902.4823999999999, "massimale_B": 0.0, "massimale_C": 3021.5099999999998, "rilievo_pezzo": 127.86125, "rilievo_foro": 60.17, "progettazione": 134.28, "sviluppo_ordine": 120.34, "protezione": 164.25, "rimozione_serramenti": 270.67664759999997, "rimozione_tapparelle": 0.0, "smaltimento": 182.31664727, "trasporto": 60.75999999999999, "tiro_piano": 206.83333333333334, "assistenza_muraria": 0.0, "posa": 1095.0, "pulizia": 153.41666666666669, "spese_professionali": 600.0, "altri_servizi": 98.46000000000001, "assistenze_murarie_eventuali": 579.24, "dime": 1242.9439529999997, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1683.83, "dei_riga_2": 1722.2101, "dei_riga_3": 861.10505, "dei_riga_4": 791.9862499999999, "dei_riga_5": 833.7455249999999, "dei_riga_6": 806.386, "dei_riga_7": 806.386, "dei_riga_8": 806.386},
+    "deiProdotti": 8312.034925, "check1": 9167.655694869998, "check2": 11279.59821987,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 9295.51694487, "check2": 11407.459469869998, "opereSoloNelFoglio": ["rilievo_pezzo"], "opereSoloNelMotore": [], "speseProfessionaliFatturate": 600.0}
+   }
+  },
+  {
+   "nome": "caso-2026-a",
+   "_fonte": "caso-2026-a",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 254000, "pattuitoTipo": "imponibile", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 1070, "altezzaMm": 1425, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 1, "larghezzaMm": 1250, "altezzaMm": 2340, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-c", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 1070, "altezzaMm": 1195, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 1, "larghezzaMm": 1130, "altezzaMm": 2180, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-c", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 1600, "altezzaMm": 1380, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 860, "altezzaMm": 1720, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25126"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 9265.62, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 105.2975, "rilievo_foro": 180.51, "progettazione": 89.52, "sviluppo_ordine": 90.255, "protezione": 109.5, "rimozione_serramenti": 240.19338000000002, "rimozione_tapparelle": 0.0, "smaltimento": 304.05875100000003, "trasporto": 0.0, "tiro_piano": 243.33333333333334, "assistenza_muraria": 308.02740000000006, "posa": 1314.0, "pulizia": 171.66666666666669, "spese_professionali": 600.0, "altri_servizi": 0.0, "assistenze_murarie_eventuali": 386.15999999999997, "dime": 1102.96515, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1123.9537048749999, "dei_riga_2": 2458.7291375, "dei_riga_3": 953.841878825, "dei_riga_4": 2097.5402931, "dei_riga_5": 1596.236944, "dei_riga_6": 1092.4681556},
+    "deiProdotti": 9322.770113899998, "check1": 12316.684531, "check2": 10969.579644899999,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 11836.990464333334, "check2": 10489.885578233334, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["assistenza_muraria", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-b",
+   "salta": "come i casi 32/37/39/49 il foglio usa un'altra edizione del listino DEI, e in più conta la tenda alla veneziana a pezzo mentre il seed la dichiara a mq",
+   "_fonte": "caso-2026-b",
+   "parametri": {"zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 597813, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 1, "larghezzaMm": 1595, "altezzaMm": 2500, "prezzoTotCent": 300813, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-d", "descrizione": "PVC portafinestra 1 anta, a battente", "quantita": 1, "larghezzaMm": 800, "altezzaMm": 2500, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 600, "altezzaMm": 1605, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 2, "larghezzaMm": 1590, "altezzaMm": 1590, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 1, "larghezzaMm": 700, "altezzaMm": 1590, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-b"]},
+    {"categoria": "schermatura", "tipologia": "C55029-b", "descrizione": "Tenda alla veneziana spesore 25mm - bianche o colorate - 200 x 160 cm", "quantita": 2, "larghezzaMm": 1590, "altezzaMm": 1590, "prezzoTotCent": 30000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 10233.365999999998, "massimale_B": 0.0, "massimale_C": 1395.5112, "rilievo_pezzo": 122.44, "rilievo_foro": 183.66, "progettazione": 121.44, "sviluppo_ordine": 112.23666666666666, "protezione": 109.5, "rimozione_serramenti": 265.2803339999999, "rimozione_tapparelle": 0.0, "smaltimento": 330.57955079999994, "trasporto": 0.0, "tiro_piano": 279.83333333333337, "assistenza_muraria": 303.39375, "posa": 1533.0, "pulizia": 189.91666666666669, "spese_professionali": 600.0, "altri_servizi": 66.1626, "assistenze_murarie_eventuali": 514.88, "dime": 1687.6323149999998, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 2637.803375, "dei_riga_2": 1310.32, "dei_riga_3": 721.07, "dei_riga_4": 3460.983834, "dei_riga_5": 788.9909100000001, "dei_riga_6": 255.08},
+    "deiProdotti": 9174.248119, "check1": 15057.717501466665, "check2": 10957.8517538,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 14743.893589966665, "check2": 10644.0278423, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["assistenza_muraria"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-c",
+   "salta": "due divergenze reali: i cassonetti stanno nel blocco B (massimale B nel foglio, sempre A nel motore) e la maggiorazione dell'avvolgibile ha L e H scambiate rispetto al foglio",
+   "_fonte": "caso-2026-c",
+   "parametri": {"zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 1783900, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "pezzo", "speseProfessionali": true, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente + tapparella", "quantita": 4, "larghezzaMm": 2050, "altezzaMm": 1300, "prezzoTotCent": 1300000, "oscuranteIntegrato": "tapparella", "oscuranteTipologia": "C25089-a", "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente + tapparella", "quantita": 2, "larghezzaMm": 1000, "altezzaMm": 1300, "prezzoTotCent": null, "oscuranteIntegrato": "tapparella", "oscuranteTipologia": "C25089-a", "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "cassonetto", "tipologia": "C25096-d", "descrizione": "Cassonetto in pvc colore bianco in massa 250 × 40 cm (1 m2)", "quantita": 4, "larghezzaMm": 2400, "altezzaMm": 450, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "cassonetto", "tipologia": "C25096-b", "descrizione": "Cassonetto in pvc colore bianco in massa 150 × 40 cm (0,60 m2)", "quantita": 2, "larghezzaMm": 1350, "altezzaMm": 450, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 16915.5, "massimale_C": 0.0, "rilievo_pezzo": 195.5525, "rilievo_foro": 180.51, "progettazione": 179.04, "sviluppo_ordine": 150.425, "protezione": 109.5, "rimozione_serramenti": 268.11719999999997, "rimozione_tapparelle": 506.9011499999999, "smaltimento": 324.817965, "trasporto": 0.0, "tiro_piano": 462.3333333333333, "assistenza_muraria": 450.126, "posa": 2409.0, "pulizia": 281.16666666666663, "spese_professionali": 713.5600000000001, "altri_servizi": 260.0, "assistenze_murarie_eventuali": 772.3199999999999, "dime": 1745.1157499999997, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 9718.915004999999, "dei_riga_2": 2708.0665, "dei_riga_3": 2329.72, "dei_riga_4": 842.32},
+    "deiProdotti": 15599.021504999999, "check1": 22966.039815, "check2": 19090.136319999998,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 22502.353815, "check2": 18626.45032, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["assistenza_muraria"], "speseProfessionaliFatturate": 700.0}
+   }
+  },
+  {
+   "nome": "caso-2026-d",
+   "_fonte": "caso-2026-d",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 198000, "pattuitoTipo": "imponibile", "detrazioneTipo": "ristrutturazione", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "porta_blindata", "tipologia": "C25050-b", "descrizione": "Un'anta, posa muraria", "quantita": 1, "larghezzaMm": 896, "altezzaMm": 2147, "prezzoTotCent": 142000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 1500.49536, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 67.69125, "rilievo_foro": 60.17, "progettazione": 14.92, "sviluppo_ordine": 40.11333333333333, "protezione": 18.25, "rimozione_serramenti": 38.897456639999994, "rimozione_tapparelle": 0.0, "smaltimento": 174.948620928, "trasporto": 0.0, "tiro_piano": 60.83333333333333, "assistenza_muraria": 0.0, "posa": 219.0, "pulizia": 80.41666666666666, "spese_professionali": 600.0, "altri_servizi": 28.400000000000002, "assistenze_murarie_eventuali": 64.36, "dime": 178.6166592, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1683.83},
+    "deiProdotti": 1683.83, "check1": 2208.0447709013333, "check2": 2132.2660775679997,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 2070.4806475946666, "check2": 1994.7019542613334, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["protezione", "rimozione_serramenti", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-e",
+   "_fonte": "caso-2026-e",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": 5.0, "pattuitoCent": 921463, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 3, "larghezzaMm": 1395, "altezzaMm": 2385, "prezzoTotCent": 647463, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 2, "larghezzaMm": 1395, "altezzaMm": 1495, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-b", "descrizione": "PVC finestra a 1 anta, a battente", "quantita": 2, "larghezzaMm": 790, "altezzaMm": 1495, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "tapparella", "tipologia": "C25089-a", "descrizione": "PVC - Standard", "quantita": 1, "larghezzaMm": 585, "altezzaMm": 1450, "prezzoTotCent": 23000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "porta_blindata", "tipologia": "C25050-a", "descrizione": "Un'anta, posa meccanica", "quantita": 1, "larghezzaMm": 1000, "altezzaMm": 2100, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 14519.212500000001, "massimale_B": 0.0, "massimale_C": 234.117, "rilievo_pezzo": 127.86125, "rilievo_foro": 200.56666666666666, "progettazione": 134.28, "sviluppo_ordine": 120.34, "protezione": 164.25, "rimozione_serramenti": 393.53427750000003, "rimozione_tapparelle": 22.8773025, "smaltimento": 391.4628450000001, "trasporto": 28.0, "tiro_piano": 334.5833333333333, "assistenza_muraria": 377.53215, "posa": 1861.5, "pulizia": 217.29166666666666, "spese_professionali": 600.0, "altri_servizi": 134.0926, "assistenze_murarie_eventuali": 579.24, "dime": 1807.1047312500002, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 6791.32530225, "dei_riga_2": 2459.1259485000005, "dei_riga_3": 1419.787447, "dei_riga_4": 199.998, "dei_riga_5": 1420.27},
+    "deiProdotti": 12290.506697750001, "check1": 18999.54774166667, "check2": 14526.884939416668,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 18353.8466225, "check2": 13909.183820250004, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["rimozione_tapparelle", "trasporto", "assistenza_muraria", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-f",
+   "_fonte": "caso-2026-f",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 652294, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-d", "descrizione": "PVC portafinestra 1 anta, a battente", "quantita": 1, "larghezzaMm": 790, "altezzaMm": 2350, "prezzoTotCent": 462294, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25088-c", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 1, "larghezzaMm": 1285, "altezzaMm": 1450, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 1, "larghezzaMm": 1285, "altezzaMm": 1440, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 1, "larghezzaMm": 1285, "altezzaMm": 1245, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-d", "descrizione": "PVC portafinestra 1 anta, a battente", "quantita": 1, "larghezzaMm": 790, "altezzaMm": 2340, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 1, "larghezzaMm": 1280, "altezzaMm": 1240, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]},
+    {"categoria": "serramento_pvc", "tipologia": "C25077-e", "descrizione": "PVC portafinestra 2 ante, a battente", "quantita": 1, "larghezzaMm": 1190, "altezzaMm": 2340, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": ["serramento.C25088-a", "serramento.C25088-b", "serramento.C25126"]}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 10444.492499999998, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 112.81875000000001, "rilievo_foro": 200.56666666666666, "progettazione": 104.44, "sviluppo_ordine": 100.28333333333333, "protezione": 127.75, "rimozione_serramenti": 270.75338249999993, "rimozione_tapparelle": 0.0, "smaltimento": 323.659773375, "trasporto": 0.0, "tiro_piano": 279.83333333333337, "assistenza_muraria": 348.84765000000004, "posa": 1533.0, "pulizia": 189.91666666666669, "spese_professionali": 600.0, "altri_servizi": 92.4588, "assistenze_murarie_eventuali": 450.52, "dime": 1243.2963187499997, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1560.6517209999997, "dei_riga_2": 1573.293747875, "dei_riga_3": 1564.5813772, "dei_riga_4": 1394.6901490375, "dei_riga_5": 1455.2446923999998, "dei_riga_6": 1386.1303296, "dei_riga_7": 2488.8701389},
+    "deiProdotti": 11423.4621560125, "check1": 13923.543305874999, "check2": 13269.229628554167,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 12706.442273374998, "check2": 12052.128596054168, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["protezione", "rimozione_serramenti", "tiro_piano", "assistenza_muraria", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-g",
+   "_fonte": "caso-2026-g",
+   "parametri": {"zona": "D", "piano": null, "distanzaKm": null, "pattuitoCent": 180000, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "tenda", "tipologia": "C55011", "descrizione": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m", "quantita": 1, "larghezzaMm": 2600, "altezzaMm": 2300, "prezzoTotCent": 150000, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []},
+    {"categoria": "tenda", "tipologia": "C55011", "descrizione": "Tenda a bracci - inclinazioni dei bracci in alluminio regolabile - larghezza 2,5 m - 6m e prof. 2,5 m - 3,5 m", "quantita": 1, "larghezzaMm": 1700, "altezzaMm": 2300, "prezzoTotCent": null, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 0.0, "massimale_B": 0.0, "massimale_C": 2729.64, "rilievo_pezzo": 75.2125, "rilievo_foro": 60.17, "progettazione": 29.84, "sviluppo_ordine": 50.141666666666666, "protezione": 0.0, "rimozione_serramenti": 0.0, "rimozione_tapparelle": 0.0, "smaltimento": 150.0, "trasporto": 0.0, "tiro_piano": 170.33333333333334, "assistenza_muraria": 0.0, "posa": 584.0, "pulizia": 135.16666666666669, "spese_professionali": 600.0, "altri_servizi": 30.0, "assistenze_murarie_eventuali": 128.72, "dime": 918.2864999999998, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 1685.463, "dei_riga_2": 1102.0335},
+    "deiProdotti": 2787.4965, "check1": 3909.291666666667, "check2": 3333.0065000000004,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 3313.64, "check2": 2787.4965, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["rilievo_foro", "progettazione", "sviluppo_ordine", "smaltimento", "tiro_piano", "pulizia"], "speseProfessionaliFatturate": 0.0}
+   }
+  },
+  {
+   "nome": "caso-2026-h",
+   "_fonte": "caso-2026-h",
+   "parametri": {"zona": "E", "piano": null, "distanzaKm": null, "pattuitoCent": 196648, "pattuitoTipo": "imponibile", "detrazioneTipo": "ecobonus", "detrazionePct": 50, "opzioni": {"rilievo": "foro", "speseProfessionali": false, "eventuali": []}},
+   "righe": [
+    {"categoria": "serramento_pvc", "tipologia": "C25077-c", "descrizione": "PVC finestra a 2 ante, a battente", "quantita": 2, "larghezzaMm": 1070, "altezzaMm": 1670, "prezzoTotCent": 115148, "oscuranteIntegrato": null, "oscuranteTipologia": null, "accessori": []}
+   ],
+   "attesi": {
+    "voci": {"massimale_A": 2787.564, "massimale_B": 0.0, "massimale_C": 0.0, "rilievo_pezzo": 75.2125, "rilievo_foro": 100.28333333333333, "progettazione": 29.84, "sviluppo_ordine": 50.141666666666666, "protezione": 36.5, "rimozione_serramenti": 72.26223599999999, "rimozione_tapparelle": 0.0, "smaltimento": 196.3486122, "trasporto": 0.0, "tiro_piano": 97.33333333333333, "assistenza_muraria": 94.43820000000001, "posa": 438.0, "pulizia": 98.66666666666666, "spese_professionali": 600.0, "altri_servizi": 23.029600000000002, "assistenze_murarie_eventuali": 128.72, "dime": 331.82732999999996, "piattaforma": 517.92, "permessi_suolo": 300.0, "dei_riga_1": 2107.005266},
+    "deiProdotti": 2107.005266, "check1": 4001.3780482, "check2": 2832.6776475333336,
+    "tolleranzaCent": 1, "tolleranzaTotaliCent": 5,
+    "foglio": {"check1": 3741.933181533333, "check2": 2573.232780866667, "opereSoloNelFoglio": [], "opereSoloNelMotore": ["progettazione", "protezione", "assistenza_muraria", "pulizia"], "speseProfessionaliFatturate": 0.0}
    }
   }
  ]

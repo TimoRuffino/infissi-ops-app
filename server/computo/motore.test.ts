@@ -15,8 +15,8 @@ function rigaDaFixture(r: any): RigaMotore {
     categoria: r.categoria, tipologia: r.tipologia, oscuranteIntegrato: r.oscuranteIntegrato,
     oscuranteTipologia: r.oscuranteTipologia, descrizione: r.descrizione, quantita: r.quantita,
     larghezzaMm: r.larghezzaMm, altezzaMm: r.altezzaMm,
-    mq: Math.round((r.larghezzaMm * r.altezzaMm * r.quantita) / 1_000_000 * 1e6) / 1e6,
-    misuraDei: null, prezzoTotCent: r.prezzoTotCent, beneSignificativo: true,
+    mq: Math.round(((r.larghezzaMm ?? 0) * (r.altezzaMm ?? 0) * r.quantita) / 1_000_000 * 1e6) / 1e6,
+    misuraDei: r.misuraDei ?? null, prezzoTotCent: r.prezzoTotCent, beneSignificativo: true,
     accessori: (r.accessori as string[]).map(codice => ({ codice, quantita: r.quantita })),
   };
 }
@@ -28,7 +28,11 @@ const voce = (esito: ReturnType<typeof calcolaLimiti>, codice: string) => {
 
 describe("motore limiti — casi reali", () => {
   for (const caso of casi.casi) {
-    it(`riproduce il foglio per ${caso.nome}`, () => {
+    // Un caso con `salta` è raccolto per intero ma non riproducibile finché il
+    // motore (o il seed) non copre quel foglio: il motivo sta nella fixture e
+    // l'analisi nel report R22. Togliere `salta` è la prova che è risolto.
+    const salta = (caso as { salta?: string }).salta;
+    (salta ? it.skip : it)(`riproduce il foglio per ${caso.nome}${salta ? ` — saltato: ${salta}` : ""}`, () => {
       const e = calcolaLimiti(caso.righe.map(rigaDaFixture), caso.parametri as ParametriMotore, t);
       // Ogni voce è arrotondata al centesimo; il foglio somma valori non arrotondati:
       // sui totali si ammettono pochi centesimi (tolleranzaTotaliCent), mai di più.
