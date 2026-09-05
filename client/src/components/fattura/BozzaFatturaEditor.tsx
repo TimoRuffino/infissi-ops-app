@@ -259,6 +259,11 @@ export default function BozzaFatturaEditor({
   const [confermaEmissione, setConfermaEmissione] = useState(false);
   const [confermaRigenera, setConfermaRigenera] = useState(false);
   const [confermaAnnulla, setConfermaAnnulla] = useState(false);
+  // Confronto con la fattura vera (studio 05/09): hook PRIMA delle uscite
+  // anticipate qui sotto, altrimenti l'ordine cambia fra un render e l'altro
+  // (React #310, visto in produzione).
+  const [mostraConfronto, setMostraConfronto] = useState(false);
+  const confronto = trpc.fatture.confrontaConFic.useQuery({ id: fatturaId }, { enabled: mostraConfronto, retry: false });
   // Chiavi React delle righe aggiunte: un contatore per montaggio, non di
   // modulo — due editor aperti non si rubano i numeri.
   const contatoreAggiunte = useRef(0);
@@ -372,8 +377,6 @@ export default function BozzaFatturaEditor({
   const f = dettaglio.data.fattura;
   const gruppi = raggruppaRighe(f.righe);
   const controlli = validazioni.data?.controlli ?? [];
-  const [mostraConfronto, setMostraConfronto] = useState(false);
-  const confronto = trpc.fatture.confrontaConFic.useQuery({ id: fatturaId }, { enabled: mostraConfronto, retry: false });
   const { errori, avvisi } = riepilogoControlli(controlli);
   // Controlli non arrivati non vuol dire «tutto a posto»: senza il loro
   // esito l'emissione resta chiusa e il pannello lo dice, invece di
