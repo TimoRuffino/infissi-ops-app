@@ -40,6 +40,7 @@ import { diagnosticaRouter } from "./routers/diagnostica";
 import { chatRouter } from "./routers/chat";
 import { analisiDocumentiRouter } from "./routers/analisiDocumenti";
 import { contrattiRouter } from "./routers/contratti";
+import { estrazioniContrattoRouter } from "./routers/estrazioniContratto";
 import { computoRouter } from "./routers/computo";
 import { tariffeRouter } from "./routers/tariffe";
 import { fattureRouter } from "./routers/fatture";
@@ -208,6 +209,7 @@ export const appRouter = router({
   chat: chatRouter,
   analisiDocumenti: analisiDocumentiRouter,
   contratti: contrattiRouter,
+  estrazioniContratto: estrazioniContrattoRouter,
   computo: computoRouter,
   tariffe: tariffeRouter,
   fatture: fattureRouter,
