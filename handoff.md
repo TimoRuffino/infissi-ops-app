@@ -3678,8 +3678,8 @@ sola lettura), 18 fogli limiti con la colonna «Da fattura», 23 PDF, i 3
 contratti del CRM; replay di motore e risolutore su 19 lavori contro la
 fattura vera. Regole trovate, differenze e modifiche in
 `docs/superpowers/specs/2026-09-05-studio-fatture-reali.md`. In codice:
-`bilancia` nel generatore (servizi in proporzione fino al 40 % dei limiti,
-poi beni significativi, markup mai negativo; seam `bilanciaBozza: false`
+`bilancia` nel generatore (regola cambiata due volte, quella valida è
+nella fase 2 qui sotto; seam `bilanciaBozza: false`
 per i test sulla proposta grezza), beni non significativi al 10 % sulla
 riga, `beneSignificativoDefault` ristretto ai serramenti/porte, ricerca
 cliente FiC con `tax_code = '…'` (prima HTTP 422 e fattura ferma in «in
@@ -3718,6 +3718,26 @@ minimo né accessori, piano «T» riprodotto. 77 casi d'oro, 67 al centesimo,
 10 saltati con motivo (spec §7 dello studio). Da indagare: avvolgibili nei
 fogli 2023 (+60-67 € a pezzo), una riga alluminio+persiana, schermature a
 pezzo. I fogli restano sulla scrivania («dati x claude»), mai nel repo.
+
+**Fase 2 dello studio (06/09/2026): le regole di fattura su 29 fogli con
+la fattura vera (201 fatture 2025 lette da FiC con le righe, più le 131
+del 2026).** Identità al centesimo su 21 lavori su 22: **i beni restano al
+prezzo di contratto**, divisi in riga bene al 22 % (cifra tonda, mediana
+85 %) e markup / servizi di vendita al 10 %; **i servizi prendono il
+residuo** (pattuito − beni − beni autonomi − spese) e, quando non basta,
+la commercialista tiene ai limiti sviluppo ordine, posa, progettazione,
+rilievo, protezione, tiro al piano e azzera assistenza muraria (14 su 18),
+smaltimento e rimozione. La regola «beni prima» della notte precedente era
+una lettura sbagliata della 129 (spec §8). `bilancia` ora fa così
+(`QUOTA_BENI_SIGNIFICATIVI` 85 %, `ORDINE_SERVIZI_DA_TENERE`, le voci che
+non ci stanno spariscono dalla bozza con avvertenza; senza detrazione
+nessuna quota); replay: imponibile uguale alla fattura vera in 18 lavori su
+22, servizi uguali in 13. Corretti insieme: il classificatore del confronto
+riconosce le righe bene dalla prima riga del testo (persiane con «Posa su
+cardini» finivano fra i servizi) e «Riequilibra i beni» non lascia più il
+markup a −0,01 sul lordo (il centesimo dell'IVA mista si toglie ai beni).
+Dati con nomi solo nello scratchpad; fatture 2025 lette con il token FiC di
+produzione decifrato in processo, mai salvato.
 
 ## 12. Debito aperto prioritario
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Computo, Contratto, RigaContratto } from "@shared/limiti/tipi";
 import { DICITURE } from "@shared/fatturazione/diciture";
 import { FATTURAZIONE_CONFIG_DEFAULT, type ClienteSnapshot } from "@shared/fatturazione/tipi";
-import { FATTORE_MINIMO_BENI, FATTORE_MINIMO_SERVIZI, bilancia, descrizioneRigaBene, generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
+import { ORDINE_SERVIZI_DA_TENERE, QUOTA_BENI_SIGNIFICATIVI, bilancia, descrizioneRigaBene, generaBozza, ricalcola, scadenzeDaRate } from "./generatore";
 
 const ora = new Date("2026-09-04T10:00:00Z");
 function contratto(extra: Partial<Contratto> = {}): Contratto {
@@ -194,63 +194,112 @@ describe("descrizioneRigaBene", () => {
   });
 });
 
-describe("bilancia — la bozza nasce dentro il pattuito (studio fatture reali 05/09/2026)", () => {
+describe("bilancia — la bozza nasce come la fa la commercialista (fase 2 dello studio, 06/09/2026)", () => {
   const somma = (righe: any[], f: (r: any) => boolean) => righe.filter(f).reduce((s: number, r: any) => s + r.importoCent, 0);
+  // 85 % di 10.734,55 = 9.124,37 → 9.120,00 ai 10 €; la quota che diventa markup è 1.614,55.
+  const CONTRATTO_BENI = 778373 + 295082;
+  const BENI_IN_FATTURA = Math.round((CONTRATTO_BENI * QUOTA_BENI_SIGNIFICATIVI) / 1000) * 1000;
+  const QUOTA_MARKUP = CONTRATTO_BENI - BENI_IN_FATTURA;
 
-  it("pattuito capiente: nessun ritocco, il markup resta il residuo", () => {
+  it("i beni significativi vanno in fattura all'85 % del contratto (ai 10 €, in proporzione) e la quota diventa markup", () => {
     const b = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, bilancia: true });
-    const grezza = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base });
-    expect(b.righe.filter(r => !r.derivata).map(r => r.importoCent)).toEqual(grezza.righe.filter(r => !r.derivata).map(r => r.importoCent));
-    expect(b.righe.find(r => r.tipo === "markup")!.importoCent).toBeGreaterThan(0);
-    expect(b.avvertenze.some(a => a.includes("ridotti") || a.includes("Servizi proposti"))).toBe(false);
+    expect(BENI_IN_FATTURA).toBe(912000);
+    expect(somma(b.righe, r => r.tipo === "bene" && r.beneSignificativo)).toBe(BENI_IN_FATTURA);
+    const r1 = b.righe.find(r => r.rigaCommessaId === 1)!, r2 = b.righe.find(r => r.rigaCommessaId === 2)!;
+    expect(Math.abs(r1.importoCent / r2.importoCent - 778373 / 295082)).toBeLessThan(0.001);
+    expect(r1.prezzoUnitCent).toBe(r1.importoCent);
+    // Le maniglie (non significative) restano a contratto.
+    expect(b.righe.find(r => r.rigaCommessaId === 3)!.importoCent).toBe(60000);
+    // (it-IT raggruppa le migliaia solo da 10.000 in su: «9120,00».)
+    expect(b.avvertenze.some(a => a.startsWith("Beni significativi in fattura a € 9120,00 (85 % del contratto, € 10.734,55): la differenza di € 1614,55"))).toBe(true);
   });
 
-  it("pattuito stretto: i servizi restano ai limiti e scendono i beni significativi in proporzione, markup mai negativo", () => {
+  it("pattuito capiente: servizi ai limiti, markup = quota dei beni + residuo, nessun taglio", () => {
+    const b = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base, bilancia: true });
+    const grezza = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base });
+    expect(b.righe.filter(r => r.tipo === "servizio").map(r => r.importoCent)).toEqual([18000, 131400]);
+    const residuo = grezza.righe.find(r => r.tipo === "markup")!.importoCent;
+    expect(residuo).toBeGreaterThan(0);
+    const markup = b.righe.find(r => r.tipo === "markup")!.importoCent;
+    // Il markup cresce almeno della quota dei beni; con il pattuito lordo cresce di più, perché
+    // ogni euro passato dal 22 % al 10 % alza l'imponibile a parità di lordo (qui ~395 €).
+    expect(markup).toBeGreaterThanOrEqual(residuo + QUOTA_MARKUP);
+    expect(markup).toBeLessThan(residuo + QUOTA_MARKUP + 60000);
+    expect(b.avvertenze.some(a => a.startsWith("Servizi a €") || a.startsWith("Il pattuito non copre"))).toBe(false);
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: 1549472, pattuitoTipo: "lordo" });
+    expect(Math.abs(esito.totaleCent - 1549472)).toBeLessThanOrEqual(1);
+  });
+
+  it("pattuito stretto: i beni restano a contratto e i servizi prendono il residuo, nell'ordine della commercialista", () => {
     // Lordo 14.664,15: con i beni a contratto (10.734,55 + 600) i servizi ai limiti (1.494) non ci stanno.
     const stretto = contratto({ pattuitoCent: 1466415 });
     const b = generaBozza({ contratto: stretto, righe, computo: computo(), ...base, bilancia: true });
-    expect(b.righe.filter(r => r.tipo === "servizio").map(r => r.importoCent)).toEqual([18000, 131400]);
-    const beni = somma(b.righe, r => r.tipo === "bene" && r.beneSignificativo);
-    expect(beni).toBeLessThan(778373 + 295082);
-    expect(beni).toBeGreaterThan((778373 + 295082) * FATTORE_MINIMO_BENI);
-    // In proporzione: il rapporto fra le due righe resta quello del contratto (a un centesimo).
-    const r1 = b.righe.find(r => r.rigaCommessaId === 1)!.importoCent, r2 = b.righe.find(r => r.rigaCommessaId === 2)!.importoCent;
-    expect(Math.abs(r1 / r2 - 778373 / 295082)).toBeLessThan(0.001);
+    expect(somma(b.righe, r => r.tipo === "bene" && r.beneSignificativo)).toBe(BENI_IN_FATTURA);
+    const servizi = b.righe.filter(r => r.tipo === "servizio");
+    const S = somma(servizi, () => true);
+    expect(S).toBeGreaterThan(0);
+    expect(S).toBeLessThan(18000 + 131400);
+    for (const r of servizi) expect(r.importoCent % 100).toBe(0);
+    // Il rilievo viene prima della posa nell'ordine: resta intero, la posa prende il resto.
+    expect(ORDINE_SERVIZI_DA_TENERE.indexOf("rilievo_foro")).toBeLessThan(ORDINE_SERVIZI_DA_TENERE.indexOf("posa"));
+    expect(servizi.find(r => r.voceComputoCodice === "rilievo_foro")!.importoCent).toBe(18000);
+    expect(servizi.find(r => r.voceComputoCodice === "posa")!.importoCent).toBeLessThan(131400);
+    // Il markup è la quota dei beni (più i centesimi dell'arrotondamento all'euro), mai negativo.
     const markup = b.righe.find(r => r.tipo === "markup")!.importoCent;
-    expect(markup).toBeGreaterThanOrEqual(0);
-    expect(markup).toBeLessThan(300);
-    expect(b.avvertenze.some(a => a.startsWith("Beni significativi ridotti"))).toBe(true);
-    expect(b.avvertenze.some(a => a.startsWith("Servizi proposti"))).toBe(false);
-    // Le maniglie (non significative) restano a contratto.
+    expect(markup).toBeGreaterThanOrEqual(QUOTA_MARKUP);
+    expect(markup).toBeLessThan(QUOTA_MARKUP + 20000);
+    expect(b.avvertenze.some(a => a.startsWith("Servizi a €") && a.includes("«POSA IN OPERA certificata» a €"))).toBe(true);
     expect(b.righe.find(r => r.rigaCommessaId === 3)!.importoCent).toBe(60000);
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: stretto.pattuitoCent, pattuitoTipo: stretto.pattuitoTipo });
+    expect(esito.totaleCent).toBe(1466415);
   });
 
-  it("pattuito strettissimo: beni al minimo (60 %), poi i servizi in proporzione, markup zero", () => {
+  it("pattuito strettissimo: le voci in coda spariscono dalla bozza, i beni restano a contratto", () => {
     // Come 128/2026: una finestra a 775,08 + zanzariera 137,50, servizi ai limiti 1.494, pattuito 1.320,41 lordo.
     const guaita = contratto({ pattuitoCent: 132041 });
     const righeG = [riga(1, "Finestra a 1 anta", 1, 1150, 1790, 77508), riga(2, "Zanzariera", 1, 0, 0, 13750, false)];
     const b = generaBozza({ contratto: guaita, righe: righeG, computo: computo(), ...base, bilancia: true });
     const finestra = b.righe.find(r => r.rigaCommessaId === 1)!;
-    expect(finestra.importoCent).toBe(Math.round(77508 * FATTORE_MINIMO_BENI));
+    expect(finestra.importoCent).toBe(Math.round((77508 * QUOTA_BENI_SIGNIFICATIVI) / 1000) * 1000);
     const servizi = b.righe.filter(r => r.tipo === "servizio");
+    expect(servizi.length).toBeGreaterThan(0);
     for (const r of servizi) expect(r.importoCent % 100).toBe(0);
-    expect(somma(b.righe, r => r.tipo === "servizio")).toBeLessThan(18000 + 131400);
+    expect(somma(servizi, () => true)).toBeLessThan(18000 + 131400);
     const markup = b.righe.find(r => r.tipo === "markup")!.importoCent;
     expect(markup).toBeGreaterThanOrEqual(0);
-    expect(markup).toBeLessThan(200);
     // La zanzariera non è significativa: resta a contratto e al 10 %.
     expect(b.righe.find(r => r.rigaCommessaId === 2)!).toMatchObject({ importoCent: 13750, aliquota: 10, beneSignificativo: false });
-    expect(b.avvertenze.some(a => a.startsWith("Beni significativi ridotti"))).toBe(true);
-    expect(b.avvertenze.some(a => a.startsWith("Servizi proposti"))).toBe(true);
+    expect(b.avvertenze.some(a => a.startsWith("Beni significativi in fattura"))).toBe(true);
+    expect(b.avvertenze.some(a => a.startsWith("Servizi a €"))).toBe(true);
+    // Il lordo torna al pattuito a meno del centesimo dell'IVA mista (`deltaPattuitoCent` lo dichiara).
     const { esito } = ricalcola({ righe: b.righe, pattuitoCent: guaita.pattuitoCent, pattuitoTipo: guaita.pattuitoTipo });
-    expect(esito.totaleCent).toBe(132041);
+    expect(Math.abs(esito.totaleCent - 132041)).toBeLessThanOrEqual(1);
   });
 
-  it("bilancia è pura e non tocca righe già dentro il pattuito", () => {
+  it("pattuito sotto i beni a contratto: nessun servizio, beni ridotti, markup mai negativo, avvertenza", () => {
+    const sotto = contratto({ pattuitoCent: 100000 });
+    const righeS = [riga(1, "Finestra a 1 anta", 1, 1150, 1790, 77508), riga(2, "Finestra a 2 ante", 1, 1500, 1400, 90000)];
+    const b = generaBozza({ contratto: sotto, righe: righeS, computo: computo(), ...base, bilancia: true });
+    expect(b.righe.filter(r => r.tipo === "servizio")).toEqual([]);
+    expect(somma(b.righe, r => r.tipo === "bene")).toBeLessThan(77508 + 90000);
+    expect(b.righe.find(r => r.tipo === "markup")!.importoCent).toBeGreaterThanOrEqual(0);
+    expect(b.avvertenze.some(a => a.startsWith("Il pattuito non copre i beni a contratto"))).toBe(true);
+    const { esito } = ricalcola({ righe: b.righe, pattuitoCent: sotto.pattuitoCent, pattuitoTipo: sotto.pattuitoTipo });
+    expect(esito.totaleCent).toBe(100000);
+  });
+
+  it("senza detrazione i beni restano a contratto: nessuna quota, nessun markup dai beni", () => {
+    const b = generaBozza({ contratto: contratto({ detrazioneTipo: "nessuna" }), righe, computo: computo(), ...base, bilancia: true });
+    expect(somma(b.righe, r => r.tipo === "bene" && r.beneSignificativo)).toBe(CONTRATTO_BENI);
+    expect(b.avvertenze.some(a => a.startsWith("Beni significativi in fattura"))).toBe(false);
+  });
+
+  it("bilancia è pura e, con quota 1 e pattuito capiente, non tocca le righe", () => {
     const righeIn = generaBozza({ contratto: contratto(), righe, computo: computo(), ...base }).righe.filter(r => !r.derivata);
     const copia = righeIn.map(r => ({ ...r }));
-    const esito = bilancia({ righe: righeIn, pattuitoCent: 1549472, pattuitoTipo: "lordo" });
+    const esito = bilancia({ righe: righeIn, pattuitoCent: 1549472, pattuitoTipo: "lordo", quotaBeni: 1 });
     expect(esito.avvertenze).toEqual([]);
+    expect(esito.righe.map(r => r.importoCent)).toEqual(copia.map(r => r.importoCent));
     expect(righeIn).toEqual(copia);
   });
 

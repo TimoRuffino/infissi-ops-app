@@ -160,3 +160,57 @@ indagare), 2 fogli con schermature o veneziane prezzate a pezzo (H3), 1 riga
 alluminio con persiana a +653,80 € (da indagare), 1 «serramento + persiana»
 senza persiana, 1 tapparella con doppio prezzo (H6); i massimali di 3 fogli
 2023 differiscono di 1-2 € su ~10.000 (tolleranza allargata, non salto).
+
+## 8. Fase 2 (06/09/2026): le regole di fattura su 29 lavori con foglio e fattura vera
+
+Materiale: i 10 fogli «Limiti fatture 2025» e i 19 del 2026 (colonna G
+«Da fattura» di CHECK1, riga per riga), abbinati alla fattura FiC dal numero
+nel nome della cartella («147_25» = 147/2025) o dal cognome; le 201 fatture
+2025 lette via API con le righe, come le 131 del 2026. Su 29 fogli, 22
+hanno la fattura con lo stesso imponibile del foglio (G46); 7 esclusi
+(foglio non riprodotto dal motore, fattura non ancora emessa, foglio di un
+altro lavoro dello stesso cliente).
+
+**Identità trovata, al centesimo su 21 lavori su 22** (l'unico fuori ha i
+beni sopra il prezzo del foglio e i servizi tagliati a cifre tonde):
+
+- il prezzo di contratto dei beni resta intero, ma diviso in due righe:
+  la riga bene al 22 % (una cifra tonda fra il 62 % e il 98 % del prezzo,
+  mediana 85 %) e il **markup / servizi di vendita al 10 %**, che è il resto;
+- i beni autonomi (persiane, tende, zanzariere) al 10 % restano a contratto;
+- **i servizi prendono il residuo**: pattuito − beni a contratto − beni
+  autonomi − spese. Se il residuo copre i limiti, i servizi stanno ai limiti
+  e il markup cresce; se no, la commercialista tiene ai limiti sviluppo
+  ordine (98 % in media), posa (93 %), progettazione (89 %), rilievo e tiro
+  al piano (78 %), protezione (73 %), e azzera assistenza muraria (14 fatture
+  su 18), smaltimento e rimozione (6-7 su 18), pulizia (a volte); qualche
+  voce sale sopra il limite per far tornare il totale.
+
+Il bilanciamento «beni prima» del §6 era quindi una lettura sbagliata della
+129: i beni non erano scesi del 28 %, erano stati divisi in riga bene +
+markup (3.562 + 1.170 = 4.732, il prezzo delle finestre) e i servizi erano
+il residuo (5.058 = 12.810,91 − 7.752,91), che quel giorno coincideva con i
+limiti (5.076).
+
+**Cosa fa ora il CRM** (`bilancia` nel generatore): quota beni
+`QUOTA_BENI_SIGNIFICATIVI` = 85 % ai 10 € in proporzione fra le righe (il
+resto finisce nel markup, che è già il residuo del risolutore); servizi al
+residuo tenuti nell'`ORDINE_SERVIZI_DA_TENERE` (sviluppo ordine,
+progettazione, rilievo, protezione, posa, tiro al piano, trasporto, pulizia,
+rimozione tapparelle, rimozione serramenti, smaltimento, assistenza muraria,
+eventuali): la voce che non ci sta per intero prende quel che resta, le
+successive non compaiono in bozza (avvertenza con l'elenco); solo se il
+pattuito non copre i beni a contratto scendono i beni. Senza detrazione
+nessuna quota. Replay sui 22 lavori: imponibile uguale alla fattura vera in
+18 (gli altri 4 differiscono per le spese professionali che il foglio mette
+sopra il pattuito), totale servizi uguale in 13 e a pochi euro negli altri,
+scostamento medio per voce 30 % del totale servizi (le cifre tonde sono
+sue), IVA che differisce in media di 94 € per la quota beni diversa dall'85
+% (fino a 466 € dove lei ha usato il 62 %). Il classificatore del confronto
+riconosce ora le righe bene dalla prima riga del testo («N.2 …», «Persiana
+…»): le persiane con «Posa su cardini» nelle righe sotto finivano fra i
+servizi (118, 59, 88 del 2026).
+
+Non verificabile: se la riga bene sia il costo fornitore più un ricarico
+(le commesse del CRM con costi a registro sono 2 su 8); l'avvertenza dice
+di alzare le righe bene se il costo è più alto.

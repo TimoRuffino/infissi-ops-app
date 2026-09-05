@@ -49,6 +49,15 @@ export type LatoConfronto = {
 
 const cent = (euro: number) => Math.round(euro * 100);
 
+/**
+ * Una riga bene si riconosce dalla prima riga del testo: «N.2 Persiana…»
+ * (come le scrive il CRM e la commercialista) o il nome del prodotto in
+ * testa. Serve perché le righe bene hanno descrizioni lunghe dove compaiono
+ * «Posa su cardini», «lamelle», «rimozione»: sulle fatture vere 118, 59 e
+ * 88 del 2026 le persiane al 10 % finivano fra i servizi di posa.
+ */
+const SEMBRA_BENE = /^\s*(n\.\s*\d|persian|portapersian|tend[ae]\b|zanzarier|tapparell|avvolgibil|grat[ae]\b|inferriat|finestr|portafinestr|cassonett|scur[oi]\b|venezian|frangisol|pergol|blindat|portoncin|port[ae]\b|serrament)/i;
+
 /** Classifica le righe di una fattura FiC con le stesse regole dello studio: testi pieni a zero, beni al 22 %, beni autonomi al 10 %, servizi per parola chiave, markup, storno, spese. */
 export function classificaRigheFic(righe: RigaDocumentoFic[]): LatoConfronto {
   const lato: LatoConfronto = { beniSignificativiCent: 0, beniAutonomiCent: 0, speseCent: 0, servizi: {}, serviziCent: 0, markupCent: 0, stornoCent: 0, imponibileCent: 0, nonClassificate: [] };
@@ -60,7 +69,10 @@ export function classificaRigheFic(righe: RigaDocumentoFic[]): LatoConfronto {
     if (/detrazione per diversa imputazione/i.test(testo) && importo < 0) { lato.stornoCent += -importo; lato.imponibileCent += importo; continue; }
     if (/riaddebito/i.test(testo)) { lato.imponibileCent += importo; continue; }
     if (/spese professionali|documentazione|pratica enea|pratiche/i.test(testo)) { lato.speseCent += importo; lato.imponibileCent += importo; continue; }
-    const voce = VOCI_SERVIZIO_FIC.find(([rx]) => rx.test(testo))?.[1];
+    // I servizi si riconoscono dalla prima riga del testo: nelle righe bene le
+    // parole di posa e rimozione stanno nelle righe successive.
+    const primaRiga = testo.split("\n")[0] ?? "";
+    const voce = SEMBRA_BENE.test(primaRiga) ? undefined : VOCI_SERVIZIO_FIC.find(([rx]) => rx.test(primaRiga))?.[1];
     if (voce && r.aliquota === 10) { lato.servizi[voce] = (lato.servizi[voce] ?? 0) + importo; lato.serviziCent += importo; lato.imponibileCent += importo; continue; }
     if (importo > 0 && r.aliquota === 22) { lato.beniSignificativiCent += importo; lato.imponibileCent += importo; continue; }
     if (importo > 0 && r.aliquota === 10) { lato.beniAutonomiCent += importo; lato.imponibileCent += importo; continue; }

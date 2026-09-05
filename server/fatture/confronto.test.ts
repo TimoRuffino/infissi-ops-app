@@ -44,6 +44,18 @@ describe("classificaRigheFic", () => {
     expect(fic.nonClassificate).toHaveLength(1);
     expect(fic.imponibileCent).toBe(131200 + 30000 + 1000);
   });
+
+  it("una riga bene con «Posa su cardini» nelle righe sotto resta un bene (fatture 118, 59 e 88 del 2026)", () => {
+    const fic = classificaRigheFic([
+      { descrizione: "N.2 P/1 L950 x H1500\nN.1 P/1 L900 x H1450\n\nPosa su telaio, lamelle orientabili", quantita: 1, prezzoUnit: 3021, aliquota: 10 },
+      { descrizione: "Persiana in Alluminio a 2 ante di misure 1200x1500 N.1 Persiana con Lamelle Orientabili.\nPosa su cardini.\nBandelle ed accessoristica incluse.", quantita: 1, prezzoUnit: 666.7, aliquota: 10 },
+      { descrizione: "POSA IN OPERA certificata", quantita: 1, prezzoUnit: 1095, aliquota: 10 },
+      { descrizione: "Rimozione dei serramenti, persiane esistenti compreso abbassamento al piano strada", quantita: 1, prezzoUnit: 200, aliquota: 10 },
+    ]);
+    expect(fic.beniAutonomiCent).toBe(302100 + 66670);
+    expect(fic.servizi).toEqual({ posa: 109500, rimozione_serramenti: 20000 });
+    expect(fic.nonClassificate).toEqual([]);
+  });
 });
 
 describe("latoCrm + confrontaLati", () => {

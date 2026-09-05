@@ -524,16 +524,24 @@ function riequilibra(righe: RigaFatturaInput[], fattura: Fattura, markupDesidera
   const altri = fisse.filter(r => r.tipo === "bene" && !r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const servizi = fisse.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
   // `riequilibraBeni` clampa da sé un target negativo (beni a zero).
-  const nuovi = riequilibraBeni(
-    significativi.map(r => r.importoCent),
-    targetBeniSignificativi(fattura, altri, servizi, markupDesideratoCent)
-  );
-  const perOrdine = new Map(significativi.map((r, i) => [r.ordine, nuovi[i]]));
-  return righe.map(r => {
-    const importoCent = perOrdine.get(r.ordine);
-    if (importoCent === undefined) return r;
-    return { ...r, importoCent, ...misuraRiga(importoCent, r.quantita) };
-  });
+  let target = targetBeniSignificativi(fattura, altri, servizi, markupDesideratoCent);
+  let esito = righe;
+  // Col pattuito lordo l'IVA mista può lasciare il markup un centesimo
+  // sotto il desiderato (−0,01 blocca l'emissione come «markup negativo»):
+  // il centesimo si toglie ai beni, mai al markup.
+  for (let tentativo = 0; tentativo < 4; tentativo++) {
+    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), target);
+    const perOrdine = new Map(significativi.map((r, i) => [r.ordine, nuovi[i]]));
+    esito = righe.map(r => {
+      const importoCent = perOrdine.get(r.ordine);
+      if (importoCent === undefined) return r;
+      return { ...r, importoCent, ...misuraRiga(importoCent, r.quantita) };
+    });
+    const markup = ricalcola({ righe: esito, pattuitoCent: fattura.pattuitoCent, pattuitoTipo: fattura.pattuitoTipo }).esito.markupCent;
+    if (markup >= markupDesideratoCent || target <= 0) break;
+    target -= markupDesideratoCent - markup;
+  }
+  return esito;
 }
 
 async function scadenzeAggiornate(

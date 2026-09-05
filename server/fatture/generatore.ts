@@ -113,10 +113,25 @@ function posizioneMarkup(corpo: RigaFatturaInput[]): number {
   return prestazioni >= 0 ? prestazioni : corpo.length;
 }
 
-/** Sotto questa frazione del prezzo di contratto i beni significativi non scendono da soli: oltre, scendono i servizi. */
-export const FATTORE_MINIMO_BENI = 0.6;
-/** Sotto questa frazione dei limiti i servizi non scendono da soli. */
-export const FATTORE_MINIMO_SERVIZI = 0.4;
+/**
+ * Quota del prezzo di contratto dei beni significativi che resta sulla riga
+ * bene (22 %): il resto è il markup / servizi di vendita al 10 %. Mediana
+ * delle 20 fatture 2025-2026 con foglio limiti (fase 2 dello studio: da
+ * 62 % a 98 %, mediana 85 %); la commercialista sceglie una cifra tonda.
+ */
+export const QUOTA_BENI_SIGNIFICATIVI = 0.85;
+/**
+ * Le voci di servizio nell'ordine in cui la commercialista le tiene quando
+ * il residuo non copre i limiti: le prime restano ai limiti, le ultime
+ * spariscono per prime (assistenza muraria a zero in 14 fatture su 18,
+ * smaltimento e rimozione in 6-7, sviluppo ordine e posa quasi sempre
+ * intere). Una voce non in elenco va in coda.
+ */
+export const ORDINE_SERVIZI_DA_TENERE: ReadonlyArray<string> = [
+  "sviluppo_ordine", "progettazione", "rilievo_foro", "rilievo_pezzo", "protezione", "posa", "tiro_piano", "trasporto",
+  "pulizia", "rimozione_tapparelle", "rimozione_serramenti", "smaltimento", "assistenza_muraria",
+  "piattaforma", "permessi_suolo", "dime", "assistenze_murarie_eventuali",
+];
 
 function esitoDi(righe: RigaFatturaInput[], pattuitoCent: number, pattuitoTipo: "lordo" | "imponibile"): EsitoRisolutore {
   const fisse = righe.filter(r => !r.derivata);
@@ -130,62 +145,90 @@ function esitoDi(righe: RigaFatturaInput[], pattuitoCent: number, pattuitoTipo: 
 }
 
 /**
- * La bozza nasce con i conti che tornano, come nelle fatture reali 2026
- * (studio del 05/09 e confronto dal vivo del 05/09 notte): il pattuito è
- * fisso, i servizi restano ai limiti e, se beni e servizi lo superano,
- * prima scendono i beni significativi in proporzione (`riequilibraBeni`,
- * mai sotto `FATTORE_MINIMO_BENI` del contratto), poi i servizi in
- * proporzione (mai sotto `FATTORE_MINIMO_SERVIZI` dei limiti, arrotondati
- * all'euro per difetto), finché il markup non è più negativo.
+ * La bozza nasce come la fa la commercialista (fase 2 dello studio, 06/09/2026:
+ * 21 fatture 2025-2026 su 22 con foglio limiti, identità al centesimo):
  *
- * Perché i beni prima: a parità di lordo, ogni euro spostato dai beni
- * significativi (22 % oltre la prestazione) ai servizi (10 %) alza
- * l'imponibile — cioè il ricavo dell'azienda e la spesa detraibile del
- * cliente. È quello che la commercialista fa quando il pattuito lo
- * permette (129: servizi ai limiti, beni giù del 28 %); nei lavori
- * strettissimi taglia anche i servizi, ed è il secondo passo qui.
- * Con il pattuito capiente non cambia nulla: il markup resta il residuo.
- * Ogni intervento è scritto nelle avvertenze; l'operatore può sempre
- * rimettere mano a servizi e beni.
+ * 1. Il prezzo di contratto dei beni significativi resta intero, ma si
+ *    divide in due righe: la riga bene al 22 % (`QUOTA_BENI_SIGNIFICATIVI`
+ *    del contratto, ai 10 €) e il markup / servizi di vendita al 10 %, che
+ *    è il resto. Il markup del CRM è già il residuo del risolutore: basta
+ *    abbassare le righe bene e la quota vi finisce da sola.
+ * 2. I servizi prendono il residuo: pattuito − beni a contratto − beni
+ *    autonomi − spese. Se copre i limiti, restano ai limiti e il markup
+ *    cresce (pattuito capiente). Se no, si tengono ai limiti le voci in
+ *    `ORDINE_SERVIZI_DA_TENERE`, una alla volta: quella che non ci sta per
+ *    intero prende quel che resta (all'euro), le successive spariscono.
+ * 3. Solo se il pattuito non copre nemmeno i beni a contratto scendono i
+ *    beni (è uno sconto sul contratto) finché il markup non è negativo.
+ *
+ * Con `quotaBeni: 1` (fattura senza detrazione) la riga bene resta a
+ * contratto e non nasce nessun markup dai beni. Ogni intervento è scritto
+ * nelle avvertenze; l'operatore può sempre rimettere mano a servizi e beni.
  */
-export function bilancia(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; avvertenze: string[] } {
+export function bilancia(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile"; quotaBeni?: number }): { righe: RigaFatturaInput[]; avvertenze: string[] } {
   const avvertenze: string[] = [];
-  const righe = input.righe.map(r => ({ ...r }));
-  const m0 = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
-  if (m0 >= 0) return { righe, avvertenze };
+  let righe = input.righe.map(r => ({ ...r }));
+  const markupDi = () => esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
+  const quota = Math.min(1, Math.max(0, input.quotaBeni ?? QUOTA_BENI_SIGNIFICATIVI));
 
-  // 1. Beni significativi, un passo alla volta: con il pattuito lordo la
-  // prestazione dipende dai beni (IVA mista), quindi si converge in pochi giri.
-  const significativi = righe.filter(r => r.tipo === "bene" && r.beneSignificativo && !r.derivata);
-  const contratto = significativi.reduce((s, r) => s + r.importoCent, 0);
-  const pavimentoBeni = Math.round(contratto * FATTORE_MINIMO_BENI);
-  let ridotti = 0;
+  // 1. La quota dei beni che diventa markup (le spese di documentazione hanno una voce: restano a contratto).
+  const significativi = righe.filter(r => r.tipo === "bene" && r.beneSignificativo && !r.derivata && r.voceComputoCodice == null);
+  const contrattoBeni = significativi.reduce((s, r) => s + r.importoCent, 0);
+  let quotaMarkup = 0;
+  if (quota < 1 && contrattoBeni > 0) {
+    const target = Math.round((contrattoBeni * quota) / 1000) * 1000;
+    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), target);
+    significativi.forEach((r, i) => { r.importoCent = nuovi[i]; r.prezzoUnitCent = nuovi[i]; });
+    quotaMarkup = contrattoBeni - target;
+    avvertenze.push(`Beni significativi in fattura a € ${euro(target)} (${Math.round(quota * 100)} % del contratto, € ${euro(contrattoBeni)}): la differenza di € ${euro(quotaMarkup)} è il markup / servizi di vendita al 10 %, come nelle fatture reali. Se il costo dei beni è più alto, alza le righe bene.`);
+  }
+
+  // 2. I servizi prendono il residuo. `deficit` è quanto manca al markup per
+  // valere almeno la quota dei beni; con il pattuito lordo ogni taglio ai
+  // servizi cambia l'IVA mista, quindi si ricontrolla in pochi giri.
+  const servizi = righe.filter(r => r.tipo === "servizio" && !r.derivata);
+  const limiti = new Map(servizi.map(r => [r, r.importoCent] as const));
+  const limitiCent = servizi.reduce((s, r) => s + r.importoCent, 0);
+  const posizione = (r: RigaFatturaInput) => {
+    const i = ORDINE_SERVIZI_DA_TENERE.indexOf(r.voceComputoCodice ?? "");
+    return i === -1 ? ORDINE_SERVIZI_DA_TENERE.length : i;
+  };
+  const ordinati = [...servizi].sort((a, b) => posizione(a) - posizione(b));
+  let deficit = quotaMarkup - markupDi();
+  if (deficit > 0 && servizi.length > 0) {
+    let targetServizi = limitiCent;
+    for (let giro = 0; giro < 8 && deficit > 0; giro++) {
+      targetServizi = Math.max(0, Math.floor((targetServizi - deficit) / 100) * 100);
+      let resto = targetServizi;
+      for (const r of ordinati) {
+        r.importoCent = Math.min(limiti.get(r)!, Math.floor(resto / 100) * 100);
+        r.prezzoUnitCent = r.importoCent;
+        resto -= r.importoCent;
+      }
+      deficit = quotaMarkup - markupDi();
+    }
+    const spariti = ordinati.filter(r => r.importoCent === 0);
+    const ridotti = ordinati.filter(r => r.importoCent > 0 && r.importoCent < limiti.get(r)!);
+    righe = righe.filter(r => !spariti.includes(r));
+    const proposti = servizi.reduce((s, r) => s + r.importoCent, 0);
+    const dettagli = [
+      ...ridotti.map(r => `«${r.descrizione}» a € ${euro(r.importoCent)} invece di € ${euro(limiti.get(r)!)}`),
+      ...(spariti.length > 0 ? [`non proposti: ${spariti.map(r => `«${r.descrizione}»`).join(", ")}`] : []),
+    ];
+    avvertenze.push(`Servizi a € ${euro(proposti)} sui € ${euro(limitiCent)} dei limiti, per rientrare nel pattuito con i beni a contratto (${dettagli.join("; ")}). Servizi ordinari e posa restano interi finché il residuo basta.`);
+  }
+
+  // 3. Il pattuito non copre nemmeno i beni: scendono i beni significativi (sconto sul contratto).
   for (let giro = 0; giro < 8 && significativi.length > 0; giro++) {
     const esito = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo);
     if (esito.markupCent >= 0) break;
     const B = significativi.reduce((s, r) => s + r.importoCent, 0);
-    if (B <= pavimentoBeni) break;
+    if (B <= 0) break;
     // Con il pattuito lordo e B > P ogni euro tolto ai beni ne rende 1,22/0,98 alla prestazione.
     const resa = input.pattuitoTipo === "lordo" && esito.casoBeniSignificativi === "b_maggiore_p" ? 1.22 / 0.98 : 1;
-    const target = Math.max(pavimentoBeni, B + Math.ceil(esito.markupCent / resa));
-    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), target);
-    significativi.forEach((r, i) => { ridotti += r.importoCent - nuovi[i]; r.importoCent = nuovi[i]; r.prezzoUnitCent = r.importoCent; });
-  }
-  if (ridotti > 0) {
-    avvertenze.push(`Beni significativi ridotti di € ${euro(ridotti)} in proporzione (${Math.round(((contratto - ridotti) / contratto) * 100)} % del contratto) per rientrare nel pattuito con i servizi ai limiti.`);
-  }
-
-  // 2. Se non basta, i servizi in proporzione, arrotondati all'euro per difetto.
-  const m1 = esitoDi(righe, input.pattuitoCent, input.pattuitoTipo).markupCent;
-  const servizi = righe.filter(r => r.tipo === "servizio" && !r.derivata);
-  const S = servizi.reduce((s, r) => s + r.importoCent, 0);
-  if (m1 < 0 && S > 0) {
-    const fattore = Math.max(FATTORE_MINIMO_SERVIZI, Math.min(1, (S + m1) / S));
-    for (const r of servizi) {
-      r.importoCent = Math.floor((r.importoCent * fattore) / 100) * 100;
-      r.prezzoUnitCent = r.importoCent;
-    }
-    avvertenze.push(`Servizi proposti al ${Math.round(fattore * 100)} % dei limiti: anche con i beni al minimo il pattuito non basta.`);
+    const nuovi = riequilibraBeni(significativi.map(r => r.importoCent), Math.max(0, B + Math.ceil(esito.markupCent / resa)));
+    significativi.forEach((r, i) => { r.importoCent = nuovi[i]; r.prezzoUnitCent = nuovi[i]; });
+    if (giro === 0) avvertenze.push(`Il pattuito non copre i beni a contratto (€ ${euro(contrattoBeni)}): beni significativi ridotti e nessun servizio proposto. Verifica il pattuito del contratto.`);
   }
   return { righe, avvertenze };
 }
@@ -266,9 +309,10 @@ export function generaBozza(input: InputGeneratore): Bozza {
     avvertenze.push("Computo assente: nessun servizio proposto.");
   }
 
+  // Senza detrazione non c'è IVA mista da governare: i beni restano a contratto (quota 1).
   const bilanciate = input.bilancia === false
     ? { righe, avvertenze: [] as string[] }
-    : bilancia({ righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
+    : bilancia({ righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo, quotaBeni: contratto.detrazioneTipo === "nessuna" ? 1 : QUOTA_BENI_SIGNIFICATIVI });
   avvertenze.push(...bilanciate.avvertenze);
   const { righe: complete, esito } = ricalcola({ righe: bilanciate.righe, pattuitoCent: contratto.pattuitoCent, pattuitoTipo: contratto.pattuitoTipo });
   avvertenze.push(...esito.avvertenze);
