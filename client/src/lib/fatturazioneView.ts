@@ -161,3 +161,8 @@ export function filtraCommesse(
     );
   });
 }
+
+/** L'indirizzo di un passo del percorso guidato: una forma sola, ovunque si linki. */
+export function hrefPasso(commessaId: number, passo: PassoFatturazione): string {
+  return `/fatturazione/${commessaId}?passo=${passo}`;
+}

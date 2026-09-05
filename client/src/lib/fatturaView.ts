@@ -308,3 +308,272 @@ export function ibanSembraValido(iban: string): boolean {
   for (const cifra of numerico) resto = (resto * 10 + Number(cifra)) % 97;
   return resto === 1;
 }
+
+// ── Il percorso della fattura ────────────────────────────────────────────────
+//
+// La tab mostrava solo il pezzo su cui si stava lavorando: senza contratto un
+// pulsante spento, con la bozza una tabella, dopo l'emissione un documento.
+// Da nessuna parte si leggeva DOVE si era nel processo — contratto, limiti,
+// bozza, controlli, emissione, SdI — né cosa mancasse per andare avanti.
+// Questi passi lo dicono, e ogni passo sa dove portare chi lo clicca.
+
+export type StatoPasso = "fatto" | "corrente" | "da_fare" | "bloccato" | "attesa";
+
+export type PassoFattura = {
+  chiave: "contratto" | "limiti" | "bozza" | "controlli" | "emissione" | "sdi";
+  etichetta: string;
+  stato: StatoPasso;
+  /** Una riga: cosa c'è o cosa manca. */
+  dettaglio: string;
+};
+
+export type IngressoPassi = {
+  /** `null` finché la query non ha risposto: il passo resta «attesa». */
+  contratto: { presente: boolean; righe: number } | null;
+  computo: { eseguito: boolean; valido: boolean } | null;
+  fattura: Pick<Fattura, "stato" | "tipo" | "inviataDryRun" | "numero"> | null;
+  /** Esito dei controlli della bozza; `null` quando non è ancora arrivato. */
+  controlli: { errori: number; avvisi: number } | null;
+};
+
+const STATI_USCITA: ReadonlySet<StatoFattura> = new Set([
+  "emessa",
+  "inviata",
+  "consegnata",
+  "scartata",
+  "rifiutata",
+  "mancata_consegna",
+]);
+
+export function passiFattura(i: IngressoPassi): PassoFattura[] {
+  const contrattoOk = i.contratto?.presente === true;
+  const computoOk = i.computo?.valido === true;
+  const f = i.fattura;
+  const bozza = f?.stato === "bozza";
+  const uscita = f != null && STATI_USCITA.has(f.stato);
+
+  const contratto: PassoFattura = {
+    chiave: "contratto",
+    etichetta: "Contratto",
+    stato: i.contratto == null ? "attesa" : contrattoOk ? "fatto" : "corrente",
+    dettaglio:
+      i.contratto == null
+        ? "Lettura in corso…"
+        : contrattoOk
+          ? `${i.contratto.righe} ${i.contratto.righe === 1 ? "riga" : "righe"}`
+          : "Inserisci o leggi il contratto",
+  };
+
+  const limiti: PassoFattura = {
+    chiave: "limiti",
+    etichetta: "Limiti",
+    stato:
+      i.computo == null
+        ? "attesa"
+        : !contrattoOk
+          ? "da_fare"
+          : computoOk
+            ? "fatto"
+            : i.computo.eseguito
+              ? "bloccato"
+              : "corrente",
+    dettaglio:
+      i.computo == null
+        ? "Lettura in corso…"
+        : !contrattoOk
+          ? "Dopo il contratto"
+          : computoOk
+            ? "Computo aggiornato"
+            : i.computo.eseguito
+              ? "Righe cambiate: ricalcola"
+              : "Calcola i limiti",
+  };
+
+  const bozzaPasso: PassoFattura = {
+    chiave: "bozza",
+    etichetta: "Bozza",
+    stato: uscita
+      ? "fatto"
+      : bozza
+        ? "corrente"
+        : contrattoOk && computoOk
+          ? "corrente"
+          : "da_fare",
+    dettaglio: uscita
+      ? "Chiusa con l'emissione"
+      : bozza
+        ? "In revisione"
+        : contrattoOk && computoOk
+          ? "Genera dai limiti"
+          : "Dopo i limiti",
+  };
+
+  const controlli: PassoFattura = {
+    chiave: "controlli",
+    etichetta: "Controlli",
+    stato: uscita
+      ? "fatto"
+      : !bozza
+        ? "da_fare"
+        : i.controlli == null
+          ? "attesa"
+          : i.controlli.errori > 0
+            ? "bloccato"
+            : "fatto",
+    dettaglio: uscita
+      ? "Superati"
+      : !bozza
+        ? "Sulla bozza"
+        : i.controlli == null
+          ? "Verifica in corso…"
+          : i.controlli.errori > 0
+            ? `${i.controlli.errori} da risolvere`
+            : i.controlli.avvisi > 0
+              ? `Ok, ${i.controlli.avvisi} da leggere`
+              : "Tutto a posto",
+  };
+
+  const emissione: PassoFattura = {
+    chiave: "emissione",
+    etichetta: "Emissione",
+    stato: uscita
+      ? "fatto"
+      : bozza && i.controlli != null && i.controlli.errori === 0
+        ? "corrente"
+        : "da_fare",
+    dettaglio: uscita
+      ? f.numero
+        ? `N. ${f.numero}`
+        : "Emessa"
+      : bozza && i.controlli != null && i.controlli.errori === 0
+        ? "Pronta da emettere"
+        : "Dopo i controlli",
+  };
+
+  const sdi: PassoFattura = {
+    chiave: "sdi",
+    etichetta: "SdI",
+    stato: !uscita
+      ? "da_fare"
+      : f.stato === "consegnata"
+        ? "fatto"
+        : f.stato === "inviata"
+          ? "corrente"
+          : f.stato === "emessa"
+            ? f.inviataDryRun
+              ? "attesa"
+              : "corrente"
+            : "bloccato",
+    dettaglio: !uscita
+      ? "Dopo l'emissione"
+      : f.stato === "consegnata"
+        ? "Consegnata al cliente"
+        : f.stato === "inviata"
+          ? "In attesa dell'esito"
+          : f.stato === "emessa"
+            ? f.inviataDryRun
+              ? "Prova: non spedita davvero"
+              : "In attesa dell'invio"
+            : badgeStatoFattura(f.stato, f.inviataDryRun).testo,
+  };
+
+  return [contratto, limiti, bozzaPasso, controlli, emissione, sdi];
+}
+
+// ── Cosa fare per ogni controllo ─────────────────────────────────────────────
+//
+// Il pannello elencava i problemi come testo: «Configura l'IBAN in
+// Impostazioni → Fatturazione», «Provincia del cliente mancante». Leggere
+// era facile, arrivarci no: l'operatore doveva sapere da solo in quale pagina
+// stesse il rimedio. Ogni codice di controllo ha ora una destinazione.
+
+export type AzioneControllo =
+  | { tipo: "passo"; passo: "contratto" | "limiti"; etichetta: string }
+  | { tipo: "cliente"; etichetta: string }
+  | { tipo: "impostazioni"; etichetta: string }
+  | { tipo: "campo"; id: string; etichetta: string }
+  | { tipo: "riequilibrio"; etichetta: string };
+
+export function azionePerControllo(codice: string): AzioneControllo | null {
+  if (codice.startsWith("cliente")) {
+    return { tipo: "cliente", etichetta: "Apri l'anagrafica" };
+  }
+  if (codice.startsWith("config")) {
+    return { tipo: "impostazioni", etichetta: "Apri le impostazioni" };
+  }
+  if (codice === "computo_non_valido" || codice.startsWith("limit")) {
+    return { tipo: "passo", passo: "limiti", etichetta: "Vai ai limiti" };
+  }
+  if (codice === "cantiere") {
+    return { tipo: "campo", id: "intestazione-cantiere", etichetta: "Compila il cantiere" };
+  }
+  if (codice === "dicitura_bonifico") {
+    return { tipo: "campo", id: "fattura-diciture", etichetta: "Scegli la dicitura" };
+  }
+  if (codice.startsWith("scadenz")) {
+    return { tipo: "campo", id: "fattura-scadenze", etichetta: "Sistema le scadenze" };
+  }
+  if (codice === "markup_negativo" || codice === "riequilibrio_markup") {
+    return { tipo: "riequilibrio", etichetta: "Riequilibra i beni" };
+  }
+  if (codice === "pratica_edilizia_incompleta") {
+    return { tipo: "campo", id: "note-fattura", etichetta: "Compila le note" };
+  }
+  return null;
+}
+
+// ── Etichette leggibili ──────────────────────────────────────────────────────
+
+/** Le diciture stampate per intero sono un muro di testo: la scelta si fa sul titolo, il testo resta sotto. */
+export const ETICHETTA_DICITURA: Record<ChiaveDicitura, string> = {
+  intestazione: "Intestazione",
+  seguira_ddt: "Seguirà DDT",
+  beni_significativi: "Beni significativi",
+  beni_autonomi: "Beni autonomi",
+  prestazioni: "Prestazioni",
+  markup: "Markup",
+  storno_bs: "Storno beni significativi",
+  riaddebito_bs: "Riaddebito beni significativi",
+  intervento_manutenzione: "Manutenzione ordinaria",
+  intervento_straordinaria: "Manutenzione straordinaria",
+  bonifico_ristrutturazione: "Bonifico parlante · ristrutturazione",
+  bonifico_ecobonus: "Bonifico parlante · ecobonus",
+  indicare_cf: "Indicare CF e P.IVA sul bonifico",
+  copia_ade: "Copia disponibile nell'area AdE",
+  pagamento_50_40_10: "Pagamento 50 / 40 / 10",
+  spese_professionali_escluse: "Spese professionali escluse",
+  pratica_edilizia: "Pratica edilizia",
+};
+
+/** «Storno b.s.» e «Riaddebito b.s.» in tabella non li capisce chi non li ha scritti. */
+export const ETICHETTA_TIPO_RIGA: Record<TipoRiga, string> = {
+  intestazione: "Intestazione",
+  bene: "Bene",
+  servizio: "Servizio",
+  markup: "Markup",
+  storno_bs: "Storno beni significativi",
+  riaddebito_bs: "Riaddebito beni significativi",
+  nota: "Nota",
+};
+
+// ── Scadenze dalle quote ─────────────────────────────────────────────────────
+
+/**
+ * Gli importi delle scadenze dalle quote percentuali sul totale, in
+ * centesimi interi, con il resto sull'ultima: così sommano SEMPRE al totale
+ * e il server non ha niente da rifiutare. È la stessa regola con cui il
+ * generatore le propone (D-I); qui serve a rifarle dopo che i totali sono
+ * cambiati, invece di correggere a mano quattro cifre che devono quadrare.
+ */
+export function distribuisciScadenze(
+  totaleCent: number,
+  quotePct: readonly number[]
+): number[] {
+  if (quotePct.length === 0) return [];
+  const importi = quotePct.map(q =>
+    Math.max(0, Math.floor((totaleCent * Math.max(0, q)) / 100))
+  );
+  const somma = importi.reduce((s, x) => s + x, 0);
+  importi[importi.length - 1] += totaleCent - somma;
+  return importi;
+}

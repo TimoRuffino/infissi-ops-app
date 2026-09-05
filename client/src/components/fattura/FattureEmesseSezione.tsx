@@ -12,6 +12,7 @@ import { Link } from "wouter";
 
 import { STATI_FATTURA, TIPI_FATTURA } from "@shared/fatturazione/tipi";
 import type { StatoFattura, TipoFattura } from "@shared/fatturazione/tipi";
+import { hrefPasso } from "@/lib/fatturazioneView";
 import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
 import { formatCent } from "@/lib/limitiView";
 import { trpc } from "@/lib/trpc";
@@ -212,7 +213,7 @@ export default function FattureEmesseSezione() {
                   </TableCell>
                   <TableCell className="min-w-0">
                     <Link
-                      href={`/commesse/${f.commessaId}`}
+                      href={hrefPasso(f.commessaId, "fattura")}
                       className="inline-flex min-h-11 min-w-0 items-center text-primary hover:underline"
                     >
                       <span className="codice-mono truncate text-[11px]">
@@ -270,7 +271,7 @@ export default function FattureEmesseSezione() {
                 </span>
               </div>
               <Link
-                href={`/commesse/${f.commessaId}`}
+                href={hrefPasso(f.commessaId, "fattura")}
                 className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft px-3 text-sm font-semibold hover:bg-surface-2"
               >
                 <FileText

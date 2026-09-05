@@ -64,7 +64,7 @@ import { presentPagamento } from "@/lib/paymentView";
 import { TIPOLOGIE_PRODOTTO } from "@/lib/prodotti";
 import { hasRuolo, isDirezione } from "@/lib/roles";
 import { useEffect, useState } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation, useParams, useSearch } from "wouter";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Commessa360Header, {
   type Commessa360HeaderMeta,
@@ -113,9 +113,26 @@ export default function CommessaDetail() {
     staleTime: 300_000,
   });
   // Tab controllate: il banner di stato porta l'operatore su Contratto o
-  // Limiti senza fargli cercare la linguetta.
-  const [tab, setTab] = useState("preventivi");
+  // Limiti senza fargli cercare la linguetta. `?tab=` apre direttamente
+  // quella chiesta: la lista delle fatture in Cassa manda qui, e atterrare
+  // sui documenti per poi cercare «Fattura» fra sette linguette era un
+  // passaggio in più ogni volta.
+  const ricerca = useSearch();
+  const [tab, setTab] = useState(
+    () => new URLSearchParams(ricerca).get("tab") ?? "preventivi"
+  );
   const limitiAttivi = Boolean(interruttori.data?.limiti);
+  // Una tab chiesta nell'URL ma che il flag non mostra lascerebbe l'area
+  // vuota: si torna ai documenti appena i flag rispondono.
+  useEffect(() => {
+    if (!interruttori.data) return;
+    if (
+      (tab === "limiti" && !interruttori.data.limiti) ||
+      (tab === "fattura" && !(interruttori.data.fatturazione && interruttori.data.limiti))
+    ) {
+      setTab("preventivi");
+    }
+  }, [interruttori.data, tab]);
   // L'etichetta della tab dice già se il computo è aggiornato o da rifare —
   // ma solo da «Aggiornamento contratto» in poi, quando un computo può
   // esistere. Prima di lì la query pagherebbe contratto + computo + voci a

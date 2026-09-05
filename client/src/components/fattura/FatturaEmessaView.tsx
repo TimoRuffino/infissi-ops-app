@@ -283,7 +283,7 @@ export default function FatturaEmessaView({
           — nessuna azione disponibile.
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div id="fattura-azioni" className="flex flex-wrap gap-2 scroll-mt-24">
           <Button
             variant="outline"
             size="sm"
@@ -483,8 +483,9 @@ export default function FatturaEmessaView({
 
           {/* Cronologia */}
           <section
+            id="fattura-cronologia"
             aria-label="Cronologia della fattura"
-            className="space-y-1 min-w-0"
+            className="space-y-1 min-w-0 scroll-mt-24"
           >
             <h4 className="text-sm font-medium">Cronologia</h4>
             <ul className="divide-y divide-border text-sm">

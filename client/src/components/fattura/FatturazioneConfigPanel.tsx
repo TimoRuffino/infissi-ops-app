@@ -171,6 +171,17 @@ export default function FatturazioneConfigPanel() {
   const [opzioni, setOpzioni] = useState<OpzioniFic | null>(null);
   const [esito, setEsito] = useState<EsitoScope | null>(null);
 
+  // Arrivo dal link «Apri le impostazioni» dei controlli della bozza: la
+  // pagina Impostazioni è lunga e questo pannello sta in fondo alla sezione
+  // Contabilità — senza lo scorrimento si atterrava in cima e toccava
+  // cercarlo.
+  useEffect(() => {
+    if (window.location.hash !== "#fatturazione") return;
+    document
+      .getElementById("fatturazione")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [q.data]);
+
   // Il modulo segue il server finché l'operatore non tocca niente: dopo la
   // verifica dello scope il server riscrive la configurazione (id IVA, conto
   // scelto da solo quando è l'unico) e i campi devono mostrarlo.
@@ -318,6 +329,8 @@ export default function FatturazioneConfigPanel() {
 
   return (
     <DataSurface
+      // Ancora del link «Apri le impostazioni» dai controlli della bozza.
+      id="fatturazione"
       density="comfortable"
       tone="default"
       title="Fatturazione"

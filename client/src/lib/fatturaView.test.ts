@@ -391,3 +391,140 @@ describe("fatturaView", () => {
     expect(ibanSembraValido("")).toBe(false);
   });
 });
+
+// ── Percorso, azioni e scadenze ────────────────────────────────────────────
+//
+// Il percorso deve dire il vero sullo stato del processo: un passo «fatto»
+// che non lo è manda l'operatore a emettere una fattura che il server
+// rifiuta; un passo «bloccato» che non lo è lo manda a cercare un problema
+// che non c'è.
+import {
+  azionePerControllo,
+  distribuisciScadenze,
+  passiFattura,
+} from "./fatturaView";
+
+const base = {
+  contratto: { presente: true, righe: 3 },
+  computo: { eseguito: true, valido: true },
+  fattura: null,
+  controlli: null,
+};
+
+describe("passiFattura", () => {
+  it("senza contratto il primo passo è quello, e il resto aspetta", () => {
+    const p = passiFattura({ ...base, contratto: { presente: false, righe: 0 }, computo: { eseguito: false, valido: false } });
+    expect(p.map(x => x.stato)).toEqual(["corrente", "da_fare", "da_fare", "da_fare", "da_fare", "da_fare"]);
+  });
+
+  it("con contratto e computo validi la bozza è il passo corrente", () => {
+    const p = passiFattura(base);
+    expect(p[0].stato).toBe("fatto");
+    expect(p[0].dettaglio).toBe("3 righe");
+    expect(p[1].stato).toBe("fatto");
+    expect(p[2]).toMatchObject({ stato: "corrente", dettaglio: "Genera dai limiti" });
+  });
+
+  it("un computo eseguito ma vecchio blocca sui limiti", () => {
+    const p = passiFattura({ ...base, computo: { eseguito: true, valido: false } });
+    expect(p[1]).toMatchObject({ stato: "bloccato", dettaglio: "Righe cambiate: ricalcola" });
+  });
+
+  it("in bozza con errori i controlli bloccano e l'emissione aspetta", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "bozza", tipo: "fattura", inviataDryRun: false, numero: null },
+      controlli: { errori: 2, avvisi: 1 },
+    });
+    expect(p[3]).toMatchObject({ stato: "bloccato", dettaglio: "2 da risolvere" });
+    expect(p[4].stato).toBe("da_fare");
+  });
+
+  it("in bozza senza errori l'emissione è pronta", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "bozza", tipo: "fattura", inviataDryRun: false, numero: null },
+      controlli: { errori: 0, avvisi: 0 },
+    });
+    expect(p[3]).toMatchObject({ stato: "fatto", dettaglio: "Tutto a posto" });
+    expect(p[4]).toMatchObject({ stato: "corrente", dettaglio: "Pronta da emettere" });
+  });
+
+  it("finché i controlli non arrivano non si dichiara niente", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "bozza", tipo: "fattura", inviataDryRun: false, numero: null },
+      controlli: null,
+    });
+    expect(p[3].stato).toBe("attesa");
+  });
+
+  it("emessa in prova: l'SdI è in attesa, e lo dice", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: true, numero: "127/2026" },
+      controlli: null,
+    });
+    expect(p[4]).toMatchObject({ stato: "fatto", dettaglio: "N. 127/2026" });
+    expect(p[5]).toMatchObject({ stato: "attesa", dettaglio: "Prova: non spedita davvero" });
+  });
+
+  it("consegnata: tutto fatto", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "consegnata", tipo: "fattura", inviataDryRun: false, numero: "127/2026" },
+      controlli: null,
+    });
+    expect(p.every(x => x.stato === "fatto")).toBe(true);
+  });
+
+  it("scartata: l'SdI è bloccato col nome dello stato", () => {
+    const p = passiFattura({
+      ...base,
+      fattura: { stato: "scartata", tipo: "fattura", inviataDryRun: false, numero: "127/2026" },
+      controlli: null,
+    });
+    expect(p[5]).toMatchObject({ stato: "bloccato", dettaglio: "Scartata dallo SdI" });
+  });
+});
+
+describe("azionePerControllo", () => {
+  it("ogni famiglia di controllo porta da qualche parte", () => {
+    expect(azionePerControllo("cliente_cf")?.tipo).toBe("cliente");
+    expect(azionePerControllo("cliente_provincia")?.tipo).toBe("cliente");
+    expect(azionePerControllo("config_iban")?.tipo).toBe("impostazioni");
+    expect(azionePerControllo("config_scope")?.tipo).toBe("impostazioni");
+    expect(azionePerControllo("computo_non_valido")).toMatchObject({ tipo: "passo", passo: "limiti" });
+    expect(azionePerControllo("limite_riga")).toMatchObject({ tipo: "passo", passo: "limiti" });
+    expect(azionePerControllo("cantiere")).toMatchObject({ tipo: "campo", id: "intestazione-cantiere" });
+    expect(azionePerControllo("scadenze_totale")).toMatchObject({ tipo: "campo", id: "fattura-scadenze" });
+    expect(azionePerControllo("markup_negativo")?.tipo).toBe("riequilibrio");
+  });
+
+  it("un controllo sconosciuto non inventa una destinazione", () => {
+    expect(azionePerControllo("boh")).toBeNull();
+  });
+});
+
+describe("distribuisciScadenze", () => {
+  it("somma sempre al totale, col resto sull'ultima", () => {
+    const r = distribuisciScadenze(1539500, [50, 40, 10]);
+    expect(r).toEqual([769750, 615800, 153950]);
+    expect(r.reduce((s, x) => s + x, 0)).toBe(1539500);
+  });
+
+  it("i centesimi dispari finiscono sull'ultima rata", () => {
+    const r = distribuisciScadenze(1001, [33.33, 33.33, 33.34]);
+    expect(r.reduce((s, x) => s + x, 0)).toBe(1001);
+    expect(r[2]).toBeGreaterThanOrEqual(r[0]);
+  });
+
+  it("quote che non fanno cento: il resto ricade sull'ultima", () => {
+    const r = distribuisciScadenze(10000, [30, 30]);
+    expect(r).toEqual([3000, 7000]);
+  });
+
+  it("senza quote non ci sono importi", () => {
+    expect(distribuisciScadenze(10000, [])).toEqual([]);
+  });
+});

@@ -5,13 +5,17 @@
 // pretende il server (`aggiornaBozza` rifiuta scadenze che non sommano al
 // totale): mostrarla qui evita di scoprirlo con un errore.
 import { useRef } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Wand2 } from "lucide-react";
 
 import type {
   ScadenzaFattura,
   ScadenzaFatturaInput,
 } from "@shared/fatturazione/tipi";
-import { scadenzeQuadrano, sommaScadenzeCent } from "@/lib/fatturaView";
+import {
+  distribuisciScadenze,
+  scadenzeQuadrano,
+  sommaScadenzeCent,
+} from "@/lib/fatturaView";
 import { formatEuro, parseEuroNonNegativo } from "@/lib/euro";
 import { formatCent } from "@/lib/limitiView";
 import { Button } from "@/components/ui/button";
@@ -123,6 +127,23 @@ export default function ScadenzeEditor({
   const salvate = scadenze.map(comeScadenzaSalvata);
   const somma = sommaScadenzeCent(salvate);
   const quadra = scadenzeQuadrano(salvate, totaleCent);
+  const scarto = totaleCent - somma;
+
+  /**
+   * Rifà gli importi dalle quote, col resto sull'ultima: quando il totale
+   * cambia dopo un ricalcolo, quattro cifre che devono quadrare al
+   * centesimo non si correggono a mano.
+   */
+  function ridistribuisci(): void {
+    const quote = scadenze.map(s => parseEuroNonNegativo(s.quotaTesto) ?? 0);
+    const importi = distribuisciScadenze(totaleCent, quote);
+    onChange(
+      scadenze.map((s, i) => ({
+        ...s,
+        importoTesto: formatEuro((importi[i] ?? 0) / 100),
+      }))
+    );
+  }
 
   const rinumera = (lista: ScadenzaForm[]): ScadenzaForm[] =>
     lista.map((s, i) => ({ ...s, numero: i + 1 }));
@@ -137,9 +158,23 @@ export default function ScadenzeEditor({
           className={`text-xs tabular-nums ${quadra ? "text-success" : "text-warning"}`}
           aria-live="polite"
         >
-          sommano {formatCent(somma)} su {formatCent(totaleCent)}
-          {quadra ? "" : " — non quadrano"}
+          {quadra
+            ? `quadrano: ${formatCent(totaleCent)}`
+            : scarto > 0
+              ? `mancano ${formatCent(scarto)} per arrivare a ${formatCent(totaleCent)}`
+              : `${formatCent(-scarto)} in più rispetto a ${formatCent(totaleCent)}`}
         </span>
+        {!disabilitato && scadenze.length > 0 && !quadra && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={ridistribuisci}
+            title="Rifà gli importi dalle quote percentuali, col resto sull'ultima"
+          >
+            <Wand2 className="h-3.5 w-3.5 mr-1" /> Ridistribuisci dalle quote
+          </Button>
+        )}
         {!disabilitato && (
           <Button
             size="sm"

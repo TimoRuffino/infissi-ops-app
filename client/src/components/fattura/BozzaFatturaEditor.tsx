@@ -5,7 +5,9 @@
 // salvataggio è esplicito (`StickyActionBar` con `dirty`).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 import {
+  ArrowRight,
   Plus,
   Printer,
   RefreshCw,
@@ -22,18 +24,23 @@ import { trpc } from "@/lib/trpc";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import type { RigaFattura } from "@shared/fatturazione/tipi";
 import {
+  azionePerControllo,
   DICITURE_SELEZIONABILI,
+  ETICHETTA_DICITURA,
+  ETICHETTA_TIPO_RIGA,
   indicatoreLimite,
   raggruppaRighe,
   riepilogoControlli,
   riepilogoView,
   testoDicitura,
+  type AzioneControllo,
 } from "@/lib/fatturaView";
 import {
   formatEuro,
   formatEuroSimbolo,
   parseEuroNonNegativo,
 } from "@/lib/euro";
+import { hrefPasso } from "@/lib/fatturazioneView";
 import { formatCent } from "@/lib/limitiView";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataSurface from "@/components/patterns/DataSurface";
@@ -76,16 +83,6 @@ import ScadenzeEditor, {
 /** La modifica accettata dal router: si legge dal contratto, non si riscrive a mano. */
 type ModificaBozza =
   inferRouterInputs<AppRouter>["fatture"]["aggiornaBozza"]["modifica"];
-
-const ETICHETTA_TIPO: Record<RigaFattura["tipo"], string> = {
-  intestazione: "Intestazione",
-  bene: "Bene",
-  servizio: "Servizio",
-  markup: "Markup",
-  storno_bs: "Storno b.s.",
-  riaddebito_bs: "Riaddebito b.s.",
-  nota: "Nota",
-};
 
 /** I passi dell'emissione, come li chiama `server/fatture/emissione.ts`. */
 const ETICHETTA_PASSO: Record<string, string> = {
@@ -232,6 +229,7 @@ export default function BozzaFatturaEditor({
   onCambiato?: () => void;
 }) {
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const dettaglio = trpc.fatture.byId.useQuery(
     { id: fatturaId },
     { retry: false }
@@ -398,6 +396,87 @@ export default function BozzaFatturaEditor({
   const scavalcoIncompleto = scavalco.attivo && scavalco.motivo.trim() === "";
 
   /**
+   * Dove porta un controllo. Il pannello elencava i problemi come testo e
+   * l'operatore doveva sapere da solo in quale pagina stesse il rimedio:
+   * ogni riga ha ora il suo pulsante, e questa è la sua mano.
+   */
+  function eseguiAzione(azione: AzioneControllo): void {
+    switch (azione.tipo) {
+      case "passo":
+        // Contratto e limiti si sistemano nel loro passo del percorso
+        // guidato (piano 4): le tab della commessa sono in sola lettura.
+        setLocation(hrefPasso(commessaId, azione.passo));
+        return;
+      case "cliente": {
+        const id = f.clienteSnapshot?.clienteId;
+        if (id == null) {
+          toast.error("La bozza non è legata a un cliente: rigenerala.");
+          return;
+        }
+        setLocation(`/clienti/${id}`);
+        return;
+      }
+      case "impostazioni":
+        setLocation("/integrazioni#fatturazione");
+        return;
+      case "campo": {
+        const el = document.getElementById(azione.id);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (el instanceof HTMLElement && "focus" in el) el.focus({ preventScroll: true });
+        return;
+      }
+      case "riequilibrio":
+        setMarkupTesto("0,00");
+        setDialogoRiequilibrio(true);
+        return;
+    }
+  }
+  const azioneDisponibile = (a: AzioneControllo | null): boolean => a != null;
+
+  /**
+   * L'elenco dei controlli con il pulsante accanto. Sta in una funzione
+   * perché compare in due posti: in cima alla colonna principale quando c'è
+   * qualcosa da risolvere (è la cosa più importante della pagina, non una
+   * nota a margine) e nella colonna laterale quando restano solo avvisi.
+   */
+  const elencoControlli = (soloEsiti: Array<"errore" | "avviso">) => {
+    const voci = controlli.filter(c => soloEsiti.includes(c.esito as "errore" | "avviso"));
+    if (voci.length === 0) return null;
+    return (
+      <ul className="space-y-1.5" aria-label={soloEsiti.includes("errore") ? "Da risolvere prima di emettere" : "Avvisi"}>
+        {voci.map((c, i) => {
+          const azione = azionePerControllo(c.codice);
+          return (
+            <li
+              key={`${c.codice}-${i}`}
+              className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius-control)] border px-3 py-2 text-sm ${
+                c.esito === "errore"
+                  ? "border-danger/30 bg-danger-soft/60 text-text-1"
+                  : "border-warning/30 bg-warning-soft/60 text-text-1"
+              }`}
+            >
+              <span className="min-w-0 flex-1">{c.messaggio}</span>
+              {azioneDisponibile(azione) && azione && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  onClick={() => eseguiAzione(azione)}
+                >
+                  {azione.etichetta}
+                  <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  /**
    * Cosa mandare al server: solo i campi davvero cambiati. Le scadenze si
    * mandano solo se toccate (il server, quando mancano, le tiene o le rifà
    * dalle rate del contratto) e lo scavalco solo se cambiato, perché ogni
@@ -491,7 +570,41 @@ export default function BozzaFatturaEditor({
     <div className="space-y-4 mt-4 min-w-0">
       <div className="grid gap-4 min-w-0 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-5 min-w-0">
+          {/* Cosa blocca l'emissione, in testa e non a margine: è l'unica
+              cosa che l'operatore deve sistemare per andare avanti. */}
+          <div id="fattura-controlli" className="scroll-mt-24 min-w-0">
+            {validazioniKo ? (
+              <DataSurface
+                density="compact"
+                tone="sunken"
+                title="Controlli non disponibili"
+                description={validazioni.error?.message ?? "errore sconosciuto"}
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 w-fit"
+                  disabled={validazioni.isFetching}
+                  onClick={() => void validazioni.refetch()}
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  {validazioni.isFetching ? "Riprovo…" : "Riprova"}
+                </Button>
+              </DataSurface>
+            ) : errori.length > 0 ? (
+              <DataSurface
+                density="compact"
+                tone="sunken"
+                title={`Prima di emettere: ${errori.length} ${errori.length === 1 ? "cosa" : "cose"} da risolvere`}
+                description="Ogni riga porta dove si sistema. Torna qui quando hai finito: i controlli si rifanno da soli."
+              >
+                {elencoControlli(["errore"])}
+              </DataSurface>
+            ) : null}
+          </div>
+
           {/* Righe per gruppo: beni, servizi, derivate, note */}
+          <div id="fattura-righe" className="scroll-mt-24 space-y-5 min-w-0">
           {gruppi.map(g => {
             const mostraBeneSig = g.chiave === "beni";
             return (
@@ -512,10 +625,9 @@ export default function BozzaFatturaEditor({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-28">Tipo</TableHead>
                         <TableHead>Descrizione</TableHead>
                         {mostraBeneSig && (
-                          <TableHead className="w-24">Bene sig.</TableHead>
+                          <TableHead className="w-28">Bene sig.</TableHead>
                         )}
                         <TableHead className="w-32 text-right">
                           Importo
@@ -540,30 +652,36 @@ export default function BozzaFatturaEditor({
                               inRimozione ? "opacity-60 line-through" : ""
                             }
                           >
-                            <TableCell className="text-text-2">
-                              {ETICHETTA_TIPO[r.tipo]}
-                            </TableCell>
                             <TableCell className="min-w-0">
                               <span className="whitespace-pre-line">
                                 {r.descrizione}
                               </span>
+                              {g.chiave === "derivate" && (
+                                <span className="ml-2 text-xs text-text-3">
+                                  {ETICHETTA_TIPO_RIGA[r.tipo]}
+                                </span>
+                              )}
                               {r.derivata && (
                                 <Badge
                                   variant="outline"
                                   className="ml-2 align-middle"
+                                  title="La calcola il sistema: si rifà a ogni salvataggio, non si modifica a mano."
                                 >
-                                  derivata
+                                  calcolata
                                 </Badge>
                               )}
                             </TableCell>
                             {mostraBeneSig && (
                               <TableCell>
-                                {r.tipo === "bene" && (
-                                  <Switch
-                                    checked={r.beneSignificativo}
-                                    disabled
-                                    aria-label={`«${r.descrizione}» è un bene significativo (dal contratto)`}
-                                  />
+                                {/* Uno switch spento sembrava un comando rotto: è
+                                    un'informazione che viene dal contratto. */}
+                                {r.tipo === "bene" && r.beneSignificativo && (
+                                  <Badge
+                                    variant="info"
+                                    title="Bene significativo, dal contratto"
+                                  >
+                                    significativo
+                                  </Badge>
                                 )}
                               </TableCell>
                             )}
@@ -606,28 +724,25 @@ export default function BozzaFatturaEditor({
                             {r.descrizione}
                           </p>
                           {r.derivata && (
-                            <Badge variant="outline" className="shrink-0">
-                              derivata
+                            <Badge
+                              variant="outline"
+                              className="shrink-0"
+                              title="La calcola il sistema: si rifà a ogni salvataggio."
+                            >
+                              calcolata
                             </Badge>
                           )}
                           {campi.rimozione}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap text-xs text-text-2">
-                          <span>{ETICHETTA_TIPO[r.tipo]}</span>
+                          <span>{ETICHETTA_TIPO_RIGA[r.tipo]}</span>
                           <span>
                             {r.aliquota == null
                               ? "senza IVA"
                               : `${r.aliquota} %`}
                           </span>
-                          {r.tipo === "bene" && (
-                            <span className="flex items-center gap-1.5">
-                              <Switch
-                                checked={r.beneSignificativo}
-                                disabled
-                                aria-label={`«${r.descrizione}» è un bene significativo (dal contratto)`}
-                              />
-                              bene sig.
-                            </span>
+                          {r.tipo === "bene" && r.beneSignificativo && (
+                            <Badge variant="info">significativo</Badge>
                           )}
                         </div>
                         <div className="text-right text-sm font-semibold">
@@ -727,7 +842,9 @@ export default function BozzaFatturaEditor({
               </Button>
             </div>
           )}
+          </div>
 
+          <div id="fattura-scadenze" className="scroll-mt-24 min-w-0">
           <ScadenzeEditor
             scadenze={scadenze}
             totaleCent={f.totaleCent}
@@ -738,11 +855,13 @@ export default function BozzaFatturaEditor({
               setScadenze(s);
             }}
           />
+          </div>
 
           {/* Diciture, cantiere, note */}
           <section
+            id="fattura-diciture"
             aria-label="Testi della fattura"
-            className="space-y-3 min-w-0"
+            className="scroll-mt-24 space-y-3 min-w-0"
           >
             <h3 className="text-sm font-medium">Diciture e testi</h3>
             <div className="grid gap-2 md:grid-cols-2">
@@ -766,8 +885,13 @@ export default function BozzaFatturaEditor({
                       );
                     }}
                   />
-                  <span className="min-w-0 whitespace-pre-line">
-                    {testoDicitura(chiave)}
+                  <span className="min-w-0">
+                    <span className="block font-medium text-text-1">
+                      {ETICHETTA_DICITURA[chiave]}
+                    </span>
+                    <span className="block whitespace-pre-line text-xs leading-5 text-text-3">
+                      {testoDicitura(chiave)}
+                    </span>
                   </span>
                 </Label>
               ))}
@@ -834,9 +958,33 @@ export default function BozzaFatturaEditor({
                 </div>
               ))}
             </dl>
-            <p className="text-xs text-text-3">
-              I numeri sono quelli salvati: si aggiornano dopo «Salva bozza».
-            </p>
+            {sporco ? (
+              // I totali li rifà il server: finché non si salva sono quelli
+              // di prima. Dirlo in grigio in fondo non bastava — si
+              // cambiava una cifra e il totale restava fermo senza capire
+              // perché. Ora lo dice a colori, e il ricalcolo è a un click.
+              <div className="space-y-2 rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2">
+                <p className="text-xs text-text-1">
+                  Modifiche non salvate: i totali qui sopra sono fermi
+                  all'ultimo salvataggio.
+                </p>
+                {puoModificare && (
+                  <Button
+                    size="sm"
+                    className="h-9 w-full"
+                    disabled={inCorso || scavalcoIncompleto}
+                    onClick={() => invia()}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    {salva.isPending ? "Ricalcolo…" : "Ricalcola e salva"}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-text-3">
+                Totali calcolati dal server all'ultimo salvataggio.
+              </p>
+            )}
           </DataSurface>
 
           <DataSurface
@@ -845,46 +993,17 @@ export default function BozzaFatturaEditor({
             title="Controlli"
             description={
               validazioniKo
-                ? `Controlli non disponibili: ${validazioni.error?.message ?? "errore sconosciuto"}`
+                ? "Non disponibili: vedi in alto."
                 : validazioni.isLoading || !validazioni.data
                   ? "Verifica in corso…"
-                  : errori.length === 0 && avvisi.length === 0
-                    ? "Nessun problema aperto."
-                    : `${errori.length} da risolvere · ${avvisi.length} da leggere`
+                  : errori.length > 0
+                    ? `${errori.length} da risolvere, elencati in alto.`
+                    : avvisi.length === 0
+                      ? "Nessun problema aperto: la fattura è emettibile."
+                      : `Emettibile. ${avvisi.length} ${avvisi.length === 1 ? "avviso" : "avvisi"} da leggere.`
             }
           >
-            {validazioniKo && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 w-fit"
-                disabled={validazioni.isFetching}
-                onClick={() => void validazioni.refetch()}
-              >
-                <RefreshCw className="h-4 w-4 mr-1" />
-                {validazioni.isFetching ? "Riprovo…" : "Riprova"}
-              </Button>
-            )}
-            {errori.length > 0 && (
-              <ul
-                className="space-y-1 text-xs text-danger"
-                aria-label="Errori bloccanti"
-              >
-                {errori.map((m, i) => (
-                  <li key={`errore-${i}`}>{m}</li>
-                ))}
-              </ul>
-            )}
-            {avvisi.length > 0 && (
-              <ul
-                className="space-y-1 text-xs text-warning"
-                aria-label="Avvisi"
-              >
-                {avvisi.map((m, i) => (
-                  <li key={`avviso-${i}`}>{m}</li>
-                ))}
-              </ul>
-            )}
+            {avvisi.length > 0 && elencoControlli(["avviso"])}
 
             {mostraScavalco && (
               <div className="space-y-2 border-t border-border-soft pt-2">
@@ -970,6 +1089,7 @@ export default function BozzaFatturaEditor({
         </aside>
       </div>
 
+      <div id="fattura-azioni" className="scroll-mt-24" />
       <StickyActionBar
         busy={inCorso}
         dirty={sporco}

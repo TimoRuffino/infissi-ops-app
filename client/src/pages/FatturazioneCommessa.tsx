@@ -47,6 +47,7 @@ import StatePanel, {
 import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
 import {
+  hrefPasso,
   importiCard,
   passoDallaQuery,
   passoIniziale,
@@ -82,10 +83,6 @@ function motivoAvanti(passo: PassoFatturazione): string | null {
     return "Serve un computo aggiornato sul contratto corrente, con esito «ok».";
   }
   return null;
-}
-
-function hrefPasso(commessaId: number, passo: PassoFatturazione): string {
-  return `/fatturazione/${commessaId}?passo=${passo}`;
 }
 
 /** «3 documenti (1 contratto)», con singolari e plurali giusti. */

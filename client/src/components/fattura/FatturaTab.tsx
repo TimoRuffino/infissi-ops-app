@@ -1,17 +1,30 @@
 // Tab «Fattura» della commessa: la bozza nasce dai limiti, si corregge qui e
 // da qui si emette; dopo l'emissione la stessa tab mostra il documento in
-// sola lettura. Questo componente sceglie solo quale fattura guardare — la
+// sola lettura. Questo componente sceglie quale fattura guardare e mostra il
+// percorso interno della fattura (bozza → controlli → emissione → SdI): la
 // modifica sta in `BozzaFatturaEditor`, la lettura in `FatturaEmessaView`.
+//
+// Contratto e limiti sono i due passi che precedono la fattura nel percorso
+// guidato (`/fatturazione/:id`, piano 4): quando mancano, la tab lo dice a
+// parole e porta al passo giusto invece di lasciare un pulsante spento.
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
-import { FileText, Plus, ReceiptText, Trash2 } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { FileText, FlaskConical, Plus, ReceiptText, Trash2 } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
-import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
+import {
+  badgeStatoFattura,
+  passiFattura,
+  riepilogoControlli,
+  VARIANTE_BADGE,
+  type PassoFattura,
+} from "@/lib/fatturaView";
+import { hrefPasso } from "@/lib/fatturazioneView";
 import { formatCent } from "@/lib/limitiView";
 import BozzaFatturaEditor from "@/components/fattura/BozzaFatturaEditor";
 import FatturaEmessaView from "@/components/fattura/FatturaEmessaView";
+import FatturaPercorso from "@/components/fattura/FatturaPercorso";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -36,7 +49,20 @@ export default function FatturaTab({
   const guidata = modalita === "guidata";
   const lettura = modalita === "lettura";
   const utils = trpc.useUtils();
+  const [, setLocation] = useLocation();
   const q = trpc.fatture.perCommessa.useQuery({ commessaId }, { retry: false });
+  // Contratto e computo sono i due passi prima della fattura: senza di loro
+  // la bozza non nasce, e il pulsante deve dire perché è spento. Il riassunto
+  // in sola lettura non li guarda: non li chiede (ogni giro verso il database
+  // costa). Le stesse query le apre il percorso guidato: React Query le dedupe.
+  const contratto = trpc.contratti.get.useQuery(
+    { commessaId },
+    { retry: false, enabled: !lettura }
+  );
+  const computo = trpc.computo.ultimo.useQuery(
+    { commessaId },
+    { retry: false, enabled: !lettura }
+  );
   const [selezionata, setSelezionata] = useState<number | null>(null);
 
   const elenco = q.data?.fatture ?? [];
@@ -60,6 +86,15 @@ export default function FatturaTab({
       setSelezionata(predefinita);
     }
   }, [predefinita, selezionata, elenco]);
+
+  const fattura = elenco.find(f => f.id === selezionata) ?? null;
+
+  // I controlli della bozza alimentano il passo «Controlli»: stessa query
+  // dell'editor, quindi nessuna seconda richiesta.
+  const validazioni = trpc.fatture.validazioni.useQuery(
+    { id: fattura?.id ?? 0 },
+    { enabled: !lettura && fattura?.stato === "bozza", retry: false }
+  );
 
   const crea = trpc.fatture.creaBozza.useMutation({
     onSuccess: esito => {
@@ -96,13 +131,6 @@ export default function FatturaTab({
     return <p className="text-sm text-danger py-6">{q.error.message}</p>;
   if (!q.data) return null;
 
-  // Il server rifiuta una seconda fattura sulla commessa: finché ce n'è una
-  // viva si passa dalla nota di credito, non da una bozza nuova.
-  const puoGenerare = elenco.every(
-    f => f.tipo !== "fattura" || f.stato === "annullata"
-  );
-  const fattura = elenco.find(f => f.id === selezionata) ?? null;
-
   if (lettura) {
     // M1 (Task 6): mai `selezionata` — resta `null` fino al primo giro di
     // effetti, e quel primo render mostrerebbe «Nessuna fattura» anche
@@ -128,13 +156,83 @@ export default function FatturaTab({
           <p className="text-sm text-muted-foreground">Nessuna fattura</p>
         )}
         <Button asChild className="min-h-11">
-          <Link href={`/fatturazione/${commessaId}?passo=fattura`}>
+          <Link href={hrefPasso(commessaId, "fattura")}>
             <ReceiptText className="h-4 w-4" aria-hidden="true" />
             Apri fatturazione
           </Link>
         </Button>
       </div>
     );
+  }
+
+  const prerequisitiInLettura = contratto.isPending || computo.isPending;
+  const contrattoPresente = contratto.data?.contratto != null;
+  const computoValido = computo.data?.valido === true;
+  const passi = passiFattura({
+    contratto: contratto.data
+      ? { presente: contrattoPresente, righe: contratto.data.righe.length }
+      : null,
+    computo: computo.data
+      ? { eseguito: computo.data.computo != null, valido: computoValido }
+      : null,
+    fattura,
+    controlli:
+      fattura?.stato === "bozza"
+        ? validazioni.data
+          ? (() => {
+              const r = riepilogoControlli(validazioni.data.controlli);
+              return { errori: r.errori.length, avvisi: r.avvisi.length };
+            })()
+          : null
+        : null,
+  });
+  // Nel percorso guidato Contratto e Limiti sono già i passi 2 e 3 dello
+  // stepper della pagina: qui resta solo il tratto della fattura.
+  const passiVisibili = guidata
+    ? passi.filter(p => p.chiave !== "contratto" && p.chiave !== "limiti")
+    : passi;
+
+  // Il server rifiuta una seconda fattura sulla commessa: finché ce n'è una
+  // viva si passa dalla nota di credito, non da una bozza nuova.
+  const puoGenerare = elenco.every(
+    f => f.tipo !== "fattura" || f.stato === "annullata"
+  );
+  // Perché il pulsante è spento, detto a parole: prima si scopriva solo
+  // dopo il click, con un errore. Finché contratto e computo non sono letti
+  // il pulsante aspetta senza accusare nessuno.
+  const motivoNonGenerabile = !q.data.puoDraft
+    ? "Serve il permesso di preparare le fatture (amministrazione o direzione)."
+    : prerequisitiInLettura
+      ? null
+      : !contrattoPresente
+        ? "Prima serve il contratto: inseriscilo o leggilo dal PDF nel passo Contratto."
+        : !computoValido
+          ? "Prima servono i limiti aggiornati: calcolali nel passo Limiti."
+          : null;
+  const passoMancante: "contratto" | "limiti" | null =
+    motivoNonGenerabile == null || !q.data.puoDraft
+      ? null
+      : !contrattoPresente
+        ? "contratto"
+        : "limiti";
+
+  function vai(chiave: PassoFattura["chiave"]): boolean {
+    if (chiave === "contratto" || chiave === "limiti") {
+      setLocation(hrefPasso(commessaId, chiave));
+      return true;
+    }
+    const id =
+      chiave === "controlli"
+        ? "fattura-controlli"
+        : chiave === "emissione"
+          ? "fattura-azioni"
+          : chiave === "bozza"
+            ? "fattura-righe"
+            : "fattura-cronologia";
+    const el = document.getElementById(id);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
   }
 
   // Radice comune a `BozzaFatturaEditor` e `FatturaEmessaView`: la stessa,
@@ -172,6 +270,20 @@ export default function FatturaTab({
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
     // spaziatura la porta la pagina.
     <div className={guidata ? "space-y-4 min-w-0" : "space-y-4 mt-4 min-w-0"}>
+      <FatturaPercorso passi={passiVisibili} onVai={vai} />
+
+      {q.data.dryRun && (
+        <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-text-1">
+          <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+          <span className="min-w-0">
+            <span className="font-semibold">Invio allo SdI in prova.</span> Le
+            fatture emesse da qui vengono numerate da Fatture in Cloud ma non
+            spedite davvero. Si spegne dalle impostazioni del server
+            (<code className="codice-mono text-[11px]">FATTURAZIONE_SDI_DRY_RUN=off</code>).
+          </span>
+        </p>
+      )}
+
       {puoGenerare && (
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Button
@@ -179,17 +291,25 @@ export default function FatturaTab({
             // Nel percorso guidato è il gesto principale del passo: target
             // touch pieno, non il pulsantino di una barra di tab.
             className={guidata ? "min-h-11" : "h-9"}
-            disabled={!q.data.puoDraft || crea.isPending}
+            disabled={
+              motivoNonGenerabile != null || prerequisitiInLettura || crea.isPending
+            }
             onClick={() => crea.mutate({ commessaId })}
           >
             <Plus className="h-4 w-4 mr-1" />
             {crea.isPending ? "Generazione…" : "Genera bozza dai limiti"}
           </Button>
           <span className="text-xs text-text-3 min-w-0">
-            {q.data.puoDraft
-              ? "La bozza propone beni dal contratto e servizi dai limiti del computo: resta modificabile."
-              : "Serve il permesso di preparare le fatture (amministrazione o direzione)."}
+            {motivoNonGenerabile ??
+              "La bozza propone beni dal contratto e servizi dai limiti del computo: resta modificabile."}
           </span>
+          {passoMancante && (
+            <Button asChild variant="link" size="sm" className="h-9 px-1">
+              <Link href={hrefPasso(commessaId, passoMancante)}>
+                {passoMancante === "contratto" ? "Apri il contratto" : "Apri i limiti"}
+              </Link>
+            </Button>
+          )}
         </div>
       )}
 
