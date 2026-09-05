@@ -2940,8 +2940,9 @@ usati come fixture d'oro altrove nel repository.
   SOLO dal catalogo tariffe, mai indovinato dal modello — `abbinaOscuranti`,
   `accessoriDaEtichette`, `costruisciControlli` esportata e riusabile) e
   `layoutWnd.ts` (`arricchisciDaLayoutWnd`, **facoltativo**: quando il testo
-  porta le etichette esatte del configuratore WnD — «Riepilogo Costi»,
-  intestazione colonne, «Totale IVA Incl./Esc.», «Termini di pagamento» — i
+  porta le etichette esatte del configuratore WnD — riconoscimento su
+  «Riepilogo Costi» e intestazione delle colonne; poi «Totale IVA Incl./Esc.»
+  e «Termini di pagamento» per totali e rate — i
   numeri del layout riscrivono misure, quantità, prezzi, pattuito e rate con
   evidenza certa; su ogni altro contratto la proposta del modello resta
   intatta. Non è un parser per configuratore: un solo arricchimento
@@ -3066,8 +3067,9 @@ livelli di rischio R0–R4 di Tars).**
 - P3-R2: nessuna invalidazione esplicita del fascicolo Tars dalle funzioni
   di estrazione — l'invalidazione del fascicolo è a versioni e non dipende
   da contratti/estrazioni.
-- P3-R3/P3-R4: la firma OCR nella `promptVersione` è `"+ocr:" + parser`
-  (`firmaOcrCorrente()` esiste in `documenti/ocr.ts`); `ocr = parser !==
+- P3-R3/P3-R4: la firma OCR nella `promptVersione` è `"1.0.0+ocr:" +
+  firmaOcrCorrente()` (impronta della configurazione OCR di `documenti/ocr.ts`,
+  non il nome del parser: la chiave di riuso cambia se cambia l'OCR); `ocr = parser !==
   "pdf-testo-nativo"`, vero anche per la lettura visiva del main.
 - P3-R5: `salvaContratto` forza `posaCent = null` quando `posaInclusa` è
   falso, stesso pattern di `zonaClimatica` — l'invariante vive nel

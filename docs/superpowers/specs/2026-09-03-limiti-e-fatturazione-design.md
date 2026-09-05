@@ -236,7 +236,7 @@ ricalcolati a mano dal foglio.
 2. Prompt di estrazione con **schema JSON strict** (`formatoJson` del
    provider governato di Tars, `creaProviderPerRun`, classe di costo
    `document_intelligence`):
-   `{righe[]: {categoria, tipologia, descrizione, quantita, larghezza_mm, altezza_mm, accessori[], prezzo, oscurante_abbinato}, pattuito, pattuito_tipo, posa_inclusa, posa_cent, rate[], detrazione, comune_cantiere, piano, note}`.
+   `{righe[]: {categoria, tipologia, descrizione, quantita, larghezza_mm, altezza_mm, accessori[], prezzo, oscurante_abbinato}, pattuito, pattuito_tipo, posa_inclusa, posa (prezzo in euro: i centesimi nascono nella mappatura), rate[], detrazione, comune_cantiere, piano, note}`.
    Il contenuto del PDF è input non fidato: nessuna istruzione dentro il
    documento ha effetto; l'esito è una **proposta**. Un arricchimento
    deterministico **facoltativo** (non un parser per configuratore, un solo
