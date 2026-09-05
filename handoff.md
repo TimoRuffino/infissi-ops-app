@@ -2486,7 +2486,8 @@ per route: è una decisione registrata, non una dimenticanza, e le colonne
 ## 11-vicies terdecies. Contratto strutturato e computo limiti — piano 1 (03/09/2026)
 
 Piano 1 di 3 (`docs/superpowers/plans/2026-09-03-contratto-e-computo-limiti.md`,
-16 task) chiuso su `feature/limiti-fatturazione`, **mai integrato su `main`**.
+16 task) chiuso su `feature/limiti-fatturazione`, **su `main` dal merge
+`9afaf4c` (04/09/2026)**.
 Spec di riferimento:
 `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` (§1-§13);
 le formule del motore e il modello delle righe seguono invece
@@ -2617,7 +2618,11 @@ Procedere comunque?» — e lo scavalco resta registrato.
   `contrattoView`) non scattano più su un cassonetto abbinato senza una
   tipologia propria — la tapparella che ospita è già la voce DEI della riga
   del serramento, non una seconda voce di questa riga (stessa eccezione di
-  `motore.ts`, spec §2.1). Resta da raccogliere un foglio reale con
+  `motore.ts`, spec §2.1). **H8** (re-review di H7, stesso giorno) restringe
+  l'abbinamento: il form ammette solo la tapparella (mai persiana o scuro) e
+  la tipologia dell'oscurante resta sempre vuota su un cassonetto, con
+  `VALIDAZIONE` lato form (`erroriForm`) e servizio se la riga non rispetta
+  la regola — il motore non cambia. Resta da raccogliere un foglio reale con
   serramenti in legno: nessuno dei 19 lo usa.
 - Debito tecnico minore: i test di servizio di `server/contratti` e
   `server/computo` non possono forzare il repository in memoria quando
@@ -2688,7 +2693,8 @@ processo vecchio, non un bug).
 ## 11-vicies quaterdecies. Fatturazione dal contratto — piano 2 (04/09/2026)
 
 Piano 2 di 3 (`docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`,
-18 task) chiuso su `feature/fatturazione`, **mai integrato su `main`**. Spec
+18 task) chiuso su `feature/fatturazione`, **su `main` dal push fast-forward
+`4104e27` (04/09/2026)**. Spec
 di riferimento: `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md`
 (§7-§13, allineata da questo task). Sopra il piano 1 (§11-vicies terdecies):
 dal contratto strutturato e dal computo limiti nasce la bozza fattura, che il
@@ -2827,7 +2833,7 @@ in mano alla commercialista stampano il totale in negativo; se FiC inverte
 da sé il segno in output va bene così, altrimenti il generatore va
 corretto prima della seconda nota (v. spec §7.6, «Aperto»).
 
-**Decisioni prese in corso d'opera che cambiano un contratto (ruling R1–R33,
+**Decisioni prese in corso d'opera che cambiano un contratto (ruling R1–R41,
 ledger completo in** `.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/progress.md`
 **, grep `Ruling R`; questi «R» sono numeri di ruling di questo piano, non i
 livelli di rischio R0–R4 di Tars).**
@@ -2947,7 +2953,8 @@ sezione.
 
 Piano 3 di 3 (`docs/superpowers/plans/2026-09-04-lettura-contratto.md`,
 9 task) chiuso su `feature/lettura-contratto` (aperto da `4104e27`, main del
-piano 2), **mai integrato su `main`**. Spec di riferimento:
+piano 2), **su `main` dal push fast-forward `d7e0ab5` (05/09/2026)**. Spec di
+riferimento:
 `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` §6
 (allineata da questo task). Sopra il piano 1 (contratto strutturato, §11-vicies
 terdecies): oggi le righe del contratto si compilano a mano, qui il modello
@@ -3267,8 +3274,8 @@ livelli di rischio R0–R4 di Tars).**
 - Il pattern nullable dello schema strict (P3-R6) non è mai stato
   esercitato dal vivo contro l'API OpenAI reale da questo codebase: la
   prima chiamata reale del runbook qui sopra è la prima prova.
-- Come i piani 1 e 2: mai integrato su `main`, `feature/lettura-contratto`
-  resta un branch locale in attesa di una decisione di merge.
+- Come i piani 1 e 2, `feature/lettura-contratto` è ora su `main`: push
+  fast-forward `d7e0ab5` (05/09/2026).
 
 **Verifica (05/09/2026).** `pnpm check` pulito (nessun errore); `pnpm test`
 234 file passati e 9 saltati (243), 2304 test passati e 43 saltati (2347), 0
@@ -3387,17 +3394,18 @@ anche la commessa) resta al controller.
     parte dopo questo piano (Ruling R22). `tsconfig` esclude `*.test.ts`
     da `tsc`: i test restano controllati solo da vitest a runtime, non dal
     type-check di `pnpm check`. Piano 3 (lettura del contratto PDF):
-    completato su `feature/lettura-contratto` (v. §11-vicies quindecies),
-    mai integrato su `main` — debito proprio al punto 16 qui sotto. Aperti
+    completato e su `main` dal 05/09/2026 (v. §11-vicies quindecies e punto
+    16 qui sotto). Aperti
     da confermare col commercialista: aliquote di detrazione 2025/2027 nel
     seed (piano 1); segno con cui Fatture in Cloud stampa il totale di una
     nota di credito; company FiC di prova per la prima emissione reale (la
     numerazione è reale, non simulata).
 16. **Lettura del contratto PDF (piano 3, 04-05/09/2026)**: 9 task
-    completati su `feature/lettura-contratto` (v. §11-vicies quindecies),
-    **mai integrato su `main`**. Il giro di fix del Task 8 (Ruling
+    completati su `feature/lettura-contratto`, **su `main` dal push
+    fast-forward `d7e0ab5` (05/09/2026)** (v. §11-vicies quindecies). Il
+    giro di fix del Task 8 (Ruling
     P3-R29/P3-R30/P3-R31 + minori) e il giro 4 della mappatura (Ruling
-    P3-R32) sono scritti nel codice il 05/09. Prima di un merge: (1) resta
+    P3-R32) sono scritti nel codice il 05/09. Restano aperti: (1) resta
     da verificare nel browser (1440×900 e 390×844) il dialog «Leggi il
     contratto» dopo quel giro, e resta duplicato l'editor delle rate fra
     dialog e tab Contratto; (2)

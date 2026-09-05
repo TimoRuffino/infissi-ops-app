@@ -61,6 +61,17 @@ const ETICHETTA_OSCURANTE: Record<OscuranteIntegrato, string> = {
   scuro: "Scuro",
 };
 
+/**
+ * H8 (re-review di H7): il cassonetto abbina SOLO una tapparella, mai
+ * persiana o scuro — sul foglio il blocco B del cassonetto ospita solo
+ * l'avvolgibile. La tipologia DEI dell'oscurante resta sempre vuota: quella
+ * del serramento che ospita è già la voce DEI di questa riga (v.
+ * `cassonettoAbbinato` in motore.ts e servizio.ts), quindi il suo select non
+ * si rende affatto su una riga cassonetto.
+ */
+const oscurantiDisponibili = (categoria: CategoriaRiga): readonly OscuranteIntegrato[] =>
+  categoria === "cassonetto" ? (["tapparella"] as const) : OSCURANTI_INTEGRATI;
+
 export default function RigaContrattoEditor({
   riga,
   indice,
@@ -308,7 +319,7 @@ export default function RigaContrattoEditor({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="nessuno">Nessuno</SelectItem>
-                {OSCURANTI_INTEGRATI.map(o => (
+                {oscurantiDisponibili(riga.categoria).map(o => (
                   <SelectItem key={o} value={o}>
                     {ETICHETTA_OSCURANTE[o]}
                   </SelectItem>
@@ -316,7 +327,7 @@ export default function RigaContrattoEditor({
               </SelectContent>
             </Select>
           </div>
-          {riga.oscuranteIntegrato && (
+          {riga.oscuranteIntegrato && riga.categoria !== "cassonetto" && (
             <Select
               value={riga.oscuranteTipologia ?? ""}
               disabled={!puoModificare}

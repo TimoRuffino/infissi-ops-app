@@ -367,6 +367,17 @@ export function erroriForm(
     if (!r.descrizione.trim()) errori.push(`Riga ${i + 1}: descrizione mancante.`);
     if (r.quantita < 1) errori.push(`Riga ${i + 1}: quantità non valida.`);
     if ((r.larghezzaMm == null) !== (r.altezzaMm == null)) errori.push(`Riga ${i + 1}: indica sia larghezza sia altezza.`);
+    // H8 (re-review di H7): il cassonetto abbina solo una tapparella, mai
+    // persiana o scuro, e la sua tipologia DEI resta sempre vuota — quella
+    // del serramento che ospita è già la voce DEI di questa riga (stessa
+    // eccezione di motore.ts, `cassonettoAbbinato`). Un'altra combinazione
+    // prezzerebbe due volte lo stesso oscurante: si blocca, non si avvisa.
+    const oscuranteCassonettoInvalido =
+      r.categoria === "cassonetto" &&
+      (r.oscuranteTipologia != null || (r.oscuranteIntegrato != null && r.oscuranteIntegrato !== "tapparella"));
+    if (oscuranteCassonettoInvalido) {
+      errori.push(`Riga ${i + 1}: il cassonetto abbina solo una tapparella, senza voce DEI dell'oscurante.`);
+    }
   });
   return errori;
 }

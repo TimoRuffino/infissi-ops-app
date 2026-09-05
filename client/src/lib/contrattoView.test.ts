@@ -260,6 +260,21 @@ describe("contrattoView", () => {
     ]);
   });
 
+  it("un cassonetto abbina solo una tapparella: tipologia scritta o oscurante diverso bloccano il salvataggio (H8)", () => {
+    const base = { ...parametriBase, pattuitoCent: 1000, zonaManuale: false, rate: rateDefault() };
+    const cassonetto = { ...rigaVuota("cassonetto"), descrizione: "Cassonetto", oscuranteIntegrato: "tapparella" as const };
+    // Tapparella senza tipologia propria: nessun errore (è l'esenzione H7).
+    expect(erroriForm(base, [cassonetto])).toEqual([]);
+    // Una tipologia scritta prezzerebbe due volte la stessa tapparella.
+    expect(erroriForm(base, [{ ...cassonetto, oscuranteTipologia: "C25089-a" }])).toEqual([
+      expect.stringMatching(/riga 1.*cassonetto.*tapparella/i),
+    ]);
+    // Persiana o scuro: il cassonetto non li abbina, solo la tapparella.
+    expect(erroriForm(base, [{ ...cassonetto, oscuranteIntegrato: "persiana" }])).toEqual([
+      expect.stringMatching(/riga 1.*cassonetto.*tapparella/i),
+    ]);
+  });
+
   it("il catalogo si filtra per categoria, zona e oscurante", () => {
     const prodotti = [
       prodotto({ codice: "pvc-1" }),

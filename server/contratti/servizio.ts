@@ -266,6 +266,20 @@ export async function salvaContratto(input: {
         avvertenze.push(`Riga ${r.ordine}: tipologia DEI mancante o non valida: il CHECK2 sarà incompleto.`);
       }
     }
+    // H8 (re-review di H7): il cassonetto abbina SOLO una tapparella, mai
+    // persiana o scuro, e la sua tipologia DEI resta sempre vuota — quella
+    // del serramento che ospita è già la voce DEI di questa riga (stessa
+    // eccezione del motore qui sotto, `cassonettoAbbinato`). Un'altra
+    // combinazione prezzerebbe due volte lo stesso oscurante: si blocca il
+    // salvataggio, non basta un'avvertenza.
+    const oscuranteCassonettoInvalido =
+      r.categoria === "cassonetto" &&
+      (r.oscuranteTipologia != null || (r.oscuranteIntegrato != null && r.oscuranteIntegrato !== "tapparella"));
+    if (oscuranteCassonettoInvalido) {
+      throw new Error(
+        `VALIDAZIONE: Riga ${r.ordine}: il cassonetto abbina solo una tapparella, senza voce DEI dell'oscurante.`
+      );
+    }
     // Un cassonetto abbinato (blocco B del foglio, H7) dichiara solo il
     // massimale B: la tapparella che ospita è già la voce DEI della riga del
     // serramento, non una seconda voce di questa riga — stessa eccezione del

@@ -151,6 +151,40 @@ describe("servizio contratto", () => {
     expect(esito.avvertenze).toEqual([]);
   });
 
+  it("un cassonetto con la tipologia dell'oscurante valorizzata è VALIDAZIONE (H8)", async () => {
+    const commessaId = await commessaDiProva();
+    const righeCassonetto = [
+      { ...righe[0], tipologia: "C25077-e" },
+      {
+        ...righe[1],
+        categoria: "cassonetto" as const,
+        tipologia: "C25096-b",
+        oscuranteIntegrato: "tapparella" as const,
+        oscuranteTipologia: "C25089-a", // tipologia scritta: prezzerebbe due volte la stessa tapparella
+        accessori: [],
+      },
+    ];
+    await expect(salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeCassonetto, actorUserId: 5 }))
+      .rejects.toThrow("VALIDAZIONE: Riga 2: il cassonetto abbina solo una tapparella, senza voce DEI dell'oscurante.");
+  });
+
+  it("un cassonetto con oscurante persiana o scuro è VALIDAZIONE (H8): abbina solo la tapparella", async () => {
+    const commessaId = await commessaDiProva();
+    const righeCassonetto = [
+      { ...righe[0], tipologia: "C25077-e" },
+      {
+        ...righe[1],
+        categoria: "cassonetto" as const,
+        tipologia: "C25096-b",
+        oscuranteIntegrato: "persiana" as const,
+        oscuranteTipologia: null,
+        accessori: [],
+      },
+    ];
+    await expect(salvaContratto({ sedeId: SEDE, commessaId, contratto, righe: righeCassonetto, actorUserId: 5 }))
+      .rejects.toThrow("VALIDAZIONE: Riga 2: il cassonetto abbina solo una tapparella, senza voce DEI dell'oscurante.");
+  });
+
   // ── Fix round 1 (review): R12 — atomicità dello specchio ────────────────
 
   it("se lo specchio del pattuito lancia, il contratto resta salvato e l'errore diventa un'avvertenza (R12)", async () => {
