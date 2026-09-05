@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { Check, Loader2, PencilLine, Plus, RefreshCw, ScanText, Trash2, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatEuro, parseEuroNonNegativo } from "@/lib/euro";
-import { euroToCent } from "@shared/euroCent";
+import { centToEuro, euroToCent } from "@shared/euroCent";
 import {
   campiDaVerificare,
   erroriForm,
@@ -20,6 +20,7 @@ import {
   rateDefault,
   riepilogoControlli,
   rigaDaProposta,
+  zonaPerRevisione,
   type CatalogoContratto,
   type RigaForm,
 } from "@/lib/contrattoView";
@@ -58,6 +59,24 @@ const ETICHETTA_DETRAZIONE: Record<DetrazioneTipo, string> = {
   ecobonus: "Ecobonus",
   ristrutturazione: "Ristrutturazione",
 };
+
+/** Limite del motivo dello scarto, come `estrazioniContratto.scarta`: un motivo è una riga. */
+const MAX_MOTIVO_SCARTO = 300;
+
+/** Il motivo arriva dal server con o senza punto finale: la frase ne vuole uno solo. */
+function conPunto(testo: string): string {
+  return testo.replace(/\.?$/, ".");
+}
+
+/** La nota che il lettore ha lasciato su una riga o sulla testata: si legge, non si modifica. */
+function NotaDelLettore({ testo }: { testo: string | null }) {
+  if (!testo) return null;
+  return (
+    <p className="text-[11px] leading-snug text-text-3 min-w-0 break-words">
+      Nota del lettore: {testo}
+    </p>
+  );
+}
 
 /** Da dove viene il valore: la citazione del PDF, e la nota se il modello ne ha una. */
 function EvidenzaCampo({ evidenza, nota }: { evidenza: EvidenzaEstratta | null; nota?: string | null }) {
@@ -170,8 +189,8 @@ export default function LeggiContrattoDialog({
     setAvvertenzeRighe(
       Object.fromEntries(nuove.map((r, i) => [r.chiave, proposta.righe[i]?.avvertenze ?? []]))
     );
-    setPattuitoTesto(formatEuro(p.pattuitoCent / 100));
-    setPosaTesto(p.posaCent != null ? formatEuro(p.posaCent / 100) : "");
+    setPattuitoTesto(formatEuro(centToEuro(p.pattuitoCent)));
+    setPosaTesto(p.posaCent != null ? formatEuro(centToEuro(p.posaCent)) : "");
     setQuoteTesto({});
     setCaricata(ultima.id);
   }, [aperto, ultima, proposta, caricata]);
@@ -226,7 +245,10 @@ export default function LeggiContrattoDialog({
   });
 
   const catalogo: CatalogoContratto = catalogoQ.data ?? CATALOGO_VUOTO;
-  const zona = contrattoQ.data?.contratto?.zonaClimatica ?? null;
+  // P3-R30: la zona del contratto salvato vale qui solo se parla dello stesso
+  // cantiere della proposta; altrimenti il badge e il filtro del catalogo DEI
+  // mostrerebbero prezzi di un altro comune.
+  const zona = proposta ? zonaPerRevisione(proposta, contrattoQ.data?.contratto) : null;
   const disponibile = stato.data?.disponibile ?? false;
   const puoApplicare = stato.data?.puoApplicare ?? false;
   const occupato = esegui.isPending || applica.isPending || scarta.isPending;
@@ -273,7 +295,20 @@ export default function LeggiContrattoDialog({
           )}
           {stato.error && <p className="text-sm text-danger">{stato.error.message}</p>}
 
-          {stato.data && !disponibile && (
+          {/* P3-R31: senza nessuna lettura precedente il pannello è la via
+              d'uscita («Compila a mano»); con una proposta già letta è solo
+              una riga informativa — il contratto lo si scrive comunque da
+              qui, applicando la proposta, e un pulsante che porta altrove
+              sopra una proposta applicabile è un invito sbagliato. */}
+          {stato.data && !disponibile && ultima && (
+            <p className="rounded-md border border-warning/40 bg-warning-soft/40 p-3 text-sm">
+              Lettura automatica non disponibile:{" "}
+              {conPunto(stato.data.motivo ?? "il servizio di lettura non è raggiungibile")} La proposta
+              esistente resta rivedibile; «Rileggi» è disattivato.
+            </p>
+          )}
+
+          {stato.data && !disponibile && !ultima && (
             <div className="rounded-md border border-warning/40 bg-warning-soft/40 p-3 space-y-2">
               <p className="text-sm">
                 Lettura automatica non disponibile:{" "}
@@ -382,6 +417,10 @@ export default function LeggiContrattoDialog({
                   Da verificare sul PDF: <span className="text-warning">{daVerificare.join(", ")}</span>.
                 </p>
               )}
+              {/* P3-R29: la nota di testata (quel che il lettore ha letto ma
+                  non è entrato in nessun campo) finora non si vedeva da
+                  nessuna parte. */}
+              <NotaDelLettore testo={proposta.note} />
               {contrattoQ.data?.contratto && (
                 <p className="text-xs text-warning">
                   Un contratto esiste già ({contrattoQ.data.righe.length}{" "}
@@ -405,7 +444,7 @@ export default function LeggiContrattoDialog({
                     }}
                     onBlur={() => {
                       const euro = parseEuroNonNegativo(pattuitoTesto);
-                      setPattuitoTesto(formatEuro(euro ?? parametri.pattuitoCent / 100));
+                      setPattuitoTesto(formatEuro(euro ?? centToEuro(parametri.pattuitoCent)));
                     }}
                   />
                 </CampoLetto>
@@ -468,16 +507,16 @@ export default function LeggiContrattoDialog({
                   campo={proposta.comuneCantiere}
                   htmlFor="lettura-comune"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <Input
                       id="lettura-comune"
-                      className="min-w-0 flex-1"
+                      className="min-w-[8rem] flex-1"
                       value={parametri.comuneCantiere ?? ""}
                       disabled={!puoApplicare}
                       onChange={e => aggiorna({ comuneCantiere: e.target.value || null })}
                     />
                     <Badge variant="outline" className="shrink-0">
-                      zona {zona ?? "dal comune"}
+                      {zona ? `zona ${zona}` : "zona calcolata all'applicazione"}
                     </Badge>
                   </div>
                 </CampoLetto>
@@ -641,6 +680,10 @@ export default function LeggiContrattoDialog({
                         {a}
                       </p>
                     ))}
+                    {/* P3-R29: accessori non riconosciuti e oscuranti abbinati
+                        finiscono qui, e l'editor della riga non li mostra: si
+                        salverebbero senza che nessuno li abbia mai letti. */}
+                    <NotaDelLettore testo={r.note} />
                     <RigaContrattoEditor
                       riga={r}
                       indice={i}
@@ -677,6 +720,7 @@ export default function LeggiContrattoDialog({
                 <Input
                   id="lettura-motivo"
                   value={motivo}
+                  maxLength={MAX_MOTIVO_SCARTO}
                   onChange={e => setMotivo(e.target.value)}
                   placeholder="Es. è il preventivo, non il contratto"
                 />

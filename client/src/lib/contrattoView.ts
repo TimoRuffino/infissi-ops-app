@@ -463,9 +463,39 @@ const ETICHETTE_CAMPI_PROPOSTA: Array<[keyof PropostaContratto, string]> = [
  */
 export function campiDaVerificare(p: PropostaContratto): string[] {
   return ETICHETTE_CAMPI_PROPOSTA.filter(([chiave]) => {
+    // Il dialog nasconde il prezzo della posa quando la posa non è inclusa:
+    // mandare a verificare una casella che non c'è è un vicolo cieco.
+    if (chiave === "posaCent" && !p.posaInclusa.valore) return false;
     const campo = p[chiave];
     return typeof campo === "object" && campo !== null && "daVerificare" in campo && campo.daVerificare;
   }).map(([, etichetta]) => etichetta);
+}
+
+/** Comune confrontabile: minuscolo, senza spazi ai bordi e con quelli interni collassati. */
+function comuneNormalizzato(comune: string | null | undefined): string | null {
+  const pulito = (comune ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return pulito || null;
+}
+
+/**
+ * P3-R30: la zona climatica da mostrare mentre si rivede una proposta —
+ * badge della testata e filtro del catalogo DEI delle righe. È quella del
+ * contratto SALVATO solo se i due parlano dello stesso cantiere: applicando,
+ * `salvaContratto` ricava la zona dal comune (la proposta nasce con
+ * `zonaManuale: false`), quindi la zona di un altro comune filtrerebbe le
+ * voci su prezzi che non saranno quelli. Senza comune da confrontare — su
+ * un lato o sull'altro — non c'è nulla da riconoscere: `null`, e il badge
+ * dice che la zona si calcola all'applicazione.
+ */
+export function zonaPerRevisione(
+  p: Pick<PropostaContratto, "comuneCantiere">,
+  contratto: Pick<Contratto, "comuneCantiere" | "zonaClimatica"> | null | undefined
+): ZonaClimatica | null {
+  if (!contratto?.zonaClimatica) return null;
+  const proposto = comuneNormalizzato(p.comuneCantiere.valore);
+  const salvato = comuneNormalizzato(contratto.comuneCantiere);
+  if (proposto == null || salvato == null || proposto !== salvato) return null;
+  return contratto.zonaClimatica;
 }
 
 /**
@@ -518,10 +548,23 @@ export function parametriDaProposta(p: PropostaContratto, documentoId: number): 
 }
 
 /**
+ * Limite di `note` nello schema della riga del contratto (`rigaInputSchema`
+ * in server/contratti/servizio.ts). Non è esportato da lì — è uno schema zod
+ * server — e qui serve solo a non far arrivare al salvataggio una nota che
+ * verrebbe rifiutata: se cambia là, cambia qui.
+ */
+const MAX_NOTE_RIGA = 500;
+
+/**
  * Riga proposta → riga del form. L'evidenza è quella della descrizione: è
  * la citazione che dice da dove viene la riga, e `applicaEstrazione` non la
  * ricalcola — arriva da qui e resta sulla riga salvata. Misura DEI e prezzo
  * unitario non si leggono dal contratto: restano da compilare a mano.
+ *
+ * P3-R29: la nota (accessori non riconosciuti, oscuranti abbinati) si taglia
+ * al limite dello schema. Una nota più lunga faceva fallire l'applicazione
+ * DOPO che l'operatore aveva rivisto tutta la proposta; il dialog la mostra
+ * sotto la riga, così quel che si salva è anche quel che si legge.
  */
 export function rigaDaProposta(r: RigaProposta): RigaForm {
   return {
@@ -540,7 +583,7 @@ export function rigaDaProposta(r: RigaProposta): RigaForm {
     beneSignificativo: r.beneSignificativo,
     // L'etichetta serve alla proposta per farsi leggere; al servizio va il codice.
     accessori: r.accessori.map(a => ({ codice: a.codice, quantita: a.quantita })),
-    note: r.note,
+    note: r.note == null ? null : r.note.slice(0, MAX_NOTE_RIGA),
     origine: "estrazione",
     evidenza: r.descrizione.evidenza,
   };

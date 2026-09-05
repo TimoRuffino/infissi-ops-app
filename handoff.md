@@ -3054,7 +3054,7 @@ sconosciuto.
    matrice azioni).
 
 **Decisioni prese in corso d'opera che cambiano un contratto (ruling
-P3-R1–P3-R31, ledger completo in**
+P3-R1–P3-R32, ledger completo in**
 `.superpowers/sdd/2026-09-04-lettura-contratto/progress.md`**, grep
 `"Ruling P3-R"`; questi «R» sono numeri di ruling di questo piano, non i
 livelli di rischio R0–R4 di Tars).**
@@ -3118,29 +3118,38 @@ livelli di rischio R0–R4 di Tars).**
   server/contratti/eval/runEval.ts` (l'entry point vive nel runner, non in
   un `cli.ts` separato, come `server/documenti/eval` e `server/tars/eval`);
   la fixture WnD è unica.
-- P3-R29: `rigaDaProposta` tronca `note` a 500 caratteri (limite dello
-  schema del contratto).
-- P3-R30: il badge zona e il filtro del catalogo DEI usano la zona del
-  contratto SALVATO solo se il comune proposto coincide (normalizzato) con
-  quello salvato; altrimenti nessun filtro.
-- P3-R31: con una proposta/applicata/scartata già presente, il pannello
-  «lettura non disponibile» diventa una riga informativa senza il pulsante
-  «Compila a mano», che resterebbe fuori posto sopra una proposta ancora
-  applicabile.
+- P3-R29 (FATTO, giro di fix del Task 8): `rigaDaProposta` tronca `note` a
+  500 caratteri (limite dello schema del contratto) e il dialog mostra la
+  nota del lettore — di riga e di testata — sotto le evidenze: quel che si
+  salva è anche quel che si legge.
+- P3-R30 (FATTO, stesso giro): `zonaPerRevisione` (in `contrattoView.ts`) dà
+  al badge e al filtro del catalogo DEI la zona del contratto SALVATO solo
+  se il comune proposto coincide con quello salvato (minuscolo, spazi
+  collassati, entrambi presenti); altrimenti badge «zona calcolata
+  all'applicazione» e nessun filtro per zona.
+- P3-R31 (FATTO, stesso giro): con una proposta/applicata/scartata già
+  presente, il pannello «lettura non disponibile» è una riga informativa
+  senza il pulsante «Compila a mano», che resterebbe fuori posto sopra una
+  proposta ancora applicabile.
+- P3-R32 (FATTO, giro 4 della mappatura): «scorrevole» esce dai sostantivi
+  di serramento — un qualificatore non è mai un'àncora. Prima, uno
+  «scorrevole» già assorbito da un accessorio ancorava il «complanare» che
+  lo seguiva e sulla portafinestra (che con «scorrevole» non è in
+  contrasto, P3-R28) il codice cambiava in silenzio: «Portafinestra 2 ante
+  in alluminio con zanzariera scorrevole complanare» in zona A dava
+  C15042-b invece di C15038-e, senza avvertenza.
 
 **Debito e fuori ambito.**
 
-- **Task 8 fix round 1 (P3-R29/P3-R30/P3-R31 + minori) NON ANCORA scritto
-  nel codice**, pianificato subito dopo questo task: alla revisione del
-  Task 8, `LeggiContrattoDialog.tsx` mostra ancora la zona/il filtro DEI dal
-  contratto salvato **senza** il controllo «stesso comune della proposta»
-  (riga ~229), la nota di testata della proposta (`proposta.note`) non è
-  mostrata da nessuna parte nel dialog, e il pannello «lettura non
-  disponibile» resta impilato sopra una proposta applicabile col pulsante
-  «Compila a mano» sempre visibile — i tre ruling qui sopra descrivono il
-  fix deciso, non ancora applicato. Minori nello stesso giro: divisioni
-  `/100` dirette invece di `centToEuro` in tre punti, «Prezzo della posa» in
-  «da verificare» anche quando nascosto, editor rate duplicato.
+- **Task 8 fix round 1 (P3-R29/P3-R30/P3-R31 + minori): SCRITTO nel codice**
+  (05/09/2026, stesso branch, insieme al giro 4 della mappatura P3-R32):
+  zona e filtro DEI dal contratto salvato solo a parità di comune, note del
+  lettore (riga e testata) mostrate nel dialog, pannello «non disponibile»
+  ridotto a riga informativa quando una lettura esiste già, `centToEuro` al
+  posto delle divisioni `/100`, «Prezzo della posa» fuori dai «da
+  verificare» quando la posa non è inclusa, `maxLength` 300 sul motivo
+  dello scarto. Resta il solo minore non toccato: l'editor delle rate è
+  duplicato fra `LeggiContrattoDialog.tsx` e la tab Contratto.
 - `server/contratti/eval/casi-reali/` è vuota: nessun contratto reale
   anonimizzato ancora raccolto — i tre contratti reali citati nel piano
   stanno solo sul Desktop del controller, mai nel repository. Finché resta
@@ -3171,6 +3180,13 @@ solo script eval fuori dal bundle server (mai importati da
 1440×900 e 390×844, Postgres 16 reale, review finale con lente su schema
 strict/evidenze/riuso/sede) resta a carico del controller, come per i piani 1
 e 2, e non è ripetuta in questa sezione.
+
+**Verifica del giro di fix (05/09/2026, P3-R29/P3-R30/P3-R31 + P3-R32).**
+`pnpm check` pulito; `pnpm test` 234 file passati e 9 saltati (243), 2311
+test passati e 43 saltati (2354), 0 falliti; `pnpm build` completo con lo
+stesso unico avviso noto (`dist/index.js` 3,1 MB). Il controllo nel browser
+del dialog «Leggi il contratto» dopo queste modifiche (badge della zona,
+note del lettore, pannello «non disponibile») resta al controller.
 
 ## 12. Debito aperto prioritario
 
@@ -3256,11 +3272,12 @@ e 2, e non è ripetuta in questa sezione.
     numerazione è reale, non simulata).
 16. **Lettura del contratto PDF (piano 3, 04-05/09/2026)**: 9 task
     completati su `feature/lettura-contratto` (v. §11-vicies quindecies),
-    **mai integrato su `main`**. Prima di un merge: (1) Task 8 fix round 1
-    (Ruling P3-R29/P3-R30/P3-R31 + minori) non ancora scritto — zona/filtro
-    DEI dal contratto salvato senza il controllo «stesso comune della
-    proposta», nota di testata della proposta mai mostrata nel dialog,
-    pannello «non disponibile» impilato sopra una proposta applicabile; (2)
+    **mai integrato su `main`**. Il giro di fix del Task 8 (Ruling
+    P3-R29/P3-R30/P3-R31 + minori) e il giro 4 della mappatura (Ruling
+    P3-R32) sono scritti nel codice il 05/09. Prima di un merge: (1) resta
+    da verificare nel browser (1440×900 e 390×844) il dialog «Leggi il
+    contratto» dopo quel giro, e resta duplicato l'editor delle rate fra
+    dialog e tab Contratto; (2)
     `server/contratti/eval/casi-reali/` è vuota, nessun contratto reale
     anonimizzato ancora raccolto; (3) il pattern nullable dello schema
     strict (Ruling P3-R6) non è mai stato esercitato dal vivo contro l'API

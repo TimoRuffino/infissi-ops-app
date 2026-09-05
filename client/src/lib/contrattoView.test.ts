@@ -38,6 +38,7 @@ import {
   rigaDaServer,
   rigaVuota,
   totaleRigheCent,
+  zonaPerRevisione,
   type AccessorioCatalogo,
   type ProdottoCatalogo,
 } from "./contrattoView";
@@ -501,6 +502,60 @@ describe("contrattoView", () => {
     expect(rigaDaProposta(rigaProposta()).chiave).not.toBe(rigaDaProposta(rigaProposta()).chiave);
   });
 
+  // P3-R29: `note` della riga ha un limite nello schema del contratto (500
+  // caratteri). Una nota più lunga faceva fallire il salvataggio DOPO che
+  // l'operatore aveva rivisto tutta la proposta: si taglia qui.
+  it("una nota di riga più lunga del limite arriva tagliata, non fa fallire l'applicazione", () => {
+    const lunga = "a".repeat(600);
+    const r = rigaDaProposta(rigaProposta({ note: lunga }));
+    expect(r.note).toHaveLength(500);
+    expect(r.note).toBe("a".repeat(500));
+    // Una nota corta resta intatta, e «nessuna nota» resta nessuna nota.
+    expect(rigaDaProposta(rigaProposta({ note: "Da rilevare" })).note).toBe("Da rilevare");
+    expect(rigaDaProposta(rigaProposta({ note: null })).note).toBeNull();
+  });
+
+  // P3-R30: la zona del contratto salvato vale per la proposta solo se
+  // parlano dello stesso cantiere. Applicando, il server la ricava dal
+  // comune (`zonaManuale: false`): mostrare la zona di un altro comune
+  // filtrerebbe il catalogo DEI su prezzi che non saranno quelli.
+  describe("zonaPerRevisione (P3-R30)", () => {
+    const salvato = { comuneCantiere: "Sarzana", zonaClimatica: "D" as const };
+
+    it("stesso comune, anche scritto diversamente: vale la zona salvata", () => {
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("Sarzana") }), salvato)).toBe("D");
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("  sarzana  ") }), salvato)).toBe("D");
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("SARZANA") }), salvato)).toBe("D");
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("La  Spezia") }), {
+        comuneCantiere: "La Spezia",
+        zonaClimatica: "D",
+      })).toBe("D");
+    });
+
+    it("comune diverso, non indicato o contratto assente: nessuna zona", () => {
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("Lerici") }), salvato)).toBeNull();
+      // Il PDF non dice il comune: non c'è niente su cui riconoscere il cantiere.
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>(null) }), salvato)).toBeNull();
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("   ") }), salvato)).toBeNull();
+      // Contratto salvato senza comune: nemmeno lui ha un cantiere da confrontare.
+      expect(
+        zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>(null) }), {
+          comuneCantiere: null,
+          zonaClimatica: "D",
+        })
+      ).toBeNull();
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("Sarzana") }), null)).toBeNull();
+      expect(zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("Sarzana") }), undefined)).toBeNull();
+      // Stesso comune ma il contratto salvato non ha zona: niente da mostrare.
+      expect(
+        zonaPerRevisione(proposta({ comuneCantiere: campo<string | null>("Sarzana") }), {
+          comuneCantiere: "Sarzana",
+          zonaClimatica: null,
+        })
+      ).toBeNull();
+    });
+  });
+
   it("i controlli della proposta si dividono in errori e avvisi", () => {
     const { errori, avvisi } = riepilogoControlli([
       { codice: "somma_righe", esito: "errore", messaggio: "Le righe sommano meno del pattuito." },
@@ -526,5 +581,27 @@ describe("contrattoView", () => {
     );
     expect(etichette).toEqual(["Pattuito", "Comune del cantiere", "Data firma"]);
     expect(campiDaVerificare(proposta())).toEqual([]);
+  });
+
+  // Il dialog nasconde il prezzo della posa quando la posa non è inclusa:
+  // mandare l'operatore a verificare una casella che non c'è è un vicolo cieco.
+  it("«Prezzo della posa» non è da verificare quando la posa non è inclusa", () => {
+    const conPosa = proposta({
+      posaInclusa: campo(true),
+      posaCent: campo<number | null>(null, { daVerificare: true }),
+    });
+    expect(campiDaVerificare(conPosa)).toEqual(["Prezzo della posa"]);
+
+    const senzaPosa = proposta({
+      posaInclusa: campo(false),
+      posaCent: campo<number | null>(null, { daVerificare: true }),
+    });
+    expect(campiDaVerificare(senzaPosa)).toEqual([]);
+    // La posa in sé resta verificabile: è la casella nascosta a sparire.
+    const posaDaVerificare = proposta({
+      posaInclusa: campo(false, { daVerificare: true }),
+      posaCent: campo<number | null>(null, { daVerificare: true }),
+    });
+    expect(campiDaVerificare(posaDaVerificare)).toEqual(["Posa"]);
   });
 });
