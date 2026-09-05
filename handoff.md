@@ -3320,10 +3320,9 @@ task) su `feature/fatturazione-guidata`, aperto da `f3b551b` (main con i
 piani 1-3, harvest, PRD 5.40). Task 1-7 chiusi, review finale del ramo
 fatta (opus, `.superpowers/sdd/2026-09-05-fatturazione-guidata/final-review.md`,
 Needs fixes) e il suo giro di fix 3 chiuso: 16 commit, 40 file,
-+4757/−602 (`git diff --stat f3b551b..340f955`); HEAD reale di questo
-giro `340f955` (il fix `f7bcef0` è descritto sotto insieme al giro di fix
-3, `3e8192e` server + `340f955` client — i numeri qui sopra li includono
-entrambi). **Non ancora su `main`**, a differenza dei piani 1-3: il piano
++4757/−602 (`git diff --stat f3b551b..340f955`); HEAD del ramo `03dd384`
+(docs), dopo `3e8192e` server + `340f955` client del giro 3 e `f7bcef0`
+del giro 2 (descritti sotto; i numeri qui sopra li includono tutti). **Non ancora su `main`**, a differenza dei piani 1-3: il piano
 vieta il push senza una decisione esplicita. Spec di riferimento:
 `docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md`. Sopra
 il contratto strutturato (piano 1, §11-vicies terdecies), la fatturazione
@@ -3536,6 +3535,16 @@ Documenti).
   negativo — una `statoDal` nel futuro (orologio indietro, dato di
   migrazione anomalo) dà `0`, mai un numero assurdo che manderebbe la
   commessa in fondo all'ordinamento — costo: nessuno.
+
+**Giro di fix 2 (05/09/2026, `f7bcef0`, dopo la re-review del giro 1).**
+Due difetti della pagina a passi: «Salva e avanti» rimbalzava su Contratto
+perché navigava con i passi ancora stantii in cache (ora `onAvanti` attende
+l'invalidazione di `fatturazioneGuidata.passi` e l'effetto che riscrive
+l'URL resta fermo mentre `passiQ.isFetching`); il click sul pallino del
+passo attivo apriva a vuoto il dialogo «Modifiche non salvate» e poteva
+azzerare `contrattoSporco` col form ancora sporco (ora `vai` ignora il
+passo corrente). Ruling P4-R12: la re-review del giro 2 è assorbita dalla
+review finale del ramo.
 
 **Giro di fix 3 (05/09/2026, dopo la review finale del ramo).** Brief
 `.superpowers/sdd/2026-09-05-fatturazione-guidata/fix3-brief.md`, punti

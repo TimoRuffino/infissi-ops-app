@@ -372,7 +372,7 @@ export default function LeggiContrattoDialog({
                 })()}
               </p>
               <p className="text-xs text-text-3">
-                Il contratto strutturato è quello applicato: si corregge dalla tab Contratto.
+                Il contratto strutturato è quello applicato: si corregge dal percorso di fatturazione (passo Contratto).
                 «Rileggi» propone una nuova lettura dello stesso PDF, senza toccare il contratto.
               </p>
             </div>
