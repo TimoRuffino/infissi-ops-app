@@ -139,6 +139,18 @@ def cella(righe, r, colonna):
     return righe[r - 1][i]
 
 
+def prima_numerica(righe, r, da, a, dia, etichetta):
+    """La prima cella numerica della riga fra due colonne (INIZIO: il valore
+    di «DISTANZA» e «PIANO» non sta sempre nella stessa colonna). Restituisce
+    None con un avviso se la riga non ne ha nessuna."""
+    for c in range(column_index_from_string(da), column_index_from_string(a) + 1):
+        v = num(cella(righe, r, get_column_letter(c)))
+        if v is not None:
+            return v
+    dia.avvisa(f"{etichetta}: nessuna cella numerica fra {da}{r} e {a}{r}")
+    return None
+
+
 def sì(v):
     return chiave(v) in ("si", "s")
 
@@ -266,7 +278,8 @@ def leggi_righe(wb, dia):
     righe = []
     for blocco, cfg in BLOCCHI.items():
         # Prezzo fatturato del blocco: CHECK1 G6/G7/G8 somma tutta la colonna
-        # (SERRAMENTI!I59 e sorelle) e l'operatore scrive spesso un importo
+        # PREZZO del blocco, non il gruppo (SERRAMENTI!AF59 per il blocco A,
+        # CP/ED/EN le sorelle di B/C/D) e l'operatore scrive spesso un importo
         # unico sulla prima riga, anche vuota. Va sulla prima riga raccolta:
         # al motore serve solo la somma (H39, «altri servizi» = 2 %).
         prezzo_blocco = sum(num(cella(griglia, r, cfg["prezzo"])) or 0 for r in range(7, 57))
@@ -322,9 +335,12 @@ def leggi_righe(wb, dia):
             if prodotto is None and nome_prodotto:
                 prodotto = scegli_per_nome(nome_prodotto, SEED["prodotti"], dia, "prodotto")
             if prodotto is None:
-                dia.nome_non_mappato("prodotto", nome_prodotto or codice_stampa or "(vuoto)",
-                                     f"riga {r} blocco {blocco}")
-                continue
+                # Scartare la riga in silenzio sfaserebbe «attesi» (letti dal
+                # foglio, che questa riga la conta) rispetto a «righe» (che non
+                # la conterrebbe più): meglio fermarsi, come per il blocco legno.
+                sys.exit(f"riga {r} blocco {blocco}: prodotto «{nome_prodotto or codice_stampa or '(vuoto)'}» "
+                         f"non è nel seed — mappalo a mano o aggiungi la voce al seed prima di "
+                         f"rigenerare il caso")
 
             accessori = []
             if cfg["accessori"]:
@@ -418,8 +434,8 @@ def costruisci(percorso, nome, detrazione, pct, salta, dia):
     check1 = [r for r in wb["CHECK1"].iter_rows(min_row=1, max_row=50, max_col=22, values_only=True)]
 
     zona = testo(cella(inizio, 11, "H")).upper()[:1] or None
-    km = num(cella(inizio, 17, "E"))
-    piano = num(cella(inizio, 19, "E"))
+    km = prima_numerica(inizio, 17, "C", "L", dia, "INIZIO riga 17 (distanza km)")
+    piano = prima_numerica(inizio, 19, "C", "L", dia, "INIZIO riga 19 (piano)")
     righe = leggi_righe(wb, dia) + leggi_controtelai(check1, dia)
 
     def h(r):
