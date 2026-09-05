@@ -873,6 +873,87 @@ describe("tipologiaDei — scorrevoli, portefinestre e fogli (P3-R10, P3-R15)", 
   });
 });
 
+// ── N1/P3-R24: la natura si legge solo nel segmento del serramento ─────────
+
+describe("tipologiaDei — la natura si legge solo prima dell'accessorio (P3-R24)", () => {
+  it("(a) un accessorio scorrevole non rende scorrevole la finestra", () => {
+    // «con zanzariera scorrevole» è dopo la parola «zanzariera»: fuori dal
+    // segmento del serramento. Prima di questo fix il giro 1 avrebbe letto
+    // «scorrevole» in tutta la descrizione e scelto C15043-a (complanare).
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra 2 ante in alluminio con zanzariera scorrevole" },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15039-c");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("(b) «scorrevole» nel segmento del serramento vince sul tipo del modello, e lo dichiara", () => {
+    // Qui «scorrevole» descrive il serramento stesso, non un accessorio:
+    // il tipo dichiarato dal modello (finestra) e il testo si contraddicono,
+    // si segue il testo ma la contraddizione è un'avvertenza, mai silenziosa.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_alluminio",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra scorrevole 2 ante in alluminio" },
+      "D"
+    );
+    expect(scelta.codice).toBe("C15043-a");
+    expect(scelta.avvertenza).toBe("descrizione scorrevole, tipo del modello finestra: verifica");
+  });
+
+  it("(c) vale anche per il legno: l'oscurante scorrevole non è il serramento", () => {
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_legno",
+      { tipoProdotto: "finestra", nAnte: 2, descrizione: "Finestra 2 ante in legno con zanzariera scorrevole" },
+      "D"
+    );
+    expect(scelta.codice).toBe("C25053-c");
+    expect(scelta.avvertenza).toBeNull();
+  });
+
+  it("(d) la portafinestra scorrevole complanare in PVC resta raggiungibile", () => {
+    // Non regredisce rispetto al giro 1: nessun accessorio nel testo, quindi
+    // il segmento è la descrizione intera e il risultato non cambia.
+    const scelta = tipologiaDei(
+      TARIFFE,
+      "serramento_pvc",
+      { tipoProdotto: "portafinestra", nAnte: 2, descrizione: "Portafinestra scorrevole complanare in PVC a 2 ante" },
+      null
+    );
+    expect(scelta.codice).toBe("C25077-g");
+  });
+
+  it("la contraddizione arriva fino alla riga: tipologia da verificare con l'avvertenza in nota", () => {
+    const descrizione = "Finestra scorrevole in PVC";
+    const proposta = costruisciProposta(
+      esito({
+        righe: [
+          riga({
+            descrizione,
+            tipoProdotto: "finestra",
+            materiale: "pvc",
+            nAnte: 1,
+            larghezzaMm: 900,
+            altezzaMm: 1200,
+            prezzoTotale: 1200,
+            frammento: descrizione,
+          }),
+        ],
+      }),
+      { ...CONTESTO_127, pagine: [descrizione] },
+      false
+    );
+    const riga0 = proposta.righe[0];
+    expect(riga0.tipologia.nota).toContain("descrizione scorrevole, tipo del modello finestra: verifica");
+    expect(riga0.tipologia.daVerificare).toBe(true);
+    expect(riga0.avvertenze.join(" ")).toContain("descrizione scorrevole");
+  });
+});
+
 describe("oscuranteDei", () => {
   it("persiane in alluminio: distingue lamelle orientabili e forma", () => {
     expect(oscuranteDei(TARIFFE, "persiana", "alluminio", false, 1, false).codice).toBe("C15079-a");
@@ -952,6 +1033,15 @@ describe("oscurante integrato della riga (P3-R11)", () => {
     expect(riga0.oscuranteTipologia.valore).toBe("C25081-a");
     expect(riga0.oscuranteTipologia.daVerificare).toBe(true);
     expect(riga0.avvertenze.join(" ")).toContain("materiale dell'oscurante non indicato");
+  });
+
+  // N2/P3-R25: due materiali nel segmento dell'oscurante — vince quello che
+  // compare prima per posizione, non il PVC per precedenza fissa.
+  it("con due materiali nel segmento dell'oscurante vince quello che compare prima (P3-R25)", () => {
+    const riga0 = propostaConOscurante("Finestra 1 anta con persiana in alluminio e telaio in PVC").righe[0];
+    expect(riga0.oscuranteTipologia.valore).toBe("C15079-a");
+    expect(riga0.oscuranteTipologia.daVerificare).toBe(false);
+    expect(riga0.avvertenze).toEqual([]);
   });
 });
 

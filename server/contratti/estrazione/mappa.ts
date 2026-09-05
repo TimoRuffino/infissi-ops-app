@@ -109,6 +109,33 @@ function materialiCitati(testo: string): Materiale[] {
 /** Le parole con cui il documento nomina l'oscurante: da lì in poi si parla di lui. */
 const PAROLA_OSCURANTE = /persian|tapparell|scur|avvolgibil|oscurant/;
 
+/** Pattern dei materiali, nell'ordine in cui `materialeDelTesto` li preferirebbe a parità di posizione. */
+const PATTERN_MATERIALE: ReadonlyArray<{ materiale: Materiale; regex: RegExp }> = [
+  { materiale: "legno_alluminio", regex: /legno\s*[-/ ]?\s*allumin|allumin\s*[-/ ]?\s*legno/ },
+  { materiale: "pvc", regex: /konfortline|etrum|\bwnd\b|pvc/ },
+  { materiale: "alluminio", regex: /allumin/ },
+  { materiale: "acciaio", regex: /acciaio/ },
+  { materiale: "legno", regex: /legno/ },
+];
+
+/**
+ * P3-R25: dentro il segmento dell'oscurante può comparire più di un
+ * materiale — «persiana in alluminio e telaio in PVC» — e vince quello che
+ * compare PRIMA per posizione (indice della prima occorrenza), non un
+ * ordine di precedenza fisso: altrimenti il PVC vincerebbe sempre, anche
+ * quando è l'ultima parola del segmento.
+ */
+function materialePerPosizione(testo: string): Materiale | null {
+  let scelto: { materiale: Materiale; indice: number } | null = null;
+  for (const { materiale, regex } of PATTERN_MATERIALE) {
+    const trovato = regex.exec(testo);
+    if (trovato && (scelto == null || trovato.index < scelto.indice)) {
+      scelto = { materiale, indice: trovato.index };
+    }
+  }
+  return scelto?.materiale ?? null;
+}
+
 /**
  * P3-R11: il materiale dell'oscurante si cerca nel testo che VIENE DOPO la
  * parola che lo nomina — «finestra in PVC con persiana in alluminio» è una
@@ -119,7 +146,7 @@ const PAROLA_OSCURANTE = /persian|tapparell|scur|avvolgibil|oscurant/;
 function materialeOscuranteDelTesto(descrizione: string): { materiale: Materiale; indovinato: boolean } {
   const testo = normalizzaTesto(descrizione);
   const trovata = PAROLA_OSCURANTE.exec(testo);
-  const dalSegmento = trovata ? materialeDelTesto(testo.slice(trovata.index)) : null;
+  const dalSegmento = trovata ? materialePerPosizione(testo.slice(trovata.index)) : null;
   if (dalSegmento != null) return { materiale: dalSegmento, indovinato: false };
   const citati = materialiCitati(testo);
   if (citati.length === 1) return { materiale: citati[0], indovinato: false };
@@ -246,17 +273,44 @@ function naturaDelNome(nome: string): NaturaSerramento {
 }
 
 /**
- * P3-R10: la natura si decide dal tipo del modello E dalla descrizione. Il
- * modello marca «portafinestra» anche una portafinestra scorrevole: senza
- * leggere il testo l'intero foglio degli scorrevoli resterebbe irraggiungibile.
+ * Le parole di accessorio o oscurante che chiudono il «segmento serramento»
+ * della descrizione (P3-R24): «Finestra 2 ante in alluminio con zanzariera
+ * scorrevole» parla di serramento solo prima di «zanzariera».
  */
-function naturaRichiesta(tipo: TipoProdotto, descrizione: string): NaturaSerramento {
-  if (tipo === "fisso") return "telaio_fisso";
+const PRIMO_SOSTANTIVO_ACCESSORIO = /\b(zanzarier|tend[ae]|persian|tapparell|cassonett|scur[oi]|avvolgibil|manigli|coprifil)/i;
+
+/** La parte della descrizione che parla del serramento stesso, prima del primo accessorio o oscurante citato. */
+function segmentoSerramento(testo: string): string {
+  const trovato = PRIMO_SOSTANTIVO_ACCESSORIO.exec(testo);
+  return trovato ? testo.slice(0, trovato.index) : testo;
+}
+
+/**
+ * P3-R10/P3-R24: la natura si decide dal tipo del modello E dalla
+ * descrizione. Il modello marca «portafinestra» anche una portafinestra
+ * scorrevole: senza leggere il testo l'intero foglio degli scorrevoli
+ * resterebbe irraggiungibile. Ma per finestra/portafinestra/fisso il testo
+ * conta SOLO nel segmento che parla del serramento — prima del primo
+ * accessorio o oscurante nominato, altrimenti «…con zanzariera scorrevole»
+ * renderebbe scorrevole una finestra battente. Il tipo «scorrevole» del
+ * modello non ha bisogno del testo: resta scorrevole.
+ *
+ * Quando il segmento del serramento dice comunque «scorrevole» ma il tipo
+ * del modello è finestra o portafinestra, si segue la parola — è più
+ * spesso giusta del tipo dichiarato dal modello — ma la CONTRADDIZIONE si
+ * dichiara sempre (`contrasto: true`), mai una scelta silenziosa.
+ */
+function naturaRichiesta(tipo: TipoProdotto, descrizione: string): { natura: NaturaSerramento; contrasto: boolean } {
+  if (tipo === "fisso") return { natura: "telaio_fisso", contrasto: false };
   const testo = normalizzaTesto(descrizione);
-  if (testo.includes("telaio fisso")) return "telaio_fisso";
-  const scorrevole = tipo === "scorrevole" || /scorrev|alzante|complanare/.test(testo);
-  if (!scorrevole) return "battente";
-  return /alzante/.test(testo) ? "alzante" : "complanare";
+  if (testo.includes("telaio fisso")) return { natura: "telaio_fisso", contrasto: false };
+  if (tipo === "scorrevole") {
+    return { natura: /alzante/.test(testo) ? "alzante" : "complanare", contrasto: false };
+  }
+  const segmento = segmentoSerramento(testo);
+  const scorrevole = /scorrev|alzante|complanare/.test(segmento);
+  if (!scorrevole) return { natura: "battente", contrasto: false };
+  return { natura: /alzante/.test(segmento) ? "alzante" : "complanare", contrasto: true };
 }
 
 /** Il testo parla di una portafinestra (e non della finestra che le sta dentro come parola). */
@@ -364,7 +418,7 @@ function tipologiaSerramento(
   zona: ZonaClimatica | null
 ): { codice: string | null; avvertenza: string | null } {
   const ammesse = famiglieSerramento(categoria);
-  const natura = naturaRichiesta(r.tipoProdotto, r.descrizione);
+  const { natura, contrasto } = naturaRichiesta(r.tipoProdotto, r.descrizione);
   const portafinestra = portafinestraRichiesta(r.tipoProdotto, r.descrizione);
   const avvertenze: Array<string | null> = [];
 
@@ -374,6 +428,13 @@ function tipologiaSerramento(
   if (candidati.length === 0) {
     const dettaglio = zona ? `${r.tipoProdotto}, zona ${zona}` : r.tipoProdotto;
     return { codice: null, avvertenza: `nessuna voce DEI per ${categoria} (${dettaglio})` };
+  }
+
+  // P3-R24: il segmento del serramento dice «scorrevole» ma il tipo del
+  // modello è finestra/portafinestra — si segue il testo, ma la
+  // contraddizione fra i due si dichiara sempre.
+  if (contrasto) {
+    avvertenze.push(`descrizione scorrevole, tipo del modello ${r.tipoProdotto}: verifica`);
   }
 
   if (portafinestra == null) avvertenze.push("scorrevole: finestra o portafinestra non indicato");
