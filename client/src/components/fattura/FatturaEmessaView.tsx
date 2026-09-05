@@ -14,6 +14,7 @@ import type {
 } from "@shared/fatturazione/tipi";
 import {
   badgeStatoFattura,
+  descriviEvento,
   indicatoreLimite,
   nomeFileFattura,
   riepilogoControlli,
@@ -86,18 +87,8 @@ const STATO_SCADENZA: Record<"attesa" | "pagata" | "stornata", string> = {
   stornata: "stornata",
 };
 
-/** I campi del payload che si leggono in una riga: i valori composti restano fuori. */
-function riassuntoPayload(payload: Record<string, unknown>): string {
-  return Object.entries(payload)
-    .flatMap(([chiave, valore]) => {
-      if (valore == null) return [];
-      if (Array.isArray(valore)) return [`${chiave}: ${valore.length}`];
-      if (typeof valore === "object") return [];
-      return [`${chiave}: ${String(valore)}`];
-    })
-    .slice(0, 4)
-    .join(" · ");
-}
+/** La riga sotto ogni evento: chiavi note in italiano, importi in euro (v. lib/fatturaView). */
+const riassuntoPayload = descriviEvento;
 
 function scaricaBlob(nome: string, mimeType: string, dataBase64: string): void {
   const caratteri = atob(dataBase64);

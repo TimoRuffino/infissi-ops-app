@@ -119,12 +119,6 @@ type RigaAggiunta = {
 /** Quante righe accetta `aggiornaBozza` in una modifica (MAX_RIGHE_AGGIUNTE lato server). */
 const MAX_RIGHE_AGGIUNTE = 20;
 
-const INDICATORE_TONO: Record<"ok" | "oltre" | "n_a", string> = {
-  ok: "text-success",
-  oltre: "text-warning",
-  n_a: "",
-};
-
 function centDaTesto(testo: string): number | null {
   const euro = parseEuroNonNegativo(testo);
   return euro == null ? null : Math.round(euro * 100);
@@ -177,10 +171,18 @@ function RigaBozzaCampi({
     // `block`: sulla card mobile l'indicatore è figlio diretto di uno
     // `space-y-2`, e un margine verticale su un elemento inline non produce
     // spazio. Dentro la cella della tabella il rendering non cambia.
+    // Un badge, non una frase: «entro il limite (€ 1.234,00)» ripetuto su
+    // ogni riga era una colonna di testo. Il numero resta nel tooltip.
     indicatore: indicatore.testo ? (
-      <span className={`block text-xs ${INDICATORE_TONO[indicatore.stato]}`}>
-        {indicatore.testo}
-      </span>
+      <Badge
+        variant={indicatore.stato === "ok" ? "success" : "warning"}
+        className="block w-fit"
+        title={indicatore.testo}
+      >
+        {indicatore.stato === "ok"
+          ? "entro il limite"
+          : indicatore.testo.replace("oltre il limite di", "oltre di")}
+      </Badge>
     ) : null,
     rimozione:
       puoModificare && scrittaAMano(r) ? (

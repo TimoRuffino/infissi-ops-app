@@ -346,6 +346,60 @@ export default function FatturazioneConfigPanel() {
       }
     >
       <div className="min-w-0 space-y-4 border-t border-border-soft pt-4">
+        {/* Le cinque cose che l'emissione pretende, con un segno ciascuna.
+            Il modulo qui sotto le contiene tutte, ma sparse fra dieci campi:
+            l'operatore scopriva cosa mancava solo dalla bozza, con un
+            errore per volta. */}
+        {(() => {
+          const requisiti = [
+            { ok: Boolean(config.iban), testo: "IBAN di accredito" },
+            { ok: config.scopeScritturaOk, testo: "Permessi di scrittura confermati su Fatture in Cloud" },
+            { ok: config.vatIdsFic[22] != null, testo: "Aliquota IVA 22 % di Fatture in Cloud" },
+            { ok: config.vatIdsFic[10] != null, testo: "Aliquota IVA 10 % di Fatture in Cloud" },
+            { ok: config.paymentAccountIdFic != null, testo: "Conto di pagamento Fatture in Cloud" },
+          ];
+          const mancanti = requisiti.filter(r => !r.ok).length;
+          return (
+            <div
+              className={`min-w-0 rounded-[var(--radius-control)] border px-3 py-2.5 ${
+                mancanti === 0
+                  ? "border-success/30 bg-success-soft"
+                  : "border-warning/40 bg-warning-soft"
+              }`}
+              aria-live="polite"
+            >
+              <p className="text-sm font-semibold text-text-1">
+                {mancanti === 0
+                  ? "Pronta a emettere: tutti i requisiti ci sono."
+                  : `Per emettere ${mancanti === 1 ? "manca ancora una cosa" : `mancano ancora ${mancanti} cose`}.`}
+              </p>
+              <ul className="mt-1.5 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+                {requisiti.map(r => (
+                  <li key={r.testo} className="flex items-center gap-2 min-w-0">
+                    <span
+                      aria-hidden
+                      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full text-[10px] font-bold ${
+                        r.ok ? "bg-success text-on-success" : "bg-surface text-text-3 border border-border-strong"
+                      }`}
+                    >
+                      {r.ok ? "✓" : ""}
+                    </span>
+                    <span className={`min-w-0 ${r.ok ? "text-text-2" : "text-text-1"}`}>
+                      {r.testo}
+                      <span className="sr-only">: {r.ok ? "a posto" : "manca"}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {mancanti > 0 && !config.scopeScritturaOk && (
+                <p className="mt-1.5 text-xs text-text-2">
+                  IVA e conto arrivano da Fatture in Cloud con la verifica dei permessi qui sotto.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Permessi di scrittura: intento del collegamento e verifica vera */}
         <div className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-3">
           <dl className="grid min-w-0 gap-2 text-sm sm:grid-cols-2">

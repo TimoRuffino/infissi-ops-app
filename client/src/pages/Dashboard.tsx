@@ -16,6 +16,7 @@ import {
   CALENDAR_SOFT_MAP,
 } from "@/lib/calendario";
 import { senzaEsecutore } from "@shared/interventi";
+import { permessoNegato } from "@/lib/trpcErrors";
 
 /** Etichetta leggibile di un tipo di evento, dal catalogo condiviso. */
 const etichettaTipo = (tipo: string): string =>
@@ -39,6 +40,7 @@ import {
   Flame,
   Landmark,
   Mail as MailIcon,
+  Receipt,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { lazy, Suspense, useState, useMemo } from "react";
@@ -493,6 +495,20 @@ export default function Dashboard() {
     {},
     { ...liveOpts, enabled: puoVedereCommesse }
   );
+  // Le fatture nate qui dentro: servono a dire quale commessa in «Fatture /
+  // pagamento» non ha ancora la sua. Dietro i due flag, e chi non legge le
+  // fatture riceve FORBIDDEN, che non è un guasto: è una voce che non lo
+  // riguarda.
+  const interruttoriQ = trpc.platform.interruttori.useQuery(undefined, {
+    staleTime: 300_000,
+  });
+  const fatturazioneAttiva = Boolean(
+    interruttoriQ.data?.fatturazione && interruttoriQ.data?.limiti
+  );
+  const fattureCrm = trpc.fatture.lista.useQuery(
+    { limite: 200 },
+    { enabled: fatturazioneAttiva, retry: false, ...liveOpts }
+  );
   const commessePerPriorita = trpc.commesse.byPriorita.useQuery(undefined, {
     ...liveOpts,
     enabled: puoVedereCommesse,
@@ -636,6 +652,38 @@ export default function Dashboard() {
       });
     }
 
+    // 2b. Fattura da preparare o da chiudere: la commessa è in «Fatture /
+    // pagamento» e il CRM non ha ancora emesso niente, oppure c'è una bozza
+    // ferma. È il passo del processo che più spesso resta indietro, perché
+    // non è di nessuno finché qualcuno non apre la tab.
+    if (fatturazioneAttiva && fattureCrm.data && !permessoNegato(fattureCrm.error)) {
+      const perCommessa = new Map<number, (typeof fattureCrm.data)[number][]>();
+      for (const f of fattureCrm.data) {
+        const lista = perCommessa.get(f.commessaId) ?? [];
+        lista.push(f);
+        perCommessa.set(f.commessaId, lista);
+      }
+      for (const c of commesse) {
+        if (c.stato !== "fatture_pagamento") continue;
+        if (!isMine(c)) continue;
+        const sue = (perCommessa.get(c.id) ?? []).filter(f => f.tipo === "fattura");
+        const viva = sue.find(f => f.stato !== "annullata");
+        if (viva && viva.stato !== "bozza") continue;
+        items.push({
+          key: `fatt-${c.id}`,
+          rank: 1.5,
+          icon: Receipt,
+          iconClass: "bg-warning-soft text-warning",
+          title: viva
+            ? `Completa la bozza di fattura — ${c.cliente}`
+            : `Prepara la fattura — ${c.cliente}`,
+          sub: c.codice,
+          cta: viva ? "Apri la bozza" : "Apri la fattura",
+          onClick: () => setLocation(`/commesse/${c.id}?tab=fattura`),
+        });
+      }
+    }
+
     // 3. Consegne da confermare (produzione senza data confermata).
     for (const c of commesse) {
       if (c.stato !== "produzione" || c.dataConsegnaConfermata) continue;
@@ -758,6 +806,9 @@ export default function Dashboard() {
     garanzieListQ.data,
     comStats.data,
     ficListQ.data,
+    fattureCrm.data,
+    fattureCrm.error,
+    fatturazioneAttiva,
     direzione,
     uid,
   ]);

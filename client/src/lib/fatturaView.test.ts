@@ -528,3 +528,31 @@ describe("distribuisciScadenze", () => {
     expect(distribuisciScadenze(10000, [])).toEqual([]);
   });
 });
+
+import { descriviEvento } from "./fatturaView";
+
+describe("descriviEvento", () => {
+  it("traduce le chiavi note e formatta gli importi", () => {
+    expect(
+      descriviEvento({ numero: "127/2026", totaleCent: 1539500, ei_status: "not_sent" })
+    ).toBe("n. 127/2026 · totale € 15.395,00 · stato SdI not_sent");
+  });
+
+  it("i booleani diventano una parola sola, e solo se veri", () => {
+    expect(descriviEvento({ dryRun: true, numero: "1/2026" })).toBe("prova SdI · n. 1/2026");
+    expect(descriviEvento({ dryRun: false })).toBe("");
+  });
+
+  it("gli elenchi si contano, gli oggetti restano fuori, i vuoti pure", () => {
+    expect(descriviEvento({ righe: [1, 2, 3], nested: { a: 1 }, vuoto: null, testo: "" })).toBe("righe: 3");
+  });
+
+  it("una chiave sconosciuta non si perde", () => {
+    expect(descriviEvento({ cosaStrana: "x" })).toBe("cosaStrana x");
+  });
+
+  it("non più di quattro pezzi: la riga deve restare una riga", () => {
+    const r = descriviEvento({ a: 1, b: 2, c: 3, d: 4, e: 5 });
+    expect(r.split(" · ")).toHaveLength(4);
+  });
+});

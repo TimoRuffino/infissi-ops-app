@@ -1112,6 +1112,7 @@ export default function CommessaDetail() {
             onSave={patch =>
               updateCommessa.mutate({ id: commessaId, ...patch })
             }
+            onApriFattura={fatturazioneAttiva ? () => setTab("fattura") : undefined}
           />
         }
         timeline={<TimelineOrdine commessaId={commessaId} />}
@@ -2510,12 +2511,15 @@ function PagamentiCard({
   commessaId,
   fatture,
   onSave,
+  onApriFattura,
 }: {
   commessa: any;
   commessaId: number;
   /** Da `fatture.perCommessa` letto in pagina: qui non si apre una seconda query. */
   fatture?: Array<{ stato: StatoFattura }>;
   onSave: (patch: { importoTotale?: number | null }) => void;
+  /** Apre la tab Fattura: quando il pattuito viene dalla fattura del CRM, è lì che si va a vederla. */
+  onApriFattura?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [tot, setTot] = useState<string | null>(null);
@@ -2634,6 +2638,15 @@ function PagamentiCard({
                 <Badge variant="outline" className="h-4 px-1 text-[10px]">
                   da fattura CRM
                 </Badge>
+              )}
+              {daFatturaCrm && onApriFattura && (
+                <button
+                  type="button"
+                  className="text-[11px] font-semibold text-accent-text hover:underline"
+                  onClick={onApriFattura}
+                >
+                  Vai alla fattura
+                </button>
               )}
               {contratto && !daFatturaCrm && (
                 <Badge variant="outline" className="h-4 px-1 text-[10px]">

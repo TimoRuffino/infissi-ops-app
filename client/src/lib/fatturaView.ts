@@ -577,3 +577,62 @@ export function distribuisciScadenze(
   importi[importi.length - 1] += totaleCent - somma;
   return importi;
 }
+
+// ── La cronologia in italiano ────────────────────────────────────────────────
+//
+// Gli eventi portano un payload tecnico («documentId: 123 · ei_status:
+// not_sent»). Stampato così come arriva, nella cronologia si leggeva il nome
+// dei campi del database. Qui le chiavi note diventano parole e gli importi
+// diventano euro; quello che non si conosce resta com'è, che è meglio di
+// perderlo.
+
+const CHIAVE_PAYLOAD: Record<string, string> = {
+  numero: "n.",
+  data: "del",
+  documentId: "documento FiC",
+  ficDocumentId: "documento FiC",
+  ficEntityId: "cliente FiC",
+  stato: "stato",
+  eiStatus: "stato SdI",
+  ei_status: "stato SdI",
+  passo: "passo",
+  motivo: "motivo",
+  dettaglio: "dettaglio",
+  errore: "errore",
+  revisione: "revisione",
+  righe: "righe",
+  scadenze: "scadenze",
+  dryRun: "prova SdI",
+  scavalcoMotivo: "motivo dello scavalco",
+};
+const CHIAVI_IMPORTO = new Set([
+  "totaleCent",
+  "importoCent",
+  "imponibileCent",
+  "ivaCent",
+  "markupCent",
+  "deltaCent",
+  "attesoCent",
+  "trovatoCent",
+]);
+
+export function descriviEvento(payload: Record<string, unknown>): string {
+  return Object.entries(payload)
+    .flatMap(([chiave, valore]) => {
+      if (valore == null || valore === "") return [];
+      if (CHIAVI_IMPORTO.has(chiave) && typeof valore === "number") {
+        const nome = chiave.replace(/Cent$/, "");
+        return [`${CHIAVE_PAYLOAD[nome] ?? nome} ${formatCent(valore)}`];
+      }
+      if (Array.isArray(valore)) {
+        return [`${CHIAVE_PAYLOAD[chiave] ?? chiave}: ${valore.length}`];
+      }
+      if (typeof valore === "object") return [];
+      if (typeof valore === "boolean") {
+        return valore ? [CHIAVE_PAYLOAD[chiave] ?? chiave] : [];
+      }
+      return [`${CHIAVE_PAYLOAD[chiave] ?? chiave} ${String(valore)}`];
+    })
+    .slice(0, 4)
+    .join(" · ");
+}
