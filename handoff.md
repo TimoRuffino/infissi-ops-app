@@ -3,10 +3,35 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 04/09/2026<br>
+**Aggiornato:** 06/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (branch
+> `claude/ocr-crm-overview-1adbb2`, non ancora su `main`; spec
+> `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
+> `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`). Ogni valore
+> letto da un documento — costo dalla conferma, righe di magazzino, campi e
+> righe del contratto, segnali del collegamento — porta il tasto `DoveLetto`
+> che apre sopra di sé il ritaglio della pagina (riga letta più due righe
+> sopra e sotto, rettangolo sul frammento, fonte del testo e grado). Le
+> coordinate vengono dai parser (`testoPdf.ts` 2.1.0 tiene le posizioni di
+> pdf.js, `parseTsv` i riquadri di tesseract; la visione eredita la geometria
+> OCR non allineata), gli estrattori scrivono la posizione del match
+> (conferme 1.2.0, merce 1.3.0, `evidenzeDelRiscontro`), il localizzatore
+> puro (`documenti/localizzatore.ts`) dà riquadro, riga e contesto — mai un
+> numero lasciato cadere, mai un ritaglio indovinato (grado «pagina»). Si
+> salva in `letturaCosto.evidenze` (lettura 1.9.0, il worker rilegge senza
+> toccare un costo), `Prodotto.evidenza`, `area` nelle evidenze della
+> proposta e delle righe applicate del contratto. Pagine rese con pdftoppm a
+> 150 dpi JPEG nello storage (`documenti/anteprime.ts`), scaldate dopo ogni
+> lettura e a richiesta, servite da `/api/documenti/:id/pagina/:n` con le
+> guardie del file più ETag e cache privata, dietro `FLAG_ANTEPRIME_EVIDENZE`
+> (fail-closed, spento in produzione finché non lo apri). Eval: metrica
+> «evidenze localizzate». **Non fatto dall'agente**: la verifica nel browser
+> a 1440×900 e 390×844 (serve il login demo), il tasto nella chat di Tars, la
+> conversione HEIC, la posizione grossolana dal modello, la coda «Da verificare».
 
 > **Novità 03/09/2026 sera — il costo fornitore nasce dalla conferma d'ordine.**
 > Regola di dominio deterministica (`server/commesse/costoDaConferma.ts`, piano
@@ -3902,6 +3927,21 @@ produzione decifrato in processo, mai salvato.
     produzione; (3) `.claude/launch.json` porta ancora la password del
     demo (commit `9af31e9`), contro CLAUDE.md — da spostare in una
     variabile d'ambiente locale, decisione della direzione.
+
+19. **Anteprime delle evidenze «Dove l'ho letto» (06/09/2026, branch
+    `claude/ocr-crm-overview-1adbb2`)**: 13 task del piano
+    `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md` eseguiti con
+    test (spec `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`),
+    non ancora su `main`. Aperti: (1) **verifica nel browser a 1440×900 e
+    390×844 non eseguita dall'agente** (serve il login demo: config «Promo
+    Capture (demo data)», caricare una conferma d'ordine e aprire il tasto
+    accanto al costo); (2) tasto nella chat di Tars e nelle proposte
+    (`TarsThread` elenca già le evidenze dei payload); (3) conversione HEIC
+    prima della cascata; (4) posizione grossolana chiesta al modello quando
+    l'OCR non dà riquadri; (5) coda unica «Da verificare»; (6) i record
+    vecchi mostrano «pagina intera» finché il worker non rilegge (lettura
+    1.9.0) o si preme «Rileggi» sul contratto; (7) `FLAG_ANTEPRIME_EVIDENZE`
+    da accendere in Railway dopo il merge (runbook, fase 4).
 
 ## 13. Cosa resta della piattaforma
 
