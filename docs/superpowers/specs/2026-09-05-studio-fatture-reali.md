@@ -267,3 +267,36 @@ Restano fuori: i 6 casi con verità non nel documento (servirebbe il PDF
 giusto o una verità scritta a mano), i 253 PDF senza foglio (fase 4: si
 possono leggere e misurare per coerenza interna — somma righe contro
 totale — senza verità), la lingua `ita` di tesseract in locale.
+
+## 10. Fase 4 (06/09/2026): 30 contratti a campione senza verità, e il Drive del NAS
+
+Campione: 30 PDF «contratto esecutivo» presi a caso da CONTRATTI 2025,
+2026 e Contratti AF (27 scansioni, 3 con testo), letti con la lettura
+visiva, senza verità: si misura la coerenza interna della proposta.
+Esito: 29 pattuiti su 30 trovati, 101 righe (66 con misure), 6 valori
+sanificati (sconti negativi e quantità zero che prima fermavano tutto),
+2 documenti in errore; layout del preventivo 2025 riconosciuto in 8; i
+preventivi delle porte interne (layout «PREVENTIVO N° … TOTALE DOCUMENTO»)
+letti dal modello senza layout deterministico. La somma delle righe non
+è confrontabile col pattuito (i servizi non sono righe): metrica scartata.
+
+Due difetti trovati e corretti:
+- **PDF misto** (prime pagine scansionate con i prodotti, ultime con le
+  condizioni in testo nativo): il parser lo trattava come testo nativo e
+  il modello leggeva solo le condizioni, zero righe. Con `preferisciVisione`
+  le pagine vuote (sotto 30 caratteri) si fanno trascrivere e tornano al
+  loro posto.
+- **Evidenze sul testo trascritto**: 57 prezzi su 101 restavano «da
+  verificare» perché la citazione non era letterale — «...» per saltare un
+  tratto (41), la riga ricomposta con « - » fra le colonne (16). Ora con i
+  puntini ogni pezzo deve esserci nell'ordine; con i separatori basta il
+  70 % dei pezzi, vicini. Offline: prezzi con evidenza dal 44 % all'83 %.
+
+**Drive «BACKUP NAS»** (reso pubblico dalla direzione il 06/09): 2.500
+cartelle elencate in sola lettura, 23.370 PDF e 821 fogli limiti; 311
+cartelle contengono foglio limiti, contratto e fattura insieme (103 del
+2023-24 in «Pratiche per Xbonus», 208 del 2022 in «Documenti per EnelX»).
+Scaricate sulla scrivania della direzione (`dati x claude/Drive-NAS`), mai
+nel repository. Uso deciso: fogli → motore (fase 1 allargata), contratti →
+lettore (nuovi casi con verità dal foglio), fatture 2022-24 non per le
+regole (decisione: regole solo 2025-26).

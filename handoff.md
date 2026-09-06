@@ -3788,6 +3788,18 @@ Railway solo nel processo; tesseract locale ha solo `eng` (produzione
 `ita+eng+deu`). Aperto: fase 4 (tabellone CRM contro realtà, 253 PDF senza
 verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
 
+**Fase 4 (06/09/2026 pomeriggio): 30 contratti a campione e il Drive del
+NAS** (spec §10). Letti col modello senza verità: 29 pattuiti su 30, 101
+righe, 6 sanificazioni. Corretti: il PDF misto (pagine scansionate + pagine
+di testo) che arrivava al modello senza i prodotti — con `preferisciVisione`
+le pagine vuote si fanno trascrivere; le evidenze «a pezzi» (puntini e
+righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
+«BACKUP NAS» è pubblico: 311 cartelle con foglio limiti + contratto +
+fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
+`embeddedfolderview`, download con `drive.usercontent.google.com/download`;
+gdown non funziona più). Prossimo: fogli nel motore, contratti nel banco
+del lettore.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
