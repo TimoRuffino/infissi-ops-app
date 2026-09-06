@@ -166,6 +166,13 @@ export const permessiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const { sedeId, actorUserId } = directionContext(ctx);
+      if (input.capability === "tenant.manage_proprietari") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
+        });
+      }
       const user = findUserInSede(input.userId, sedeId);
       const now = new Date();
       if (input.effect === "deny") {
@@ -242,6 +249,13 @@ export const permessiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const { sedeId, actorUserId } = directionContext(ctx);
+      if (input.capability === "tenant.manage_proprietari") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
+        });
+      }
       if (input.delegateUserId === input.delegatorUserId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
