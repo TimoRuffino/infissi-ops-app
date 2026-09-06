@@ -9,7 +9,7 @@
 **Deploy:** Railway segue `main`
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
-> `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44–5.46; spec
+> `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
 > `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
 > `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`). Ogni valore
 > letto da un documento — costo dalla conferma, righe di magazzino, campi e
@@ -3800,6 +3800,27 @@ FLAG_LETTURA_VISIVA=on`, Postgres Docker per il ledger, chiave OpenAI di
 Railway solo nel processo; tesseract locale ha solo `eng` (produzione
 `ita+eng+deu`). Aperto: fase 4 (tabellone CRM contro realtà, 253 PDF senza
 verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
+
+**Fase 4 (06/09/2026 pomeriggio): 30 contratti a campione e il Drive del
+NAS** (spec §10). Letti col modello senza verità: 29 pattuiti su 30, 101
+righe, 6 sanificazioni. Corretti: il PDF misto (pagine scansionate + pagine
+di testo) che arrivava al modello senza i prodotti — con `preferisciVisione`
+le pagine vuote si fanno trascrivere; le evidenze «a pezzi» (puntini e
+righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
+«BACKUP NAS» è pubblico: 311 cartelle con foglio limiti + contratto +
+fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
+`embeddedfolderview`, download con `drive.usercontent.google.com/download`;
+gdown non funziona più).
+
+**Fase 5 (06/09/2026 sera): il corpus del Drive** (spec §11). 229 fogli
+2022-24 raccolti: 134 al centesimo, 71 nuovi in fixture (148 casi d'oro);
+62 non riproducibili per misure decimali nel foglio (foro + alette, il CRM
+lavora in mm interi: il raccoglitore lo dichiara con `salta` H9), 7 lavori
+con una voce DEI di riga diversa da indagare. 57 contratti 2023-24 con la
+verità dal foglio nel banco del lettore (`drv-*`, lettura visiva): risultati
+in spec §11. Attenzione ai budget dell'eval: `TARS_MONTHLY_BUDGET_USD` oltre
+1000 fa scattare il tetto di sanità e il provider resta «finto» (l'eval gira
+a vuoto e dice «57 saltati»).
 
 ## 12. Debito aperto prioritario
 

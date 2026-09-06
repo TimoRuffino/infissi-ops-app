@@ -314,6 +314,44 @@ async function tentaVisione(
   };
 }
 
+/** Sotto questi caratteri una pagina nativa è vuota: un'immagine impaginata, non un testo. */
+const CARATTERI_PAGINA_VUOTA = 30;
+
+/**
+ * Le pagine senza testo di un PDF nativo vengono trascritte dal modello e
+ * rimesse al loro posto; le pagine con testo restano esatte. Se la lettura
+ * visiva non riesce, il documento resta com'era (con le sue pagine vuote).
+ */
+async function completaPagineVuote(
+  bytes: Buffer,
+  mimeType: string,
+  nomeFile: string,
+  visione: OpzioneVisione,
+  nativo: Extract<EsitoParser, { esito: "estratto" }>
+): Promise<EsitoParser> {
+  const vuote = nativo.pagine.map((p, i) => (p.trim().length < CARATTERI_PAGINA_VUOTA ? i : -1)).filter(i => i >= 0);
+  if (vuote.length === 0) return nativo;
+  const trascritto = await tentaVisione(bytes, mimeType, nomeFile, visione, {
+    esito: "scansione_senza_testo",
+    parser: nativo.parser,
+    versione: nativo.versione,
+    pagineTotali: nativo.pagine.length,
+  });
+  if (trascritto.esito !== "estratto") return nativo;
+  const pagine = nativo.pagine.map((p, i) => (vuote.includes(i) && trascritto.pagine[i] != null ? trascritto.pagine[i] : p));
+  const completate = vuote.filter(i => trascritto.pagine[i] != null).length;
+  return {
+    ...nativo,
+    pagine,
+    visione: trascritto.visione,
+    avvertenze: [
+      ...nativo.avvertenze.filter(a => !a.startsWith("Alcune pagine non hanno testo")),
+      `${completate} pagine senza testo trascritte dal modello (${trascritto.visione?.modello ?? "visione"}); le altre restano dal testo nativo.`,
+      ...trascritto.avvertenze.filter(a => a.startsWith("Lettura visiva delle prime")),
+    ],
+  };
+}
+
 /** L'OCR ha letto, ma poco o male: la lettura visiva può fare meglio. */
 function ocrInsufficiente(esito: EsitoParser): boolean {
   if (esito.esito !== "estratto") return true;
@@ -479,6 +517,13 @@ export async function estraiTestoDocumento(
     mimeLetto = foto.mimeType;
   }
   const esito = await parser.estrai(byteLetti);
+  if (esito.esito === "estratto" && opzioni?.visione && opzioni.preferisciVisione) {
+    // Un PDF misto (pagine scansionate + pagine di condizioni con testo): il
+    // testo nativo copre solo una parte e le pagine vuote sono proprio
+    // quelle dei prodotti (fase 4 dello studio, 06/09/2026). Chi preferisce
+    // la visione le fa trascrivere e le rimette al loro posto.
+    return await completaPagineVuote(byteLetti, mimeLetto, nomeFile, opzioni.visione, esito);
+  }
   if (esito.esito !== "scansione_senza_testo") return esito;
 
   // Scansione o foto: prima l'OCR locale (gratis), poi — se chi chiama lo

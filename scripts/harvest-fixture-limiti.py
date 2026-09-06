@@ -382,8 +382,12 @@ def leggi_righe(wb, dia):
                 "tipologia": prodotto["codice"],
                 "descrizione": descrizione,
                 "quantita": int(q) if q == int(q) else q,
-                "larghezzaMm": int(larghezza) if larghezza else None,
-                "altezzaMm": int(altezza) if altezza else None,
+                # Le misure del CRM sono mm interi: un foglio compilato con i decimali
+                # (foro + alette, es. 1095,49) non è riproducibile al centesimo e lo si
+                # dichiara (H9) invece di troncare in silenzio.
+                "larghezzaMm": int(round(larghezza)) if larghezza else None,
+                "altezzaMm": int(round(altezza)) if altezza else None,
+                "_decimali": bool((larghezza and abs(larghezza - round(larghezza)) > 1e-6) or (altezza and abs(altezza - round(altezza)) > 1e-6)),
                 "prezzoTotCent": round(prezzo_blocco * 100) if primo_del_blocco and prezzo_blocco else None,
                 "oscuranteIntegrato": oscurante_tipo,
                 "oscuranteTipologia": (oscurante["prodotto"]["codice"]
@@ -475,6 +479,9 @@ def costruisci(percorso, nome, detrazione, pct, salta, dia):
             piano = 5
             dia.avvisa("INIZIO E19 testuale: il foglio applica il tiro al piano maggiorato (testo > 4 in Excel); piano=5 per riprodurlo")
     righe = leggi_righe(wb, dia) + leggi_controtelai(check1, dia)
+    if any(r.get("_decimali") for r in righe) and not salta:
+        salta = "H9: misure con i decimali nel foglio (foro + alette): il CRM lavora in mm interi, i massimali differiscono di pochi euro"
+        dia.avvisa(salta)
 
     def h(r):
         return num(cella(check1, r, "H")) or 0.0

@@ -93,3 +93,34 @@ describe("campo", () => {
     expect(c.nota).toBe("dedotto dalla descrizione");
   });
 });
+
+// Fase 4 dello studio (06/09/2026): sul testo trascritto dal modello la
+// citazione quasi mai è letterale — «...» per saltare un tratto, « - » fra
+// le colonne di una riga ricomposta.
+describe("verificaEvidenza — citazioni a pezzi", () => {
+  const PAGINA = [
+    "Misure Foro (esterno telaio alette escluse):   Prez. Unit.   1.694,97 €",
+    "Larghezza: 1390mm - Altezza: 1540mm   Q.tà   2",
+    "Metri quadri: 2,14   Sconto   30%",
+    "Finestra a 2 ante DX con ribalta   Prez. Tot.   2.173,94 €",
+    "Blindato ad un'anta ALIAS STEEL C L 1000 x H 2100 mm € 2.635,00 € 2.108,00",
+  ].join("\n");
+
+  it("con i puntini ogni pezzo deve esserci, nell'ordine: l'evidenza va dal primo all'ultimo", () => {
+    const e = verificaEvidenza([PAGINA], 1, "Blindato ad un'anta ALIAS STEEL ... L 1000 x H 2100 mm");
+    expect(e?.pagina).toBe(1);
+    expect(e?.frammento).toBe("Blindato ad un'anta ALIAS STEEL C L 1000 x H 2100 mm");
+    expect(verificaEvidenza([PAGINA], 1, "Blindato ad un'anta ... L 3000 x H 2100 mm")).toBeNull();
+    // Ordine sbagliato: non è la stessa riga.
+    expect(verificaEvidenza([PAGINA], 1, "L 1000 x H 2100 mm ... Blindato ad un'anta ALIAS")).toBeNull();
+  });
+
+  it("una riga ricomposta con « - » vale se il 70 % dei pezzi sta nella pagina, vicino", () => {
+    const e = verificaEvidenza([PAGINA], 1, "Q.tà 2 - Finestra a 2 ante DX con ribalta - Larghezza: 1390mm - Altezza: 1540mm - Prez. Tot. 2.173,94 €");
+    expect(e?.pagina).toBe(1);
+    expect(e?.frammento).toContain("Larghezza: 1390mm - Altezza: 1540mm");
+    expect(e?.frammento).toContain("Prez. Tot. 2.173,94 €");
+    // Pezzi quasi tutti inventati: niente evidenza.
+    expect(verificaEvidenza([PAGINA], 1, "Porta scorrevole in legno - Larghezza: 900mm - Altezza: 2100mm - Prez. Tot. 999,00 €")).toBeNull();
+  });
+});
