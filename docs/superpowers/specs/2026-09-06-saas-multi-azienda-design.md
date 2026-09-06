@@ -13,6 +13,8 @@
 > confronta le assunzioni del design con il codice del checkout: serve a chi
 > scriverà la spec tecnica del primo workstream (§17), non cambia le
 > decisioni. Riferimenti: PRD §60, `handoff.md` voce 21 del debito aperto.
+> Decisione successiva della direzione (06/09/2026 sera): il prodotto si
+> chiamerà **Wyndor** — vedi §18-bis.
 
 ## 1. Sintesi
 
@@ -585,6 +587,16 @@ chiusura del pilota e della verifica delle soglie economiche Tars.
 - Ruffino Group come tenant 1;
 - migrazione progressiva con backup, dry-run e rollback;
 - nessuna implementazione autorizzata da questa specifica.
+
+### 18-bis. Decisioni successive
+
+- **06/09/2026 sera — nome del prodotto.** Il gestionale si chiamerà
+  **Wyndor**. Dove le sezioni 1, 8 e 18 dicono «marchio Ruffino Flow» si
+  legga «marchio Wyndor»: nome, dominio, pagina di accesso e design system
+  unici della piattaforma restano uno solo, e il rivenditore personalizza
+  come in §8. Ruffino Group resta il tenant 1. Il rebranding
+  dell'applicazione (interfaccia, documenti, dominio, repository) è un lavoro
+  separato e non fa parte del workstream 1.
 
 ---
 

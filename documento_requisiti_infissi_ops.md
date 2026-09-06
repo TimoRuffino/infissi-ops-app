@@ -3641,7 +3641,11 @@ registrato in `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`
 **Nessuna implementazione è autorizzata da questa sezione**: finché il primo
 workstream (§60.8) non è su `main`, il codice resta mono-azienda e nessuna
 divergenza da §60 è un bug. Questa sezione è il riassunto del contratto
-funzionale; in caso di dubbio vale la spec.
+funzionale; in caso di dubbio vale la spec. **Decisione successiva
+(06/09/2026 sera):** il prodotto si chiamerà **Wyndor**; dove qui e nella
+spec si legge «marchio Ruffino Flow» vale «marchio Wyndor» (spec §18-bis).
+Ruffino Group resta il tenant 1; il rebranding dell'applicazione è un lavoro
+separato, fuori da §60.
 
 ### 60.1 Decisione e perimetro
 
@@ -3653,8 +3657,9 @@ separati, niente tariffa per utente, sede, casella email o numero WhatsApp
 (fair use, con soli limiti tecnici anti-abuso). Email, WhatsApp e Tars sono
 inclusi; i canoni dei fornitori esterni (Meta, casella email, Fatture in
 Cloud) restano a carico dell'azienda cliente. Le sole risorse misurate
-commercialmente sono **storage** e **consumo Tars**. Il marchio resta
-Ruffino Flow (nome, dominio, login, design system); il rivenditore
+commercialmente sono **storage** e **consumo Tars**. Il marchio della
+piattaforma è uno solo (nome, dominio, login, design system: **Wyndor** dal
+06/09 sera, prima «Ruffino Flow»); il rivenditore
 personalizza logo, colore, dati societari e fiscali, intestazioni dei
 documenti, firme email/WhatsApp e dati delle sedi. Niente white-label nella
 prima versione. Prezzo di listino, prezzo dei pacchetti extra e budget Tars
@@ -3820,3 +3825,26 @@ legacy mai cancellati col cutover.
 incluso in euro, tolleranze di storage e Tars, prezzo dei pacchetti extra,
 provider di pagamento. **Non autorizzato:** qualunque riga di codice, finché
 la direzione non apre il workstream 1 con la sua spec tecnica.
+
+### 60.9 Workstream 1 — fondazione tenant (design, 06/09/2026 sera)
+
+Spec tecnica approvata a sezioni in chat:
+`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`. Piano
+da scrivere; nessun codice finché il piano non è approvato. Contratto in
+breve: **porta chiusa a chiave** (il tenant esiste, è nel contesto, ha
+guardie; gli archivi business restano quelli di oggi e ogni tenant diverso
+da 1 è rifiutato finché WS2 non apre la porta); tabelle `tenants`,
+`tenant_eventi` (append-only garantito da trigger) e `tenant_comandi`;
+`tenantId` su utenti e sedi con backfill a 1; `proprietario` ottavo ruolo
+con `tenant.manage_proprietari`, l'unica capability che la direzione non ha
+per costruzione; contesto `{ tenantId, tenant, sedeId, sediIds }` con
+rilettura dell'utente a ogni richiesta (un utente cancellato o disattivato
+perde subito la sessione); `sessionProcedure` senza guardie solo per
+`tenants.mio`; `protectedProcedure` con porta chiusa, sola lettura del tenant
+sospeso e sede attiva obbligatoria; `assertTenantScope` sul control plane;
+Tars con `tenantId` obbligatorio e senza fallback di sede; servizio di
+dominio `tenants` con comandi accodati dallo script `pnpm tenant` ed eseguiti
+solo dal server (mai scritture esterne con l'istanza viva); interruttore
+`FLAG_MULTI_AZIENDA` fail-closed, spento = il CRM di oggi; client toccato
+solo per l'etichetta «Proprietario». Fuori: tutto ciò che è dei workstream
+2–6 e il rebranding Wyndor.

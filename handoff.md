@@ -40,7 +40,14 @@
 > sono i massimali DM MITE. **Nessuna implementazione autorizzata**: prima
 > del workstream 1 servono la sua spec tecnica e, fuori dal codice, prezzo,
 > budget Tars incluso, tolleranze, prezzo degli extra e provider di
-> pagamento. Voce 21 del debito.
+> pagamento. Voce 21 del debito. Aggiunta la stessa sera: il prodotto si
+> chiamerà **Wyndor** (spec §18-bis); rebranding dell'app a parte, fuori
+> dal workstream 1. Poi, sempre la sera del 06/09, la **spec tecnica del
+> WS1** approvata a sezioni in chat:
+> `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` (PRD
+> §60.9) — porta chiusa a chiave, `proprietario` ottavo ruolo, servizio
+> `tenants` con comandi eseguiti solo dal server, `FLAG_MULTI_AZIENDA`,
+> stato del tenant con sola lettura. Piano da scrivere, nessun codice.
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
@@ -1578,6 +1585,7 @@ pnpm storage:dry-run
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
 | `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` | design approvato del SaaS multi-azienda (tenant sopra sede, canone fisso, soglie d'uso, Platform Admin, omaggi, migrazione di Ruffino Group) con il riscontro sul codice in Appendice A — nessun codice autorizzato |
+| `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` | spec tecnica del workstream 1 (fondazione tenant): control plane, contesto, guardie, ruolo proprietario, comandi e script, interruttore, test — approvata a sezioni, piano da scrivere, nessun codice |
 | `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
 | `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -4114,7 +4122,11 @@ a vuoto e dice «57 saltati»).
     aziendale; (15) `platform_feature_flags` per sede senza endpoint di
     scrittura e `FLAG_*` env globali: la visibilità del menu per tenant
     (spec §7) è nuova; (16) vocabolario: «limiti» = massimali DM MITE (§55),
-    le soglie commerciali si chiamano «soglie d'uso».
+    le soglie commerciali si chiamano «soglie d'uso». **Sera del 06/09:**
+    spec tecnica del WS1 approvata a sezioni
+    (`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
+    PRD §60.9); prossimo passo il piano di implementazione; i punti (1)–(6)
+    hanno lì la loro risposta, gli altri restano per WS2–WS6.
 
 ## 13. Cosa resta della piattaforma
 
