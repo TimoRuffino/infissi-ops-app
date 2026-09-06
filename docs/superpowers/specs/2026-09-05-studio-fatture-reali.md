@@ -214,3 +214,56 @@ servizi (118, 59, 88 del 2026).
 Non verificabile: se la riga bene sia il costo fornitore più un ricarico
 (le commesse del CRM con costi a registro sono 2 su 8); l'avvertenza dice
 di alzare le righe bene se il costo è più alto.
+
+## 9. Fase 3 (06/09/2026): la lettura del contratto su 21 scansioni vere
+
+Materiale: 277 PDF di contratti 2025-2026 sulla scrivania della direzione
+(238 scansioni, 39 con testo); 21 abbinati ai fogli limiti della fase 2
+diventano casi del banco di prova (`server/contratti/eval/casi-reali/`,
+fuori dal repository) con la verità presa dal foglio: misure e quantità
+per riga, il prezzo solo quando ogni riga del foglio ne ha uno; pattuito,
+rate e numero righe non noti e non giudicati. In 6 casi la verità del
+foglio non sta nel documento (altro lavoro dello stesso cliente, o
+persiane con la misura del foro nel contratto e dell'anta nel foglio):
+restano nel banco per OCR e lettura, senza righe giudicate.
+
+Banco di prova cambiato: un campo assente in `atteso.json` non si
+giudica; le righe si abbinano per misure (±5 mm) e quantità, non per
+posizione; `EVAL_CONTRATTI_DUMP` lascia testo, esito del modello e proposta
+per caso; `EVAL_CONTRATTI_SOLO` riprova un caso; `EVAL_CONTRATTI_LETTURA=
+visione` legge le scansioni col modello. In locale servono `FLAG_OCR=on`
+e un Postgres per il ledger; tesseract locale ha solo `eng` (in produzione
+`ita+eng+deu`).
+
+**Risultati sul testo OCR** (18 casi giudicabili, 66 righe con misure):
+misure abbinate 63 (95 %; i 3 scarti sono del foglio: «1090» per «1098»,
+una altezza battuta male, una porta con sopraluce sommata); prezzi di riga
+uguali al documento 31 su 47 (66 %); pattuito uguale in 4 documenti su 12;
+layout WnD mai riconosciuto sulle scansioni (il preventivo 2025 ha un altro
+layout); un documento con uno sconto negativo fermava l'intera lettura.
+
+**Cosa è cambiato:**
+- `sanificaEsitoGrezzo` prima dello schema: righe con importo negativo o
+  quantità zero escono con un'avvertenza, misure fuori intervallo diventano
+  nulle, totali negativi si scartano; la struttura resta allo schema strict.
+- `layoutPreventivo.ts`, il secondo layout deterministico: «<nome> …
+  Prez. Tot. X» e «Larghezza: L - Altezza: H» (sulla stessa riga per
+  l'OCR, su due righe per la visione), quantità «Q.tà N» sopra, «Totale
+  Complessivo IVA Compresa» / «Totale Imponibile Complessivo» in fondo.
+  Misure, quantità e prezzi delle righe con le stesse misure e il pattuito
+  diventano evidenza certa. Offline sui dump: prezzi giusti 66 % → 96 %
+  sull'OCR (45 su 47), 70 % → 100 % sulla visione (33 su 33); pattuito
+  5/5 e 9/9.
+- **Lettura visiva prima dell'OCR** sui contratti (richiesta della
+  direzione: «forse sarebbe meglio usare un vlm invece che un ocr»): sui
+  14 casi letti nei due modi, misure 27/30 contro 29/31, prezzi 66 % contro
+  70 % (prima del layout), pattuito 3/5 contro 7/9; l'OCR legge «L 1000»
+  come «4000», la visione no. Il parser accetta `maxPagine` e `troncaOltre`
+  (un contratto va fino a 20 pagine: oltre, le prime 20 con avvertenza) e
+  `preferisciVisione`; le conferme d'ordine restano come prima (OCR, poi
+  visione, 8 pagine).
+
+Restano fuori: i 6 casi con verità non nel documento (servirebbe il PDF
+giusto o una verità scritta a mano), i 253 PDF senza foglio (fase 4: si
+possono leggere e misurare per coerenza interna — somma righe contro
+totale — senza verità), la lingua `ita` di tesseract in locale.

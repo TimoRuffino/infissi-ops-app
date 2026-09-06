@@ -3739,6 +3739,27 @@ markup a −0,01 sul lordo (il centesimo dell'IVA mista si toglie ai beni).
 Dati con nomi solo nello scratchpad; fatture 2025 lette con il token FiC di
 produzione decifrato in processo, mai salvato.
 
+**Fase 3 dello studio (06/09/2026): la lettura del contratto su 21
+scansioni vere** (spec §9). Banco di prova con la verità dal foglio
+limiti (misure e quantità; 6 casi con verità non nel documento tenuti
+senza righe giudicate), righe abbinate per misure e non per posizione,
+campi assenti non giudicati, dump per caso (`EVAL_CONTRATTI_DUMP`), un
+caso alla volta (`EVAL_CONTRATTI_SOLO`), scansioni col modello
+(`EVAL_CONTRATTI_LETTURA=visione`). Con l'OCR: misure 63 su 66, prezzi di
+riga 31 su 47, pattuito 4 su 12, un documento con sconto negativo fermava
+tutto. Fatto: `sanificaEsitoGrezzo` prima dello schema (righe con importo
+negativo o quantità zero escono con avvertenza), `layoutPreventivo.ts`
+(il preventivo Ruffino 2025: prezzi di riga 96-100 % e pattuito 9 su 9 sui
+dump), **lettura visiva prima dell'OCR sui contratti** (richiesta della
+direzione: «meglio un vlm»; sui 14 casi letti nei due modi la visione è
+uguale o migliore su tutto, e non sbaglia le cifre), fino a 20 pagine con
+troncamento dichiarato (`maxPagine`, `troncaOltre`, `preferisciVisione`
+nel parser; conferme d'ordine invariate). Runbook eval locale: `FLAG_OCR=on
+FLAG_LETTURA_VISIVA=on`, Postgres Docker per il ledger, chiave OpenAI di
+Railway solo nel processo; tesseract locale ha solo `eng` (produzione
+`ita+eng+deu`). Aperto: fase 4 (tabellone CRM contro realtà, 253 PDF senza
+verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
+
 ## 12. Debito aperto prioritario
 
 1. Configurazione R2 e migrazione reale dei file Railway.
