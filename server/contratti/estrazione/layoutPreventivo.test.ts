@@ -95,6 +95,30 @@ describe("riconosceLayoutPreventivo / blocchiPreventivo", () => {
     expect(blocchi[0].evidenza).toEqual({ pagina: 1, frammento: "Larghezza: 1380mm - Altezza: 1530mm Prez. Tot. 2.173,94€" });
   });
 
+  it("legge anche la forma della trascrizione visiva: «… Prez. Tot. X» sopra la riga delle misure, «Q.tà» con l'accento", () => {
+    const pagine = [
+      [
+        "Misure Foro (esterno telaio alette escluse):   Prez. Unit.   1.694,97 €",
+        "Larghezza: 1480mm - Altezza: 1530mm   Q.tà   1",
+        "Metri quadri: 2,26   Sconto   30%",
+        "Finestra a 2 ante DX con ribalta   Prez. Tot.   1.186,48 €",
+        "Larghezza: 1480mm - Altezza: 1530mm",
+        "Profilo: WnD Konfortline",
+        "Misure Foro (esterno telaio alette escluse):   Prez. Unit.   948,53 €",
+        "Larghezza: 880mm - Altezza: 1530mm   Q.tà   2",
+        "Finestra a 1 anta DX con ribalta   Prez. Tot.   1.327,94 €",
+        "Larghezza: 880mm - Altezza: 1530mm",
+      ].join("\n"),
+    ];
+    const blocchi = blocchiPreventivo(pagine);
+    expect(blocchi.map(b => [b.larghezzaMm, b.altezzaMm, b.quantita, b.prezzoTotCent, b.nome])).toEqual([
+      [1480, 1530, 1, 118648, "Finestra a 2 ante DX con ribalta"],
+      [880, 1530, 2, 132794, "Finestra a 1 anta DX con ribalta"],
+    ]);
+    expect(blocchi[0].evidenza.frammento).toBe("Larghezza: 1480mm - Altezza: 1530mm");
+    expect(blocchi[0].evidenzaPrezzo.frammento).toBe("Finestra a 2 ante DX con ribalta Prez. Tot. 1.186,48 €");
+  });
+
   it("non scambia il layout WnD né un contratto in prosa per il preventivo", () => {
     expect(riconosceLayoutPreventivo(casoWnd().pagine)).toBe(false);
     expect(riconosceLayoutPreventivo(["Art. 2 Corrispettivo: importo complessivo di € 9.800,00 IVA inclusa."])).toBe(false);

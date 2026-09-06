@@ -26,8 +26,8 @@ import { costruisciControlli } from "./mappa";
 const MISURE = /Larghezza\s*:?\s*(\d{3,4})\s*mm\s*[-–]\s*Altezza\s*:?\s*(\d{3,4})\s*mm/i;
 /** «Prez. Tot. 2.173,94€», «Prez. Tot. 663,97 €». */
 const PREZZO_TOTALE = /Prez\.?\s*Tot\.?\s*:?\s*([\d.]+,\d{2})\s*€?/i;
-/** «Q.ta 2», «Q-ta 1», «Qta 4», «Qt 1». */
-const QUANTITA = /\bQ[.\-]?\s*ta\s*:?\s*(\d{1,3})\b|\bQt\s*:?\s*(\d{1,3})\b/i;
+/** «Q.ta 2», «Q.tà 1», «Q-ta 1», «Qta 4», «Qt 1». */
+const QUANTITA = /\bQ[.\-]?\s*t[aà]\s*:?\s*(\d{1,3})\b|\bQt\s*:?\s*(\d{1,3})\b/i;
 const SCONTO = /\s*Sconto\s*\d+(?:[.,]\d+)?\s*%.*$/i;
 const RIGA_TECNICA = /^\s*(Metri\s+quadri|Prez\.?\s*Unit|Profilo|Telaio|Vetro|Colore)/i;
 const TOTALE_LORDO = /Totale\s+Complessivo\s+IVA\s+Compr[a-z.]*\s*:?\s*([\d.]+,\d{2})/i;
@@ -46,7 +46,10 @@ type BloccoPreventivo = {
   altezzaMm: number;
   quantita: number | null;
   prezzoTotCent: number;
+  /** La riga delle misure (per larghezza e altezza). */
   evidenza: EvidenzaEstratta;
+  /** La riga del prezzo totale (per prezzo e quantità): la stessa quando l'OCR le fonde. */
+  evidenzaPrezzo: EvidenzaEstratta;
 };
 
 function numeroItaliano(testo: string): number | null {
@@ -58,24 +61,39 @@ function frammento(riga: string): string {
   return riga.replace(/\s+/g, " ").trim().slice(0, LUNGHEZZA_FRAMMENTO);
 }
 
-/** I blocchi prodotto del layout, nell'ordine in cui compaiono: una riga «Larghezza … Altezza … Prez. Tot.» per prodotto. */
+/**
+ * I blocchi prodotto del layout, nell'ordine in cui compaiono. Il preventivo
+ * stampa «<nome> … Prez. Tot. X» e sotto «Larghezza: L - Altezza: H»: la
+ * trascrizione visiva conserva le due righe, l'OCR locale le fonde in una.
+ * Si accettano entrambe le forme; la prima riga «Larghezza … Q.tà N» del
+ * blocco (senza prezzo) non è un blocco.
+ */
 export function blocchiPreventivo(pagine: readonly string[]): BloccoPreventivo[] {
   const blocchi: BloccoPreventivo[] = [];
   pagine.forEach((testo, indice) => {
     const righe = testo.split(/\r?\n/);
+    const usate = new Set<number>();
     for (let i = 0; i < righe.length; i++) {
       const misure = MISURE.exec(righe[i]);
-      const prezzo = misure ? PREZZO_TOTALE.exec(righe[i]) : null;
-      if (!misure || !prezzo) continue;
-      const totale = numeroItaliano(prezzo[1]);
+      if (!misure) continue;
+      let rigaPrezzo = -1;
+      if (PREZZO_TOTALE.test(righe[i])) rigaPrezzo = i;
+      else if (i > 0 && !usate.has(i - 1) && PREZZO_TOTALE.test(righe[i - 1]) && !MISURE.test(righe[i - 1])) rigaPrezzo = i - 1;
+      if (rigaPrezzo < 0) continue;
+      const prezzo = PREZZO_TOTALE.exec(righe[rigaPrezzo]);
+      const totale = prezzo ? numeroItaliano(prezzo[1]) : null;
       if (totale == null || totale <= 0) continue;
+      usate.add(rigaPrezzo);
 
-      // Quantità e nome stanno sopra, senza risalire oltre il prezzo del prodotto precedente.
+      // Il nome sta sulla riga del prezzo («Finestra a 2 ante DX … Prez. Tot. …»)
+      // o, quando l'OCR ha fuso le righe, su una riga sopra; la quantità
+      // poche righe sopra, senza risalire oltre il prezzo del prodotto precedente.
+      let nome = righe[rigaPrezzo].slice(0, prezzo!.index).replace(SCONTO, "").replace(/\s+/g, " ").trim();
+      if (MISURE.test(nome) || nome.length < 4) nome = "";
       let quantita: number | null = null;
-      let nome = "";
-      for (let k = i - 1; k >= 0 && k >= i - RIGHE_INDIETRO; k--) {
+      for (let k = rigaPrezzo - 1; k >= 0 && k >= rigaPrezzo - RIGHE_INDIETRO; k--) {
         const riga = righe[k];
-        if (PREZZO_TOTALE.test(riga) && MISURE.test(riga)) break;
+        if (PREZZO_TOTALE.test(riga)) break;
         if (quantita == null) {
           const q = QUANTITA.exec(riga);
           if (q) quantita = Number(q[1] ?? q[2]);
@@ -93,6 +111,7 @@ export function blocchiPreventivo(pagine: readonly string[]): BloccoPreventivo[]
         quantita: quantita != null && quantita >= 1 ? quantita : null,
         prezzoTotCent: euroToCent(totale),
         evidenza: { pagina: indice + 1, frammento: frammento(righe[i]) },
+        evidenzaPrezzo: { pagina: indice + 1, frammento: frammento(righe[rigaPrezzo]) },
       });
     }
   });
@@ -111,8 +130,8 @@ function vicino(a: number | null, b: number): boolean {
 /** Stessa regola del layout WnD (P3-R36): la quota di un oscurante fuso nella riga va risommata al prezzo del documento. */
 function prezzoArricchito(riga: RigaProposta, blocco: BloccoPreventivo) {
   const quota = riga.quotaOscuranteCent ?? 0;
-  if (quota === 0) return campo<number | null>(blocco.prezzoTotCent, blocco.evidenza, { daVerificare: false });
-  return campo<number | null>(blocco.prezzoTotCent + quota, blocco.evidenza, { daVerificare: true, nota: riga.prezzoTotCent.nota });
+  if (quota === 0) return campo<number | null>(blocco.prezzoTotCent, blocco.evidenzaPrezzo, { daVerificare: false });
+  return campo<number | null>(blocco.prezzoTotCent + quota, blocco.evidenzaPrezzo, { daVerificare: true, nota: riga.prezzoTotCent.nota });
 }
 
 function rigaArricchita(riga: RigaProposta, blocco: BloccoPreventivo): RigaProposta {
@@ -121,7 +140,7 @@ function rigaArricchita(riga: RigaProposta, blocco: BloccoPreventivo): RigaPropo
     ...riga,
     larghezzaMm: campo<number | null>(blocco.larghezzaMm, blocco.evidenza, certo),
     altezzaMm: campo<number | null>(blocco.altezzaMm, blocco.evidenza, certo),
-    quantita: blocco.quantita != null ? campo(blocco.quantita, blocco.evidenza, certo) : riga.quantita,
+    quantita: blocco.quantita != null ? campo(blocco.quantita, blocco.evidenzaPrezzo, certo) : riga.quantita,
     prezzoTotCent: prezzoArricchito(riga, blocco),
   };
 }
