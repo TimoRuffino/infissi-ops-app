@@ -300,3 +300,48 @@ Scaricate sulla scrivania della direzione (`dati x claude/Drive-NAS`), mai
 nel repository. Uso deciso: fogli → motore (fase 1 allargata), contratti →
 lettore (nuovi casi con verità dal foglio), fatture 2022-24 non per le
 regole (decisione: regole solo 2025-26).
+
+## 11. Fase 5 (06/09/2026): il corpus del Drive — fogli nel motore, contratti nel lettore
+
+Dal Drive «BACKUP NAS» 311 cartelle con foglio limiti, contratto e fattura
+insieme (2022-24, Ver.32 del foglio, quindi edizione `2023-i`): 231 fogli
+scaricati, 229 raccolti, tutti con il motore che li legge.
+
+**Motore.** 134 fogli riprodotti al centesimo: 63 erano copie dei fogli già
+in fixture (Check-Limiti è la copia amministrativa di «Pratiche per
+Xbonus»), 71 nuovi → la fixture d'oro passa da 77 a **148 casi**. Dei 95
+non riprodotti, 62 hanno **misure con i decimali** nel foglio (foro +
+alette: 1095,49 × 1705,49 mm): il CRM lavora in mm interi e i massimali
+differiscono di pochi euro — non è un errore del motore, il raccoglitore
+ora lo dichiara (`salta` H9) invece di troncare in silenzio; 19 hanno gli
+stessi decimali in un altro blocco; 14 (7 lavori, ognuno in due copie)
+hanno una sola voce DEI di riga diversa (una classe di prodotto o un
+accessorio prezzato in un'altra voce) e restano da indagare; 2 fogli sono
+illeggibili.
+
+**Lettore.** 57 contratti 2023-24 con la verità dal foglio (misure e
+quantità) diventano casi `drv-*` del banco di prova, letti con la lettura
+visiva: risultati nel paragrafo che segue quando la corsa è finita.
+
+**Lettore, esito (corsa fermata dalla direzione a 34 casi su 57).** 32
+pattuiti su 34 trovati, 281 righe, 8 sanificazioni, 2 documenti con
+controlli in errore, nessun crash. Sulle righe la verità del foglio 2023-24
+vale poco: in 23 casi il foglio ha misure decimali e negli altri usa
+spesso le **misure del foro** (+90 / +45 mm rispetto a quelle scritte nel
+contratto): su 20 casi giudicabili 81 righe su 127 abbinate al mm, ma
+delle 46 mancanti 22 sono oscuranti (foro contro anta), 17 serramenti con
+misure diverse fra foglio e contratto, e solo **7 sono righe che il testo
+contiene e il modello non ha estratto**. Conclusione: per giudicare il
+lettore servono verità scritte dal contratto stesso (come i 3 casi WnD e i
+fogli 2025-26), non i fogli dei limiti del 2023-24. I 34 dump restano
+nello scratchpad; i casi `drv-*` nel banco (gitignored), 23 senza righe
+giudicate.
+
+**Chiusura (06/09/2026 sera, «chiudi qui»).** Fatto e verificato: regole di
+fattura (21 lavori su 22), motore (148 fogli), lettore (95 % sulle misure
+dove la verità è il contratto, prezzi 96-100 % con i layout, visione al
+posto dell'OCR, 6 difetti corretti). Non capito fino in fondo: la quota
+beni/markup che la commercialista sceglie caso per caso (85 % è una
+mediana, non una regola), 7 fogli con una voce DEI di riga diversa, i
+preventivi delle porte interne (layout PAIL) senza parser deterministico,
+il totale nei fascicoli con più preventivi.

@@ -3797,8 +3797,17 @@ righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
 «BACKUP NAS» è pubblico: 311 cartelle con foglio limiti + contratto +
 fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
 `embeddedfolderview`, download con `drive.usercontent.google.com/download`;
-gdown non funziona più). Prossimo: fogli nel motore, contratti nel banco
-del lettore.
+gdown non funziona più).
+
+**Fase 5 (06/09/2026 sera): il corpus del Drive** (spec §11). 229 fogli
+2022-24 raccolti: 134 al centesimo, 71 nuovi in fixture (148 casi d'oro);
+62 non riproducibili per misure decimali nel foglio (foro + alette, il CRM
+lavora in mm interi: il raccoglitore lo dichiara con `salta` H9), 7 lavori
+con una voce DEI di riga diversa da indagare. 57 contratti 2023-24 con la
+verità dal foglio nel banco del lettore (`drv-*`, lettura visiva): risultati
+in spec §11. Attenzione ai budget dell'eval: `TARS_MONTHLY_BUDGET_USD` oltre
+1000 fa scattare il tetto di sanità e il provider resta «finto» (l'eval gira
+a vuoto e dice «57 saltati»).
 
 ## 12. Debito aperto prioritario
 
