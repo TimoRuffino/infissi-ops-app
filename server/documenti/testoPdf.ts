@@ -18,6 +18,16 @@
 // colonna almeno TRE spazi: chi legge dopo (estrattori, riscontro, merce)
 // distingue le celle con `\s{3,}`. Funzione pura sui frammenti, testabile
 // senza aprire un PDF.
+//
+// Dal 06/09/2026 (anteprime delle evidenze) la stessa funzione restituisce
+// anche la GEOMETRIA delle righe: per ogni riga di testo la sua quota nella
+// pagina e, per ogni tratto, dove comincia nella riga e dove sta sulla
+// pagina. Le posizioni che pdf.js consegna non vengono più buttate via:
+// servono a mostrare, in una vignetta, il punto da cui un valore è stato
+// letto. La geometria è allineata per costruzione: riga i del testo, riga i
+// della geometria.
+
+import type { GeometriaPagina, RigaGeometria } from "@shared/documenti/evidenze";
 
 export type ElementoTesto = {
   str: string;
@@ -32,6 +42,18 @@ export const SEPARATORE_CELLE = "   ";
 
 const COLONNA_MASSIMA = 240;
 const LARGHEZZA_CARATTERE_DEFAULT = 4.5;
+
+/**
+ * Le misure della pagina resa e la trasformazione dallo spazio utente del
+ * PDF (y verso l'alto) allo spazio della vista (y verso il basso, rotazione
+ * della pagina applicata): è il viewport di pdf.js a scala 1. Senza misure
+ * il testo esce uguale ma la geometria resta vuota.
+ */
+export type MisurePagina = {
+  larghezza: number;
+  altezza: number;
+  aVista?: (x: number, y: number) => [number, number];
+};
 
 type Frammento = {
   testo: string;
@@ -76,16 +98,29 @@ function larghezzaCarattere(frammenti: readonly Frammento[]): number {
   return misure[Math.floor(misure.length / 2)];
 }
 
-function unisciRiga(riga: Frammento[], carattere: number): string {
+type TrattoRiga = { frammento: Frammento; inizio: number; fine: number };
+
+/**
+ * La riga di testo e, per ogni pezzo aggiunto, gli scarti di carattere in cui
+ * è finito: sono i tratti della geometria.
+ */
+function unisciRiga(riga: Frammento[], carattere: number): { testo: string; tratti: TrattoRiga[] } {
   riga.sort((a, b) => a.x - b.x);
   let testo = "";
   let fine = 0;
   let precedente: Frammento | null = null;
+  const tratti: TrattoRiga[] = [];
+  const aggiungi = (frammento: Frammento, pezzo: string) => {
+    const inizio = testo.length;
+    testo += pezzo;
+    tratti.push({ frammento, inizio, fine: testo.length });
+  };
   for (const f of riga) {
     const pezzo = f.testo.trim();
     const colonna = Math.min(COLONNA_MASSIMA, Math.max(0, Math.round(f.x / carattere)));
     if (!precedente) {
-      testo = " ".repeat(colonna) + pezzo;
+      testo = " ".repeat(colonna);
+      aggiungi(f, pezzo);
       fine = f.fine;
       precedente = f;
       continue;
@@ -99,31 +134,59 @@ function unisciRiga(riga: Frammento[], carattere: number): string {
     if (vuoto > riferimento * 1.5) {
       // Salto di colonna: alla sua colonna, e comunque almeno tre spazi.
       const inizio = Math.max(colonna, testo.length + SEPARATORE_CELLE.length);
-      testo = testo.padEnd(inizio, " ") + pezzo;
+      testo = testo.padEnd(inizio, " ");
+      aggiungi(f, pezzo);
     } else if (vuoto > riferimento * 0.12 || spazioEsplicito) {
-      testo += " " + pezzo;
+      testo += " ";
+      aggiungi(f, pezzo);
     } else {
-      testo += pezzo;
+      aggiungi(f, pezzo);
     }
     fine = Math.max(fine, f.fine);
     precedente = f;
   }
-  return testo.trimEnd();
+  return { testo: testo.trimEnd(), tratti };
 }
 
 /**
- * Le righe di una pagina, dall'alto in basso, dai frammenti di pdf.js.
- * Frammenti sulla stessa quota (tolleranza: metà dell'altezza del carattere
- * più piccolo) stanno sulla stessa riga; dentro la riga ognuno comincia
- * alla colonna della sua x.
+ * Il riquadro di un frammento nello spazio della vista. La quota del
+ * frammento è la sua linea di base: il glifo sale di circa 0,8 altezze e
+ * scende di circa 0,25. Si trasformano i quattro angoli, così una pagina
+ * ruotata dà comunque un rettangolo dritto nella vista.
  */
-export function righeDaElementi(elementi: ReadonlyArray<ElementoTesto>): string {
+function riquadroVista(
+  f: Frammento,
+  misure: MisurePagina
+): { x0: number; x1: number; y0: number; y1: number } {
+  const trasforma = misure.aVista ?? ((x: number, y: number): [number, number] => [x, misure.altezza - y]);
+  const angoli: Array<[number, number]> = [
+    trasforma(f.x, f.y - 0.25 * f.altezza),
+    trasforma(f.fine, f.y - 0.25 * f.altezza),
+    trasforma(f.x, f.y + 0.8 * f.altezza),
+    trasforma(f.fine, f.y + 0.8 * f.altezza),
+  ];
+  const xs = angoli.map(a => a[0]);
+  const ys = angoli.map(a => a[1]);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+/**
+ * Le righe di una pagina, dall'alto in basso, dai frammenti di pdf.js, con
+ * la loro geometria quando si conoscono le misure della pagina. Frammenti
+ * sulla stessa quota (tolleranza: metà dell'altezza del carattere più
+ * piccolo) stanno sulla stessa riga; dentro la riga ognuno comincia alla
+ * colonna della sua x.
+ */
+export function righeConGeometriaDaElementi(
+  elementi: ReadonlyArray<ElementoTesto>,
+  misure?: MisurePagina
+): { testo: string; righe: RigaGeometria[] } {
   const frammenti = elementi
     .map(frammentoDi)
     .filter((f): f is Frammento => f != null);
   const carattere = larghezzaCarattere(frammenti);
   frammenti.sort((a, b) => b.y - a.y || a.x - b.x);
-  const righe: Frammento[][] = [];
+  const gruppi: Frammento[][] = [];
   let corrente: Frammento[] = [];
   let quota = 0;
   let altezzaRiga = 0;
@@ -134,30 +197,69 @@ export function righeDaElementi(elementi: ReadonlyArray<ElementoTesto>): string 
         corrente.push(f);
         continue;
       }
-      righe.push(corrente);
+      gruppi.push(corrente);
     }
     corrente = [f];
     quota = f.y;
     altezzaRiga = f.altezza;
   }
-  if (corrente.length > 0) righe.push(corrente);
-  return righe
-    .map(riga => unisciRiga(riga, carattere))
-    .filter(riga => riga.trim().length > 0)
-    .join("\n");
+  if (corrente.length > 0) gruppi.push(corrente);
+
+  const righeTesto: string[] = [];
+  const righe: RigaGeometria[] = [];
+  let scarto = 0;
+  for (const gruppo of gruppi) {
+    const unita = unisciRiga(gruppo, carattere);
+    if (unita.testo.trim().length === 0) continue;
+    righeTesto.push(unita.testo);
+    if (misure) {
+      const riquadri = unita.tratti.map(t => ({ t, r: riquadroVista(t.frammento, misure) }));
+      righe.push({
+        inizio: scarto,
+        y0: Math.min(...riquadri.map(q => q.r.y0)),
+        y1: Math.max(...riquadri.map(q => q.r.y1)),
+        tratti: riquadri.map(({ t, r }) => ({
+          testo: t.frammento.testo.trim(),
+          inizio: t.inizio,
+          fine: t.fine,
+          x0: r.x0,
+          x1: r.x1,
+        })),
+      });
+    }
+    scarto += unita.testo.length + 1;
+  }
+  return { testo: righeTesto.join("\n"), righe };
+}
+
+/** Le righe di una pagina come testo, senza geometria. */
+export function righeDaElementi(elementi: ReadonlyArray<ElementoTesto>): string {
+  return righeConGeometriaDaElementi(elementi).testo;
 }
 
 export type DocumentoPdf = {
   numPages: number;
   getPage(numero: number): Promise<{
     getTextContent(): Promise<{ items: ReadonlyArray<unknown> }>;
+    /** Il viewport di pdf.js: misure della pagina resa e trasformazione dei punti. */
+    getViewport?(parametri: { scale: number }): {
+      width: number;
+      height: number;
+      convertToViewportPoint(x: number, y: number): [number, number] | number[];
+    };
     cleanup?: () => void;
   }>;
 };
 
-/** Il testo di ogni pagina, righe ricostruite dalla geometria. */
-export async function pagineDaDocumento(pdf: DocumentoPdf): Promise<string[]> {
+/**
+ * Il testo di ogni pagina, righe ricostruite dalla geometria, e la geometria
+ * stessa quando la pagina espone il suo viewport (null altrimenti).
+ */
+export async function pagineConGeometriaDaDocumento(
+  pdf: DocumentoPdf
+): Promise<{ pagine: string[]; geometria: Array<GeometriaPagina | null> }> {
   const pagine: string[] = [];
+  const geometria: Array<GeometriaPagina | null> = [];
   for (let numero = 1; numero <= pdf.numPages; numero += 1) {
     const pagina = await pdf.getPage(numero);
     const contenuto = await pagina.getTextContent();
@@ -165,10 +267,31 @@ export async function pagineDaDocumento(pdf: DocumentoPdf): Promise<string[]> {
       (item): item is ElementoTesto =>
         typeof (item as any)?.str === "string" && Array.isArray((item as any)?.transform)
     );
-    pagine.push(righeDaElementi(elementi));
+    const viewport = pagina.getViewport?.({ scale: 1 }) ?? null;
+    const misure: MisurePagina | undefined =
+      viewport && viewport.width > 0 && viewport.height > 0
+        ? {
+            larghezza: viewport.width,
+            altezza: viewport.height,
+            aVista: (x, y) => {
+              const punto = viewport.convertToViewportPoint(x, y);
+              return [Number(punto[0]), Number(punto[1])];
+            },
+          }
+        : undefined;
+    const { testo, righe } = righeConGeometriaDaElementi(elementi, misure);
+    pagine.push(testo);
+    geometria.push(
+      misure ? { larghezza: misure.larghezza, altezza: misure.altezza, allineata: true, righe } : null
+    );
     pagina.cleanup?.();
   }
-  return pagine;
+  return { pagine, geometria };
+}
+
+/** Il testo di ogni pagina, righe ricostruite dalla geometria. */
+export async function pagineDaDocumento(pdf: DocumentoPdf): Promise<string[]> {
+  return (await pagineConGeometriaDaDocumento(pdf)).pagine;
 }
 
 /** Le celle di una riga (separate da almeno tre spazi) con la colonna in cui cominciano. */

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   celleDiRiga,
+  pagineConGeometriaDaDocumento,
   pagineDaDocumento,
+  righeConGeometriaDaElementi,
   righeDaElementi,
   type ElementoTesto,
 } from "./testoPdf";
@@ -138,5 +140,74 @@ describe("celleDiRiga", () => {
       { testo: "SP", inizio: 36 },
     ]);
     expect(celleDiRiga("")).toEqual([]);
+  });
+});
+
+describe("righeConGeometriaDaElementi — geometria allineata alle righe", () => {
+  // y-up dei PDF → y-down della vista, come farebbe il viewport di pdf.js.
+  const misure = {
+    larghezza: 600,
+    altezza: 800,
+    aVista: (x: number, y: number): [number, number] => [x, 800 - y],
+  };
+
+  it("ogni riga di testo ha la sua riga di geometria, e ogni tratto sa dove comincia nella riga", () => {
+    const { testo, righe } = righeConGeometriaDaElementi(
+      [el("Totale imponibile", 40, 700), el("7.762,25", 400, 700), el("IVA 22%", 40, 680)],
+      misure
+    );
+    const linee = testo.split("\n");
+    expect(linee).toHaveLength(2);
+    expect(righe).toHaveLength(2);
+    expect(righe[0].inizio).toBe(0);
+    expect(righe[1].inizio).toBe(linee[0].length + 1);
+    const valore = righe[0].tratti.find(t => t.testo === "7.762,25")!;
+    expect(linee[0].slice(valore.inizio, valore.fine)).toBe("7.762,25");
+    expect(valore.x0).toBe(400);
+    expect(valore.x1).toBeGreaterThan(400);
+    // y verso il basso: la prima riga sta sopra la seconda, e ha uno spessore.
+    expect(righe[0].y0).toBeLessThan(righe[1].y0);
+    expect(righe[0].y1).toBeGreaterThan(righe[0].y0);
+  });
+
+  it("senza le misure della pagina la geometria resta vuota ma il testo è quello di sempre", () => {
+    const { testo, righe } = righeConGeometriaDaElementi([el("Solo testo", 10, 10)]);
+    expect(testo.trim()).toBe("Solo testo");
+    expect(righe).toEqual([]);
+  });
+
+  it("pagineConGeometriaDaDocumento usa il viewport della pagina e resta allineata", async () => {
+    const pdf = {
+      numPages: 1,
+      getPage: async () => ({
+        getTextContent: async () => ({
+          items: [el("Riga uno", 10, 100), el("Riga due", 10, 80)],
+        }),
+        getViewport: () => ({
+          width: 600,
+          height: 800,
+          convertToViewportPoint: (x: number, y: number): [number, number] => [x, 800 - y],
+        }),
+      }),
+    };
+    const { pagine, geometria } = await pagineConGeometriaDaDocumento(pdf);
+    expect(pagine[0].split("\n").map(r => r.trim())).toEqual(["Riga uno", "Riga due"]);
+    expect(geometria[0]).toMatchObject({ larghezza: 600, altezza: 800, allineata: true });
+    expect(geometria[0]!.righe).toHaveLength(2);
+    // `inizio` è l'inizio della RIGA (rientro compreso); il tratto sa dove comincia dentro la riga.
+    const seconda = geometria[0]!.righe[1];
+    expect(seconda.inizio + seconda.tratti[0].inizio).toBe(pagine[0].indexOf("Riga due"));
+  });
+
+  it("senza viewport la pagina ha il testo ma nessuna geometria", async () => {
+    const pdf = {
+      numPages: 1,
+      getPage: async () => ({
+        getTextContent: async () => ({ items: [el("Riga uno", 10, 100)] }),
+      }),
+    };
+    const { pagine, geometria } = await pagineConGeometriaDaDocumento(pdf);
+    expect(pagine[0].trim()).toBe("Riga uno");
+    expect(geometria).toEqual([null]);
   });
 });
