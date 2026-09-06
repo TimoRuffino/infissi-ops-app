@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
@@ -1333,6 +1334,39 @@ export const preventiviContrattiRouter = router({
         forza: true,
       });
       return { esito: esito.esito, imponibile: esito.imponibile, merce: esito.merce, motivo: esito.motivo };
+    }),
+
+  /**
+   * Le evidenze localizzate di una lettura (anteprime «Dove l'ho letto»,
+   * 06/09/2026): dove, nella conferma, sono stati letti imponibile,
+   * fornitore, numero, date e prove del riscontro. Stessa guardia del file:
+   * chi può aprire il PDF vede già tutti i numeri della pagina.
+   */
+  evidenzeDocumento: protectedProcedure
+    .input(z.object({ documentoId: z.number().int().positive() }))
+    .query(({ input, ctx }) => {
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const documento = documenti.find(d => d.id === input.documentoId);
+      if (!documento || !commessaInSede(documento.commessaId, sedeId)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Documento non trovato" });
+      }
+      const lettura = documento.letturaCosto ?? null;
+      return {
+        documentoId: documento.id,
+        nome: documento.nome,
+        mimeType: documento.mimeType,
+        fonteTesto: lettura?.fonteTesto ?? null,
+        evidenze: lettura?.evidenze ?? null,
+        valori: {
+          imponibile: lettura?.imponibile ?? null,
+          fornitore: lettura?.fornitore ?? null,
+          numeroOrdine: lettura?.numeroOrdine ?? null,
+          dataDocumento: lettura?.dataDocumento ?? null,
+        },
+        anteprime: documento.anteprime
+          ? { pagine: documento.anteprime.pagine, formato: documento.anteprime.formato }
+          : null,
+      };
     }),
 
   // Il registro delle conferme d'ordine della sede: chi le ha messe nel

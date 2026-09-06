@@ -14,6 +14,7 @@
 import type { EstrazioneContratto } from "@shared/contratti/estrazione";
 import type { Contratto, ContrattoInput, RigaContratto, RigaContrattoInput } from "@shared/limiti/tipi";
 import { sha256Hex } from "../../_core/fileStorage";
+import { scaldaAnteprime } from "../../documenti/anteprime";
 import { firmaOcrCorrente } from "../../documenti/ocr";
 import { estraiTestoDocumento, type EsitoParser } from "../../documenti/parserRegistry";
 import { interruttoreAttivo } from "../../platform/interruttori";
@@ -264,6 +265,9 @@ async function eseguiEstrazioneCorpo(
   if (esitoParser.esito !== "estratto") {
     throw new Error(`PRECONDIZIONE: ${motivoLetturaFallita(esitoParser)}`);
   }
+  // I byte sono già in mano: le pagine per le anteprime delle evidenze si
+  // scaldano ora (best-effort, mai un'estrazione fallita per una vignetta).
+  await scaldaAnteprime(documento, sedeId, buffer);
 
   // La chiave definitiva la dice il parser che ha risposto davvero.
   const testoNativo = esitoParser.parser === PARSER_TESTO_NATIVO;

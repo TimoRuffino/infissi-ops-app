@@ -22,6 +22,7 @@ import {
 } from "./parserRegistry";
 import { firmaOcrCorrente } from "./ocr";
 import {
+  annotaAreeEstrazione,
   ESTRATTORE_CONFERMA_VERSIONE,
   estraiConfermaOrdine,
   type EstrazioneConferma,
@@ -183,6 +184,11 @@ export async function eseguiAnalisiConferma(input: {
   ordine: OrdinePerConfronto & { fornitoreNome: string | null };
   createdBy: number | null;
   forza?: boolean;
+  /**
+   * Le pagine rese per le anteprime delle evidenze, scaldate con i byte
+   * già in mano (chi chiama conosce il documento del fascicolo). Best-effort.
+   */
+  scalda?: (bytes: Buffer) => Promise<void>;
 }): Promise<{ run: AnalisiDocumento; riusata: boolean }> {
   const chiaveInCorso = [
     input.sedeId,
@@ -209,6 +215,7 @@ async function eseguiAnalisiConfermaInterna(input: {
   ordine: OrdinePerConfronto & { fornitoreNome: string | null };
   createdBy: number | null;
   forza?: boolean;
+  scalda?: (bytes: Buffer) => Promise<void>;
 }): Promise<{ run: AnalisiDocumento; riusata: boolean }> {
   const passi: PassoAnalisi[] = [
     { passo: "ricevuto", esito: "ok", at: new Date() },
@@ -262,6 +269,13 @@ async function eseguiAnalisiConfermaInterna(input: {
     input.documento.mimeType,
     input.documento.nome
   );
+  if (input.scalda) {
+    try {
+      await input.scalda(bytes);
+    } catch {
+      // Le anteprime sono un servizio accessorio: mai un'analisi fallita per loro.
+    }
+  }
 
   function registraRun(run: AnalisiDocumento) {
     analisi.push(run);
@@ -313,16 +327,21 @@ async function eseguiAnalisiConfermaInterna(input: {
   }
 
   passi.push({ passo: "estratto", esito: "ok", at: new Date() });
-  const estrazione = estraiConfermaOrdine(esitoParser.pagine, {
-    codiceOrdine: input.ordine.codiceOrdine,
-    fornitoreNome: input.ordine.fornitoreNome,
-    righeOrdine: input.ordine.righe.map(riga => ({
-      id: riga.id,
-      descrizione: riga.descrizione,
-      codiceArticolo: riga.codiceArticolo ?? null,
-      quantita: riga.quantita,
-    })),
-  });
+  // Le aree delle evidenze (anteprime «Dove l'ho letto») dalla geometria
+  // del parser: i valori non cambiano, ogni campo sa dove sta sulla pagina.
+  const estrazione = annotaAreeEstrazione(
+    estraiConfermaOrdine(esitoParser.pagine, {
+      codiceOrdine: input.ordine.codiceOrdine,
+      fornitoreNome: input.ordine.fornitoreNome,
+      righeOrdine: input.ordine.righe.map(riga => ({
+        id: riga.id,
+        descrizione: riga.descrizione,
+        codiceArticolo: riga.codiceArticolo ?? null,
+        quantita: riga.quantita,
+      })),
+    }),
+    esitoParser.geometria
+  );
   const differenze = confrontaConfermaConOrdine(estrazione, input.ordine);
   passi.push({ passo: "confrontato", esito: "ok", at: new Date() });
 

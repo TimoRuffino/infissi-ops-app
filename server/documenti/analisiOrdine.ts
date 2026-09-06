@@ -16,6 +16,7 @@ import {
   type AnalisiDocumento,
   type DocumentoDaAnalizzare,
 } from "./analisi";
+import { scaldaAnteprime } from "./anteprime";
 import { collegamentoAttivo } from "./collegamenti";
 
 const MESSAGGI_OPERATORE = [
@@ -96,5 +97,7 @@ export async function analizzaConfermaPerOrdine(input: {
     },
     createdBy: input.createdBy,
     forza: input.forza,
+    // I byte sono già in mano: le pagine per le anteprime si scaldano qui.
+    scalda: bytes => scaldaAnteprime(documento, input.sedeId, bytes),
   });
 }

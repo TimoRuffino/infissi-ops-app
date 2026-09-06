@@ -166,6 +166,8 @@ describe("pipeline conferme d'ordine", { timeout: 120_000 }, () => {
     expect(estrazione.riferimentoOrdine?.evidenza.frammento).toContain(
       "ORD-2026-77"
     );
+    // Anteprime delle evidenze: il run sa anche DOVE sta il frammento sulla pagina.
+    expect(estrazione.riferimentoOrdine?.evidenza.area?.grado).toBe("riquadro");
     expect(estrazione.codiciCommessaCitati.map(c => c.valore)).toContain(
       commessa.codice
     );

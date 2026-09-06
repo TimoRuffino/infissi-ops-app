@@ -47,6 +47,7 @@ import {
   ESTRATTORE_MERCE_VERSIONE,
   estraiRigheMerce,
 } from "../documenti/estrazioneMerce";
+import { scaldaAnteprime } from "../documenti/anteprime";
 import type { IdentitaLettura } from "../documenti/letturaVisiva";
 import { annotaEvidenza } from "../documenti/localizzatore";
 import {
@@ -147,6 +148,12 @@ export type DipendenzeCostoDaConferma = {
   /** Il mittente della mail da cui il documento è stato archiviato: fornitore di ripiego. */
   nomeMittente: (documento: Documento) => Promise<string | null>;
   adesso: () => Date;
+  /**
+   * Le pagine rese per le anteprime delle evidenze, scaldate quando i byte
+   * sono già in mano (solo il percorso del worker: mai in una richiesta
+   * HTTP). Best-effort: non lancia mai.
+   */
+  scaldaAnteprime?: (documento: Documento, buffer: Buffer) => Promise<void>;
 };
 
 export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
@@ -165,6 +172,12 @@ export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
         ...(opzioni.ocr ? {} : { ocr: false }),
         visione: opzioni.ocr ? opzioni.visione : null,
       }),
+    scaldaAnteprime: (documento, buffer) =>
+      scaldaAnteprime(
+        documento,
+        Number((getCommessaById(documento.commessaId) as any)?.sedeId ?? 1),
+        buffer
+      ),
     nomeMittente: async documento => {
       if (documento.source !== "comunicazione" || !documento.sourceRef) return null;
       const [sede, comunicazione] = documento.sourceRef.split(":");
@@ -600,6 +613,12 @@ export async function registraCostoDaConferma(input: {
     });
   } catch (errore) {
     return fallita("errore", `Parser fallito: ${motivoSicuro(errore)}`);
+  }
+  // Nel percorso del worker i byte sono già in mano: le pagine per le
+  // anteprime si rendono ora, senza un secondo scaricamento. Anche per una
+  // scansione che nessuno legge: la vignetta mostra la pagina intera.
+  if (input.ocr === true && deps.scaldaAnteprime) {
+    await deps.scaldaAnteprime(documento, raw.buffer);
   }
   if (parser.esito === "scansione_senza_testo") {
     return input.ocr

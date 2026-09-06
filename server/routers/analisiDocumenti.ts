@@ -30,7 +30,7 @@ import {
 } from "../documenti/analisi";
 import { analizzaConfermaPerOrdine } from "../documenti/analisiOrdine";
 import { estraiTestoDocumento } from "../documenti/parserRegistry";
-import { estraiConfermaOrdine } from "../documenti/estrazioneConferma";
+import { annotaAreeEstrazione, estraiConfermaOrdine } from "../documenti/estrazioneConferma";
 import {
   generaCandidatiOrdine,
   type OrdinePerCandidatura,
@@ -158,11 +158,16 @@ async function candidatiPerDocumento(input: {
   if (esitoParser.esito !== "estratto") {
     return { byteChecksum, esitoParser, esito: null } as const;
   }
-  const estrazione = estraiConfermaOrdine(esitoParser.pagine, {
-    codiceOrdine: null,
-    fornitoreNome: null,
-    righeOrdine: [],
-  });
+  // Le aree delle evidenze (anteprime «Dove l'ho letto») viaggiano con i
+  // segnali dei candidati: il dialog mostra da dove viene ogni segnale.
+  const estrazione = annotaAreeEstrazione(
+    estraiConfermaOrdine(esitoParser.pagine, {
+      codiceOrdine: null,
+      fornitoreNome: null,
+      righeOrdine: [],
+    }),
+    esitoParser.geometria
+  );
   const esito = generaCandidatiOrdine({
     pagine: esitoParser.pagine,
     estrazione,

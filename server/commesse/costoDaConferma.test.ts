@@ -584,3 +584,20 @@ describe("il worker legge le conferme archiviate prima della regola", () => {
     expect(costiDi(commessa.id)).toHaveLength(0);
   });
 });
+
+describe("le anteprime delle evidenze si scaldano nel percorso del worker", () => {
+  it("con l'OCR ammesso i byte già in mano scaldano le pagine; nel percorso dell'upload no", async () => {
+    const commessa = await nuovaCommessa("Tesconi Scaldata");
+    const documento = await carica(commessa.id, RIGHE_TESCONI);
+    const chiamate: number[] = [];
+    const scaldaAnteprime = async (doc: { id: number }) => {
+      chiamate.push(doc.id);
+    };
+    await registraCostoDaConferma({ documentoId: documento.id, forza: true, deps: { scaldaAnteprime } });
+    expect(chiamate).toEqual([]);
+    await registraCostoDaConferma({ documentoId: documento.id, ocr: true, forza: true, deps: { scaldaAnteprime } });
+    expect(chiamate).toEqual([documento.id]);
+    // Il costo non è cambiato per questo.
+    expect(costiDi(commessa.id)).toHaveLength(1);
+  });
+});
