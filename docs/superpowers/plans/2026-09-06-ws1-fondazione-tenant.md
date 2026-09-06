@@ -152,7 +152,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `server/tenants/regole.test.ts`
 
 **Interfaces:**
-- Produces: `TENANT_PREDEFINITO_ID = 1`, `TENANT_PREDEFINITO_SLUG`, `TENANT_PREDEFINITO_NOME`, `RUOLO_PROPRIETARIO = "proprietario"`, `CAPABILITY_PROPRIETARI = "tenant.manage_proprietari"`, `INTERVALLO_COMANDI_MS = 30_000`, `SLUG_RE`, `MESSAGGI`; tipi `TenantRecord`, `StatoTenant`, `Attore`, `TenantEvento`, `TipoEvento`, `TenantComando`, `TipoComando`, `StatoComando`, `attoreTesto(a)`; regole `slugValido`, `portaChiusaPerTenant`, `ruoliDi`, `contaPresidi`, `motivoRifiutoPresidio`, `proprietarioAggiunto`, `proprietarioTolto`, tipo `UtentePresidio`.
+- Produces: `TENANT_PREDEFINITO_ID = 1`, `TENANT_PREDEFINITO_SLUG`, `TENANT_PREDEFINITO_NOME`, `RUOLO_PROPRIETARIO = "proprietario"`, `CAPABILITY_PROPRIETARI = "tenant.manage_proprietari"`, `INTERVALLO_COMANDI_MS = 30_000`, `SLUG_RE`, `MESSAGGI`; tipi `TenantRecord`, `StatoTenant`, `Attore`, `TenantEvento`, `TipoEvento`, `TenantComando`, `TipoComando`, `StatoComando`, `attoreTesto(a)`; regole `slugValido`, `portaChiusaPerTenant`, `ruoliDi`, `contaPresidi`, `motivoRifiutoPresidio`, `proprietarioAggiunto`, `proprietarioTolto`, `presidioDi(u)`, `tenantDelContesto(ctx)`, tipo `UtentePresidio`.
 
 - [ ] **Step 1: Scrivi il test che fallisce**
 
@@ -163,10 +163,12 @@ import {
   contaPresidi,
   motivoRifiutoPresidio,
   portaChiusaPerTenant,
+  presidioDi,
   proprietarioAggiunto,
   proprietarioTolto,
   ruoliDi,
   slugValido,
+  tenantDelContesto,
   type UtentePresidio,
 } from "./regole";
 
@@ -242,6 +244,16 @@ describe("presìdi per tenant", () => {
     expect(proprietarioAggiunto(["proprietario"], ["proprietario"])).toBe(false);
     expect(proprietarioTolto(["proprietario"], ["direzione"])).toBe(true);
     expect(proprietarioTolto(["direzione"], ["direzione"])).toBe(false);
+  });
+
+  it("presidioDi legge un record utente qualunque, con tenant 1 di ripiego", () => {
+    expect(presidioDi({ id: 7, attivo: 1, ruoli: ["ordini"] })).toEqual({ id: 7, attivo: true, ruoli: ["ordini"], tenantId: 1 });
+    expect(presidioDi({ id: 8, attivo: true, ruolo: "direzione", tenantId: 3 })).toEqual({ id: 8, attivo: true, ruoli: ["direzione"], tenantId: 3 });
+  });
+
+  it("tenantDelContesto ricade su 1", () => {
+    expect(tenantDelContesto({ tenantId: null })).toBe(1);
+    expect(tenantDelContesto({ tenantId: 5 })).toBe(5);
   });
 });
 ```
@@ -424,6 +436,21 @@ export function proprietarioAggiunto(prima: readonly string[], dopo: readonly st
 
 export function proprietarioTolto(prima: readonly string[], dopo: readonly string[]): boolean {
   return prima.includes(RUOLO_PROPRIETARIO) && !dopo.includes(RUOLO_PROPRIETARIO);
+}
+
+/** La vista «presidio» di un record utente dello store (tenant 1 se il campo manca). */
+export function presidioDi(u: any): UtentePresidio {
+  return {
+    id: u.id,
+    attivo: Boolean(u.attivo),
+    ruoli: ruoliDi(u),
+    tenantId: typeof u.tenantId === "number" ? u.tenantId : TENANT_PREDEFINITO_ID,
+  };
+}
+
+/** Il tenant di un contesto: 1 quando il contesto non lo porta (interruttore spento). */
+export function tenantDelContesto(ctx: { tenantId: number | null }): number {
+  return ctx.tenantId ?? TENANT_PREDEFINITO_ID;
 }
 ```
 
@@ -2495,10 +2522,11 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import { CAPABILITY_PROPRIETARI, MESSAGGI, RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import {
   motivoRifiutoPresidio,
+  presidioDi,
   proprietarioAggiunto,
   proprietarioTolto,
   ruoliDi,
-  type UtentePresidio,
+  tenantDelContesto,
 } from "../tenants/regole";
 import { getTenantRepository } from "../tenants/repository";
 import { attoreTesto } from "../tenants/tipi";
@@ -2507,22 +2535,9 @@ import { attoreTesto } from "../tenants/tipi";
 import { DEFAULT_SEDE_ID, sediDelTenant, sedePredefinita } from "./sedi";
 ```
 
-`RUOLI` diventa otto valori: aggiungi `"proprietario",` in coda dopo `"ordini"`. Togli `isDirezioneAttivo` e `countDirezioneAttivi` (sostituiti dalle regole) e aggiungi gli helper:
+`RUOLI` diventa otto valori: aggiungi `"proprietario",` in coda dopo `"ordini"`. Togli `isDirezioneAttivo` e `countDirezioneAttivi` (sostituiti da `presidioDi` e `motivoRifiutoPresidio` di `regole.ts`) e aggiungi gli helper:
 
 ```ts
-function presidio(u: any): UtentePresidio {
-  return {
-    id: u.id,
-    attivo: Boolean(u.attivo),
-    ruoli: ruoliDi(u),
-    tenantId: typeof u.tenantId === "number" ? u.tenantId : TENANT_PREDEFINITO_ID,
-  };
-}
-
-function tenantDi(ctx: { tenantId: number | null }): number {
-  return ctx.tenantId ?? TENANT_PREDEFINITO_ID;
-}
-
 /** Ogni sede assegnata deve appartenere al tenant: altrimenti NOT_FOUND, mai un indizio. */
 function assertSediDelTenant(sediIds: number[], tenantId: number): void {
   const valide = new Set(sediDelTenant(tenantId).map(s => s.id));
@@ -2557,7 +2572,7 @@ function scopedUtenti(
   adminScope = false
 ) {
   const delTenant = interruttoreAttivo("multiAzienda")
-    ? utenti.filter(u => presidio(u).tenantId === tenantDi(ctx))
+    ? utenti.filter(u => presidioDi(u).tenantId === tenantDelContesto(ctx))
     : utenti;
   if (adminScope) {
     if (!isDirezione(ctx.user)) {
@@ -2594,7 +2609,7 @@ function scopedUtenti(
     )
     .mutation(async ({ input, ctx }) => {
       const multi = interruttoreAttivo("multiAzienda");
-      const tenantId = tenantDi(ctx);
+      const tenantId = tenantDelContesto(ctx);
       const sediIds =
         input.sediIds && input.sediIds.length > 0
           ? input.sediIds
@@ -2644,7 +2659,7 @@ function scopedUtenti(
       const before = idx === -1 ? null : utenti[idx];
       if (multi) assertTenantScope(before, ctx.tenantId);
       if (!before) throw new Error("Utente non trovato");
-      const tenantId = presidio(before).tenantId;
+      const tenantId = presidioDi(before).tenantId;
       const { id, ...updates } = input;
       // Never persist an empty sedi list — fall back to the tenant's first sede.
       if (updates.sediIds && updates.sediIds.length === 0) {
@@ -2665,7 +2680,7 @@ function scopedUtenti(
       if (aggiunto || (tolto && multi)) await assertPuoNominareProprietari(ctx, multi);
 
       const after = { ...before, ...updates };
-      const motivo = motivoRifiutoPresidio(presidio(before), presidio(after), utenti.map(presidio));
+      const motivo = motivoRifiutoPresidio(presidioDi(before), presidioDi(after), utenti.map(presidio));
       if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
 
       utenti[idx] = { ...after, updatedAt: new Date() };
@@ -2687,7 +2702,7 @@ function scopedUtenti(
     const before = idx === -1 ? null : utenti[idx];
     if (multi) assertTenantScope(before, ctx.tenantId);
     if (!before) throw new Error("Utente non trovato");
-    const motivo = motivoRifiutoPresidio(presidio(before), null, utenti.map(presidio));
+    const motivo = motivoRifiutoPresidio(presidioDi(before), null, utenti.map(presidio));
     if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
     utenti.splice(idx, 1);
     _store.save();
@@ -2697,17 +2712,13 @@ function scopedUtenti(
 
 - [ ] **Step 4: Modifica il router di `server/routers/sedi.ts`**
 
-Import: `import { interruttoreAttivo } from "../platform/interruttori";`, `import { assertTenantScope } from "../_core/permissions";`, `import { sediAmmesse } from "../tenants/contesto";` (import ciclico innocuo, usato solo negli handler).
+Import: `import { interruttoreAttivo } from "../platform/interruttori";`, `import { assertTenantScope } from "../_core/permissions";`, `import { tenantDelContesto } from "../tenants/regole";`, `import { sediAmmesse } from "../tenants/contesto";` (import ciclico innocuo, usato solo negli handler).
 
 ```ts
-function tenantDi(ctx: { tenantId: number | null }): number {
-  return ctx.tenantId ?? TENANT_PREDEFINITO_ID;
-}
-
 function ammesse(ctx: { user: any; tenantId: number | null }): Set<number> {
   return new Set(
     interruttoreAttivo("multiAzienda")
-      ? sediAmmesse(ctx.user, tenantDi(ctx))
+      ? sediAmmesse(ctx.user, tenantDelContesto(ctx))
       : allowedSediForUser(ctx.user)
   );
 }
@@ -2724,7 +2735,7 @@ export const sediRouter = router({
   // Every sede of the tenant, for direzione management.
   listAll: adminProcedure.query(({ ctx }) => {
     const visibili = interruttoreAttivo("multiAzienda")
-      ? sediDelTenant(tenantDi(ctx))
+      ? sediDelTenant(tenantDelContesto(ctx))
       : [...sedi];
     return visibili.sort((a, b) => a.nome.localeCompare(b.nome));
   }),
@@ -2744,7 +2755,7 @@ export const sediRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
-      const sede = creaSedeInterna({ tenantId: tenantDi(ctx), ...input });
+      const sede = creaSedeInterna({ tenantId: tenantDelContesto(ctx), ...input });
       _store.save();
       return sede;
     }),
@@ -3087,7 +3098,7 @@ import { creaSedeInterna, getSediPersistedStore, sediDelTenant } from "../router
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
-import { contaPresidi, motivoRifiutoPresidio, ruoliDi, slugValido, type UtentePresidio } from "./regole";
+import { contaPresidi, motivoRifiutoPresidio, presidioDi, ruoliDi, slugValido } from "./regole";
 import { getTenantRepository } from "./repository";
 import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
 
@@ -3111,18 +3122,9 @@ export type EsitoCrea = {
   creatoOra: boolean;
 };
 
-function presidio(u: any): UtentePresidio {
-  return {
-    id: u.id,
-    attivo: Boolean(u.attivo),
-    ruoli: ruoliDi(u),
-    tenantId: typeof u.tenantId === "number" ? u.tenantId : TENANT_PREDEFINITO_ID,
-  };
-}
-
 function utenteDelTenant(tenantId: number, utenteId: number): any {
   const utente = getUtentiStore().find(
-    (u: any) => u.id === utenteId && presidio(u).tenantId === tenantId
+    (u: any) => u.id === utenteId && presidioDi(u).tenantId === tenantId
   );
   if (!utente) throw new Error(`Utente ${utenteId} inesistente nel tenant ${tenantId}`);
   return utente;
@@ -3154,7 +3156,7 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
   const utenti = getUtentiStore();
   const email = input.proprietario.email.toLowerCase();
   let utente: any = utenti.find((u: any) => u.email.toLowerCase() === email) ?? null;
-  if (utente && presidio(utente).tenantId !== tenantId) {
+  if (utente && presidioDi(utente).tenantId !== tenantId) {
     throw new Error("Email già in uso da un'altra azienda");
   }
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
@@ -3244,8 +3246,8 @@ export async function revocaProprietario(tenantId: number, utenteId: number, att
   const utente = utenteDelTenant(tenantId, utenteId);
   const ruoli = ruoliDi(utente);
   if (!ruoli.includes(RUOLO_PROPRIETARIO)) return;
-  const dopo = { ...presidio(utente), ruoli: ruoli.filter(r => r !== RUOLO_PROPRIETARIO) };
-  const motivo = motivoRifiutoPresidio(presidio(utente), dopo, getUtentiStore().map(presidio));
+  const dopo = { ...presidioDi(utente), ruoli: ruoli.filter(r => r !== RUOLO_PROPRIETARIO) };
+  const motivo = motivoRifiutoPresidio(presidioDi(utente), dopo, getUtentiStore().map(presidio));
   if (motivo) throw new Error(motivo);
   utente.ruoli = dopo.ruoli;
   utente.updatedAt = new Date();
@@ -3271,7 +3273,7 @@ export async function assicuraTenantPredefinito(): Promise<void> {
     if (contaPresidi(utenti.map(presidio), tenant.id).proprietari > 0) continue;
     const candidato = utenti
       .filter((u: any) => {
-        const p = presidio(u);
+        const p = presidioDi(u);
         return p.tenantId === tenant.id && p.attivo && p.ruoli.includes("direzione") && p.ruoli.length < 3;
       })
       .sort((a: any, b: any) => a.id - b.id)[0];
@@ -3293,7 +3295,7 @@ export async function assicuraTenantPredefinito(): Promise<void> {
     console.log(`[tenants] tenant ${tenant.id}: proprietario di ripiego = utente ${candidato.id}`);
   }
   const t1 = repo.perId(TENANT_PREDEFINITO_ID);
-  const utentiT1 = utenti.filter((u: any) => presidio(u).tenantId === TENANT_PREDEFINITO_ID).length;
+  const utentiT1 = utenti.filter((u: any) => presidioDi(u).tenantId === TENANT_PREDEFINITO_ID).length;
   console.log(
     `[tenants] tenant ${TENANT_PREDEFINITO_ID} (${t1?.slug}) pronto: ${utentiT1} utenti, ${sediDelTenant(TENANT_PREDEFINITO_ID).length} sedi`
   );
@@ -3320,7 +3322,7 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         const p = schemaPayloadProprietario.parse(comando.payload);
         const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
         const utente = getUtentiStore().find(
-          (u: any) => u.email.toLowerCase() === p.email.toLowerCase() && presidio(u).tenantId === id
+          (u: any) => u.email.toLowerCase() === p.email.toLowerCase() && presidioDi(u).tenantId === id
         );
         if (!utente) throw new Error(`Nessun utente ${p.email} nel tenant ${id}`);
         if (comando.tipo === "assegna_proprietario") await assegnaProprietario(id, utente.id, attore);
