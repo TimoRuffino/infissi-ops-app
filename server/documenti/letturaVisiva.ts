@@ -144,7 +144,10 @@ export async function trascriviImmagini(input: {
   identita: IdentitaLettura;
   nome: string;
   deps?: Partial<DipendenzeVisione>;
+  /** Pagine ammesse (default MAX_PAGINE_VISIONE): un contratto ne ha più di una conferma d'ordine. */
+  maxPagine?: number;
 }): Promise<EsitoVisione> {
+  const maxPagine = input.maxPagine ?? MAX_PAGINE_VISIONE;
   const deps: DipendenzeVisione = { ...dipendenzeVisioneReali(), ...input.deps };
   if (!interruttoreAttivo("letturaVisiva")) {
     return {
@@ -155,10 +158,10 @@ export async function trascriviImmagini(input: {
   if (input.immagini.length === 0) {
     return { esito: "visione_fallita", motivo: "Nessuna pagina da trascrivere." };
   }
-  if (input.immagini.length > MAX_PAGINE_VISIONE) {
+  if (input.immagini.length > maxPagine) {
     return {
       esito: "visione_fallita",
-      motivo: `Il documento ha ${input.immagini.length} pagine: oltre il limite di ${MAX_PAGINE_VISIONE} per la lettura visiva.`,
+      motivo: `Il documento ha ${input.immagini.length} pagine: oltre il limite di ${maxPagine} per la lettura visiva.`,
     };
   }
   const troppoGrande = input.immagini.find(i => i.bytes.length > MAX_BYTE_IMMAGINE);

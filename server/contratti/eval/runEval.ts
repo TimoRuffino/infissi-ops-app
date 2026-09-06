@@ -173,7 +173,7 @@ async function eseguiCasoContratto(
     caso.bytes,
     "application/pdf",
     `${caso.nome}.pdf`,
-    letturaVisiva ? { ocr: false, visione: { sedeId: 0, utenteId: 0, maxPagine: PAGINE_VISIONE_CONTRATTO } } : undefined
+    letturaVisiva ? { ocr: false, visione: { sedeId: 0, utenteId: 0, maxPagine: PAGINE_VISIONE_CONTRATTO, troncaOltre: true } } : undefined
   );
   esito.tempoMs = Date.now() - partenza;
   esito.esitoParser = parser.esito;

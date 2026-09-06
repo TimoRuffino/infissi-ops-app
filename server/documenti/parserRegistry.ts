@@ -198,6 +198,8 @@ export type OpzioneVisione = IdentitaLettura & {
   deps?: Partial<DipendenzeVisione>;
   /** Pagine da trascrivere (default MAX_PAGINE_VISIONE): un contratto ne ha più di una conferma d'ordine. */
   maxPagine?: number;
+  /** Oltre `maxPagine`: leggere le prime pagine e dirlo (contratti), invece di rifiutare il documento (conferme). */
+  troncaOltre?: boolean;
 };
 
 /**
@@ -221,22 +223,27 @@ async function tentaVisione(
         : precedente;
 
   let immagini: Array<{ bytes: Buffer; mime: string }>;
+  const avvertenzeTroncamento: string[] = [];
   if (MIME_VISIONE.test(mimeType ?? "")) {
     immagini = [{ bytes, mime: (mimeType ?? "").toLowerCase().replace("image/jpg", "image/jpeg") }];
   } else if (MIME_IMMAGINE.test(mimeType ?? "")) {
     return conMotivo(`Lettura visiva: il formato ${mimeType} non è accettato dal modello (converti in JPEG o PNG).`);
   } else {
+    const maxPagine = visione.maxPagine ?? MAX_PAGINE_VISIONE;
+    const pagineTotali = precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null;
+    const troncata = visione.troncaOltre === true && pagineTotali != null && pagineTotali > maxPagine;
     const rendering = await renderizzaPaginePng(bytes, {
       dpi: DPI_VISIONE,
-      maxPagine: visione.maxPagine ?? MAX_PAGINE_VISIONE,
+      maxPagine,
       timeoutMs: TIMEOUT_RENDERING_VISIONE_MS,
-      numeroPagine:
-        precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null,
+      // Con `troncaOltre` il numero di pagine non si dichiara: pdftoppm rende le prime `maxPagine`.
+      numeroPagine: troncata ? null : pagineTotali,
     });
     if (rendering.esito === "errore") {
       return conMotivo(`Lettura visiva non riuscita: ${rendering.motivo}`);
     }
     immagini = rendering.immagini.map(png => ({ bytes: png, mime: "image/png" }));
+    if (troncata) avvertenzeTroncamento.push(`Lettura visiva delle prime ${immagini.length} pagine su ${pagineTotali}: il resto del documento non è stato letto.`);
   }
 
   const trascrizione = await trascriviImmagini({
@@ -244,6 +251,7 @@ async function tentaVisione(
     identita: { sedeId: visione.sedeId, utenteId: visione.utenteId },
     nome: nomeFile,
     deps: visione.deps,
+    maxPagine: visione.maxPagine,
   });
   if (trascrizione.esito !== "trascritto") {
     console.info("[visione] non riuscita", { file: nomeFile.slice(0, 60), motivo: trascrizione.motivo });
@@ -264,6 +272,7 @@ async function tentaVisione(
     pagine: trascrizione.pagine,
     avvertenze: [
       `Testo trascritto dal modello (${trascrizione.modello}, ${trascrizione.pagine.length} pagine): verificare gli importi sul documento originale.`,
+      ...avvertenzeTroncamento,
     ],
     visione: {
       modello: trascrizione.modello,

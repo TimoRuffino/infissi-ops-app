@@ -268,7 +268,7 @@ async function eseguiEstrazioneCorpo(
   // studio, 06/09/2026: su 21 contratti scansionati l'OCR sbagliava cifre e
   // un prezzo di riga su tre). Un contratto ha più pagine di una conferma.
   const esitoParser = await estrai(buffer, documento.mimeType, documento.nome, {
-    visione: { sedeId, utenteId: actorUserId ?? 0, maxPagine: PAGINE_VISIONE_CONTRATTO },
+    visione: { sedeId, utenteId: actorUserId ?? 0, maxPagine: PAGINE_VISIONE_CONTRATTO, troncaOltre: true },
   });
   if (esitoParser.esito !== "estratto") {
     throw new Error(`PRECONDIZIONE: ${motivoLetturaFallita(esitoParser)}`);
