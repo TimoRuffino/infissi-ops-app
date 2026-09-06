@@ -19,6 +19,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import type { GeometriaPagina, RigaGeometria } from "@shared/documenti/evidenze";
 import { interruttoreAttivo } from "../platform/interruttori";
 
 const execFileAsync = promisify(execFile);
@@ -58,6 +59,12 @@ export type PaginaOcr = {
   /** Confidenza media (0-100) delle parole riconosciute nella pagina. */
   confidenza: number;
   parole: number;
+  /**
+   * Riquadri delle parole e delle righe, in pixel dell'immagine riconosciuta
+   * (06/09/2026, anteprime delle evidenze). Null se il TSV non dichiara le
+   * misure della pagina.
+   */
+  geometria: GeometriaPagina | null;
 };
 
 export type EsitoOcr =
@@ -185,29 +192,85 @@ let codaOcr: Promise<unknown> = Promise.resolve();
 const cacheRisultati = new Map<string, EsitoOcr>();
 const MAX_CACHE_RISULTATI = 20;
 
-function parseTsv(tsv: string): PaginaOcr {
-  const righe = tsv.split("\n");
-  const parti: string[] = [];
-  const confidenze: number[] = [];
-  let ultimaRigaChiave = "";
-  for (const riga of righe) {
+/**
+ * Il TSV di tesseract: una riga per parola (livello 5) con blocco,
+ * paragrafo, riga, riquadro `left top width height` e confidenza; la riga
+ * di livello 1 porta le misure della pagina. Il testo esce come prima
+ * (parole unite da uno spazio, righe da un a-capo); la geometria è
+ * allineata per costruzione: riga i del testo, riga i della geometria.
+ */
+export function parseTsv(tsv: string): PaginaOcr {
+  type Parola = { testo: string; conf: number; x0: number; y0: number; x1: number; y1: number };
+  const gruppi: Array<{ chiave: string; parole: Parola[] }> = [];
+  let larghezzaPagina: number | null = null;
+  let altezzaPagina: number | null = null;
+  for (const riga of tsv.split("\n")) {
     const colonne = riga.split("\t");
-    if (colonne.length < 12 || colonne[0] !== "5") continue; // level 5 = parola
+    if (colonne.length < 12) continue;
+    if (colonne[0] === "1") {
+      // level 1 = pagina: left top width height sono le misure dell'immagine.
+      const larghezza = Number(colonne[8]);
+      const altezza = Number(colonne[9]);
+      if (larghezza > 0 && altezza > 0) {
+        larghezzaPagina = larghezza;
+        altezzaPagina = altezza;
+      }
+      continue;
+    }
+    if (colonne[0] !== "5") continue; // level 5 = parola
     const conf = Number(colonne[10]);
     const testo = colonne.slice(11).join("\t").trim();
     if (!testo) continue;
-    const rigaChiave = `${colonne[2]}|${colonne[3]}|${colonne[4]}`; // blocco|par|riga
-    if (ultimaRigaChiave && rigaChiave !== ultimaRigaChiave) parti.push("\n");
-    else if (parti.length > 0) parti.push(" ");
-    ultimaRigaChiave = rigaChiave;
-    parti.push(testo);
-    if (Number.isFinite(conf) && conf >= 0) confidenze.push(conf);
+    const chiave = `${colonne[2]}|${colonne[3]}|${colonne[4]}`; // blocco|par|riga
+    const left = Number(colonne[6]);
+    const top = Number(colonne[7]);
+    const width = Number(colonne[8]);
+    const height = Number(colonne[9]);
+    const parola: Parola = {
+      testo,
+      conf: Number.isFinite(conf) && conf >= 0 ? conf : -1,
+      x0: Number.isFinite(left) ? left : 0,
+      y0: Number.isFinite(top) ? top : 0,
+      x1: Number.isFinite(left) && Number.isFinite(width) ? left + width : 0,
+      y1: Number.isFinite(top) && Number.isFinite(height) ? top + height : 0,
+    };
+    const ultimo = gruppi[gruppi.length - 1];
+    if (ultimo && ultimo.chiave === chiave) ultimo.parole.push(parola);
+    else gruppi.push({ chiave, parole: [parola] });
   }
-  const testo = parti.join("").replace(/[ \t]+\n/g, "\n").trim();
+
+  const righeTesto: string[] = [];
+  const righe: RigaGeometria[] = [];
+  const confidenze: number[] = [];
+  let scarto = 0;
+  for (const gruppo of gruppi) {
+    const tratti: RigaGeometria["tratti"] = [];
+    let rigaTesto = "";
+    for (const parola of gruppo.parole) {
+      if (rigaTesto.length > 0) rigaTesto += " ";
+      const inizio = rigaTesto.length;
+      rigaTesto += parola.testo;
+      tratti.push({ testo: parola.testo, inizio, fine: rigaTesto.length, x0: parola.x0, x1: parola.x1 });
+      if (parola.conf >= 0) confidenze.push(parola.conf);
+    }
+    righeTesto.push(rigaTesto);
+    righe.push({
+      inizio: scarto,
+      y0: Math.min(...gruppo.parole.map(p => p.y0)),
+      y1: Math.max(...gruppo.parole.map(p => p.y1)),
+      tratti,
+    });
+    scarto += rigaTesto.length + 1;
+  }
+  const testo = righeTesto.join("\n");
   const confidenza = confidenze.length
     ? Math.round(confidenze.reduce((s, c) => s + c, 0) / confidenze.length)
     : 0;
-  return { testo, confidenza, parole: confidenze.length };
+  const geometria: GeometriaPagina | null =
+    larghezzaPagina != null && altezzaPagina != null
+      ? { larghezza: larghezzaPagina, altezza: altezzaPagina, allineata: true, righe }
+      : null;
+  return { testo, confidenza, parole: confidenze.length, geometria };
 }
 
 export function richiedeRevisione(pagine: PaginaOcr[]): boolean {
@@ -226,22 +289,34 @@ export type EsitoRendering =
   | { esito: "ok"; immagini: Buffer[] }
   | { esito: "errore"; motivo: string };
 
+export type OpzioniRendering = {
+  dpi: number;
+  maxPagine: number;
+  timeoutMs: number;
+  numeroPagine?: number | null;
+  binari?: Partial<ConfigOcr["binari"]>;
+  /** PNG per OCR e visione (default); JPEG per le anteprime delle evidenze. */
+  formato?: "png" | "jpeg";
+  /** Qualità JPEG 1-100 (default 75); ignorata per il PNG. */
+  qualita?: number;
+};
+
 /**
- * Le pagine di un PDF come PNG (pdftoppm, argomenti fissi, nessuna shell),
- * in una directory temporanea che sparisce sempre. Serve all'OCR locale e
- * alla lettura visiva con il modello, che vogliono la stessa immagine.
+ * Le pagine di un PDF come immagini (pdftoppm, argomenti fissi, nessuna
+ * shell), in una directory temporanea che sparisce sempre. Serve all'OCR
+ * locale, alla lettura visiva con il modello e alle anteprime delle
+ * evidenze, che vogliono la stessa immagine.
  */
-export async function renderizzaPaginePng(
+export async function renderizzaPagine(
   bytes: Buffer,
-  opzioni: {
-    dpi: number;
-    maxPagine: number;
-    timeoutMs: number;
-    numeroPagine?: number | null;
-    binari?: Partial<ConfigOcr["binari"]>;
-  }
+  opzioni: OpzioniRendering
 ): Promise<EsitoRendering> {
   const binari = { ...configOcrDefault().binari, ...opzioni.binari };
+  const jpeg = opzioni.formato === "jpeg";
+  const estensione = jpeg ? ".jpg" : ".png";
+  const argomentiFormato = jpeg
+    ? ["-jpeg", "-jpegopt", `quality=${Math.min(100, Math.max(1, Math.round(opzioni.qualita ?? 75)))}`]
+    : ["-png"];
   if (opzioni.numeroPagine != null && opzioni.numeroPagine > opzioni.maxPagine) {
     return {
       esito: "errore",
@@ -259,7 +334,7 @@ export async function renderizzaPaginePng(
         [
           "-r",
           String(opzioni.dpi),
-          "-png",
+          ...argomentiFormato,
           "-f",
           "1",
           "-l",
@@ -282,7 +357,7 @@ export async function renderizzaPaginePng(
       };
     }
     const nomi = (await fs.readdir(cartella))
-      .filter(nome => nome.startsWith("pagina") && nome.endsWith(".png"))
+      .filter(nome => nome.startsWith("pagina") && nome.endsWith(estensione))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
     if (nomi.length === 0) {
       return { esito: "errore", motivo: "Il rendering non ha prodotto pagine (PDF vuoto o corrotto)." };
@@ -304,6 +379,14 @@ export async function renderizzaPaginePng(
   } finally {
     if (cartella) await fs.rm(cartella, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/** Le pagine come PNG: il nome storico, usato da OCR e lettura visiva. */
+export function renderizzaPaginePng(
+  bytes: Buffer,
+  opzioni: Omit<OpzioniRendering, "formato" | "qualita">
+): Promise<EsitoRendering> {
+  return renderizzaPagine(bytes, { ...opzioni, formato: "png" });
 }
 
 /** Tesseract su UN'immagine già pronta (PNG/JPEG/…): argomenti fissi, nessuna shell. */

@@ -22,6 +22,7 @@ import {
   eseguiOcrPdf,
   firmaOcrCorrente,
   lingueEffettive,
+  parseTsv,
   richiedeRevisione,
 } from "./ocr";
 import { estraiTestoDocumento } from "./parserRegistry";
@@ -279,5 +280,36 @@ describe.skipIf(!binariPresenti)("ocr — con i binari reali", { timeout: 120_00
     });
     expect(terzo.riusata).toBe(true);
     expect(terzo.run.id).toBe(analizzato.run.id);
+  });
+});
+
+describe("parseTsv — testo e riquadri delle parole", () => {
+  it("tiene i riquadri, le righe e gli scarti dentro la riga", () => {
+    const tsv = [
+      "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+      "1\t1\t0\t0\t0\t0\t0\t0\t1240\t1754\t-1\t",
+      "5\t1\t1\t1\t1\t1\t100\t200\t120\t30\t95\tTotale",
+      "5\t1\t1\t1\t1\t2\t230\t200\t160\t30\t93\timponibile",
+      "5\t1\t1\t1\t1\t3\t900\t200\t140\t30\t91\t7.762,25",
+      "5\t1\t1\t1\t2\t1\t100\t250\t60\t30\t90\tIVA",
+    ].join("\n");
+    const pagina = parseTsv(tsv);
+    expect(pagina.testo).toBe("Totale imponibile 7.762,25\nIVA");
+    expect(pagina.confidenza).toBe(92);
+    expect(pagina.parole).toBe(4);
+    expect(pagina.geometria).toMatchObject({ larghezza: 1240, altezza: 1754, allineata: true });
+    const [riga1, riga2] = pagina.geometria!.righe;
+    expect(riga1.inizio).toBe(0);
+    expect(riga2.inizio).toBe("Totale imponibile 7.762,25".length + 1);
+    const valore = riga1.tratti[2];
+    expect(pagina.testo.slice(valore.inizio, valore.fine)).toBe("7.762,25");
+    expect(valore).toMatchObject({ x0: 900, x1: 1040 });
+    expect(riga1).toMatchObject({ y0: 200, y1: 230 });
+  });
+
+  it("senza la riga di pagina del TSV la geometria manca ma il testo c'è", () => {
+    const pagina = parseTsv("5\t1\t1\t1\t1\t1\t10\t10\t50\t20\t80\tciao\n");
+    expect(pagina.testo).toBe("ciao");
+    expect(pagina.geometria).toBeNull();
   });
 });
