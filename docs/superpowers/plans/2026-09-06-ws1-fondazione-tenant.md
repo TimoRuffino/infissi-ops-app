@@ -1910,10 +1910,24 @@ for p in files:
         print("patch", p)
 ```
 
-Poi:
+Poi verifica la completezza del codemod. Attenzione: `tsconfig.json` esclude `**/*.test.ts`, quindi `pnpm check` NON prova i test. La verifica è questa ricerca, da eseguire dalla radice (stampa i literal di contesto ancora senza `tenantId`):
 
-Run: `pnpm check`
-Expected: zero errori. Se `tsc` segnala ancora `Property 'tenantId' is missing in type … 'TrpcContext'`, il literal ha `sediIds` su più righe o `res:` lontano: aggiungi a mano `tenantId: 1,` e `tenant: null,` accanto a `sediIds` in quel literal e rilancia `pnpm check` finché è verde. Elenca i file corretti a mano nel messaggio di commit.
+```python
+# /tmp/verifica-contesti.py — una tantum, NON si committa
+import pathlib, re
+RADICI = ["server", "client/src", "shared"]
+for p in [q for r in RADICI for q in pathlib.Path(r).rglob("*.test.ts")]:
+    righe = p.read_text(encoding="utf-8").split("\n")
+    for i, riga in enumerate(righe):
+        if not re.match(r"^\s*sediIds\b", riga):
+            continue
+        finestra = righe[max(0, i - 14):i] + righe[i + 1:i + 8]
+        if any(re.match(r"^\s*res:", r) for r in finestra) and not any(re.match(r"^\s*tenantId:", r) for r in finestra):
+            print(f"{p}:{i + 1}: {riga.strip()}")
+```
+
+Run: `python3 /tmp/verifica-contesti.py`
+Expected: nessuna riga. Per ogni riga stampata (literal con `sediIds` su più righe o `res:` lontano) aggiungi a mano `tenantId: 1,` e `tenant: null,` accanto a `sediIds` e rilancia lo script finché tace. Elenca i file corretti a mano nel messaggio di commit. La rete definitiva è il Task 7: un contesto senza `tenantId` fallirebbe con «L'azienda non è ancora attiva su questa installazione.».
 
 - [ ] **Step 6: Esegui la suite intera**
 
