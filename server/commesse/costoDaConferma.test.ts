@@ -299,6 +299,24 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
     expect(merceDi(commessa.id)).toHaveLength(3);
   });
 
+  it("la lettura ricorda dove ha letto imponibile e righe, con l'area sulla pagina (anteprime delle evidenze)", async () => {
+    const commessa = await inOrdine("Tesconi Evidenze");
+    const documento = await carica(commessa.id, RIGHE_CON_MERCE);
+    const lettura = getDocumentoRecordById(documento.id)?.letturaCosto!;
+    expect(lettura.versione).toBe("1.9.0");
+    expect(lettura.evidenze?.imponibile).toMatchObject({ pagina: 1 });
+    expect(lettura.evidenze?.imponibile?.frammento.toLowerCase()).toContain("imponibile");
+    expect(lettura.evidenze?.imponibile?.area?.grado).toBe("riquadro");
+    expect(lettura.evidenze?.numeroConferma?.area?.grado).toBe("riquadro");
+    expect(lettura.evidenze?.riscontro).toEqual([]);
+    const righe = merceDi(commessa.id);
+    expect(righe[0].evidenza).toMatchObject({ pagina: 1 });
+    expect(righe[0].evidenza?.frammento).toContain("Finestra 2 ante");
+    expect(righe[0].evidenza?.area?.grado).toBe("riquadro");
+    // Le due righe di merce stanno su righe diverse della pagina.
+    expect(righe[0].evidenza?.area?.riga?.y).not.toBe(righe[1].evidenza?.area?.riga?.y);
+  });
+
   it("senza righe riconoscibili entra una riga sola da completare, e la merce segue il documento", async () => {
     const origine = await inOrdine("Solo Data");
     const destinazione = await inOrdine("Destinazione Merce");

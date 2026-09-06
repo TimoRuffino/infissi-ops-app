@@ -235,3 +235,26 @@ describe("la conferma aggiornata dello stesso ordine", () => {
     expect(getDocumentoRecordById(seconda.id)?.letturaCosto?.motivo).toContain("1.709,44");
   });
 });
+
+describe("il salto alla lettura 1.9.0 (anteprime delle evidenze)", () => {
+  it("rilegge, riempie le evidenze e non tocca un solo costo", async () => {
+    const commessa = await direzione().commesse.create({ cliente: "Berardi Evidenze" });
+    const documento = await carica(commessa.id, "Conferma_evidenze.pdf", righeConferma("9101", "1.500,00", "330,00", "1.830,00"));
+    const [costo] = costiDi(commessa.id);
+    expect(costo.importo).toBe(1500);
+    // Una lettura della versione prima, senza evidenze.
+    const vecchia = getDocumentoRecordById(documento.id)!.letturaCosto!;
+    salvaLetturaCostoDocumento(documento.id, { ...vecchia, versione: "1.8.0", evidenze: undefined });
+
+    const esito = await registraCostoDaConferma({ documentoId: documento.id });
+    expect(esito.esito).toBe("gia_registrato");
+    const [dopo] = costiDi(commessa.id);
+    expect(dopo.id).toBe(costo.id);
+    expect(dopo.importo).toBe(1500);
+    expect(dopo.note).toBe(costo.note);
+    const lettura = getDocumentoRecordById(documento.id)!.letturaCosto!;
+    expect(lettura.versione).toBe("1.9.0");
+    expect(lettura.esito).toBe("registrato");
+    expect(lettura.evidenze?.imponibile?.area?.grado).toBe("riquadro");
+  });
+});

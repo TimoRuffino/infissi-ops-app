@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import type { EvidenzaLetta } from "@shared/documenti/evidenze";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
@@ -30,6 +31,12 @@ export type Prodotto = {
   note: string | null;
   /** La conferma d'ordine del fascicolo da cui la riga è nata (null = a mano). */
   documentoId: number | null;
+  /**
+   * Dove, nella conferma, sta la riga da cui questa è nata (06/09/2026,
+   * anteprime delle evidenze): pagina, frammento e area. Null a mano o per
+   * le righe lette prima di questo campo.
+   */
+  evidenza?: EvidenzaLetta | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -41,6 +48,7 @@ const _store = persistedStore<Prodotto>("magazzino_prodotti", (loaded) => {
     if ((p as any).numeroOrdine === undefined) (p as any).numeroOrdine = null;
     if ((p as any).dataOrdine === undefined) (p as any).dataOrdine = null;
     if ((p as any).documentoId === undefined) (p as any).documentoId = null;
+    if ((p as any).evidenza === undefined) (p as any).evidenza = null;
   }
 });
 const prodotti = _store.items;
@@ -73,7 +81,7 @@ export function creaProdottiDaConferma(input: {
   commessaId: number;
   sedeId: number;
   documentoId: number;
-  righe: ReadonlyArray<{ nome: string; quantita: number }>;
+  righe: ReadonlyArray<{ nome: string; quantita: number; evidenza?: EvidenzaLetta | null }>;
   fornitore: string | null;
   numeroOrdine: string | null;
   dataOrdine: string | null;
@@ -100,6 +108,7 @@ export function creaProdottiDaConferma(input: {
       arrivato: false,
       note: input.note,
       documentoId: input.documentoId,
+      evidenza: riga.evidenza ?? null,
       createdAt: now,
       updatedAt: now,
     };

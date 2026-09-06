@@ -2,6 +2,8 @@
 // è nato). Tipi puri: li importano sia il registro documenti sia il servizio
 // che legge le conferme, senza dipendenze fra loro.
 
+import type { EvidenzeLetturaCosto } from "@shared/documenti/evidenze";
+
 /**
  * Bump quando cambia il modo di leggere (estrattore, regole di aggancio):
  * il worker rilegge ogni conferma con una versione diversa.
@@ -20,7 +22,10 @@
 // legge (fonteTesto «visione»); le foto (jpeg, png) passano dall'OCR.
 // 1.8.0: un file con più conferme (Bertolotto) si legge a sezioni e il costo
 // è la somma degli imponibili, solo se ogni sezione ha il suo.
-export const VERSIONE_LETTURA_COSTO = "1.8.0";
+// 1.9.0 (06/09/2026): evidenze localizzate per campo (dove, nella pagina, è
+// stato letto ogni valore) e merce con la sua evidenza. Valori invariati:
+// la rilettura riempie le evidenze e non tocca un costo.
+export const VERSIONE_LETTURA_COSTO = "1.9.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -75,6 +80,12 @@ export type LetturaCostoDocumento = {
   duplicatoDi?: number | null;
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */
   riscontro?: { ok: boolean; prove: string[] } | null;
+  /**
+   * Dove, nella pagina, è stato letto ogni valore (1.9.0, anteprime delle
+   * evidenze): pagina, frammento e area normalizzata. `undefined` = lettura
+   * di una versione che non le scriveva; null = testo non letto.
+   */
+  evidenze?: EvidenzeLetturaCosto | null;
 };
 
 export type MerceDaConferma = {

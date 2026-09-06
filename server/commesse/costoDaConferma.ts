@@ -29,23 +29,33 @@
 // rapido — e il worker di fondo CON OCR, per le scansioni e per le conferme
 // già archiviate prima di questa regola.
 
+import type {
+  EvidenzaLetta,
+  EvidenzeLetturaCosto,
+  GeometriaPagina,
+} from "@shared/documenti/evidenze";
 import { getComunicazione } from "../comunicazioni/comunicazioni";
 import {
+  annotaAreeEstrazione,
   estraiConfermeNelDocumento,
+  type CampoEstratto,
   type EstrazioneConferma,
 } from "../documenti/estrazioneConferma";
 import {
+  annotaAreeMerce,
   dataDaSettimanaIso,
   ESTRATTORE_MERCE_VERSIONE,
   estraiRigheMerce,
 } from "../documenti/estrazioneMerce";
 import type { IdentitaLettura } from "../documenti/letturaVisiva";
+import { annotaEvidenza } from "../documenti/localizzatore";
 import {
   estraiTestoDocumento,
   type EsitoParser,
   type OpzioniLettura,
 } from "../documenti/parserRegistry";
 import {
+  evidenzeDelRiscontro,
   riferimentiOrdineDocumento,
   riscontroCommessaNelTesto,
   stessoOrdine,
@@ -639,6 +649,28 @@ export async function registraCostoDaConferma(input: {
       : fonteTesto === "visione"
         ? " — testo trascritto dal modello, verificare sul file"
         : "";
+  // ── Evidenze localizzate: dove, nella pagina, sta ogni valore letto ─────────
+  // (06/09/2026, anteprime «Dove l'ho letto»). La geometria viene dal parser;
+  // senza geometria l'area vale «pagina» e i valori non cambiano.
+  const geometria: ReadonlyArray<GeometriaPagina | null> = parser.geometria ?? [];
+  const estrazioneAnnotata = annotaAreeEstrazione(estrazione, geometria);
+  const letta = (c: CampoEstratto<unknown> | null | undefined): EvidenzaLetta | null =>
+    c
+      ? { pagina: c.evidenza.pagina, frammento: c.evidenza.frammento, area: c.evidenza.area ?? null }
+      : null;
+  const evidenze: EvidenzeLetturaCosto = {
+    imponibile: letta(estrazioneAnnotata.imponibileDocumento),
+    totale: letta(estrazioneAnnotata.totaleDocumento),
+    fornitore: letta(estrazioneAnnotata.fornitoreCitato),
+    numeroConferma: letta(estrazioneAnnotata.numeroConferma),
+    dataDocumento: letta(estrazioneAnnotata.dataDocumento),
+    riferimentoOrdine: letta(estrazioneAnnotata.riferimentoOrdine),
+    riferimentoCliente: letta(estrazioneAnnotata.riferimentoCliente),
+    consegna: letta(estrazioneAnnotata.dateConsegna[0] ?? estrazioneAnnotata.settimaneConsegna[0]),
+    approntamento: letta(estrazioneAnnotata.settimaneApprontamento?.[0]),
+    riscontro: [],
+  };
+
   const memoriaBase = {
     fonteTesto,
     imponibile,
@@ -648,12 +680,20 @@ export async function registraCostoDaConferma(input: {
     tentativi,
     riferimenti,
     sezioni,
+    evidenze,
   };
 
   // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
   let riscontro: RiscontroCommessa | null = null;
   if (origineAutomatica(documento) && !documento.riscontroConfermato) {
     riscontro = riscontroCommessaNelTesto(parser.pagine, riferimentiDellaCommessa(commessa));
+    if (riscontro.ok) {
+      evidenze.riscontro = evidenzeDelRiscontro(parser.pagine, riscontro).map(e => ({
+        pagina: e.pagina,
+        frammento: e.frammento,
+        area: annotaEvidenza(geometria, e),
+      }));
+    }
     if (!riscontro.ok) {
       const ritirato = ritira(commessa, documento);
       const motivo = `${riscontro.motivo} Archiviata dal solo oggetto della mail: verifica il file e, se è di questa commessa, conferma; altrimenti spostala o cancellala.${
@@ -739,6 +779,7 @@ export async function registraCostoDaConferma(input: {
     commessa,
     documento,
     pagine: parser.pagine,
+    geometria,
     estrazione,
     fornitore,
     numeroOrdine,
@@ -900,6 +941,8 @@ function applicaMerceDaConferma(input: {
   commessa: any;
   documento: Documento;
   pagine: string[];
+  /** La geometria del parser: dà alle righe la loro evidenza (anteprime). */
+  geometria?: ReadonlyArray<GeometriaPagina | null>;
   estrazione: EstrazioneConferma;
   fornitore: string | null;
   numeroOrdine: string | null;
@@ -967,7 +1010,7 @@ function applicaMerceDaConferma(input: {
             approntamento.dal ? ` (merce pronta dal fornitore dal ${approntamento.dal})` : ""
           }: la consegna va concordata, la data resta vuota.`
         : "";
-  const righe = estraiRigheMerce(input.pagine);
+  const righe = annotaAreeMerce(estraiRigheMerce(input.pagine), input.geometria);
   const nota = (
     righe.length > 0
       ? `Letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}.${notaConsegna}`
@@ -979,7 +1022,11 @@ function applicaMerceDaConferma(input: {
     documentoId: input.documento.id,
     righe:
       righe.length > 0
-        ? righe.map(r => ({ nome: r.nome, quantita: r.quantita }))
+        ? righe.map(r => ({
+            nome: r.nome,
+            quantita: r.quantita,
+            evidenza: { pagina: r.pagina, frammento: r.evidenza, area: r.area ?? null },
+          }))
         : [
             {
               nome: `Merce conferma d'ordine ${
