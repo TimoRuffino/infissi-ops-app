@@ -12,18 +12,50 @@
 // indirizzi, pagamenti, trasporto. Il risultato è dichiaratamente a bassa
 // confidenza: alimenta il magazzino, dove ogni riga resta modificabile.
 
+import type { GeometriaPagina, PosizioneEvidenza } from "@shared/documenti/evidenze";
+import { annotaEvidenza } from "./localizzatore";
+
 export type RigaMerce = {
   nome: string;
   quantita: number;
   /** La riga di testo da cui è stata letta, per chi vuole controllare. */
   evidenza: string;
   pagina: number; // 1-based
+  /** Scarti della riga nel testo della pagina (anteprime delle evidenze). */
+  posizione: { inizio: number; fine: number };
+  /** L'area sulla pagina resa, quando il localizzatore l'ha trovata. */
+  area?: PosizioneEvidenza | null;
 };
 
 // 1.2.0 (04/09/2026): righe a CELLE (tre spazi fra le colonne, come le
 // ricostruisce la geometria del PDF), unità a misura nel nome, righe uguali
 // che si sommano invece di sparire.
-export const ESTRATTORE_MERCE_VERSIONE = "1.2.0";
+// 1.3.0 (06/09/2026): ogni riga porta la posizione nel testo della pagina
+// (anteprime delle evidenze). Nomi e quantità non cambiano.
+export const ESTRATTORE_MERCE_VERSIONE = "1.3.0";
+
+/** Dove comincia ogni riga nel testo della pagina, separatori compresi. */
+function iniziRighe(testo: string): number[] {
+  const inizi = [0];
+  const re = /\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(testo)) !== null) inizi.push(m.index + m[0].length);
+  return inizi;
+}
+
+/**
+ * Le aree delle righe di merce dalla geometria del parser (anteprime delle
+ * evidenze): riquadro della riga letta, o «pagina» quando non si trova.
+ */
+export function annotaAreeMerce(
+  righe: readonly RigaMerce[],
+  geometria?: ReadonlyArray<GeometriaPagina | null>
+): RigaMerce[] {
+  return righe.map(r => ({
+    ...r,
+    area: annotaEvidenza(geometria, { pagina: r.pagina, frammento: r.evidenza, posizione: r.posizione }),
+  }));
+}
 
 const MASSIMO_RIGHE = 40;
 
@@ -254,10 +286,13 @@ export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
   const righe: RigaMerce[] = [];
   const visti = new Map<string, RigaMerce>();
   pagine.forEach((testo, indicePagina) => {
-    const linee = testo.split(/\r?\n/).map(r => r.replace(/\t/g, "  ").trim());
+    const grezze = testo.split(/\r?\n/);
+    const inizi = iniziRighe(testo);
+    const linee = grezze.map(r => r.replace(/\t/g, "  ").trim());
     for (let i = 0; i < linee.length; i += 1) {
       const riga = linee[i];
       if (riga.length < 8) continue;
+      const indiceRiga = i;
       const aCelle = leggiRigaCelle(riga, linee[i + 1] ?? null);
       if (aCelle?.usaRigaSotto) i += 1;
       const letta = aCelle ?? leggiRiga(riga) ?? leggiConRigaSotto(linee, i);
@@ -273,6 +308,10 @@ export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
         quantita: letta.quantita,
         evidenza: riga.trim().slice(0, 160),
         pagina: indicePagina + 1,
+        posizione: {
+          inizio: inizi[indiceRiga] ?? 0,
+          fine: (inizi[indiceRiga] ?? 0) + (grezze[indiceRiga]?.length ?? riga.length),
+        },
       };
       visti.set(chiave, nuova);
       righe.push(nuova);

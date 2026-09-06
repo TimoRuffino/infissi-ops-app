@@ -386,3 +386,144 @@ export function stessoOrdine(a: readonly string[], b: readonly string[]): string
   for (const rif of b) if (insieme.has(rif.toLowerCase())) return rif;
   return null;
 }
+
+// ── Evidenze del riscontro (06/09/2026, anteprime «Dove l'ho letto») ──────
+//
+// Le prove sono parole («cliente giacomazzi giulia», «codice COM-2026-096»,
+// «indirizzo crispi», «ordine 2634169»): qui si ritrovano nel testo della
+// pagina, con la stessa normalizzazione del riscontro ma conservando la
+// mappa verso i caratteri originali, così l'evidenza porta gli scarti veri.
+// Best effort dichiarato: una prova che non si rilocalizza non produce
+// un'evidenza, mai una posizione inventata.
+
+export type EvidenzaRiscontro = {
+  /** La prova come la scrive `riscontroCommessaNelTesto` («cliente rossi»). */
+  prova: string;
+  pagina: number; // 1-based
+  frammento: string;
+  posizione: { inizio: number; fine: number };
+};
+
+/**
+ * Testo normalizzato come `normalizza` (senza accenti, minuscolo, ogni
+ * sequenza non alfanumerica → uno spazio) e, per ogni suo carattere,
+ * l'indice del carattere ORIGINALE da cui viene.
+ */
+function normalizzaConMappa(testo: string): { testo: string; mappa: number[] } {
+  const caratteri: string[] = [];
+  const mappa: number[] = [];
+  let spazioPendente = false;
+  for (let i = 0; i < testo.length; i += 1) {
+    const normalizzato = senzaAccenti(testo[i]).replace(/[^a-z0-9]/g, "");
+    if (normalizzato.length === 0) {
+      spazioPendente = caratteri.length > 0;
+      continue;
+    }
+    if (spazioPendente) {
+      caratteri.push(" ");
+      mappa.push(i);
+      spazioPendente = false;
+    }
+    for (const c of normalizzato) {
+      caratteri.push(c);
+      mappa.push(i);
+    }
+  }
+  return { testo: caratteri.join(""), mappa };
+}
+
+/** Prime parole (con inizio nel testo normalizzato) consecutive che combaciano con i token, anche con un refuso. */
+function cercaParole(
+  testoNorm: string,
+  tokens: readonly string[],
+  fuzzy: boolean,
+  // Solo per cliente e indirizzo: una parola che identifica da sola (un
+  // cognome). Mai per un codice, dove «2026» dentro una data non prova niente.
+  parolaSola: boolean
+): { inizio: number; fine: number } | null {
+  const parole: Array<{ testo: string; inizio: number }> = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(testoNorm)) !== null) parole.push({ testo: m[0], inizio: m.index });
+  const uguale = (a: string, b: string) =>
+    a === b || (fuzzy && b.length >= 6 && a.length >= 5 && quasiUguali(a, b));
+  // Prima tutti i token vicini (entro tre parole l'uno dall'altro, in ordine).
+  for (let i = 0; i < parole.length; i += 1) {
+    if (!uguale(parole[i].testo, tokens[0])) continue;
+    let ultimo = i;
+    let ok = true;
+    for (let k = 1; k < tokens.length; k += 1) {
+      const prossimo = parole
+        .slice(ultimo + 1, ultimo + 4)
+        .findIndex(p => uguale(p.testo, tokens[k]));
+      if (prossimo < 0) {
+        ok = false;
+        break;
+      }
+      ultimo = ultimo + 1 + prossimo;
+    }
+    if (ok) {
+      return { inizio: parole[i].inizio, fine: parole[ultimo].inizio + parole[ultimo].testo.length };
+    }
+  }
+  // Poi la sola parola che identifica: la più lunga, senza cifre, almeno cinque lettere.
+  if (!parolaSola) return null;
+  const identificante = [...tokens]
+    .filter(t => !/\d/.test(t) && t.length >= 5)
+    .sort((a, b) => b.length - a.length)[0];
+  if (!identificante) return null;
+  const sola = parole.find(p => uguale(p.testo, identificante));
+  return sola ? { inizio: sola.inizio, fine: sola.inizio + sola.testo.length } : null;
+}
+
+/** Il testo compatto (senza spazi) e la mappa verso il testo normalizzato. */
+function cercaSenzaSpazi(
+  testoNorm: string,
+  compatto: string
+): { inizio: number; fine: number } | null {
+  const caratteri: string[] = [];
+  const indici: number[] = [];
+  for (let i = 0; i < testoNorm.length; i += 1) {
+    if (testoNorm[i] === " ") continue;
+    caratteri.push(testoNorm[i]);
+    indici.push(i);
+  }
+  const posizione = caratteri.join("").indexOf(compatto);
+  if (posizione < 0 || compatto.length === 0) return null;
+  return { inizio: indici[posizione], fine: indici[posizione + compatto.length - 1] + 1 };
+}
+
+export function evidenzeDelRiscontro(
+  pagine: readonly string[] | string,
+  riscontro: Pick<RiscontroCommessa, "prove">
+): EvidenzaRiscontro[] {
+  const elenco = Array.isArray(pagine) ? pagine : [String(pagine)];
+  const esiti: EvidenzaRiscontro[] = [];
+  for (const prova of riscontro.prove) {
+    const [tipo, ...resto] = prova.split(" ");
+    const fuzzy = resto[0]?.startsWith("~") ?? false;
+    const cercato = normalizza(resto.join(" ").replace(/~/g, ""));
+    const tokens = cercato.split(" ").filter(Boolean);
+    if (tokens.length === 0) continue;
+    for (const [i, pagina] of elenco.entries()) {
+      const { testo, mappa } = normalizzaConMappa(pagina);
+      if (testo.length === 0) continue;
+      const trovato =
+        tipo === "ordine"
+          ? cercaSenzaSpazi(testo, cercato.replace(/ /g, ""))
+          : (cercaParole(testo, tokens, fuzzy, tipo !== "codice") ??
+            (tipo === "codice" ? cercaSenzaSpazi(testo, cercato.replace(/ /g, "")) : null));
+      if (!trovato) continue;
+      const inizio = mappa[trovato.inizio];
+      const fine = mappa[Math.max(trovato.inizio, trovato.fine - 1)] + 1;
+      const frammento = pagina
+        .slice(Math.max(0, inizio - 40), Math.min(pagina.length, fine + 40))
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 160);
+      esiti.push({ prova, pagina: i + 1, frammento, posizione: { inizio, fine } });
+      break;
+    }
+  }
+  return esiti;
+}

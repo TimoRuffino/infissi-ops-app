@@ -10,19 +10,32 @@
 // Il testo resta un dato inerte: un "ignora le istruzioni" dentro il PDF è
 // un frammento come un altro.
 
+import type { GeometriaPagina, PosizioneEvidenza } from "@shared/documenti/evidenze";
 import { estraiCodiceCommessa } from "../routers/ficMatch";
+import { annotaEvidenza } from "./localizzatore";
 import { celleDiRiga } from "./testoPdf";
 
 // 1.1.0 (04/09/2026): righe a celle dalla geometria del PDF, imponibile per
 // aritmetica dell'IVA, fornitore dall'intestazione senza scambiarlo con
 // l'agente o la banca, «vs. riferimento» che non prende l'etichetta accanto.
-export const ESTRATTORE_CONFERMA_VERSIONE = "1.1.0";
+// 1.2.0 (06/09/2026): ogni evidenza porta la posizione del match nel testo
+// della pagina (anteprime delle evidenze). I valori non cambiano.
+export const ESTRATTORE_CONFERMA_VERSIONE = "1.2.0";
 
 export type Evidenza = {
   pagina: number; // 1-based
   frammento: string;
   metodo: "riferimento_certo" | "pattern_testo";
   confidenza: "alta" | "media" | "bassa";
+  /**
+   * Dove, nel testo della pagina, sta il match (scarti di carattere): lo
+   * scrive l'estrattore nel momento in cui trova il valore, così lo stesso
+   * «7.762,25» ripetuto due volte non è un'ambiguità (06/09/2026, anteprime
+   * delle evidenze). Assente per i frammenti sintetici (somma di sezioni).
+   */
+  posizione?: { inizio: number; fine: number } | null;
+  /** L'area sulla pagina resa, quando il localizzatore l'ha trovata. */
+  area?: PosizioneEvidenza | null;
 };
 
 export type CampoEstratto<T> = {
@@ -111,6 +124,40 @@ function evidenza(
     frammento: frammentoIntorno(pagine[pagina], indice, lunghezzaMatch),
     metodo,
     confidenza,
+    posizione: { inizio: indice, fine: indice + Math.max(1, lunghezzaMatch) },
+  };
+}
+
+/**
+ * Le aree delle evidenze dalla geometria del parser (anteprime delle
+ * evidenze): ogni campo estratto riceve il riquadro, la riga e il contesto
+ * del suo frammento, o «pagina» quando non si trova. Non cambia i valori.
+ */
+export function annotaAreeEstrazione(
+  e: EstrazioneConferma,
+  geometria?: ReadonlyArray<GeometriaPagina | null>
+): EstrazioneConferma {
+  const conArea = <T>(c: CampoEstratto<T> | null | undefined): CampoEstratto<T> | null =>
+    c ? { ...c, evidenza: { ...c.evidenza, area: annotaEvidenza(geometria, c.evidenza) } } : null;
+  const lista = <T>(l: ReadonlyArray<CampoEstratto<T>> | undefined): Array<CampoEstratto<T>> =>
+    (l ?? []).map(c => conArea(c)!);
+  return {
+    ...e,
+    riferimentoOrdine: conArea(e.riferimentoOrdine),
+    codiciCommessaCitati: lista(e.codiciCommessaCitati),
+    fornitoreCitato: conArea(e.fornitoreCitato),
+    numeroConferma: conArea(e.numeroConferma),
+    riferimentoCliente: conArea(e.riferimentoCliente),
+    dataDocumento: conArea(e.dataDocumento),
+    dateConsegna: lista(e.dateConsegna),
+    settimaneConsegna: lista(e.settimaneConsegna),
+    settimaneApprontamento: e.settimaneApprontamento?.map(c => ({
+      ...c,
+      evidenza: { ...c.evidenza, area: annotaEvidenza(geometria, c.evidenza) },
+    })),
+    totaleDocumento: conArea(e.totaleDocumento),
+    imponibileDocumento: conArea(e.imponibileDocumento),
+    righe: e.righe.map(r => ({ ...r, quantitaDocumento: conArea(r.quantitaDocumento) })),
   };
 }
 
@@ -884,10 +931,9 @@ export function estraiConfermaOrdine(
     // stessa riga di testo. Best effort dichiarato: confidenza bassa.
     const testoPagina = pagine[primo.pagina];
     const fineRiga = testoPagina.indexOf("\n", primo.match.index);
-    const rigaTesto = testoPagina.slice(
-      Math.max(0, testoPagina.lastIndexOf("\n", primo.match.index) + 1),
-      fineRiga === -1 ? testoPagina.length : fineRiga
-    );
+    const inizioRiga = Math.max(0, testoPagina.lastIndexOf("\n", primo.match.index) + 1);
+    const fineRigaEffettiva = fineRiga === -1 ? testoPagina.length : fineRiga;
+    const rigaTesto = testoPagina.slice(inizioRiga, fineRigaEffettiva);
     const quantitaMatch =
       /(?:^|\s)(?:n\.?\s*|q\.?t[àa]\.?\s*[:.]?\s*)?(\d{1,4})\s*(?:pz|pezzi|st(?:k|ück)?)\b/i.exec(
         rigaTesto
@@ -904,6 +950,7 @@ export function estraiConfermaOrdine(
               frammento: rigaTesto.replace(/\s+/g, " ").trim().slice(0, LUNGHEZZA_FRAMMENTO),
               metodo: "pattern_testo",
               confidenza: "bassa",
+              posizione: { inizio: inizioRiga, fine: fineRigaEffettiva },
             },
           }
         : null,
