@@ -70,6 +70,8 @@ function contestoTrpc(
     res: {} as any,
     sedeId: SEDE,
     sediIds: [SEDE],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

@@ -43,6 +43,8 @@ function makeCtx(sedeId = 1): TrpcContext {
     res: {} as TrpcContext["res"],
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

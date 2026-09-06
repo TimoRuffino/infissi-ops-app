@@ -61,6 +61,8 @@ function contestoTrpc(userId: number, roles: string[], sedeId = SEDE): TrpcConte
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

@@ -21,6 +21,8 @@ function ctx(): TrpcContext {
     res: {} as any,
     sedeId: SEDE,
     sediIds: [SEDE],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

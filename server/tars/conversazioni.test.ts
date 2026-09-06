@@ -35,6 +35,8 @@ function caller(utenteId = UTENTE, sedeId = SEDE) {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   } satisfies TrpcContext);
 }
 

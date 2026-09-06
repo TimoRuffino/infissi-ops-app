@@ -20,6 +20,8 @@ function ctx(sedeId = SEDE): TrpcContext {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 const caller = (sedeId = SEDE) => appRouter.createCaller(ctx(sedeId));

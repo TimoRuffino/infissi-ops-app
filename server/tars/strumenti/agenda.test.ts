@@ -22,6 +22,8 @@ function contestoTrpc(sedeId = SEDE): TrpcContext {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 const direzione = (sedeId = SEDE) => appRouter.createCaller(contestoTrpc(sedeId));

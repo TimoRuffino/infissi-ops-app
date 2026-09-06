@@ -80,6 +80,8 @@ function contestoTrpc(
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

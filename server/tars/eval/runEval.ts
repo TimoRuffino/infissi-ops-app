@@ -142,6 +142,8 @@ function contestoTrpc(
     } as any,
     req: { protocol: "http", headers: {} } as any,
     res: {} as any,
+    tenantId: 1,
+    tenant: null,
     sedeId,
     sediIds: [sedeId],
   };

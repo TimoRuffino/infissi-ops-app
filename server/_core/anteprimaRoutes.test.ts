@@ -41,6 +41,8 @@ vi.mock("./context", () => ({
           user: { id: sessione.corrente.userId, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "Dir" },
           sedeId: sessione.corrente.sedeId,
           sediIds: [sessione.corrente.sedeId],
+          tenantId: 1,
+          tenant: null,
           req: {},
           res: {},
         }
@@ -88,6 +90,8 @@ beforeAll(async () => {
     res: {} as any,
     sedeId: SEDE,
     sediIds: [SEDE],
+    tenantId: 1,
+    tenant: null,
   });
   const commessa = await caller.commesse.create({ cliente: "Rotta Anteprime" });
   const documento = await caricaDocumentoCommessaDaBuffer({
