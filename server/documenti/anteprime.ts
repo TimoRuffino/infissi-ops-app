@@ -13,7 +13,9 @@
 // resta solo un metadato piccolo (`Documento.anteprime`: versione, impronta,
 // formato, dpi, pagine, chiavi). Le anteprime sono derivate e rigenerabili:
 // se mancano si rifanno, se il documento sparisce spariscono con lui.
-// Le foto non si rendono: l'immagine è il documento stesso.
+// Le foto non si rendono: l'immagine è il documento stesso — tranne le HEIC
+// (iPhone), che il browser non mostra: la pagina 1 è la loro conversione in
+// JPEG, salvata come per un PDF (server/documenti/heic.ts).
 //
 // Spec: docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md §4.
 
@@ -25,6 +27,7 @@ import {
   salvaAnteprimeDocumento,
   type Documento,
 } from "../routers/preventiviContratti";
+import { convertiSeHeic, eHeic } from "./heic";
 import { renderizzaPagine } from "./ocr";
 
 /** Bump quando cambia il modo di rendere (dpi, formato): le vecchie si rifanno. */
@@ -68,9 +71,14 @@ function eImmagine(mimeType: string | null | undefined): boolean {
 }
 
 /** Le anteprime del documento valgono ancora: stessa versione e stessa impronta. */
-export function anteprimeValide(documento: Pick<Documento, "anteprime" | "checksum">): boolean {
+export function anteprimeValide(
+  documento: Pick<Documento, "anteprime" | "checksum" | "mimeType" | "nome">
+): boolean {
   const a = documento.anteprime;
   if (!a) return false;
+  // Una foto HEIC segnata «originale» viene da prima della conversione: il
+  // browser non la mostrerebbe, si rifà come JPEG.
+  if (a.formato === "originale" && eHeic(documento.mimeType, documento.nome)) return false;
   return a.versione === ANTEPRIME_VERSIONE && (a.checksum ?? null) === (documento.checksum ?? null);
 }
 
@@ -113,36 +121,53 @@ async function rendiAnteprimeInterno(input: {
     return null;
   }
   const checksum = documento.checksum ?? null;
+  let immagini: Buffer[];
+  let dpi = ANTEPRIME_DPI;
   if (eImmagine(documento.mimeType)) {
-    const meta: AnteprimeDocumento = {
-      versione: ANTEPRIME_VERSIONE,
-      checksum,
-      formato: "originale",
-      dpi: 0,
-      pagine: 1,
-      chiavi: [],
-      rese: new Date().toISOString(),
-    };
-    salvaAnteprimeDocumento(documento.id, meta);
-    return meta;
-  }
-  const rendering = await renderizzaPagine(bytes, {
-    dpi: ANTEPRIME_DPI,
-    maxPagine: ANTEPRIME_MAX_PAGINE,
-    timeoutMs: TIMEOUT_RENDERING_MS,
-    formato: "jpeg",
-    qualita: ANTEPRIME_QUALITA,
-  });
-  if (rendering.esito === "errore") {
-    console.warn("[anteprime] rendering fallito", {
-      documentoId: documento.id,
-      motivo: rendering.motivo.slice(0, 200),
+    if (!eHeic(documento.mimeType, documento.nome)) {
+      const meta: AnteprimeDocumento = {
+        versione: ANTEPRIME_VERSIONE,
+        checksum,
+        formato: "originale",
+        dpi: 0,
+        pagine: 1,
+        chiavi: [],
+        rese: new Date().toISOString(),
+      };
+      salvaAnteprimeDocumento(documento.id, meta);
+      return meta;
+    }
+    // Foto HEIC: il browser non la mostra, la pagina 1 è la conversione in JPEG.
+    const foto = await convertiSeHeic(bytes, documento.mimeType, documento.nome);
+    if (foto.esito === "errore") {
+      console.warn("[anteprime] foto HEIC non convertibile", {
+        documentoId: documento.id,
+        motivo: foto.motivo.slice(0, 200),
+      });
+      return null;
+    }
+    immagini = [foto.bytes];
+    dpi = 0;
+  } else {
+    const rendering = await renderizzaPagine(bytes, {
+      dpi: ANTEPRIME_DPI,
+      maxPagine: ANTEPRIME_MAX_PAGINE,
+      timeoutMs: TIMEOUT_RENDERING_MS,
+      formato: "jpeg",
+      qualita: ANTEPRIME_QUALITA,
     });
-    return null;
+    if (rendering.esito === "errore") {
+      console.warn("[anteprime] rendering fallito", {
+        documentoId: documento.id,
+        motivo: rendering.motivo.slice(0, 200),
+      });
+      return null;
+    }
+    immagini = rendering.immagini;
   }
   const chiavi: string[] = [];
   try {
-    for (const [indice, immagine] of rendering.immagini.entries()) {
+    for (const [indice, immagine] of immagini.entries()) {
       const salvata = await putFile(
         "anteprime",
         sedeId,
@@ -164,7 +189,7 @@ async function rendiAnteprimeInterno(input: {
     versione: ANTEPRIME_VERSIONE,
     checksum,
     formato: "jpeg",
-    dpi: ANTEPRIME_DPI,
+    dpi,
     pagine: chiavi.length,
     chiavi,
     rese: new Date().toISOString(),

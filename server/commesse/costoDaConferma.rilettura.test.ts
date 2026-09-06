@@ -253,7 +253,7 @@ describe("il salto alla lettura 1.9.0 (anteprime delle evidenze)", () => {
     expect(dopo.importo).toBe(1500);
     expect(dopo.note).toBe(costo.note);
     const lettura = getDocumentoRecordById(documento.id)!.letturaCosto!;
-    expect(lettura.versione).toBe("1.9.0");
+    expect(lettura.versione).toBe("1.10.0");
     expect(lettura.esito).toBe("registrato");
     expect(lettura.evidenze?.imponibile?.area?.grado).toBe("riquadro");
   });

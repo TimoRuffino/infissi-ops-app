@@ -303,7 +303,7 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
     const commessa = await inOrdine("Tesconi Evidenze");
     const documento = await carica(commessa.id, RIGHE_CON_MERCE);
     const lettura = getDocumentoRecordById(documento.id)?.letturaCosto!;
-    expect(lettura.versione).toBe("1.9.0");
+    expect(lettura.versione).toBe("1.10.0");
     expect(lettura.evidenze?.imponibile).toMatchObject({ pagina: 1 });
     expect(lettura.evidenze?.imponibile?.frammento.toLowerCase()).toContain("imponibile");
     expect(lettura.evidenze?.imponibile?.area?.grado).toBe("riquadro");

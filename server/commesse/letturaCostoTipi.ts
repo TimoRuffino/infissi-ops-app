@@ -25,7 +25,10 @@ import type { EvidenzeLetturaCosto } from "@shared/documenti/evidenze";
 // 1.9.0 (06/09/2026): evidenze localizzate per campo (dove, nella pagina, è
 // stato letto ogni valore) e merce con la sua evidenza. Valori invariati:
 // la rilettura riempie le evidenze e non tocca un costo.
-export const VERSIONE_LETTURA_COSTO = "1.9.0";
+// 1.10.0 (06/09/2026): le foto HEIC/HEIF (iPhone) si convertono in JPEG
+// prima della lettura: quelle finite «non leggibili» si rileggono. Valori
+// invariati per tutto il resto.
+export const VERSIONE_LETTURA_COSTO = "1.10.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;

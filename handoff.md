@@ -28,10 +28,13 @@
 > 150 dpi JPEG nello storage (`documenti/anteprime.ts`), scaldate dopo ogni
 > lettura e a richiesta, servite da `/api/documenti/:id/pagina/:n` con le
 > guardie del file più ETag e cache privata, dietro `FLAG_ANTEPRIME_EVIDENZE`
-> (fail-closed, spento in produzione finché non lo apri). Eval: metrica
-> «evidenze localizzate». **Non fatto dall'agente**: la verifica nel browser
-> a 1440×900 e 390×844 (serve il login demo), il tasto nella chat di Tars, la
-> conversione HEIC, la posizione grossolana dal modello, la coda «Da verificare».
+> (fail-closed; acceso in produzione dal 06/09 sera). Eval: metrica
+> «evidenze localizzate». Stesso giorno, poi: tasto nella chat di Tars,
+> riquadri anche con «visione prima», vignetta corretta dopo la prova in
+> produzione, e le foto HEIC convertite in JPEG in testa alla lettura e nelle
+> anteprime (`documenti/heic.ts`, lettura costo 1.10.0). **Non fatto
+> dall'agente**: la verifica nel browser a 1440×900 e 390×844 (serve il login
+> demo), la posizione grossolana dal modello, la coda «Da verificare».
 
 > **Novità 03/09/2026 sera — il costo fornitore nasce dalla conferma d'ordine.**
 > Regola di dominio deterministica (`server/commesse/costoDaConferma.ts`, piano
@@ -3961,11 +3964,13 @@ verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
     riga letta sempre visibile quando ci sta), struttura verificata su una
     pagina di prova statica nel pannello Browser, non nell'app; (2) FATTO il 06/09 sera: `leggi_conferma_ordine` 1.4.0 porta le evidenze
     localizzate e il thread di Tars mostra il tasto (registro 1.22.0); le
-    proposte dell'analisi restano senza; (3) conversione HEIC
-    prima della cascata; (4) posizione grossolana chiesta al modello quando
+    proposte dell'analisi restano senza; (3) FATTO il 06/09 sera: conversione
+    HEIC in testa alla cascata e nelle anteprime (`documenti/heic.ts`,
+    `heic-convert` senza pacchetti di sistema, lettura 1.10.0; test con una
+    foto vera via `sips`, saltati dove manca); (4) posizione grossolana chiesta al modello quando
     l'OCR non dà riquadri; (5) coda unica «Da verificare»; (6) i record
     vecchi mostrano «pagina intera» finché il worker non rilegge (lettura
-    1.9.0) o si preme «Rileggi» sul contratto; (7) `FLAG_ANTEPRIME_EVIDENZE`
+    1.10.0) o si preme «Rileggi» sul contratto; (7) `FLAG_ANTEPRIME_EVIDENZE`
     da accendere in Railway dopo il merge (runbook, fase 4); (8) FATTO il 06/09 sera: con «visione prima» tesseract gira solo per i
     riquadri a 150 dpi dopo la trascrizione (`parserRegistry.ts`), quindi
     anche i contratti scansionati hanno il riquadro; senza binari o con

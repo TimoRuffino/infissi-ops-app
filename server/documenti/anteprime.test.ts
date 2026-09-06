@@ -10,10 +10,12 @@ import {
   getDocumentoRecordById,
 } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
+import { heicDiProva } from "./heicDiProva";
 import { disponibilitaOcr } from "./ocr";
 import { pdfConTesto } from "./pdfMinimo";
 import {
   ANTEPRIME_VERSIONE,
+  anteprimeValide,
   leggiAnteprima,
   rendiAnteprime,
   scaldaAnteprime,
@@ -102,6 +104,7 @@ async function documentoInSede(
 }
 
 const binariPresenti = (await disponibilitaOcr()).disponibile;
+const fotoHeic = await heicDiProva(["Conferma", "Totale imponibile EUR 100,00"]);
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -194,5 +197,51 @@ describe.skipIf(!binariPresenti)("anteprime — con i binari reali", { timeout: 
     expect(getDocumentoRecordById(documento.id)?.anteprime).toBeNull();
     const seconda = await leggiAnteprima(documento.id, SEDE, 1);
     expect(seconda.esito).toBe("ok");
+  });
+});
+
+describe("anteprime — foto HEIC (il browser non le mostra: pagina 1 in JPEG)", () => {
+  it("un file chiamato HEIC con dentro un JPEG si serve come pagina JPEG, non come originale", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]);
+    const documento = await documentoInSede(SEDE, { mimeType: "image/heic", buffer: jpeg, nome: "IMG_0042.HEIC" });
+    const meta = await rendiAnteprime({ documento, sedeId: SEDE, bytes: jpeg });
+    expect(meta).toMatchObject({ formato: "jpeg", pagine: 1, dpi: 0 });
+    expect(meta!.chiavi).toHaveLength(1);
+    const letta = await leggiAnteprima(documento.id, SEDE, 1);
+    expect(letta.esito).toBe("ok");
+    if (letta.esito === "ok") {
+      expect(letta.mimeType).toBe("image/jpeg");
+      expect(letta.buffer.equals(jpeg)).toBe(true);
+    }
+  });
+
+  it("un HEIC corrotto non si rende: la vignetta rimanda al file", async () => {
+    const rotta = Buffer.from("non è una foto");
+    const documento = await documentoInSede(SEDE, { mimeType: "image/heic", buffer: rotta, nome: "rotta.heic" });
+    expect(await rendiAnteprime({ documento, sedeId: SEDE, bytes: rotta })).toBeNull();
+    expect(await leggiAnteprima(documento.id, SEDE, 1)).toMatchObject({ esito: "non_disponibile", codice: "rendering" });
+  });
+
+  it("una foto HEIC segnata «originale» (resa prima della conversione) non vale più", () => {
+    const anteprime = { versione: ANTEPRIME_VERSIONE, checksum: "abc", formato: "originale" as const, dpi: 0, pagine: 1, chiavi: [], rese: "" };
+    expect(anteprimeValide({ anteprime, checksum: "abc", mimeType: "image/heic", nome: "foto.heic" })).toBe(false);
+    expect(anteprimeValide({ anteprime, checksum: "abc", mimeType: "image/jpeg", nome: "foto.jpg" })).toBe(true);
+  });
+});
+
+describe.skipIf(!fotoHeic)("anteprime — foto HEIC vera (sips)", { timeout: 60_000 }, () => {
+  it("la pagina 1 è la conversione in JPEG, salvata nello storage e riletta come tale", async () => {
+    const documento = await documentoInSede(SEDE, { mimeType: "image/heic", buffer: fotoHeic!, nome: "IMG_0042.HEIC" });
+    const meta = await rendiAnteprime({ documento, sedeId: SEDE, bytes: fotoHeic! });
+    expect(meta).toMatchObject({ formato: "jpeg", pagine: 1, dpi: 0 });
+    const salvata = memoriaStorage.get(meta!.chiavi[0])!;
+    expect([...salvata.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+    expect(salvata.equals(fotoHeic!)).toBe(false);
+    const letta = await leggiAnteprima(documento.id, SEDE, 1);
+    expect(letta.esito).toBe("ok");
+    if (letta.esito === "ok") {
+      expect(letta.mimeType).toBe("image/jpeg");
+      expect(letta.buffer.equals(salvata)).toBe(true);
+    }
   });
 });

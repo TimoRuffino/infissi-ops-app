@@ -22,6 +22,7 @@ import {
   renderizzaPaginePng,
   type ConfigOcr,
 } from "./ocr";
+import { convertiSeHeic, eHeic } from "./heic";
 import {
   MAX_PAGINE_VISIONE,
   trascriviImmagini,
@@ -185,9 +186,11 @@ const MIME_IMMAGINE = /^image\/(?:jpeg|jpg|png|webp|gif|tiff|bmp|heic|heif)$/i;
  * non ha un livello di testo per definizione. Va all'OCR locale e, se
  * quello non basta, alla lettura visiva — come una scansione di una pagina.
  */
+// 1.1.0 (06/09/2026): le foto HEIC/HEIF si convertono in JPEG in testa alla
+// cascata (server/documenti/heic.ts): prima finivano «non leggibili».
 const immagine: ParserDocumento = {
   nome: "immagine",
-  versione: "1.0.0",
+  versione: "1.1.0",
   supporta: (mimeType, nomeFile) =>
     MIME_IMMAGINE.test(mimeType ?? "") ||
     /\.(?:jpe?g|png|webp|gif|tiff?|bmp|heic|heif)$/i.test(nomeFile),
@@ -462,14 +465,27 @@ export async function estraiTestoDocumento(
       motivo: `Nessun parser per «${mimeType || nomeFile}». Oggi so leggere PDF con testo (e scansioni via OCR locale); altri formati sono pianificati (docs/reports/d7-document-intelligence-piano.md).`,
     };
   }
-  const esito = await parser.estrai(bytes);
+  // Una foto HEIC (iPhone) non la apre nessuno a valle — né tesseract né il
+  // modello: si converte in JPEG qui, una volta, e da qui in poi la cascata
+  // vede un JPEG. Un HEIC corrotto è illeggibile con il motivo.
+  let byteLetti = bytes;
+  let mimeLetto = mimeType;
+  if (eHeic(mimeType, nomeFile)) {
+    const foto = await convertiSeHeic(bytes, mimeType, nomeFile);
+    if (foto.esito === "errore") {
+      return { esito: "illeggibile", parser: parser.nome, versione: parser.versione, motivo: foto.motivo };
+    }
+    byteLetti = foto.bytes;
+    mimeLetto = foto.mimeType;
+  }
+  const esito = await parser.estrai(byteLetti);
   if (esito.esito !== "scansione_senza_testo") return esito;
 
   // Scansione o foto: prima l'OCR locale (gratis), poi — se chi chiama lo
   // ammette — la lettura visiva quando l'OCR manca, fallisce o legge poco.
   let letto: EsitoParser = esito;
   if (opzioni?.visione && opzioni.preferisciVisione) {
-    letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
+    letto = await tentaVisione(byteLetti, mimeLetto, nomeFile, opzioni.visione, letto);
     if (letto.esito === "estratto") {
       // Il modello ha letto, ma non sa dove stanno le parole: tesseract gira
       // solo per i RIQUADRI (anteprime «Dove l'ho letto»), a 150 dpi e con
@@ -477,7 +493,7 @@ export async function estraiTestoDocumento(
       // manca o fallisce, le evidenze restano «pagina intera».
       if (!letto.geometria && opzioni.ocr !== false) {
         const partenza = Date.now();
-        const perRiquadri = await tentaOcr(bytes, mimeType, esito, {
+        const perRiquadri = await tentaOcr(byteLetti, mimeLetto, esito, {
           ...(opzioni.ocr === undefined ? {} : opzioni.ocr),
           dpi: DPI_VISIONE,
           timeoutTotaleMs: TIMEOUT_RENDERING_VISIONE_MS,
@@ -499,14 +515,14 @@ export async function estraiTestoDocumento(
   }
   if (opzioni?.ocr !== false) {
     letto = await tentaOcr(
-      bytes,
-      mimeType,
+      byteLetti,
+      mimeLetto,
       esito,
       opzioni?.ocr === undefined ? undefined : opzioni.ocr
     );
   }
   if (opzioni?.visione && !opzioni.preferisciVisione && ocrInsufficiente(letto)) {
-    letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
+    letto = await tentaVisione(byteLetti, mimeLetto, nomeFile, opzioni.visione, letto);
   }
   if (letto.esito === "scansione_senza_testo" && !letto.motivo) {
     return {

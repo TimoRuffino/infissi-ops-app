@@ -60,13 +60,25 @@ describe("estraiTestoDocumento — foto e lettura visiva", () => {
     expect(richieste).toHaveLength(1);
   });
 
-  it("un formato che il modello non accetta (HEIC) resta fermo con il motivo", async () => {
+  it("una foto chiamata HEIC con dentro un PNG passa al modello come PNG (06/09/2026: l'HEIC si converte in testa)", async () => {
+    const richieste: unknown[] = [];
     const esito = await estraiTestoDocumento(PNG, "image/heic", "foto.heic", {
       ocr: false,
-      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("x"), modello: "m" } },
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("Letta", richieste), modello: "m" } },
     });
-    expect(esito.esito).toBe("scansione_senza_testo");
-    expect(esito.esito === "scansione_senza_testo" && esito.motivo).toMatch(/heic.*non è accettato/i);
+    expect(esito.esito === "estratto" && esito.parser).toBe("visione");
+    expect(richieste).toHaveLength(1);
+  });
+
+  it("un HEIC corrotto è illeggibile con il motivo, e il modello non viene chiamato", async () => {
+    const richieste: unknown[] = [];
+    const esito = await estraiTestoDocumento(Buffer.from("non è una foto"), "image/heic", "rotta.heic", {
+      ocr: false,
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("x", richieste), modello: "m" } },
+    });
+    expect(esito.esito).toBe("illeggibile");
+    expect(esito.esito === "illeggibile" && esito.motivo).toMatch(/HEIC non convertibile/);
+    expect(richieste).toHaveLength(0);
   });
 
   it("con preferisciVisione il modello legge per primo, senza aspettare l'esito dell'OCR", async () => {
