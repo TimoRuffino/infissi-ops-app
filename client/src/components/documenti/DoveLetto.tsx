@@ -293,11 +293,20 @@ function Vignetta({
               }}
             />
           )}
+          {/* Bordi sfumati (c'è altro a sinistra/destra): ombre interne, niente gradienti fuori da DataSurface. */}
           {ritaglio?.sfumaSinistra && (
-            <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-surface-2 to-transparent" />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 w-8"
+              style={{ boxShadow: "inset 24px 0 16px -12px var(--surface-2)" }}
+            />
           )}
           {ritaglio?.sfumaDestra && (
-            <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-surface-2 to-transparent" />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-8"
+              style={{ boxShadow: "inset -24px 0 16px -12px var(--surface-2)" }}
+            />
           )}
         </div>
       )}
