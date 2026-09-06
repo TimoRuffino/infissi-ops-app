@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TarsProvider } from "../tars/provider";
 import { azzeraCacheVisionePerTest } from "./letturaVisiva";
 import { estraiTestoDocumento } from "./parserRegistry";
+import { jsPDF } from "jspdf";
 
 // Una foto (PNG di un pixel: per il parser è un'immagine senza livello di
 // testo) letta SENZA OCR: la lettura visiva è l'unica strada, e parte solo
@@ -99,6 +100,25 @@ describe("estraiTestoDocumento — foto e lettura visiva", () => {
     });
     expect(esito.esito).toBe("scansione_senza_testo");
     expect(esito.esito === "scansione_senza_testo" && esito.motivo).toContain("Lettura visiva non riuscita");
+  });
+
+  it("un PDF misto (pagina scansionata + pagina di testo) con preferisciVisione: la pagina vuota è trascritta dal modello, l'altra resta nativa", async () => {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    doc.addImage(new Uint8Array(PNG), "PNG", 10, 10, 100, 100);
+    doc.addPage();
+    doc.text("Condizioni generali di vendita. Art. 1 Oggetto del contratto.", 14, 20);
+    const misto = Buffer.from(doc.output("arraybuffer"));
+    const richieste: unknown[] = [];
+    const esito = await estraiTestoDocumento(misto, "application/pdf", "misto.pdf", {
+      preferisciVisione: true,
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("Finestra a 2 ante   Prez. Tot.   1.186,48 €", richieste), modello: "m" } },
+    });
+    expect(esito.esito).toBe("estratto");
+    if (esito.esito !== "estratto") return;
+    expect(esito.parser).toBe("pdf-testo-nativo");
+    expect(esito.pagine[0]).toContain("Finestra a 2 ante");
+    expect(esito.pagine[1]).toContain("Condizioni generali di vendita");
+    expect(esito.avvertenze.some(a => a.startsWith("1 pagine senza testo trascritte dal modello"))).toBe(true);
   });
 
   it("se la lettura visiva non è disponibile il documento resta com'era, con il motivo in coda", async () => {
