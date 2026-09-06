@@ -83,7 +83,7 @@ export async function estraiConModello(input: {
   modello: string;
   identita: RichiestaProvider["identita"];
   timeoutMs?: number;
-}): Promise<{ esito: EsitoModello; troncato: boolean }> {
+}): Promise<{ esito: EsitoModello; troncato: boolean; sanificazioni: string[] }> {
   const { testo, troncato } = costruisciInputModello(input.pagine, input.contesto);
   const richiesta: RichiestaProvider = {
     modello: input.modello,
@@ -100,17 +100,106 @@ export async function estraiConModello(input: {
   if (risposta.tipo !== "messaggio") {
     throw new Error("ESTRAZIONE_RISPOSTA_INVALIDA: il modello ha chiamato strumenti inesistenti.");
   }
-  let grezzo: unknown;
+  let decodificato: unknown;
   try {
-    grezzo = JSON.parse(risposta.testo);
+    decodificato = JSON.parse(risposta.testo);
   } catch {
     throw new Error("ESTRAZIONE_RISPOSTA_INVALIDA: JSON non decodificabile.");
   }
+  const { grezzo, sanificazioni } = sanificaEsitoGrezzo(decodificato);
   const validato = schemaEsitoModello.safeParse(grezzo);
   if (!validato.success) {
     throw new Error(
       `ESTRAZIONE_RISPOSTA_INVALIDA: ${validato.error.issues.map(i => i.path.join(".") + " " + i.message).join("; ").slice(0, 300)}`
     );
   }
-  return { esito: validato.data, troncato };
+  return { esito: validato.data, troncato, sanificazioni };
+}
+
+const MISURA_MIN_MM = 100;
+const MISURA_MAX_MM = 6000;
+
+/**
+ * Prima dello schema: i valori fuori intervallo che il modello legge davvero
+ * da un documento vero — uno sconto con importo negativo, una quantità zero,
+ * una misura in centimetri — non devono buttare via l'intera lettura (fase 3
+ * dello studio, 06/09/2026: il contratto 32/2026 si fermava su «righe.2.
+ * prezzoTotale Too small» e l'operatore restava senza proposta). Si scartano
+ * le singole righe o si annullano i singoli valori, dichiarandolo in
+ * `sanificazioni` (finiscono nelle avvertenze della proposta); la struttura
+ * resta di competenza dello schema strict.
+ */
+export function sanificaEsitoGrezzo(decodificato: unknown): { grezzo: unknown; sanificazioni: string[] } {
+  const sanificazioni: string[] = [];
+  if (!decodificato || typeof decodificato !== "object" || Array.isArray(decodificato)) {
+    return { grezzo: decodificato, sanificazioni };
+  }
+  const g: any = structuredClone(decodificato);
+  const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const testo = (v: unknown, max: number): unknown => (typeof v === "string" && v.length > max ? v.slice(0, max) : v);
+  const paginaValida = (o: any) => {
+    if (o && typeof o === "object" && numero(o.pagina) != null && o.pagina < 0) o.pagina = 0;
+    if (o && typeof o === "object") o.frammento = testo(o.frammento, 300);
+  };
+
+  if (Array.isArray(g.righe)) {
+    g.righe = g.righe.filter((r: any, i: number) => {
+      if (!r || typeof r !== "object") return true;
+      const nome = typeof r.descrizione === "string" && r.descrizione.trim() ? r.descrizione.trim().slice(0, 40) : `riga ${i + 1}`;
+      const prezzo = numero(r.prezzoTotale);
+      const unitario = numero(r.prezzoUnitario);
+      if ((prezzo != null && prezzo < 0) || (unitario != null && unitario < 0)) {
+        sanificazioni.push(`Riga «${nome}» con importo negativo (uno sconto?) non proposta: verificare sul documento.`);
+        return false;
+      }
+      const quantita = numero(r.quantita);
+      if (quantita != null && quantita < 1) {
+        sanificazioni.push(`Riga «${nome}» con quantità ${quantita} non proposta: verificare sul documento.`);
+        return false;
+      }
+      for (const [chiave, etichetta] of [["larghezzaMm", "larghezza"], ["altezzaMm", "altezza"]] as const) {
+        const v = numero(r[chiave]);
+        if (v == null) continue;
+        const intero = Math.round(v);
+        if (intero < MISURA_MIN_MM || intero > MISURA_MAX_MM) {
+          r[chiave] = null;
+          sanificazioni.push(`Riga «${nome}»: ${etichetta} ${v} mm fuori misura, da leggere a mano.`);
+        } else if (intero !== v) {
+          r[chiave] = intero;
+        }
+      }
+      const ante = numero(r.nAnte);
+      if (ante != null && (ante < 0 || ante > 4 || !Number.isInteger(ante))) r.nAnte = Math.min(4, Math.max(0, Math.round(ante)));
+      r.descrizione = testo(r.descrizione, 300);
+      if (Array.isArray(r.accessori)) r.accessori = r.accessori.slice(0, 20).map((a: unknown) => testo(a, 60));
+      paginaValida(r);
+      return true;
+    });
+  }
+  for (const [gruppo, chiavi] of [["pattuito", ["totaleLordo", "totaleImponibile"]], ["posa", ["prezzo"]]] as const) {
+    const o = g[gruppo];
+    if (!o || typeof o !== "object") continue;
+    for (const chiave of chiavi) {
+      const v = numero(o[chiave]);
+      if (v != null && v < 0) {
+        o[chiave] = null;
+        sanificazioni.push(`${gruppo === "pattuito" ? "Pattuito" : "Posa"}: importo negativo (${v}) scartato, da leggere a mano.`);
+      }
+    }
+    paginaValida(o);
+  }
+  if (Array.isArray(g.rate)) {
+    for (const rata of g.rate) {
+      if (!rata || typeof rata !== "object") continue;
+      const q = numero(rata.quotaPct);
+      if (q != null && (q < 0 || q > 100)) {
+        rata.quotaPct = Math.min(100, Math.max(0, q));
+        sanificazioni.push(`Rata «${typeof rata.descrizione === "string" ? rata.descrizione.slice(0, 40) : "?"}»: quota ${q} % riportata a ${rata.quotaPct} %.`);
+      }
+      rata.descrizione = testo(rata.descrizione, 120);
+      paginaValida(rata);
+    }
+  }
+  for (const gruppo of ["cantiere", "cliente"]) paginaValida(g[gruppo]);
+  return { grezzo: g, sanificazioni };
 }

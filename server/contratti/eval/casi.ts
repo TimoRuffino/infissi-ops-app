@@ -28,22 +28,30 @@ import type { EsitoModello } from "../estrazione/schema";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Una riga attesa. Convenzione (fase 3 dello studio, 06/09/2026): un campo
+ * ASSENTE non è noto e non si giudica; `null` vuol dire «deve mancare»
+ * (es. i coprifili senza misure). Le righe si abbinano a quelle estratte
+ * per misure (±5 mm) e quantità, non per posizione: il contratto elenca
+ * accessori e coprifili che il foglio limiti non ha.
+ */
 export type AttesoRigaContratto = {
-  larghezzaMm: number | null;
-  altezzaMm: number | null;
-  quantita: number | null;
-  prezzoTotCent: number | null;
+  larghezzaMm?: number | null;
+  altezzaMm?: number | null;
+  quantita?: number | null;
+  prezzoTotCent?: number | null;
 };
 
 export type AttesoCasoContratto = {
-  layoutWndRiconosciuto: boolean;
-  numeroRighe: number;
-  pattuitoCent: number | null;
-  pattuitoTipo: "lordo" | "imponibile" | null;
+  /** Assente = non giudicato (stessa convenzione delle righe). */
+  layoutWndRiconosciuto?: boolean;
+  numeroRighe?: number;
+  pattuitoCent?: number | null;
+  pattuitoTipo?: "lordo" | "imponibile" | null;
   /** Percentuali delle rate, nell'ordine in cui la proposta le elenca. */
-  rateQuote: number[];
+  rateQuote?: number[];
   comuneCantiere?: string | null;
-  /** Solo quando i valori riga sono noti con certezza (es. dal layout WnD). */
+  /** Solo quando i valori riga sono noti con certezza (es. dal layout WnD o dal foglio limiti). */
   righe?: AttesoRigaContratto[];
   /** Codici di controllo che DEVONO comparire nella proposta finale. */
   controlliAttesi: string[];
@@ -412,12 +420,14 @@ export async function caricaCasiContrattoReali(): Promise<CasoContrattoEval[]> {
           },
           pagine: [],
         },
+        // Un campo assente in atteso.json resta `undefined`: non è noto e non
+        // si giudica (fase 3: la verità dei fogli limiti copre solo le righe).
         atteso: {
-          layoutWndRiconosciuto: Boolean(attesoCaso.layoutWndRiconosciuto ?? false),
-          numeroRighe: Number(attesoCaso.numeroRighe ?? 0),
-          pattuitoCent: attesoCaso.pattuitoCent ?? null,
-          pattuitoTipo: attesoCaso.pattuitoTipo ?? null,
-          rateQuote: attesoCaso.rateQuote ?? [],
+          layoutWndRiconosciuto: attesoCaso.layoutWndRiconosciuto,
+          numeroRighe: attesoCaso.numeroRighe,
+          pattuitoCent: attesoCaso.pattuitoCent,
+          pattuitoTipo: attesoCaso.pattuitoTipo,
+          rateQuote: attesoCaso.rateQuote,
           comuneCantiere: attesoCaso.comuneCantiere,
           righe: attesoCaso.righe,
           controlliAttesi: attesoCaso.controlliAttesi ?? [],

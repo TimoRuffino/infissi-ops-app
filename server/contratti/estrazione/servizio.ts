@@ -28,6 +28,7 @@ import { tariffeAttive, type Tariffe } from "../../computo/tariffe";
 import { salvaContratto } from "../servizio";
 import { annotaAreeProposta } from "./aree";
 import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "./layoutWnd";
+import { arricchisciDaLayoutPreventivo, riconosceLayoutPreventivo } from "./layoutPreventivo";
 import { costruisciProposta, type ContestoMappa } from "./mappa";
 import { estraiConModello, modelloEstrazione, type ContestoEstrazione } from "./modello";
 import { PROMPT_ESTRAZIONE_VERSIONE } from "./prompt";
@@ -149,7 +150,7 @@ async function estraiConRetry(params: {
   provider: TarsProvider;
   modello: string;
   runId: string;
-}): Promise<{ esito: EsitoModello; troncato: boolean }> {
+}): Promise<Awaited<ReturnType<typeof estraiConModello>>> {
   for (const tentativo of [1, 2] as const) {
     try {
       return await estraiConModello({
@@ -179,6 +180,9 @@ async function estraiConRetry(params: {
 // turno in corso, che una volta finito libera la chiave (`finally`) e
 // lascia la prossima richiesta ripartire pulita, con lo stato più recente.
 const inCorso = new Map<string, Promise<{ estrazione: EstrazioneContratto; riusata: boolean }>>();
+
+/** Pagine di un contratto affidate alla lettura visiva (una conferma d'ordine ne ha 8, un contratto fino a 20). */
+export const PAGINE_VISIONE_CONTRATTO = 20;
 
 export async function eseguiEstrazioneContratto(
   input: {
@@ -261,7 +265,15 @@ async function eseguiEstrazioneCorpo(
     }
   }
 
-  const esitoParser = await estrai(buffer, documento.mimeType, documento.nome);
+  // Le scansioni: prima la lettura visiva del modello con l'identità di chi
+  // ha chiesto la lettura, l'OCR locale solo come ripiego (fase 3 dello
+  // studio, 06/09/2026, 14 contratti scansionati letti nei due modi: l'OCR
+  // sbaglia cifre — «L 1000» letto «4000» — e un prezzo di riga su tre, la
+  // visione no). Un contratto ha più pagine di una conferma d'ordine.
+  const esitoParser = await estrai(buffer, documento.mimeType, documento.nome, {
+    visione: { sedeId, utenteId: actorUserId ?? 0, maxPagine: PAGINE_VISIONE_CONTRATTO, troncaOltre: true },
+    preferisciVisione: true,
+  });
   if (esitoParser.esito !== "estratto") {
     throw new Error(`PRECONDIZIONE: ${motivoLetturaFallita(esitoParser)}`);
   }
@@ -344,6 +356,17 @@ async function eseguiEstrazioneCorpo(
       ivaDescrizione: esitoModello.esito.pattuito.ivaDescrizione,
       troncato: esitoModello.troncato,
     });
+  } else if (riconosceLayoutPreventivo(esitoParser.pagine)) {
+    // Il preventivo Ruffino del 2025 (scansioni): stesse garanzie del layout WnD.
+    proposta = arricchisciDaLayoutPreventivo(esitoParser.pagine, proposta, {
+      ivaDescrizione: esitoModello.esito.pattuito.ivaDescrizione,
+      troncato: esitoModello.troncato,
+    });
+  }
+  // Valori scartati prima dello schema (sconti negativi, quantità zero,
+  // misure fuori intervallo): l'operatore deve saperlo, riga per riga.
+  if (esitoModello.sanificazioni.length > 0) {
+    proposta = { ...proposta, avvertenze: [...proposta.avvertenze, ...esitoModello.sanificazioni] };
   }
   // Dove sta ogni evidenza sulla pagina (anteprime «Dove l'ho letto»): dalla
   // geometria del parser, dopo l'arricchimento che può riscrivere le

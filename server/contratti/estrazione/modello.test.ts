@@ -191,9 +191,9 @@ describe("estraiConModello", () => {
     ).rejects.toThrow(/ESTRAZIONE_RISPOSTA_INVALIDA: JSON non decodificabile/);
   });
 
-  it("schema violato (quantita 0): ESTRAZIONE_RISPOSTA_INVALIDA col path nel messaggio", async () => {
+  it("schema violato (tipo prodotto sconosciuto): ESTRAZIONE_RISPOSTA_INVALIDA col path nel messaggio", async () => {
     const provider = creaProviderFinto(() =>
-      rispostaTesto(rispostaModello({ righe: [{ ...clona(rigaValida), quantita: 0 }] }))
+      rispostaTesto(rispostaModello({ righe: [{ ...clona(rigaValida), tipoProdotto: "razzo" }] }))
     );
     await expect(
       estraiConModello({
@@ -203,6 +203,55 @@ describe("estraiConModello", () => {
         modello: MODELLO_ESTRAZIONE_DEFAULT,
         identita: IDENTITA,
       })
-    ).rejects.toThrow(/ESTRAZIONE_RISPOSTA_INVALIDA:.*righe\.0\.quantita/);
+    ).rejects.toThrow(/ESTRAZIONE_RISPOSTA_INVALIDA: righe\.0\.tipoProdotto/);
+  });
+
+  // Fase 3 dello studio (06/09/2026): un valore fuori intervallo letto da un
+  // documento vero non butta via la lettura intera — la riga o il valore si
+  // scartano e si dichiarano (il 32/2026 si fermava su uno sconto negativo).
+  it("una riga con importo negativo (sconto) o quantità zero esce dalla lettura con una sanificazione, il resto passa", async () => {
+    const provider = creaProviderFinto(() =>
+      rispostaTesto(
+        rispostaModello({
+          righe: [
+            clona(rigaValida),
+            { ...clona(rigaValida), descrizione: "Sconto commerciale", prezzoTotale: -250 },
+            { ...clona(rigaValida), descrizione: "Voce non applicabile", quantita: 0 },
+          ],
+        })
+      )
+    );
+    const { esito, sanificazioni } = await estraiConModello({
+      pagine: ["Pagina unica."],
+      contesto: CONTESTO,
+      provider,
+      modello: MODELLO_ESTRAZIONE_DEFAULT,
+      identita: IDENTITA,
+    });
+    expect(esito.righe).toHaveLength(1);
+    expect(sanificazioni).toEqual([
+      "Riga «Sconto commerciale» con importo negativo (uno sconto?) non proposta: verificare sul documento.",
+      "Riga «Voce non applicabile» con quantità 0 non proposta: verificare sul documento.",
+    ]);
+  });
+
+  it("una misura fuori intervallo diventa nulla con una sanificazione; una misura decimale si arrotonda in silenzio", async () => {
+    const provider = creaProviderFinto(() =>
+      rispostaTesto(rispostaModello({ righe: [{ ...clona(rigaValida), larghezzaMm: 12, altezzaMm: 1400.4 }], pattuito: { ...clona(esitoValido.pattuito), totaleLordo: -1 } }))
+    );
+    const { esito, sanificazioni } = await estraiConModello({
+      pagine: ["Pagina unica."],
+      contesto: CONTESTO,
+      provider,
+      modello: MODELLO_ESTRAZIONE_DEFAULT,
+      identita: IDENTITA,
+    });
+    expect(esito.righe[0]!.larghezzaMm).toBeNull();
+    expect(esito.righe[0]!.altezzaMm).toBe(1400);
+    expect(esito.pattuito.totaleLordo).toBeNull();
+    expect(sanificazioni).toEqual([
+      "Riga «Finestra 2 ante PVC bianco»: larghezza 12 mm fuori misura, da leggere a mano.",
+      "Pattuito: importo negativo (-1) scartato, da leggere a mano.",
+    ]);
   });
 });

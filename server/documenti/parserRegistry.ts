@@ -214,7 +214,13 @@ const TIMEOUT_RENDERING_VISIONE_MS = 60_000;
 /** Sotto questa media di caratteri per pagina l'OCR non ha letto davvero. */
 const CARATTERI_MINIMI_PER_PAGINA = 200;
 
-export type OpzioneVisione = IdentitaLettura & { deps?: Partial<DipendenzeVisione> };
+export type OpzioneVisione = IdentitaLettura & {
+  deps?: Partial<DipendenzeVisione>;
+  /** Pagine da trascrivere (default MAX_PAGINE_VISIONE): un contratto ne ha più di una conferma d'ordine. */
+  maxPagine?: number;
+  /** Oltre `maxPagine`: leggere le prime pagine e dirlo (contratti), invece di rifiutare il documento (conferme). */
+  troncaOltre?: boolean;
+};
 
 /**
  * Lettura visiva (04/09/2026): il modello trascrive le pagine quando l'OCR
@@ -237,22 +243,27 @@ async function tentaVisione(
         : precedente;
 
   let immagini: Array<{ bytes: Buffer; mime: string }>;
+  const avvertenzeTroncamento: string[] = [];
   if (MIME_VISIONE.test(mimeType ?? "")) {
     immagini = [{ bytes, mime: (mimeType ?? "").toLowerCase().replace("image/jpg", "image/jpeg") }];
   } else if (MIME_IMMAGINE.test(mimeType ?? "")) {
     return conMotivo(`Lettura visiva: il formato ${mimeType} non è accettato dal modello (converti in JPEG o PNG).`);
   } else {
+    const maxPagine = visione.maxPagine ?? MAX_PAGINE_VISIONE;
+    const pagineTotali = precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null;
+    const troncata = visione.troncaOltre === true && pagineTotali != null && pagineTotali > maxPagine;
     const rendering = await renderizzaPaginePng(bytes, {
       dpi: DPI_VISIONE,
-      maxPagine: MAX_PAGINE_VISIONE,
+      maxPagine,
       timeoutMs: TIMEOUT_RENDERING_VISIONE_MS,
-      numeroPagine:
-        precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null,
+      // Con `troncaOltre` il numero di pagine non si dichiara: pdftoppm rende le prime `maxPagine`.
+      numeroPagine: troncata ? null : pagineTotali,
     });
     if (rendering.esito === "errore") {
       return conMotivo(`Lettura visiva non riuscita: ${rendering.motivo}`);
     }
     immagini = rendering.immagini.map(png => ({ bytes: png, mime: "image/png" }));
+    if (troncata) avvertenzeTroncamento.push(`Lettura visiva delle prime ${immagini.length} pagine su ${pagineTotali}: il resto del documento non è stato letto.`);
   }
 
   const trascrizione = await trascriviImmagini({
@@ -260,6 +271,7 @@ async function tentaVisione(
     identita: { sedeId: visione.sedeId, utenteId: visione.utenteId },
     nome: nomeFile,
     deps: visione.deps,
+    maxPagine: visione.maxPagine,
   });
   if (trascrizione.esito !== "trascritto") {
     console.info("[visione] non riuscita", { file: nomeFile.slice(0, 60), motivo: trascrizione.motivo });
@@ -287,6 +299,7 @@ async function tentaVisione(
     pagine: trascrizione.pagine,
     avvertenze: [
       `Testo trascritto dal modello (${trascrizione.modello}, ${trascrizione.pagine.length} pagine): verificare gli importi sul documento originale.`,
+      ...avvertenzeTroncamento,
     ],
     visione: {
       modello: trascrizione.modello,
@@ -419,6 +432,12 @@ export type OpzioniLettura = {
    * per il governor (sede e utente). Assente = mai una chiamata a pagamento.
    */
   visione?: OpzioneVisione | null | false;
+  /**
+   * Con `visione`: prima il modello, l'OCR locale solo se la lettura visiva
+   * non riesce (contratti: fase 3 dello studio, 06/09/2026 — l'OCR sbaglia
+   * cifre, il modello no). Default: OCR prima, visione quando l'OCR non basta.
+   */
+  preferisciVisione?: boolean;
 };
 
 export async function estraiTestoDocumento(
@@ -449,6 +468,10 @@ export async function estraiTestoDocumento(
   // Scansione o foto: prima l'OCR locale (gratis), poi — se chi chiama lo
   // ammette — la lettura visiva quando l'OCR manca, fallisce o legge poco.
   let letto: EsitoParser = esito;
+  if (opzioni?.visione && opzioni.preferisciVisione) {
+    letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
+    if (letto.esito === "estratto") return letto;
+  }
   if (opzioni?.ocr !== false) {
     letto = await tentaOcr(
       bytes,
@@ -457,7 +480,7 @@ export async function estraiTestoDocumento(
       opzioni?.ocr === undefined ? undefined : opzioni.ocr
     );
   }
-  if (opzioni?.visione && ocrInsufficiente(letto)) {
+  if (opzioni?.visione && !opzioni.preferisciVisione && ocrInsufficiente(letto)) {
     letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
   }
   if (letto.esito === "scansione_senza_testo" && !letto.motivo) {
