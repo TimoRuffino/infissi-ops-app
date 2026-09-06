@@ -88,6 +88,15 @@ describe("eval documenti — framework", { timeout: 180_000 }, () => {
     expect(timeout.parserCorretto).toBe(true);
   });
 
+  it("le evidenze localizzate vengono contate per fonte, senza soglia (anteprime)", async () => {
+    const r = await risultato();
+    expect(r.metriche.evidenze.totali).toBeGreaterThan(0);
+    expect(r.metriche.evidenze.localizzate).toBeLessThanOrEqual(r.metriche.evidenze.totali);
+    // Sul testo nativo la geometria c'è sempre: le evidenze dei campi hanno il riquadro.
+    expect(r.metriche.evidenze.perFonte.nativo.localizzate).toBe(r.metriche.evidenze.perFonte.nativo.totali);
+    expect(reportMarkdown(r)).toContain("- Evidenze localizzate:");
+  });
+
   it("le metriche OCR vengono riportate senza asserzioni di soglia", async () => {
     const r = await risultato();
     if (!r.ocrDisponibile) return;

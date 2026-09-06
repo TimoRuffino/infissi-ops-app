@@ -13,7 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { estraiTestoDocumento } from "../parserRegistry";
-import { estraiConfermaOrdine } from "../estrazioneConferma";
+import { annotaAreeEstrazione, estraiConfermaOrdine } from "../estrazioneConferma";
 import { confrontaConfermaConOrdine } from "../confrontoOrdine";
 import { generaCandidatiOrdine } from "../candidatiOrdine";
 import { disponibilitaOcr } from "../ocr";
@@ -40,6 +40,9 @@ export type EsitoCaso = {
   collegamentoCertaSbagliata: boolean;
   ocrConfidenzaMedia: number | null;
   ocrDaVerificare: boolean | null;
+  /** Evidenze dei campi estratti e quante hanno un riquadro sulla pagina (anteprime). */
+  evidenzeTotali: number;
+  evidenzeLocalizzate: number;
   note: string[];
 };
 
@@ -67,6 +70,19 @@ export type MetricheEval = {
     confidenzaMedia: number | null;
     percentualeDaVerificare: number | null;
     tempoMedioPerPaginaMs: number | null;
+  };
+  /**
+   * Evidenze localizzate (anteprime «Dove l'ho letto»): quante evidenze dei
+   * campi estratti hanno un riquadro sulla pagina, per fonte del testo.
+   * Senza soglia, come le metriche OCR: si misura, non si promette.
+   */
+  evidenze: {
+    totali: number;
+    localizzate: number;
+    perFonte: {
+      nativo: { totali: number; localizzate: number };
+      ocr: { totali: number; localizzate: number };
+    };
   };
   tempoTotaleMs: number;
   duplicatoImprontaStabile: boolean;
@@ -112,6 +128,8 @@ async function eseguiCaso(
     collegamentoCertaSbagliata: false,
     ocrConfidenzaMedia: null,
     ocrDaVerificare: null,
+    evidenzeTotali: 0,
+    evidenzeLocalizzate: 0,
     note: [],
   };
   if (esito.saltato) return esito;
@@ -138,6 +156,29 @@ async function eseguiCaso(
   if (parser.ocr) {
     esito.ocrConfidenzaMedia = parser.ocr.confidenzaMedia;
     esito.ocrDaVerificare = parser.ocr.daVerificare;
+  }
+
+  // ── Evidenze localizzate (anteprime): quante evidenze hanno un riquadro ──
+  {
+    const annotata = annotaAreeEstrazione(
+      estraiConfermaOrdine(parser.pagine, {
+        codiceOrdine: caso.contesto?.codiceOrdine ?? null,
+        fornitoreNome: caso.contesto?.fornitoreNome ?? null,
+        righeOrdine: caso.contesto?.righeOrdine ?? [],
+      }),
+      parser.geometria
+    );
+    const evidenze = [
+      annotata.riferimentoOrdine,
+      annotata.fornitoreCitato,
+      annotata.numeroConferma,
+      annotata.dataDocumento,
+      ...annotata.dateConsegna,
+      annotata.totaleDocumento,
+      annotata.imponibileDocumento,
+    ].filter((c): c is NonNullable<typeof c> => c != null);
+    esito.evidenzeTotali = evidenze.length;
+    esito.evidenzeLocalizzate = evidenze.filter(c => c.evidenza.area?.grado === "riquadro").length;
   }
 
   // ── Campi ─────────────────────────────────────────────────────────────
@@ -300,6 +341,12 @@ export async function eseguiEval(): Promise<RisultatoEval> {
   const casiOcr = eseguiti.filter(esito => esito.ocrConfidenzaMedia != null);
   const tempoPagineOcr = casiOcr.reduce((somma, esito) => somma + esito.tempoMs, 0);
   const pagineOcr = casiOcr.reduce((somma, esito) => somma + esito.pagine, 0);
+  const sommaEvidenze = (lista: readonly EsitoCaso[]) => ({
+    totali: lista.reduce((somma, esito) => somma + esito.evidenzeTotali, 0),
+    localizzate: lista.reduce((somma, esito) => somma + esito.evidenzeLocalizzate, 0),
+  });
+  const evidenzeNativo = sommaEvidenze(eseguiti.filter(esito => esito.parserUsato === "pdf-testo-nativo"));
+  const evidenzeOcr = sommaEvidenze(eseguiti.filter(esito => esito.parserUsato === "pdf-ocr"));
 
   const metriche: MetricheEval = {
     casiTotali: esiti.length,
@@ -355,6 +402,10 @@ export async function eseguiEval(): Promise<RisultatoEval> {
         ? Math.round(tempoPagineOcr / pagineOcr)
         : null,
     },
+    evidenze: {
+      ...sommaEvidenze(eseguiti),
+      perFonte: { nativo: evidenzeNativo, ocr: evidenzeOcr },
+    },
     tempoTotaleMs: esiti.reduce((somma, esito) => somma + esito.tempoMs, 0),
     duplicatoImprontaStabile,
   };
@@ -388,6 +439,7 @@ export function reportMarkdown(risultato: RisultatoEval): string {
     `- Differenze: ${m.differenze.trovate}/${m.differenze.attese} attese trovate, ${m.differenze.falsePositive} false positive.`,
     `- Collegamento: ${m.collegamento.statiCorretti}/${m.collegamento.casi} stati corretti, ${m.collegamento.ordiniCorretti} ordini certi corretti, **${m.collegamento.certaSbagliata} «certa» sbagliate** (deve restare 0).`,
     `- OCR: ${m.ocr.casi} casi, confidenza media ${m.ocr.confidenzaMedia ?? "-"}%, da verificare ${m.ocr.percentualeDaVerificare ?? "-"}%, tempo medio ${m.ocr.tempoMedioPerPaginaMs ?? "-"} ms/pagina.`,
+    `- Evidenze localizzate: ${m.evidenze.localizzate}/${m.evidenze.totali} con riquadro sulla pagina (nativo ${m.evidenze.perFonte.nativo.localizzate}/${m.evidenze.perFonte.nativo.totali}, OCR ${m.evidenze.perFonte.ocr.localizzate}/${m.evidenze.perFonte.ocr.totali}) — senza soglia.`,
     `- Impronta duplicati stabile: ${m.duplicatoImprontaStabile ? "sì" : "NO"}. Tempo totale ${m.tempoTotaleMs} ms.`,
     "",
     "### Correttezza per campo",
