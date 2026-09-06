@@ -470,7 +470,32 @@ export async function estraiTestoDocumento(
   let letto: EsitoParser = esito;
   if (opzioni?.visione && opzioni.preferisciVisione) {
     letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
-    if (letto.esito === "estratto") return letto;
+    if (letto.esito === "estratto") {
+      // Il modello ha letto, ma non sa dove stanno le parole: tesseract gira
+      // solo per i RIQUADRI (anteprime «Dove l'ho letto»), a 150 dpi e con
+      // un tempo suo, e la sua geometria si allega non allineata. Se l'OCR
+      // manca o fallisce, le evidenze restano «pagina intera».
+      if (!letto.geometria && opzioni.ocr !== false) {
+        const partenza = Date.now();
+        const perRiquadri = await tentaOcr(bytes, mimeType, esito, {
+          ...(opzioni.ocr === undefined ? {} : opzioni.ocr),
+          dpi: DPI_VISIONE,
+          timeoutTotaleMs: TIMEOUT_RENDERING_VISIONE_MS,
+        });
+        if (perRiquadri.esito === "estratto" && perRiquadri.geometria) {
+          letto = {
+            ...letto,
+            geometria: perRiquadri.geometria.map(g => (g ? { ...g, allineata: false } : null)),
+          };
+          console.info("[anteprime] riquadri dall'OCR dopo la lettura visiva", {
+            file: nomeFile.slice(0, 60),
+            pagine: perRiquadri.geometria.length,
+            ms: Date.now() - partenza,
+          });
+        }
+      }
+      return letto;
+    }
   }
   if (opzioni?.ocr !== false) {
     letto = await tentaOcr(

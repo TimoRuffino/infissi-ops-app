@@ -98,3 +98,62 @@ describe("estraiTestoDocumento — foto e lettura visiva", () => {
     expect(esito.esito === "scansione_senza_testo" && esito.motivo).toContain("Lettura visiva non riuscita");
   });
 });
+
+// ── Riquadri per la lettura «visione prima» (anteprime, 06/09/2026) ────────
+// Quando il modello legge per primo, tesseract gira solo per le posizioni
+// delle parole: la geometria arriva non allineata e serve alla vignetta.
+import { jsPDF } from "jspdf";
+import { disponibilitaOcr, renderizzaPaginePng } from "./ocr";
+
+const binariPresenti = (await disponibilitaOcr()).disponibile;
+
+async function pngConTesto(righe: string[]): Promise<Buffer> {
+  const doc = new jsPDF();
+  doc.setFontSize(18);
+  righe.forEach((riga, n) => doc.text(riga, 14, 30 + n * 14));
+  const rendering = await renderizzaPaginePng(Buffer.from(doc.output("arraybuffer")), {
+    dpi: 150,
+    maxPagine: 1,
+    timeoutMs: 30_000,
+  });
+  if (rendering.esito !== "ok") throw new Error(rendering.motivo);
+  return rendering.immagini[0];
+}
+
+describe.skipIf(!binariPresenti)("estraiTestoDocumento — riquadri dall'OCR dopo la visione", { timeout: 120_000 }, () => {
+  beforeEach(() => {
+    vi.stubEnv("FLAG_LETTURA_VISIVA", "on");
+    vi.stubEnv("FLAG_OCR", "on");
+    azzeraCacheVisionePerTest();
+  });
+
+  it("con «visione prima» il testo è del modello e la geometria, non allineata, viene da tesseract", async () => {
+    const png = await pngConTesto(["CONFERMA ORDINE 4471", "Totale imponibile 1.234,00"]);
+    const esito = await estraiTestoDocumento(png, "image/png", "scan.png", {
+      preferisciVisione: true,
+      ocr: { lingue: "eng" },
+      visione: {
+        sedeId: 1,
+        utenteId: 7,
+        deps: { provider: () => providerConTesto("CONFERMA ORDINE 4471\nTotale imponibile 1.234,00"), modello: "m" },
+      },
+    });
+    expect(esito.esito).toBe("estratto");
+    if (esito.esito !== "estratto") return;
+    expect(esito.parser).toBe("visione");
+    expect(esito.geometria?.[0]?.allineata).toBe(false);
+    expect(esito.geometria?.[0]?.righe.length).toBeGreaterThan(0);
+    const parole = esito.geometria![0]!.righe.flatMap(r => r.tratti.map(t => t.testo.toLowerCase()));
+    expect(parole.some(p => p.includes("imponibile") || p.includes("conferma"))).toBe(true);
+  });
+
+  it("con l'OCR vietato dal chiamante la visione resta senza geometria", async () => {
+    const png = await pngConTesto(["Solo visione"]);
+    const esito = await estraiTestoDocumento(png, "image/png", "scan2.png", {
+      preferisciVisione: true,
+      ocr: false,
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("Solo visione"), modello: "m" } },
+    });
+    expect(esito.esito === "estratto" && esito.geometria).toBeFalsy();
+  });
+});
