@@ -8,6 +8,40 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
+> registrato, nessun codice.** La direzione ha approvato in chat il modello
+> commerciale e l'architettura per distribuire Ruffino Flow a più
+> rivenditori: testo integrale in
+> `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (sezioni
+> 1–18), riassunto in PRD §60 (v5.49). Decisioni fisse: un solo prodotto
+> completo, canone fisso per azienda mensile o annuale, niente tariffe per
+> utenti, sedi, caselle o numeri; Email, WhatsApp e Tars inclusi; storage
+> (100 GB) e Tars (budget mensile) sole risorse misurate, avvisi al 50, 80 e
+> 100 %, pacchetti extra; il **tenant sopra la sede**, `tenantId` dalla
+> sessione e mai dal client, `NOT_FOUND` cross-tenant; Proprietario azienda
+> in più ai sette ruoli; Platform Admin globale con MFA che non legge i dati
+> delle aziende; abbonamenti omaggio senza oggetti sul provider; marchio
+> Ruffino Flow con personalizzazione del rivenditore; Ruffino Group =
+> tenant 1, migrazione con backup, dry-run, chiavi `tenant:1:<store>`
+> accanto alle legacy in sola lettura, rollback. Otto workstream ordinati
+> (fondazione tenant → migrazione → file, comunicazioni e integrazioni →
+> abbonamenti → onboarding → Platform Admin → pilota omaggio → rollout).
+> L'agente ha fatto il **riscontro sul codice** (Appendice A della spec, PRD
+> §60.7): reggono contesto server-side, `assertSedeScope`, ruoli a unione,
+> catalogo Tars fail-closed, ledger R1 e ledger costi `tars_costi` per sede,
+> coda durevole degli eventi, storage con checksum, segreti cifrati, webhook
+> Meta firmato; **non esistono** tenant, Proprietario, Platform Admin, MFA,
+> inviti, reset password, conteggio dei byte, backup per tenant e restore,
+> export aziendale, abbonamenti; **esistono in forma diversa** utenti e sedi
+> come blob JSONB (non tabelle), guardia dell'ultima direzione globale,
+> budget Tars solo da env e aggregato senza sede, refresh token Drive in
+> chiaro, OAuth `state` in memoria senza l'utente, 11 worker `setInterval`
+> senza lease, audit append-only solo per convenzione, «limiti» che nel repo
+> sono i massimali DM MITE. **Nessuna implementazione autorizzata**: prima
+> del workstream 1 servono la sua spec tecnica e, fuori dal codice, prezzo,
+> budget Tars incluso, tolleranze, prezzo degli extra e provider di
+> pagamento. Voce 21 del debito.
+
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
 > `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
@@ -1543,6 +1577,7 @@ pnpm storage:dry-run
 | `docs/runbooks/piattaforma-recovery.md` | boot, guasti tipici e recovery del CRM |
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
+| `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` | design approvato del SaaS multi-azienda (tenant sopra sede, canone fisso, soglie d'uso, Platform Admin, omaggi, migrazione di Ruffino Group) con il riscontro sul codice in Appendice A — nessun codice autorizzato |
 | `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
 | `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -4043,6 +4078,43 @@ a vuoto e dice «57 saltati»).
     le 15 conferme reali anonimizzate si confrontano tesseract e modello
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
+
+21. **SaaS multi-azienda (06/09/2026): design approvato, nessun codice.**
+    Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
+    PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
+    annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
+    extra, provider di pagamento (Stripe o equivalente). Le aperture trovate
+    nel codice, da risolvere nella spec tecnica del workstream 1 (Appendice
+    A della spec): (1) nessun tenant: `context.ts` risolve utente, `sedeId`,
+    `sediIds`; il fallback `DEFAULT_SEDE_ID = 1` (anche in
+    `tars/contesto.ts:23`) va reso tenant-aware; (2) `utenti` e `sedi` sono
+    blob JSONB, drizzle copre solo `users` (OAuth), le tabelle nascono da
+    `ensureSchema()`: decidere la forma del control plane e chi è la verità
+    degli utenti; (3) `persistedStore` ha un registro statico di 50 store
+    caricati al boot, chiave = nome puro, riscrittura intera, nessun
+    optimistic locking: le chiavi `tenant:<id>:<store>` richiedono un
+    registro dinamico e una scelta boot/lazy, più una decisione sugli store
+    globali (`sedi`, `utenti`, `backup_*`, `notifiche_read`,
+    `timeline_steps`); il filtro di lista è a mano 165 volte, nessun helper;
+    (4) `direzione` = tutte le capability + tutte le sedi + `role:"admin"`
+    derivato; nessuna capability per gestire utenti e sedi; il Proprietario
+    non esiste; (5) guardia dell'ultima direzione globale, non per tenant;
+    (6) niente inviti, reset password, MFA; (7) storage: chiavi senza tenant,
+    nessun conteggio dei byte, cancellazioni mai per allegati mail,
+    `fatture_xml/pdf`, `anteprime`; media WhatsApp non salvati; (8) backup:
+    un archivio globale, OAuth Drive globale con refresh token in chiaro,
+    nessun restore; (9) OAuth `state` in `Map` in memoria (FiC lega la sede
+    ma non l'utente, Drive nessun legame); il webhook Meta prova il secret di
+    ogni sede; (10) 11 worker `setInterval` in-process senza lease né
+    dead-letter, solo gli eventi business hanno coda durevole; (11) budget
+    Tars da env, aggregati di `tars_costi` senza `sede_id`, lock advisory
+    globale; (12) rate limit solo su login e Tars, non su upload, webhook,
+    ICS; (13) audit append-only per convenzione, senza vincolo DB;
+    `platform_feature_flag_audit` è un blob riscrivibile; (14) nessun export
+    aziendale; (15) `platform_feature_flags` per sede senza endpoint di
+    scrittura e `FLAG_*` env globali: la visibilità del menu per tenant
+    (spec §7) è nuova; (16) vocabolario: «limiti» = massimali DM MITE (§55),
+    le soglie commerciali si chiamano «soglie d'uso».
 
 ## 13. Cosa resta della piattaforma
 

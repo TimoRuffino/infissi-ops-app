@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026, fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione).
-**Versione:** 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026, fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione; design SaaS multi-azienda registrato in §60, senza codice).
+**Versione:** 5.49 - SaaS multi-azienda: design approvato dalla direzione e registrato in §60 (tenant sopra sede, un solo prodotto a canone fisso per azienda, storage e Tars come sole risorse misurate, Platform Admin separato, abbonamenti omaggio, Ruffino Group come tenant 1) con il riscontro sul codice del checkout; nessuna implementazione autorizzata. Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -120,6 +120,8 @@ Su ogni risposta HTTP:
 - `ordini` — ordini fornitori.
 
 Ogni utente ha `ruoli: string[]` (1–3 valori). Il campo legacy `ruolo` continua a contenere il ruolo primario per retro‑compatibilità.
+
+Il design SaaS multi-azienda (§60, approvato il 06/09/2026, non implementato) aggiunge sopra questo set il ruolo **Proprietario azienda** del tenant e, fuori dai dati operativi, l'identità globale **Platform Admin**.
 
 ### 4.2 Mapping `role` legacy
 - `role = "admin"` quando in `ruoli` è presente `direzione`. Altrimenti `user`.
@@ -1519,6 +1521,7 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 - Store `sedi`: `{ id, nome, indirizzo?, citta?, attiva }` (seed prima sede "La Spezia").
 - Ogni entità business porta `sedeId` (backfill = 1 per i record pre‑esistenti).
 - Gli utenti hanno `sediIds: number[]` (accesso multi‑sede).
+- Sopra la sede è progettato il **tenant** (azienda): §60, design approvato il 06/09/2026, nessun codice.
 
 ### 34.2 Risoluzione della sede attiva
 - Cookie/claim `active_sede` → `ctx.sedeId` su ogni richiesta tRPC.
@@ -3627,3 +3630,193 @@ inserisce credenziali; la verifica 1440×900 e 390×844 (stepper interno,
 pannello dei controlli e i suoi pulsanti, «Da fare oggi» a flag accesi) si
 somma a quella, anch'essa in sospeso, del piano 4. In produzione non cambia
 nulla finché `FLAG_LIMITI` e `FLAG_FATTURAZIONE` restano spenti.
+
+---
+
+## 60. SaaS multi-azienda — modello commerciale e architettura (design approvato, 06/09/2026; NON implementato)
+
+**Stato.** Design approvato dalla direzione in conversazione il 06/09/2026 e
+registrato in `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`
+(testo integrale, sezioni 1–18, più l'Appendice A col riscontro sul codice).
+**Nessuna implementazione è autorizzata da questa sezione**: finché il primo
+workstream (§60.8) non è su `main`, il codice resta mono-azienda e nessuna
+divergenza da §60 è un bug. Questa sezione è il riassunto del contratto
+funzionale; in caso di dubbio vale la spec.
+
+### 60.1 Decisione e perimetro
+
+Ruffino Flow viene distribuito a più rivenditori di infissi come SaaS con
+**un solo prodotto completo**: canone fisso per azienda, **mensile o
+annuale** (l'annuale è anticipato e scontato), stesse funzioni e stessi
+limiti d'uso per tutti. Niente piani Base/Pro/Enterprise, niente moduli
+separati, niente tariffa per utente, sede, casella email o numero WhatsApp
+(fair use, con soli limiti tecnici anti-abuso). Email, WhatsApp e Tars sono
+inclusi; i canoni dei fornitori esterni (Meta, casella email, Fatture in
+Cloud) restano a carico dell'azienda cliente. Le sole risorse misurate
+commercialmente sono **storage** e **consumo Tars**. Il marchio resta
+Ruffino Flow (nome, dominio, login, design system); il rivenditore
+personalizza logo, colore, dati societari e fiscali, intestazioni dei
+documenti, firme email/WhatsApp e dati delle sedi. Niente white-label nella
+prima versione. Prezzo di listino, prezzo dei pacchetti extra e budget Tars
+incluso **non** stanno nel codice: sono configurazioni della piattaforma di
+pagamento e dell'amministrazione, da fissare prima dell'apertura
+commerciale.
+
+### 60.2 Gerarchia: il tenant sopra la sede
+
+```text
+Piattaforma
+└── Azienda / Tenant
+    ├── Abbonamento e consumi
+    ├── Utenti e ruoli
+    ├── Sedi
+    ├── Dati operativi
+    ├── File e backup
+    └── Integrazioni
+```
+
+- Un utente operativo appartiene a **una sola** azienda; una sede a una sola
+  azienda; ogni record business, configurazione, file, evento, audit e consumo
+  porta `tenantId`; le entità operative continuano a portare `sedeId` (§34).
+- `tenantId` DEVE derivare dalla sessione autenticata: mai un input del
+  client. Cookie, parametri e payload possono proporre una sede, non
+  determinare o ampliare il tenant; il selettore di sede sceglie solo sedi
+  del tenant autenticato.
+- Un riferimento a un record di un'altra azienda DEVE dare `NOT_FOUND`
+  generico, come oggi fra sedi (§34.3); mai un'informazione che confermi
+  l'esistenza.
+- La direzione vede tutte e sole le sedi della propria azienda, non della
+  piattaforma; gli altri ruoli le sedi assegnate.
+- Il **Platform Admin** è un'identità globale separata, fuori dai dati
+  operativi dei tenant.
+
+### 60.3 Ruoli
+
+Un utente ha da uno a tre ruoli; le capability effettive sono l'unione, con
+enforcement server-side; nessun ruolo personalizzato nella prima versione.
+Ai sette ruoli attuali (§4.1) si aggiunge il **Proprietario azienda**
+(abbonamento, pagamenti, esportazione, nomina degli amministratori, richiesta
+di chiusura dell'account). Ogni tenant DEVE avere sempre almeno un
+Proprietario e un utente Direzione attivi: la rimozione o disattivazione
+dell'ultimo va rifiutata (oggi la guardia esiste per l'ultima direzione, ma è
+globale: §60.7). Il Platform Admin gestisce aziende, abbonamenti, omaggi,
+consumi e salute del servizio, **non** legge clienti, commesse, messaggi o
+documenti; un accesso di supporto richiede autorizzazione, motivazione,
+scadenza e audit. Tars agisce sempre con i permessi dell'utente corrente e
+non aggira capability, tenant, sede, servizi di dominio, state machine,
+governor o conferme (§54).
+
+### 60.4 Soglie d'uso
+
+| Risorsa | Inclusa | Avvisi | Al limite | Extra |
+|---|---|---|---|---|
+| Storage | **100 GB** per azienda, byte effettivi dei file del tenant (non metadati né file eliminati) | Proprietario e Direzione al 50 %, 80 %, 100 % | dati, documenti e download restano accessibili; il CRM continua; i nuovi caricamenti costosi sono sospendibili solo dopo la tolleranza dichiarata nell'interfaccia | capacità aggiuntiva ricorrente, blocchi e prezzo configurati fuori dal codice |
+| Tars | budget **mensile** per azienda, rinnovato ogni mese anche per chi paga annuale; misurato sul costo reale del provider, mostrato all'utente come percentuale (mai token, modelli o costi) | 50 %, 80 %, 100 % | sospendibili solo le nuove operazioni Tars a costo esterno; CRM, dati e funzioni deterministiche restano | pacchetto extra valido fino a fine mese |
+
+Il go-live commerciale è vietato finché prezzo, budget incluso, tolleranze di
+storage e Tars e prezzo dei pacchetti extra non sono configurati e verificati
+insieme. Non confondere queste soglie con i «limiti» di §55, che sono i
+massimali fiscali DM MITE del contratto.
+
+### 60.5 Abbonamenti, pagamenti, omaggi
+
+- L'abbonamento conserva almeno: tipo `paid` o `complimentary`; periodicità
+  `monthly` o `yearly` (assente per `complimentary`); stato `active`,
+  `past_due`, `grace`, `suspended`, `cancelled`; inizio e fine del periodo;
+  prossimo rinnovo; disdetta a fine periodo; soglia storage; budget Tars e
+  pacchetti extra; riferimenti opachi del provider.
+- Provider dietro un **adattatore** (il primo può essere Stripe o
+  equivalente). Checkout ospitato dal provider; il CRM non conserva la carta;
+  la pagina di ritorno non prova nulla: attiva o rinnova **solo un evento
+  verificato** del provider. Webhook firmati, idempotenti, tolleranti a
+  duplicati e fuori ordine. Portale self-service del Proprietario per metodo
+  di pagamento, dati di fatturazione, documenti e disdetta.
+- Insoluto: `past_due` al primo mancato pagamento, tentativi del provider e
+  avvisi; dopo **sette giorni** `suspended`: sola lettura, nessuna scrittura o
+  elaborazione costosa, export ancora disponibile al Proprietario, ripristino
+  automatico dopo un pagamento verificato. La disdetta lascia il servizio
+  attivo fino a fine periodo; nessuna cancellazione automatica dei dati:
+  serve richiesta esplicita del Proprietario, verifica e obblighi di
+  conservazione.
+- La fattura del canone la emette il sistema contabile della società
+  proprietaria di Ruffino Flow, separato dalle integrazioni FiC dei tenant.
+- **Omaggio** (`complimentary`, solo Platform Admin): tutte le funzioni e le
+  soglie ordinarie, senza oggetti né sconti sul provider; con o senza
+  scadenza; dicitura «Abbonamento omaggio» al Proprietario; motivazione,
+  autore, data e modifiche registrate; convertibile in pagante senza perdere
+  nulla; avvisi prima della scadenza e passaggio controllato, mai addebiti
+  involontari.
+
+### 60.6 Onboarding
+
+Percorso guidato e ripristinabile: periodicità → dati societari → checkout →
+tenant creato **dopo** la conferma del pagamento → primo Proprietario → prima
+sede → inviti e ruoli → integrazioni facoltative (Email, WhatsApp, FiC,
+Drive) → importazione iniziale. Per un omaggio i primi tre passi sono
+sostituiti dalla concessione amministrativa. Lo stato si salva passo per
+passo; un'integrazione fallita non annulla il tenant. Il Platform Admin può
+creare un tenant assistito e reinviare l'invito senza impersonare nessuno.
+
+### 60.7 Architettura tecnica e riscontro sul codice
+
+Il contratto tecnico è nella spec (§12); qui i punti fermi e, per ciascuno,
+cosa fa il codice del checkout del 06/09/2026 (dettaglio con file e riga
+nell'Appendice A della spec).
+
+**Basi che reggono** (riusare, non rifare): il contesto server-side
+`{ user, sedeId, sediIds }` col cookie di sede validato e nessun `sedeId`
+impostabile dal client (`server/_core/context.ts`); `assertSedeScope` →
+`NOT_FOUND` in 91 punti e i test negativi di `crossSede.test.ts`; i sette
+ruoli a unione (§4.1); il catalogo Tars fail-closed sulla sede, il provider
+solo dietro il governor, il ledger R1 append-only; il ledger dei costi
+`tars_costi` con sede, utente, modello, token e costo reale per chiamata; la
+coda durevole degli eventi business (lease, retry, dead-letter, dedupe per
+sede); lo storage con checksum e il backup che rilegge i byte; i segreti
+AES-GCM e il webhook Meta firmato; i due pattern `ensureSchema()` e `onLoad`
+per tabelle e backfill.
+
+| Punto della spec | Stato | Nel codice del 06/09/2026 (`ecb2042`) |
+|---|---|---|
+| tenant nel contesto (§12.2) | manca | nessun tenant, azienda o organizzazione; l'unico asse è la sede; fallback `DEFAULT_SEDE_ID = 1` anche nel contesto di Tars |
+| Proprietario, Platform Admin, MFA (§6) | manca | `direzione` = tutte le capability + tutte le sedi + `role:"admin"` derivato; nessuna capability per utenti e sedi; nessuna identità globale; nessun MFA |
+| ultimo presidio non rimovibile (§6.1) | diverso | guardia dell'ultima direzione globale, non per tenant |
+| inviti e ripresa dell'onboarding (§9) | manca | l'admin crea l'utente con la password nel payload; niente inviti né reset |
+| control plane relazionale (§12.1) | diverso | `utenti` e `sedi` sono blob JSONB; drizzle copre solo `users`; tabelle business da `ensureSchema()`; `fic_fatture` è uno store, non una tabella |
+| `persistedStore` per tenant (§12.3) | diverso | chiave = nome puro, 50 store in registro statico caricati al boot, riscrittura intera, nessun optimistic locking; store globali da decidere (`sedi`, `utenti`, `backup_*`, `notifiche_read`, `timeline_steps`); filtro di lista a mano 165 volte, nessun helper |
+| tabelle con `tenant_id` (§12.3) | diverso | `comunicazioni`, `business_events`, `notifications`, `chat_*` hanno solo `sede_id` |
+| flag e menu per azienda (§7) | diverso | `platform_feature_flags` per sede senza endpoint di scrittura; `FLAG_*` env globali; nessuna visibilità del menu |
+| storage misurato (§4.1) | manca | nessun conteggio dei byte; chiavi senza tenant; cancellazioni mai per allegati mail, XML/PDF delle fatture, anteprime; media WhatsApp non salvati |
+| backup e restore per tenant (§12.4) | manca | un archivio globale; OAuth Drive globale con refresh token in chiaro; nessun restore |
+| integrazioni e `state` (§12.5) | diverso | FiC, caselle, WhatsApp e calendari già per sede; Drive globale; `state` in memoria (FiC lega la sede, non l'utente; Drive nessun legame); il webhook Meta prova il secret di ogni sede |
+| job per tenant (§12.5) | diverso | solo gli eventi business hanno coda durevole; 11 worker `setInterval` in-process, giro su tutte le sedi, niente lease |
+| budget Tars per azienda (§4.2) | diverso | tetti solo da env, aggregati senza sede, lock globale; solo OpenAI |
+| rate limiting (§15) | diverso | solo login e `tars.invia`; upload, webhook e ICS senza limite |
+| audit append-only (§15) | diverso | per convenzione (solo INSERT), senza vincolo nel database; l'audit dei flag è un blob riscrivibile |
+| export aziendale (§10.3) | manca | nessuno; il backup notturno è l'unica estrazione |
+| Tars non aggira (§6.3) | regge | `scavalcaGate` è il «Procedi comunque» registrato; pagamenti, invii e cancellazioni non sono nel catalogo; nessun indice semantico da isolare |
+
+Le decisioni che la spec tecnica del workstream 1 deve prendere (forma del
+control plane, contesto, registro dinamico degli store, Proprietario e
+`role` legacy, test cross-tenant, append-only) sono in A.4 della spec. Nel
+repo la parola «limiti» resta ai massimali DM MITE (§55): le soglie
+commerciali si chiamano «soglie d'uso».
+
+### 60.8 Strategia di rilascio e ciò che resta da decidere
+
+Otto workstream ordinati, ciascuno con spec tecnica, piano, test e checkpoint
+propri, ciascuno disattivabile senza perdere dati: 1 fondazione tenant
+(control plane, contesto, permessi, isolamento); 2 migrazione di Ruffino
+Group (tenant 1, backfill, `tenant:1:<store>` accanto alle chiavi legacy in
+sola lettura, rollback); 3 file, comunicazioni e integrazioni; 4 abbonamenti
+e consumi; 5 onboarding e personalizzazione; 6 pannello Platform Admin;
+7 pilota con un'azienda omaggio; 8 rollout controllato. Il self-service
+pubblico non apre prima della chiusura del pilota e della verifica delle
+soglie economiche di Tars. La migrazione (spec §14) è idempotente e
+verificabile: backup Drive riuscito nelle 24 ore, inventario, dry-run,
+conteggi e checksum, test negativi cross-tenant, finestra di rollback, dati
+legacy mai cancellati col cutover.
+
+**Non deciso, fuori dal codice:** prezzo mensile e annuale, budget Tars
+incluso in euro, tolleranze di storage e Tars, prezzo dei pacchetti extra,
+provider di pagamento. **Non autorizzato:** qualunque riga di codice, finché
+la direzione non apre il workstream 1 con la sua spec tecnica.
