@@ -5,6 +5,7 @@ import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { hashPassword, isHashed } from "../_core/password";
 import { isDirezione } from "../_core/permissions";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 
 // ── Roles (PRD Section 14) ────────────────────────────────────────────────────
 const RUOLI = [
@@ -87,6 +88,7 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
     items.push({
       ...bootstrapAdmin(),
       sediIds: [1],
+      tenantId: TENANT_PREDEFINITO_ID,
       createdAt: now,
       updatedAt: now,
     });
@@ -106,6 +108,11 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
       (u as any).sediIds = [1];
       migrated = true;
     }
+    // Backfill WS1: ogni utente legacy appartiene a Ruffino Group (tenant 1).
+    if (typeof (u as any).tenantId !== "number") {
+      (u as any).tenantId = TENANT_PREDEFINITO_ID;
+      migrated = true;
+    }
   }
   if (migrated) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
@@ -115,6 +122,50 @@ const utenti = _store.items;
 // Export for local auth access
 export function getUtentiStore() {
   return utenti;
+}
+
+export function getUtentiPersistedStore() {
+  return _store;
+}
+
+export type NuovoUtenteInterno = {
+  tenantId: number;
+  nome: string;
+  cognome: string;
+  email: string;
+  telefono?: string | null;
+  ruoli: string[];
+  sediIds: number[];
+  passwordHash: string;
+  attivo?: boolean;
+};
+
+/**
+ * Crea l'utente nell'array e lo restituisce (con la password hashata dentro).
+ * Chi chiama salva o committa. L'email è unica su tutta l'installazione: il
+ * login è per sola email e non distingue i tenant.
+ */
+export function creaUtenteInterno(input: NuovoUtenteInterno) {
+  if (utenti.some(u => u.email.toLowerCase() === input.email.toLowerCase())) {
+    throw new Error("Email già in uso");
+  }
+  const now = new Date();
+  const utente = {
+    id: nextId++,
+    tenantId: input.tenantId,
+    nome: input.nome,
+    cognome: input.cognome,
+    email: input.email,
+    telefono: input.telefono ?? null,
+    ruoli: input.ruoli,
+    sediIds: input.sediIds,
+    attivo: input.attivo ?? true,
+    password: input.passwordHash,
+    createdAt: now,
+    updatedAt: now,
+  };
+  utenti.push(utente);
+  return utente;
 }
 
 const scopeInputSchema = z.object({ adminScope: z.boolean().optional() });
@@ -202,30 +253,19 @@ export const utentiRouter = router({
       })
     )
     .mutation(({ input }) => {
-      // Check email uniqueness
-      if (
-        utenti.some(u => u.email.toLowerCase() === input.email.toLowerCase())
-      ) {
-        throw new Error("Email già in uso");
-      }
-      const now = new Date();
-      const id = nextId++;
-      const utente = {
-        id,
-        ...input,
+      const utente = creaUtenteInterno({
+        tenantId: TENANT_PREDEFINITO_ID,
+        nome: input.nome,
+        cognome: input.cognome,
+        email: input.email,
         telefono: input.telefono ?? null,
-        sediIds:
-          input.sediIds && input.sediIds.length > 0 ? input.sediIds : [1],
-        attivo: input.attivo ?? true,
-        // Never store the plaintext password.
-        password: hashPassword(input.password),
-        createdAt: now,
-        updatedAt: now,
-      };
-      utenti.push(utente);
+        ruoli: input.ruoli,
+        sediIds: input.sediIds && input.sediIds.length > 0 ? input.sediIds : [1],
+        passwordHash: hashPassword(input.password),
+        attivo: input.attivo,
+      });
       _store.save();
-      const { password, ...rest } = utente;
-      return { ...rest, hasPassword: true };
+      return publicUtente(utente);
     }),
 
   update: adminProcedure

@@ -4,6 +4,7 @@ import { persistedStore } from "../_core/persistence";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { SEDE_COOKIE } from "@shared/const";
 import { getUtentiStore } from "./utenti";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 
 // ── Sedi (showrooms / locations) ─────────────────────────────────────────────
 //
@@ -17,6 +18,7 @@ import { getUtentiStore } from "./utenti";
 
 export type Sede = {
   id: number;
+  tenantId: number;
   nome: string;
   citta: string | null;
   indirizzo: string | null;
@@ -35,6 +37,7 @@ const _store = persistedStore<Sede>("sedi", (items, { firstBoot }) => {
     const now = new Date();
     items.push({
       id: DEFAULT_SEDE_ID,
+      tenantId: TENANT_PREDEFINITO_ID,
       nome: "La Spezia",
       citta: "La Spezia",
       indirizzo: null,
@@ -44,6 +47,15 @@ const _store = persistedStore<Sede>("sedi", (items, { firstBoot }) => {
     });
     setTimeout(() => _store.save(), 0);
   }
+  // Backfill WS1: ogni sede legacy appartiene a Ruffino Group (tenant 1).
+  let migrate = false;
+  for (const s of items) {
+    if (typeof (s as any).tenantId !== "number") {
+      (s as any).tenantId = TENANT_PREDEFINITO_ID;
+      migrate = true;
+    }
+  }
+  if (migrate) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x) => x.id)) + 1 : 2;
 });
 const sedi = _store.items;
@@ -54,6 +66,10 @@ export function getSediStore(): Sede[] {
   return sedi;
 }
 
+export function getSediPersistedStore() {
+  return _store;
+}
+
 export function getSedeById(id: number): Sede | null {
   return sedi.find((s) => s.id === id) ?? null;
 }
@@ -61,6 +77,41 @@ export function getSedeById(id: number): Sede | null {
 /** All active sede ids — used to grant direzione access to every sede. */
 export function allSedeIds(): number[] {
   return sedi.filter((s) => s.attiva).map((s) => s.id);
+}
+
+export function sediDelTenant(tenantId: number): Sede[] {
+  return sedi.filter((s) => s.tenantId === tenantId).sort((a, b) => a.id - b.id);
+}
+
+export function sediAttiveDelTenant(tenantId: number): Sede[] {
+  return sediDelTenant(tenantId).filter((s) => s.attiva);
+}
+
+/** Prima sede attiva del tenant, per id crescente; null se non ne ha. */
+export function sedePredefinita(tenantId: number): number | null {
+  return sediAttiveDelTenant(tenantId)[0]?.id ?? null;
+}
+
+/** Spinge la sede nell'array e la restituisce. Chi chiama salva (o committa la transazione). */
+export function creaSedeInterna(input: {
+  tenantId: number;
+  nome: string;
+  citta?: string | null;
+  indirizzo?: string | null;
+}): Sede {
+  const now = new Date();
+  const sede: Sede = {
+    id: nextId++,
+    tenantId: input.tenantId,
+    nome: input.nome,
+    citta: input.citta ?? null,
+    indirizzo: input.indirizzo ?? null,
+    attiva: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  sedi.push(sede);
+  return sede;
 }
 
 /**
@@ -117,17 +168,7 @@ export const sediRouter = router({
       })
     )
     .mutation(({ input }) => {
-      const now = new Date();
-      const sede: Sede = {
-        id: nextId++,
-        nome: input.nome,
-        citta: input.citta ?? null,
-        indirizzo: input.indirizzo ?? null,
-        attiva: true,
-        createdAt: now,
-        updatedAt: now,
-      };
-      sedi.push(sede);
+      const sede = creaSedeInterna({ tenantId: TENANT_PREDEFINITO_ID, ...input });
       _store.save();
       return sede;
     }),
