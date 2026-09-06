@@ -557,6 +557,10 @@ Accettazione:
   errori delle mutation; in WS1 la sospensione è un atto dell'operatore.
 - **Utenti OAuth legacy**: con interruttore acceso restano fuori se non hanno
   un record in `utenti`; il percorso è spento in produzione.
+- **Prova gratuita di 30 giorni** (decisione della stessa sera, spec madre
+  §18-bis): non tocca il WS1. Un tenant in prova è `attivo`; la prova, la
+  sua scadenza e la registrazione senza pagamento vivono nell'abbonamento
+  (WS4) e nell'onboarding (WS5).
 
 ## 13. Cosa viene dopo
 

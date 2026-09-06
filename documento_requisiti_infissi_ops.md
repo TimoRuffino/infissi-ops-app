@@ -3645,7 +3645,13 @@ funzionale; in caso di dubbio vale la spec. **Decisione successiva
 (06/09/2026 sera):** il prodotto si chiamerà **Wyndor**; dove qui e nella
 spec si legge «marchio Ruffino Flow» vale «marchio Wyndor» (spec §18-bis).
 Ruffino Group resta il tenant 1; il rebranding dell'applicazione è un lavoro
-separato, fuori da §60.
+separato, fuori da §60. **Seconda decisione della sera:** ogni nuova azienda
+ha una **prova gratuita di 30 giorni** con funzioni e soglie ordinarie; il
+tenant nasce alla registrazione, lo stato `trialing` si aggiunge a quelli di
+§60.5, alla scadenza senza pagamento si segue il percorso degli insoluti
+(avvisi, sola lettura, mai cancellazione automatica). Da fissare prima di
+WS4/WS5: carta alla registrazione sì o no, soglie Tars e storage in prova,
+una sola prova per partita IVA, avvisi prima della scadenza (spec §18-bis).
 
 ### 60.1 Decisione e perimetro
 

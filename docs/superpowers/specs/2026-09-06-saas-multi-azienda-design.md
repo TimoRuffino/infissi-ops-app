@@ -597,6 +597,19 @@ chiusura del pilota e della verifica delle soglie economiche Tars.
   come in §8. Ruffino Group resta il tenant 1. Il rebranding
   dell'applicazione (interfaccia, documenti, dominio, repository) è un lavoro
   separato e non fa parte del workstream 1.
+- **06/09/2026 sera — prova gratuita di 30 giorni.** Ogni nuova azienda
+  riceve una prova gratuita di 30 giorni con tutte le funzioni e le soglie
+  ordinarie. Conseguenze sul design: lo stato `trialing` si aggiunge a quelli
+  di §10.1; il tenant nasce alla registrazione e non «dopo la conferma
+  effettiva del pagamento» (§9, passo 4); alla scadenza senza pagamento
+  verificato si segue il percorso di §10.3 (avvisi, poi sola lettura, mai
+  cancellazione automatica); l'omaggio (§11) resta distinto dalla prova.
+  Da decidere prima del WS4/WS5, fuori dal codice: carta richiesta o no
+  alla registrazione; budget Tars e storage durante la prova (uguali o
+  ridotti, per limitare il costo esteso a chi non paga); una sola prova per
+  azienda (partita IVA) e come riconoscerla; avvisi prima della scadenza.
+  Il WS1 non cambia: un tenant in prova è `attivo`, la prova vive
+  nell'abbonamento.
 
 ---
 

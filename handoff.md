@@ -48,6 +48,9 @@
 > §60.9) — porta chiusa a chiave, `proprietario` ottavo ruolo, servizio
 > `tenants` con comandi eseguiti solo dal server, `FLAG_MULTI_AZIENDA`,
 > stato del tenant con sola lettura. Piano da scrivere, nessun codice.
+> Terza decisione della sera: **prova gratuita di 30 giorni** per ogni nuova
+> azienda (spec madre §18-bis): tocca WS4 e WS5, non il WS1; aperti carta
+> alla registrazione, soglie in prova, una prova per partita IVA, avvisi.
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
