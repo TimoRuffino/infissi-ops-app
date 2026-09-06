@@ -281,10 +281,18 @@ function createPostgresTenantRepository(
       await ensureSchema();
       if (repo.perSlug(input.slug)) throw new Error(`slug già usato: ${input.slug}`);
       const stato = input.stato ?? "attivo";
-      const rows =
-        input.id != null
-          ? await sql`INSERT INTO tenants (id, slug, nome, stato) VALUES (${input.id}, ${input.slug}, ${input.nome}, ${stato}) RETURNING *`
-          : await sql`INSERT INTO tenants (slug, nome, stato) VALUES (${input.slug}, ${input.nome}, ${stato}) RETURNING *`;
+      let rows;
+      try {
+        rows =
+          input.id != null
+            ? await sql`INSERT INTO tenants (id, slug, nome, stato) VALUES (${input.id}, ${input.slug}, ${input.nome}, ${stato}) RETURNING *`
+            : await sql`INSERT INTO tenants (slug, nome, stato) VALUES (${input.slug}, ${input.nome}, ${stato}) RETURNING *`;
+      } catch (e) {
+        if ((e as { code?: string } | undefined)?.code === "23505") {
+          throw new Error(`slug già usato: ${input.slug}`);
+        }
+        throw e;
+      }
       if (input.id != null) await allineaSequenza();
       return memorizza(rigaTenant(rows[0]));
     },

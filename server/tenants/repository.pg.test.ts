@@ -54,4 +54,14 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     expect((await repo.comando(c.id))?.stato).toBe("eseguito");
     expect(await repo.prendiEdEsegui(async () => ({}))).toBe("nessuno");
   });
+
+  it("rifiuta lo slug duplicato anche a cache fredda, dal vincolo UNIQUE di Postgres", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ slug: "doppio", nome: "Uno" });
+    resetTenantRepositoryForTesting();
+    const repo2 = getTenantRepository();
+    await expect(repo2.inserisci({ slug: "doppio", nome: "Due" })).rejects.toThrow(/slug già usato/);
+    const righe = await sql`SELECT COUNT(*)::int AS n FROM tenants WHERE slug = 'doppio'`;
+    expect(righe[0].n).toBe(1);
+  });
 });
