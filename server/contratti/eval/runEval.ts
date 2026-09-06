@@ -20,6 +20,8 @@ import { estraiTestoDocumento } from "../../documenti/parserRegistry";
 import { creaProviderPerRun, statoProvider } from "../../tars/costi/providerGovernato";
 import type { TarsProvider } from "../../tars/provider";
 import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "../estrazione/layoutWnd";
+import { arricchisciDaLayoutPreventivo, riconosceLayoutPreventivo } from "../estrazione/layoutPreventivo";
+import { PAGINE_VISIONE_CONTRATTO } from "../estrazione/servizio";
 import { costruisciProposta, type ContestoMappa } from "../estrazione/mappa";
 import { estraiConModello, modelloEstrazione, type ContestoEstrazione } from "../estrazione/modello";
 import type { EsitoModello } from "../estrazione/schema";
@@ -163,7 +165,16 @@ async function eseguiCasoContratto(
   if (esito.saltato) return esito;
 
   const partenza = Date.now();
-  const parser = await estraiTestoDocumento(caso.bytes, "application/pdf", `${caso.nome}.pdf`);
+  // EVAL_CONTRATTI_LETTURA=visione: le scansioni passano dalla lettura visiva
+  // del modello (niente OCR), con l'identità di comodo dell'eval; default:
+  // OCR locale come in produzione senza identità.
+  const letturaVisiva = (process.env.EVAL_CONTRATTI_LETTURA ?? "").trim().toLowerCase() === "visione";
+  const parser = await estraiTestoDocumento(
+    caso.bytes,
+    "application/pdf",
+    `${caso.nome}.pdf`,
+    letturaVisiva ? { ocr: false, visione: { sedeId: 0, utenteId: 0, maxPagine: PAGINE_VISIONE_CONTRATTO } } : undefined
+  );
   esito.tempoMs = Date.now() - partenza;
   esito.esitoParser = parser.esito;
   if (parser.esito !== "estratto") {
@@ -175,6 +186,7 @@ async function eseguiCasoContratto(
 
   let esitoModello: EsitoModello;
   let troncato = false;
+  let sanificazioni: string[] = [];
   if (opzioni.providerReale) {
     esito.fonteEsito = "reale";
     const contestoEstrazione: ContestoEstrazione = {
@@ -190,6 +202,7 @@ async function eseguiCasoContratto(
     });
     esitoModello = risposta.esito;
     troncato = risposta.troncato;
+    sanificazioni = risposta.sanificazioni;
   } else {
     // caso.esitoFinto != null qui: altrimenti il caso sarebbe stato saltato sopra.
     esito.fonteEsito = "finto";
@@ -207,6 +220,16 @@ async function eseguiCasoContratto(
       ivaDescrizione: esitoModello.pattuito.ivaDescrizione,
       troncato,
     });
+  } else if (riconosceLayoutPreventivo(parser.pagine)) {
+    proposta = arricchisciDaLayoutPreventivo(parser.pagine, proposta, {
+      ivaDescrizione: esitoModello.pattuito.ivaDescrizione,
+      troncato,
+    });
+    esito.note.push("layout preventivo 2025 riconosciuto");
+  }
+  if (sanificazioni.length > 0) {
+    proposta = { ...proposta, avvertenze: [...proposta.avvertenze, ...sanificazioni] };
+    esito.note.push(`sanificazioni: ${sanificazioni.join(" · ")}`);
   }
 
   // Un campo assente nell'atteso non è noto: non si giudica (fase 3 dello
@@ -291,7 +314,10 @@ export async function eseguiEvalContratti(opzioni?: {
     casiContrattoSintetici(),
     caricaCasiContrattoReali(),
   ]);
-  const casi = [...sintetici, ...reali];
+  // EVAL_CONTRATTI_SOLO=<nome,nome>: solo quei casi (per riprovare una
+  // lettura senza rifare tutte le chiamate al modello).
+  const solo = (process.env.EVAL_CONTRATTI_SOLO ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const casi = [...sintetici, ...reali].filter(c => solo.length === 0 || solo.some(s => c.nome === s || c.nome === `reale-${s}`));
 
   const esiti: EsitoCasoContratto[] = [];
   for (const caso of casi) {

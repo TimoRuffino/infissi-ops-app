@@ -194,7 +194,11 @@ const TIMEOUT_RENDERING_VISIONE_MS = 60_000;
 /** Sotto questa media di caratteri per pagina l'OCR non ha letto davvero. */
 const CARATTERI_MINIMI_PER_PAGINA = 200;
 
-export type OpzioneVisione = IdentitaLettura & { deps?: Partial<DipendenzeVisione> };
+export type OpzioneVisione = IdentitaLettura & {
+  deps?: Partial<DipendenzeVisione>;
+  /** Pagine da trascrivere (default MAX_PAGINE_VISIONE): un contratto ne ha più di una conferma d'ordine. */
+  maxPagine?: number;
+};
 
 /**
  * Lettura visiva (04/09/2026): il modello trascrive le pagine quando l'OCR
@@ -224,7 +228,7 @@ async function tentaVisione(
   } else {
     const rendering = await renderizzaPaginePng(bytes, {
       dpi: DPI_VISIONE,
-      maxPagine: MAX_PAGINE_VISIONE,
+      maxPagine: visione.maxPagine ?? MAX_PAGINE_VISIONE,
       timeoutMs: TIMEOUT_RENDERING_VISIONE_MS,
       numeroPagine:
         precedente.esito === "scansione_senza_testo" ? (precedente.pagineTotali ?? null) : null,
