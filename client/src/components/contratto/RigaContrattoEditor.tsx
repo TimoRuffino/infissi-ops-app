@@ -29,6 +29,7 @@ import {
   type OscuranteIntegrato,
   type ZonaClimatica,
 } from "@shared/limiti/tipi";
+import DoveLetto from "@/components/documenti/DoveLetto";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,6 +79,7 @@ export default function RigaContrattoEditor({
   puoModificare,
   zona,
   catalogo,
+  documentoId = null,
   onChange,
   onRimuovi,
 }: {
@@ -86,6 +88,8 @@ export default function RigaContrattoEditor({
   puoModificare: boolean;
   zona: ZonaClimatica | null;
   catalogo: CatalogoContratto;
+  /** Il PDF del contratto da cui la riga è stata letta: accende «Dove l'ho letto». */
+  documentoId?: number | null;
   onChange: (patch: Partial<RigaForm>) => void;
   onRimuovi: () => void;
 }) {
@@ -145,6 +149,17 @@ export default function RigaContrattoEditor({
           disabled={!puoModificare}
           onChange={e => onChange({ descrizione: e.target.value })}
         />
+        {documentoId != null && riga.evidenza && (
+          <DoveLetto
+            documentoId={documentoId}
+            evidenza={{
+              pagina: riga.evidenza.pagina,
+              frammento: riga.evidenza.frammento,
+              area: riga.evidenza.area ?? null,
+            }}
+            etichetta={`Dove ho letto la riga ${n}`}
+          />
+        )}
         {puoModificare && (
           <Button
             variant="ghost"

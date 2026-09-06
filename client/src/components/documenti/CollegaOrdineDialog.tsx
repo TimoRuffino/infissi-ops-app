@@ -7,6 +7,8 @@
 // registrate, e non modificano documento, ordine o commessa.
 
 import { trpc } from "@/lib/trpc";
+import { urlPdfAllaPagina } from "@/lib/anteprime";
+import DoveLetto from "@/components/documenti/DoveLetto";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -204,9 +206,27 @@ export default function CollegaOrdineDialog({
                       <span className="text-text-3">+{segnale.punti}</span>{" "}
                       {segnale.dettaglio}
                       {segnale.evidenza && (
-                        <span className="block text-[11px] text-text-3">
-                          pag. {segnale.evidenza.pagina} — «
-                          {segnale.evidenza.frammento}»
+                        <span className="flex items-center gap-1 flex-wrap text-[11px] text-text-3">
+                          <a
+                            href={urlPdfAllaPagina(documento?.id ?? 0, segnale.evidenza.pagina)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline-offset-2 hover:underline"
+                            title={`Apri il PDF alla pagina ${segnale.evidenza.pagina}`}
+                          >
+                            pag. {segnale.evidenza.pagina}
+                          </a>
+                          <span>— «{segnale.evidenza.frammento}»</span>
+                          {documento && (
+                            <DoveLetto
+                              documentoId={documento.id}
+                              evidenza={{
+                                pagina: segnale.evidenza.pagina,
+                                frammento: segnale.evidenza.frammento,
+                                area: segnale.evidenza.area ?? null,
+                              }}
+                            />
+                          )}
                         </span>
                       )}
                     </li>

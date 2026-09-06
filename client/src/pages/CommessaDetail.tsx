@@ -56,7 +56,8 @@ import {
   HardHat,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { formatEuro, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import { formatEuro, formatEuroSimbolo, parseEuroNonNegativo, parseEuroPositivo } from "@/lib/euro";
+import DoveLetto from "@/components/documenti/DoveLetto";
 import { etichettaTabFattura, STATI_EMESSA_PIU } from "@/lib/fatturaView";
 import type { StatoFattura } from "@shared/fatturazione/tipi";
 import { etichettaTabLimiti, titoloGateBloccato } from "@/lib/limitiView";
@@ -3378,6 +3379,14 @@ function EconomiaCard({
                       da conferma d'ordine
                     </button>
                   )}
+                  {c.documentoId != null && (
+                    <DoveLetto
+                      documentoId={c.documentoId}
+                      campo="imponibile"
+                      valoreAttuale={formatEuroSimbolo(Number(c.importo))}
+                      etichetta="Dove ho letto l'imponibile"
+                    />
+                  )}
                   <div className="ml-auto flex items-center gap-1">
                     <Button
                       variant="ghost"
@@ -3427,6 +3436,15 @@ function EconomiaCard({
                   Conferma «{r.nomeFile}» nel fascicolo, costo non registrato:{" "}
                   {r.motivo ?? r.esito}
                 </span>
+                <DoveLetto
+                  documentoId={r.documentoId}
+                  campo={r.esito === "senza_riscontro" ? "riscontro" : "imponibile"}
+                  etichetta={
+                    r.esito === "senza_riscontro"
+                      ? "Dove ho cercato la commessa"
+                      : "Dove ho letto l'imponibile"
+                  }
+                />
                 <div className="ml-auto flex items-center gap-1">
                   <Button
                     variant="ghost"

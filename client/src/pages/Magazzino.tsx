@@ -20,6 +20,7 @@ import CommessaConsegneCard, {
 } from "@/components/magazzino/CommessaConsegneCard";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
+import DoveLetto from "@/components/documenti/DoveLetto";
 import type { StatePanelProps } from "@/components/patterns/StatePanel";
 import SearchSelect from "@/components/SearchSelect";
 import StatoChip from "@/components/StatoChip";
@@ -1027,9 +1028,18 @@ function ProdottoRow({
     <div className="min-w-0 space-y-2.5 rounded-[var(--radius-panel)] border border-border-soft bg-surface p-3">
       <div className="flex min-w-0 flex-wrap items-start gap-4">
         <div className="min-w-[160px] flex-1">
-          <p className="text-sm font-semibold leading-tight text-text-1">
-            {p.nome}
-          </p>
+          <div className="flex items-start gap-1 min-w-0">
+            <p className="text-sm font-semibold leading-tight text-text-1 min-w-0">
+              {p.nome}
+            </p>
+            {p.documentoId != null && p.evidenza && (
+              <DoveLetto
+                documentoId={p.documentoId}
+                evidenza={p.evidenza}
+                etichetta="Dove ho letto questa riga nella conferma"
+              />
+            )}
+          </div>
           <div className="mt-1 flex items-center gap-2">
             <ConsegnaStatoChip stato={stato} />
             {lead != null && (

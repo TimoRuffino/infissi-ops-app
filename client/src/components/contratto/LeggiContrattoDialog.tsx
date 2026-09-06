@@ -31,6 +31,8 @@ import {
   type PattuitoTipo,
 } from "@shared/limiti/tipi";
 import type { CampoProposto, EvidenzaEstratta } from "@shared/contratti/estrazione";
+import { urlPdfAllaPagina } from "@/lib/anteprime";
+import DoveLetto from "@/components/documenti/DoveLetto";
 import RigaContrattoEditor from "@/components/contratto/RigaContrattoEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,14 +80,43 @@ function NotaDelLettore({ testo }: { testo: string | null }) {
   );
 }
 
-/** Da dove viene il valore: la citazione del PDF, e la nota se il modello ne ha una. */
-function EvidenzaCampo({ evidenza, nota }: { evidenza: EvidenzaEstratta | null; nota?: string | null }) {
+/**
+ * Da dove viene il valore: la citazione del PDF (con il link alla pagina e il
+ * tasto «Dove l'ho letto» che apre il ritaglio), e la nota se il modello ne
+ * ha una.
+ */
+function EvidenzaCampo({
+  evidenza,
+  nota,
+  documentoId,
+}: {
+  evidenza: EvidenzaEstratta | null;
+  nota?: string | null;
+  documentoId: number;
+}) {
   if (!evidenza && !nota) return null;
   return (
-    <p className="text-[11px] leading-snug text-text-3 min-w-0 break-words">
-      {evidenza && <span>pag. {evidenza.pagina} — «{evidenza.frammento}»</span>}
+    <div className="text-[11px] leading-snug text-text-3 min-w-0 break-words">
+      {evidenza && (
+        <span className="inline-flex items-center gap-1 flex-wrap">
+          <a
+            href={urlPdfAllaPagina(documentoId, evidenza.pagina)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline-offset-2 hover:underline"
+            title={`Apri il PDF alla pagina ${evidenza.pagina}`}
+          >
+            pag. {evidenza.pagina}
+          </a>
+          <span>— «{evidenza.frammento}»</span>
+          <DoveLetto
+            documentoId={documentoId}
+            evidenza={{ pagina: evidenza.pagina, frammento: evidenza.frammento, area: evidenza.area ?? null }}
+          />
+        </span>
+      )}
       {nota && <span className="block text-warning">{nota}</span>}
-    </p>
+    </div>
   );
 }
 
@@ -98,11 +129,13 @@ function CampoLetto({
   etichetta,
   campo,
   htmlFor,
+  documentoId,
   children,
 }: {
   etichetta: string;
   campo: CampoProposto<unknown>;
   htmlFor?: string;
+  documentoId: number;
   children: React.ReactNode;
 }) {
   return (
@@ -118,7 +151,7 @@ function CampoLetto({
         )}
       </div>
       {children}
-      <EvidenzaCampo evidenza={campo.evidenza} nota={campo.nota} />
+      <EvidenzaCampo evidenza={campo.evidenza} nota={campo.nota} documentoId={documentoId} />
     </div>
   );
 }
@@ -437,7 +470,7 @@ export default function LeggiContrattoDialog({
 
               {/* Testata */}
               <section aria-label="Testata del contratto letto" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <CampoLetto etichetta="Pattuito €" campo={proposta.pattuitoCent} htmlFor="lettura-pattuito">
+                <CampoLetto documentoId={documentoId} etichetta="Pattuito €" campo={proposta.pattuitoCent} htmlFor="lettura-pattuito">
                   <Input
                     id="lettura-pattuito"
                     inputMode="decimal"
@@ -456,7 +489,7 @@ export default function LeggiContrattoDialog({
                   />
                 </CampoLetto>
 
-                <CampoLetto etichetta="Il pattuito è" campo={proposta.pattuitoTipo}>
+                <CampoLetto documentoId={documentoId} etichetta="Il pattuito è" campo={proposta.pattuitoTipo}>
                   <Select
                     value={parametri.pattuitoTipo}
                     disabled={!puoApplicare}
@@ -472,7 +505,7 @@ export default function LeggiContrattoDialog({
                   </Select>
                 </CampoLetto>
 
-                <CampoLetto etichetta="Posa" campo={proposta.posaInclusa}>
+                <CampoLetto documentoId={documentoId} etichetta="Posa" campo={proposta.posaInclusa}>
                   <Label className="flex items-center gap-2 h-9 text-sm">
                     <Switch
                       checked={parametri.posaInclusa}
@@ -488,7 +521,7 @@ export default function LeggiContrattoDialog({
                 </CampoLetto>
 
                 {parametri.posaInclusa && (
-                  <CampoLetto etichetta="Prezzo posa (€)" campo={proposta.posaCent} htmlFor="lettura-posa">
+                  <CampoLetto documentoId={documentoId} etichetta="Prezzo posa (€)" campo={proposta.posaCent} htmlFor="lettura-posa">
                     <Input
                       id="lettura-posa"
                       inputMode="decimal"
@@ -510,6 +543,7 @@ export default function LeggiContrattoDialog({
                 )}
 
                 <CampoLetto
+                  documentoId={documentoId}
                   etichetta="Comune del cantiere"
                   campo={proposta.comuneCantiere}
                   htmlFor="lettura-comune"
@@ -528,7 +562,7 @@ export default function LeggiContrattoDialog({
                   </div>
                 </CampoLetto>
 
-                <CampoLetto etichetta="Piano" campo={proposta.piano} htmlFor="lettura-piano">
+                <CampoLetto documentoId={documentoId} etichetta="Piano" campo={proposta.piano} htmlFor="lettura-piano">
                   <Input
                     id="lettura-piano"
                     type="number"
@@ -538,7 +572,7 @@ export default function LeggiContrattoDialog({
                   />
                 </CampoLetto>
 
-                <CampoLetto etichetta="Data firma" campo={proposta.dataFirma} htmlFor="lettura-firma">
+                <CampoLetto documentoId={documentoId} etichetta="Data firma" campo={proposta.dataFirma} htmlFor="lettura-firma">
                   <Input
                     id="lettura-firma"
                     type="date"
@@ -548,7 +582,7 @@ export default function LeggiContrattoDialog({
                   />
                 </CampoLetto>
 
-                <CampoLetto etichetta="Detrazione" campo={proposta.detrazioneTipo}>
+                <CampoLetto documentoId={documentoId} etichetta="Detrazione" campo={proposta.detrazioneTipo}>
                   <Select
                     value={parametri.detrazioneTipo}
                     disabled={!puoApplicare}
@@ -577,6 +611,16 @@ export default function LeggiContrattoDialog({
                       da verificare
                     </Badge>
                   )}
+                  {proposta.rate.evidenza && (
+                    <DoveLetto
+                      documentoId={documentoId}
+                      evidenza={{
+                        pagina: proposta.rate.evidenza.pagina,
+                        frammento: proposta.rate.evidenza.frammento,
+                        area: proposta.rate.evidenza.area ?? null,
+                      }}
+                    />
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {parametri.rate.reduce((s, r) => s + r.quotaPct, 0)}% del pattuito
                   </span>
@@ -591,7 +635,7 @@ export default function LeggiContrattoDialog({
                     </Button>
                   )}
                 </div>
-                <EvidenzaCampo evidenza={proposta.rate.evidenza} nota={proposta.rate.nota} />
+                <EvidenzaCampo documentoId={documentoId} evidenza={proposta.rate.evidenza} nota={proposta.rate.nota} />
                 {parametri.rate.map((rata, i) => (
                   <div
                     key={rata.numero}
@@ -681,7 +725,7 @@ export default function LeggiContrattoDialog({
                 )}
                 {righe.map((r, i) => (
                   <div key={r.chiave} className="space-y-1 min-w-0">
-                    <EvidenzaCampo evidenza={r.evidenza} />
+                    <EvidenzaCampo documentoId={documentoId} evidenza={r.evidenza} />
                     {(avvertenzeRighe[r.chiave] ?? []).map(a => (
                       <p key={a} className="text-[11px] text-warning">
                         {a}

@@ -581,6 +581,7 @@ export default function ContrattoTab({
               puoModificare={puoModificare}
               zona={zona}
               catalogo={catalogo}
+              documentoId={q.data?.contratto?.documentoId ?? null}
               onChange={patch => aggiornaRiga(r.chiave, patch)}
               onRimuovi={() => {
                 setSporco(true);

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
+import DoveLetto from "@/components/documenti/DoveLetto";
 
 // Registro delle conferme d'ordine della sede (direzione 03/09/2026 sera:
 // «crea un registro delle conf. ordine archiviate automaticamente»). Ogni
@@ -249,6 +250,13 @@ export default function ConfermeOrdine() {
                       {r.archiviatoDa ? (
                         <span className="block truncate text-xs text-text-3">da {r.archiviatoDa}</span>
                       ) : null}
+                      {r.fonteTesto && r.fonteTesto !== "nessuna" && (
+                        <DoveLetto
+                          documentoId={r.documentoId}
+                          campo="fornitore"
+                          etichetta="Dove ho letto il fornitore"
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="overflow-hidden">
                       {r.commessa ? (
@@ -272,6 +280,21 @@ export default function ConfermeOrdine() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums" title={r.motivo ?? undefined}>
                       {costoTesto(r.costo)}
+                      {r.costo.stato === "registrato" && (
+                        <DoveLetto
+                          documentoId={r.documentoId}
+                          campo="imponibile"
+                          valoreAttuale={r.costo.importo != null ? formatEuroSimbolo(r.costo.importo) : null}
+                          etichetta="Dove ho letto l'imponibile"
+                        />
+                      )}
+                      {r.costo.stato === "senza_riscontro" && (
+                        <DoveLetto
+                          documentoId={r.documentoId}
+                          campo="riscontro"
+                          etichetta="Dove ho cercato la commessa"
+                        />
+                      )}
                       {r.costo.stato === "senza_riscontro" ? (
                         <Button
                           size="sm"
@@ -333,7 +356,17 @@ export default function ConfermeOrdine() {
                   </div>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <dt className="text-text-3">Costo imponibile</dt>
-                    <dd className="tabular-nums">{costoTesto(r.costo)}</dd>
+                    <dd className="flex items-center justify-end gap-1 tabular-nums">
+                      {costoTesto(r.costo)}
+                      {r.costo.stato === "registrato" && (
+                        <DoveLetto
+                          documentoId={r.documentoId}
+                          campo="imponibile"
+                          valoreAttuale={r.costo.importo != null ? formatEuroSimbolo(r.costo.importo) : null}
+                          etichetta="Dove ho letto l'imponibile"
+                        />
+                      )}
+                    </dd>
                   </div>
                   <div className="flex min-w-0 items-center justify-between gap-2">
                     <dt className="text-text-3">Merce</dt>
