@@ -93,6 +93,16 @@ async function revokeActiveOverrides(input: {
   }
 }
 
+function assertCapabilityDelegabile(capability: Capability): void {
+  if (capability === "tenant.manage_proprietari") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
+    });
+  }
+}
+
 export const permessiRouter = router({
   /**
    * Le capability effettive dell'utente autenticato nella sede attiva
@@ -166,13 +176,7 @@ export const permessiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const { sedeId, actorUserId } = directionContext(ctx);
-      if (input.capability === "tenant.manage_proprietari") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message:
-            "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
-        });
-      }
+      assertCapabilityDelegabile(input.capability);
       const user = findUserInSede(input.userId, sedeId);
       const now = new Date();
       if (input.effect === "deny") {
@@ -249,13 +253,7 @@ export const permessiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const { sedeId, actorUserId } = directionContext(ctx);
-      if (input.capability === "tenant.manage_proprietari") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message:
-            "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
-        });
-      }
+      assertCapabilityDelegabile(input.capability);
       if (input.delegateUserId === input.delegatorUserId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
