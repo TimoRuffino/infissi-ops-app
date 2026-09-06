@@ -1,7 +1,7 @@
 # Documento Requisiti — Ruffino Flow (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente del checkout (06/09/2026, fasi 1-3 dello studio sui dati reali; anteprime delle evidenze sul branch `claude/ocr-crm-overview-1adbb2`).
-**Versione:** 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Versione:** 5.46 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -862,9 +862,11 @@ piano `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`.
   con il documento, esclusa dal backup. Rotta `GET
   /api/documenti/:id/pagina/:n` con le guardie del file (origine, sessione,
   sede o `404`) più `ETag` e cache privata di un giorno; limiti 15 MB e 20
-  pagine. Le foto non si rendono: l'immagine è il documento.
+  pagine. Le foto non si rendono: l'immagine è il documento (tranne le
+  HEIC, sotto).
 - **Interruttore** fail-closed `FLAG_ANTEPRIME_EVIDENZE`: governa rotta,
   rendering nei worker e visibilità del tasto (`platform.interruttori`).
+  Acceso in produzione dalla direzione la sera del 06/09/2026.
   Runbook: fase 4 in `docs/runbooks/rollout-document-intelligence.md`.
 - **Superfici**: dialog «Leggi il contratto» (ogni campo, riga e rata, con
   «pag. N» che apre il PDF alla pagina), contratto applicato, dialog
@@ -873,6 +875,23 @@ piano `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`.
   mobile), magazzino. Query `preventiviContratti.evidenzeDocumento` con la
   guardia del file. Eval `pnpm eval:documenti`: metrica «evidenze
   localizzate» per fonte, senza soglia.
+- **Vignetta** (`DoveLetto.tsx`, Radix Popover sopra il tasto con la
+  freccia, mai a tutta pagina; calcolo puro in `client/src/lib/anteprime.ts`):
+  larghezza consigliata fra 480 e 640 px secondo quanto è larga la fascia
+  alla scala di lettura, mai oltre il 92 % dello schermo; il ritaglio è la
+  fascia di contesto a scala naturale e mai ingrandita oltre 1,25×, con la
+  riga letta alta almeno quanto il testo dell'interfaccia; se la fascia non
+  ci sta ma la riga letta sì, si mostra la riga intera — etichetta e valore
+  insieme — con i bordi sfumati su ciò che sta oltre; altrimenti la
+  finestra si centra sul frammento. «Pagina intera» scorre dentro la
+  scatola e parte dal punto del frammento; il rettangolo vive nello spazio
+  della pagina, quindi resta al posto giusto scorrendo. Didascalia: pagina,
+  fonte del testo (testo nativo, «OCR n %», trascrizione del modello) e
+  grado (riquadro, zona, pagina intera). «Apri PDF alla pagina N» usa
+  `#page=N`. Corretta il 06/09 sera dopo la prova della direzione in
+  produzione: il pannello restava a 480 px con ritagli fino a 640 e usciva
+  dallo schermo, la pagina intera non scorreva, l'etichetta restava fuori
+  quando la finestra si centrava sul solo numero.
 - **Nella chat di Tars** (seconda tornata, stesso giorno): `leggi_conferma_ordine`
   1.4.0 (registro 1.22.0) restituisce evidenze con pagina, frammento e area
   per i documenti del fascicolo, e il thread mostra il tasto accanto al
@@ -2501,6 +2520,58 @@ L1 lavorano in shadow; L2 e L3 non sono implementati.
 > con l'ordine originario (D1 ordini sospesa dalla direzione), il dataset
 > di valutazione anonimizzato — piano in
 > `docs/reports/d7-document-intelligence-piano.md`.
+
+> **Studio dell'OCR e decisione sul VLM (06/09/2026, nessun codice).** Un
+> solo motore locale (tesseract 5 e poppler via apt in `nixpacks.toml`), un
+> solo ingresso (`estraiTestoDocumento`), una cascata a tre gradini uguale
+> per tutto il CRM: testo nativo per geometria (`pdf-testo-nativo`), OCR
+> locale solo senza testo o per le foto (pdftoppm a 300 dpi, tesseract TSV
+> in `psm 6`, 20 pagine, 30 s a pagina e 120 s totali, cache per impronta e
+> firma, nessun servizio cloud: i byte non lasciano la macchina), lettura
+> visiva a pagamento solo con un'identità e OCR insufficiente (confidenza
+> bassa o meno di 200 caratteri a pagina; 8 pagine a 150 dpi, governor in
+> classe `lettura_documenti`). La firma OCR entra nelle chiavi dei run D7 e
+> nella versione del prompt del contratto. Consumatori: costo e merce dalla
+> conferma (all'ingresso senza OCR, worker ogni 60 s con OCR e visione),
+> analisi D7, lettura del contratto, strumenti di Tars, smistamento e
+> auto-archivio. Punti aperti trovati nel codice e non toccati (handoff,
+> debito voce 20): OCR fino a 120 s dentro una richiesta tRPC
+> (`analisiDocumenti.candidati`); registro conferme senza guardia
+> economica; disponibilità reale di binari e lingue invisibile alla UI; due
+> lettori di byte con precedenza opposta (storage e base64 legacy); il
+> worker dell'auto-archivio ignora `FLAG_TARS`; Tars non riceve il motivo
+> del fallimento OCR; archiviazione da chat senza OCR; percorso legacy
+> `comunicazioni/allegati.ts` ancora esportato; `.env.example` e runbook
+> senza lettura visiva e worker; OCR reale coperto solo da `ocr.test.ts` e
+> dalle eval; cartella dei casi reali anonimizzati vuota, quindi
+> accuratezza vera mai misurata. La provenienza e la confidenza OCR, che la
+> UI non mostrava mai, da oggi compaiono nella vignetta «Dove l'ho letto»
+> (§19.4).
+>
+> **Decisione: tesseract non si sostituisce con un VLM.** Il modello c'è già
+> come terzo gradino; la scelta vera è quando farlo pagare e cosa tenere
+> sotto. Tesseract resta il pavimento gratuito, deterministico e privato
+> (decisione «nessun servizio cloud» del 29/08), con confidenza per parola
+> e firma ripetibile: un modello sbaglia in modo credibile e senza
+> confidenza, e l'imponibile letto diventa costo da solo. Priorità dichiarate
+> dalla direzione: (A) scansioni e foto lette male o non lette, (C) il
+> modello che capisce il documento ed estrae i campi, non solo il testo.
+> Strada consigliata, non costruita: testo da nativo, OCR o trascrizione,
+> poi il modello estrae i campi delle conferme con evidenze `{pagina,
+> frammento}` e il codice verifica ogni valore sul testo (schema strict,
+> numeri riparsati dal frammento e non dal JSON, imponibile più IVA che
+> torna col totale, riscontro della commessa sempre dal testo, duplicati e
+> sezioni come regole di codice), nel worker e negli strumenti di chat, mai
+> nel percorso HTTP, con esito persistito per impronta, prompt e modello,
+> flag fail-closed e un periodo in ombra con i disaccordi nei log e
+> nell'eval sui casi reali. Innesco della trascrizione da allargare a
+> «imponibile o fornitore non trovati», con tesseract come seconda lettura
+> (concordanza = confidenza alta, divergenza = «da verificare»). **Domanda
+> aperta alla direzione, mai risposta**: un imponibile letto dal modello,
+> ancorato a un frammento verificato e con i conti che tornano, registra il
+> costo da solo (A), passa sempre da una persona (B) o si registra sempre
+> con l'avviso in nota (C)? Finché non è decisa non si parte: costa una
+> chiamata a pagamento per conferma.
 
 Decisione della direzione del 28/08/2026 (dossier §13, D7): la comprensione
 dei documenti non è una funzione accessoria ma una **fondazione del futuro

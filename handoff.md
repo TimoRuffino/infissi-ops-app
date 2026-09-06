@@ -8,8 +8,8 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
-> **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (branch
-> `claude/ocr-crm-overview-1adbb2`, non ancora su `main`; spec
+> **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
+> `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44–5.46; spec
 > `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
 > `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`). Ogni valore
 > letto da un documento — costo dalla conferma, righe di magazzino, campi e
@@ -35,6 +35,19 @@
 > anteprime (`documenti/heic.ts`, lettura costo 1.10.0). **Non fatto
 > dall'agente**: la verifica nel browser a 1440×900 e 390×844 (serve il login
 > demo), la posizione grossolana dal modello, la coda «Da verificare».
+
+> **Novità 06/09/2026 mattina — studio dell'OCR e decisione sul VLM (nessun
+> codice).** Mappa completa in PRD §54.6: un motore locale, un ingresso,
+> cascata nativo → OCR → visione, chi la usa e con quali regole, limiti e
+> interruttori. Decisione: tesseract NON si sostituisce con un VLM
+> (pavimento gratuito, deterministico, privato, con confidenza per parola).
+> Strada consigliata e non costruita: il modello estrae i campi delle
+> conferme dal testo con evidenze verificate dal codice, in ombra prima di
+> scrivere. **Domanda aperta alla direzione, mai risposta**: un imponibile
+> letto dal modello, ancorato e coerente, registra il costo da solo (A),
+> passa sempre da una persona (B) o si registra con l'avviso in nota (C)?
+> Non partire senza risposta. I punti aperti trovati nel codice sono la
+> voce 20 del debito tecnico.
 
 > **Novità 03/09/2026 sera — il costo fornitore nasce dalla conferma d'ordine.**
 > Regola di dominio deterministica (`server/commesse/costoDaConferma.ts`, piano
@@ -3952,11 +3965,11 @@ verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
     demo (commit `9af31e9`), contro CLAUDE.md — da spostare in una
     variabile d'ambiente locale, decisione della direzione.
 
-19. **Anteprime delle evidenze «Dove l'ho letto» (06/09/2026, branch
-    `claude/ocr-crm-overview-1adbb2`)**: 13 task del piano
+19. **Anteprime delle evidenze «Dove l'ho letto» (06/09/2026, su `main`:
+    `ad1d8be`, poi `7a0998d` e `bd75160`)**: 13 task del piano
     `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md` eseguiti con
-    test (spec `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`),
-    non ancora su `main`. Aperti: (1) **verifica nel browser dentro l'app non eseguita dall'agente** (serve
+    test (spec `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`).
+    Aperti: (1) **verifica nel browser dentro l'app non eseguita dall'agente** (serve
     il login demo); il 06/09 sera la direzione l'ha provata in produzione a
     flag acceso: la vignetta usciva dal pannello (larghezza fissa a 480 px con
     ritaglio fino a 640) e la pagina intera non scorreva — corretto lo stesso
@@ -3970,11 +3983,45 @@ verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
     foto vera via `sips`, saltati dove manca); (4) posizione grossolana chiesta al modello quando
     l'OCR non dà riquadri; (5) coda unica «Da verificare»; (6) i record
     vecchi mostrano «pagina intera» finché il worker non rilegge (lettura
-    1.10.0) o si preme «Rileggi» sul contratto; (7) `FLAG_ANTEPRIME_EVIDENZE`
-    da accendere in Railway dopo il merge (runbook, fase 4); (8) FATTO il 06/09 sera: con «visione prima» tesseract gira solo per i
+    1.10.0) o si preme «Rileggi» sul contratto; (7) FATTO: `FLAG_ANTEPRIME_EVIDENZE`
+    acceso dalla direzione su Railway la sera del 06/09 (runbook, fase 4); (8) FATTO il 06/09 sera: con «visione prima» tesseract gira solo per i
     riquadri a 150 dpi dopo la trascrizione (`parserRegistry.ts`), quindi
     anche i contratti scansionati hanno il riquadro; senza binari o con
-    `ocr: false` restano «pagina intera».
+    `ocr: false` restano «pagina intera»; (9) la decisione A/B/C sul
+    modello che estrae i campi delle conferme (PRD §54.6) non è mai
+    arrivata: non partire senza, costa una chiamata a pagamento per
+    conferma; (10) la direzione ha scelto la verifica «sul posto» (tasto
+    accanto al dato), la coda unica «Da verificare» resta un'opzione non
+    scelta.
+20. **Punti aperti dallo studio dell'OCR (06/09/2026)**, verificati nel
+    codice e non toccati: (1) `analisiDocumenti.candidati` chiama il motore
+    senza opzioni: fino a 120 s di OCR dentro una richiesta tRPC (l'upload
+    sceglie `ocr:false` di proposito); (2) il registro conferme in
+    `preventiviContratti.ts` è `protectedProcedure` con solo scope di sede e
+    restituisce l'importo del costo, mentre margine ed economia richiedono
+    direzione o amministrazione: da decidere se voluto; (3) nessun router
+    espone `disponibilitaOcr` e `letturaVisivaDisponibile` non ha chiamanti:
+    la UI conosce i flag, non se binari e lingue ci sono; (4) due lettori di
+    byte con precedenza opposta (`documenti/analisi.ts` preferisce lo
+    storage, `preventiviContratti.ts` il base64 legacy), innocuo finché un
+    documento non ha entrambi; (5) `confermeAutoArchivio.ts` ignora
+    `FLAG_TARS` (la visione resta comunque bloccata dal provider); (6)
+    `tars/documenti/allegati.ts` sostituisce il motivo dettagliato del
+    fallimento OCR con una frase generica; (7) `archivioAllegati.ts`
+    classifica e verifica senza OCR: ogni scansione risponde «non cita la
+    commessa» finché l'utente non conferma, scelta dichiarata per la
+    velocità; (8) `comunicazioni/allegati.ts` estrae senza OCR e dice «OCR
+    non disponibile», nessun chiamante trovato fuori dal modulo; (9)
+    `.env.example` e runbook non citano lettura visiva, modello visione,
+    binari OCR e i due worker (oggi aggiornati solo per le anteprime);
+    l'eval contratti non ha un report committato; (10) l'OCR reale gira solo
+    in `ocr.test.ts` e nelle eval, mancano test a livello di strumento per
+    `leggi_conferma_ordine` e `cerca_conferme_ordine_mancanti`, e nessun
+    caso di eval Tars tocca OCR o visione; (11) la cartella dei casi reali
+    anonimizzati è vuota: l'accuratezza vera non è mai stata misurata; con
+    le 15 conferme reali anonimizzate si confrontano tesseract e modello
+    campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
+    confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
 ## 13. Cosa resta della piattaforma
 
