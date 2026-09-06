@@ -93,12 +93,19 @@ export function calcolaRitaglio(input: {
   }
   const larghezzaContenuto = fascia.w * W * scala;
   const larghezzaTotale = W * scala;
+  const larghezzaRiga = riga ? riga.w * W * scala : Number.POSITIVE_INFINITY;
   let offsetX: number;
   let sfumaSinistra = false;
   let sfumaDestra = false;
   if (larghezzaContenuto <= V) {
     // La fascia ci sta: si centra, e il resto della riga fa da contesto.
     offsetX = clamp(fascia.x * W * scala - (V - larghezzaContenuto) / 2, 0, larghezzaTotale - V);
+  } else if (riga && larghezzaRiga <= V) {
+    // La fascia no, ma la RIGA letta sì: si mostra tutta — etichetta e
+    // valore insieme — e i bordi sfumano su ciò che sta oltre.
+    offsetX = clamp(riga.x * W * scala - (V - larghezzaRiga) / 2, 0, larghezzaTotale - V);
+    sfumaSinistra = offsetX > 0.5;
+    sfumaDestra = offsetX + V < larghezzaTotale - 0.5;
   } else {
     const centro = frammento ? frammento.x + frammento.w / 2 : fascia.x + fascia.w / 2;
     offsetX = clamp(centro * W * scala - V / 2, 0, larghezzaTotale - V);

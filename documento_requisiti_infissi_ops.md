@@ -873,8 +873,13 @@ piano `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md`.
   mobile), magazzino. Query `preventiviContratti.evidenzeDocumento` con la
   guardia del file. Eval `pnpm eval:documenti`: metrica «evidenze
   localizzate» per fonte, senza soglia.
+- **Nella chat di Tars** (seconda tornata, stesso giorno): `leggi_conferma_ordine`
+  1.4.0 (registro 1.22.0) restituisce evidenze con pagina, frammento e area
+  per i documenti del fascicolo, e il thread mostra il tasto accanto al
+  riferimento. Sui contratti scansionati letti «visione prima», tesseract
+  gira solo per i riquadri a 150 dpi dopo la trascrizione.
 - **Fuori dalla prima versione**: conversione HEIC, posizione grossolana
-  chiesta al modello, coda unica «Da verificare», tasto nella chat di Tars.
+  chiesta al modello, coda unica «Da verificare».
 
 **Framework di valutazione (29/08/2026, quinta slice).**
 `server/documenti/eval/` misura la pipeline su fixture sintetiche

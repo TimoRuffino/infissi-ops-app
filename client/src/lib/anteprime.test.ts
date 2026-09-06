@@ -54,6 +54,31 @@ describe("calcolaRitaglio", () => {
     expect(r.rettangolo!.left + r.rettangolo!.width).toBeLessThanOrEqual(320 + 1e-6);
   });
 
+  it("se la fascia non ci sta ma la riga sì, mostra la riga intera: etichetta e valore insieme", () => {
+    // Riga da x=0,07 larga 0,74; a 1240 px e scala forzata dalla riga (13/(0,015·1754)=0,494) la riga è 453 px, la fascia intera 613.
+    const r = calcolaRitaglio({
+      posizione: {
+        grado: "riquadro",
+        frammento: { x: 0.72, y: 0.6, w: 0.09, h: 0.015 },
+        riga: { x: 0.07, y: 0.6, w: 0.74, h: 0.015 },
+        contesto: { x: 0, y: 0.55, w: 1, h: 0.1 },
+      },
+      paginaIntera: false,
+      larghezzaImmagine: 1240,
+      altezzaImmagine: 1754,
+      larghezzaVista: 480,
+      altezzaMassima: 400,
+      altezzaRigaMinima: 13,
+    });
+    const larghezzaRiga = 0.74 * 1240 * r.scala;
+    expect(larghezzaRiga).toBeLessThanOrEqual(480);
+    // L'inizio della riga è dentro la vista, e anche la sua fine.
+    const inizioRiga = 0.07 * 1240 * r.scala - r.offsetX;
+    expect(inizioRiga).toBeGreaterThanOrEqual(0);
+    expect(inizioRiga + larghezzaRiga).toBeLessThanOrEqual(480 + 1e-6);
+    expect(r.sfumaSinistra).toBe(true);
+  });
+
   it("non ingrandisce mai oltre 1,25 volte", () => {
     const r = calcolaRitaglio({
       posizione,

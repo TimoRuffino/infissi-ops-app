@@ -132,7 +132,9 @@ export default function DoveLetto({
         align="center"
         sideOffset={6}
         collisionPadding={12}
-        className="w-[min(92vw,480px)] p-2 text-text-1"
+        // Il pannello si stringe sul contenuto: la larghezza la decide la
+        // vignetta (fra 480 e 640 px, mai oltre il 92 % dello schermo).
+        className="w-auto max-w-[92vw] p-2 text-text-1"
       >
         <PopoverArrow className="fill-popover" width={14} height={7} />
         {aperto && (
@@ -182,20 +184,23 @@ function Vignetta({
   const posizione = evidenza?.area ?? null;
   const url = urlPaginaDocumento(documentoId, pagina);
 
-  // La larghezza della vista si misura sulla scatola; la vignetta cresce fino
-  // a 640 px se la fascia lo chiede, e il tetto in altezza è il 45 % dello schermo.
+  // La larghezza della vista: fra 480 e 640 px, mai oltre il 92 % dello
+  // schermo meno il bordo del pannello; la pagina intera prende il massimo.
+  // Il tetto in altezza è il 45 % dello schermo.
   useEffect(() => {
     const misura = () => {
       const larghezzaSchermo = typeof window !== "undefined" ? window.innerWidth : 480;
-      const consigliata = misure
-        ? larghezzaConsigliata({
-            posizione,
-            larghezzaImmagine: misure.w,
-            altezzaImmagine: misure.h,
-            altezzaRigaMinima: ALTEZZA_RIGA_MINIMA_PX,
-          })
-        : 480;
-      const larghezza = Math.min(consigliata, Math.floor(larghezzaSchermo * 0.92) - 16);
+      const consigliata = paginaIntera
+        ? 640
+        : misure
+          ? larghezzaConsigliata({
+              posizione,
+              larghezzaImmagine: misure.w,
+              altezzaImmagine: misure.h,
+              altezzaRigaMinima: ALTEZZA_RIGA_MINIMA_PX,
+            })
+          : 480;
+      const larghezza = Math.min(consigliata, Math.floor(larghezzaSchermo * 0.92) - 20);
       setLarghezzaVista(Math.max(200, larghezza));
       setAltezzaMassima(
         Math.max(160, Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * FRAZIONE_ALTEZZA_MASSIMA) - 96)
@@ -204,7 +209,15 @@ function Vignetta({
     misura();
     window.addEventListener("resize", misura);
     return () => window.removeEventListener("resize", misura);
-  }, [misure, posizione]);
+  }, [misure, posizione, paginaIntera]);
+
+  // Pagina intera: la scatola scorre, e parte dal punto in cui sta il frammento.
+  useEffect(() => {
+    if (paginaIntera && scatola.current && ritaglioCorrente.current) {
+      scatola.current.scrollTop = ritaglioCorrente.current.offsetY;
+      scatola.current.scrollLeft = 0;
+    }
+  }, [paginaIntera, misure]);
 
   useEffect(() => {
     setMisure(null);
@@ -227,6 +240,12 @@ function Vignetta({
         : null,
     [misure, larghezzaVista, altezzaMassima, posizione, paginaIntera]
   );
+  const ritaglioCorrente = useRef(ritaglio);
+  ritaglioCorrente.current = ritaglio;
+  // Misure dell'immagine resa alla scala del ritaglio: la pagina intera vive
+  // in questo spazio e scorre dentro la scatola.
+  const larghezzaResa = misure && ritaglio ? misure.w * ritaglio.scala : 0;
+  const altezzaResa = misure && ritaglio ? misure.h * ritaglio.scala : 0;
 
   const apriPdf = () => {
     window.open(urlPdfAllaPagina(documentoId, pagina), "_blank", "noopener,noreferrer");
@@ -250,7 +269,9 @@ function Vignetta({
       {!senzaEvidenza && !erroreLettura && (
         <div
           ref={scatola}
-          className="relative overflow-hidden rounded-md border border-border bg-surface-2"
+          className={`relative max-w-full rounded-md border border-border bg-surface-2 ${
+            paginaIntera ? "overflow-auto" : "overflow-hidden"
+          }`}
           style={{
             width: larghezzaVista ? `${larghezzaVista}px` : "100%",
             height: ritaglio ? `${Math.round(ritaglio.altezza)}px` : "120px",
@@ -262,36 +283,46 @@ function Vignetta({
           {erroreImmagine ? (
             <p className="p-3 text-xs text-text-2">Anteprima non disponibile: apri il PDF.</p>
           ) : (
-            <img
-              src={url}
-              alt={`Pagina ${pagina} del documento, ritaglio della zona letta`}
-              draggable={false}
-              className="max-w-none select-none"
+            // La pagina resa alla scala del ritaglio, con il rettangolo nello
+            // stesso spazio: nel ritaglio si sposta di offset, nella pagina
+            // intera resta ferma e la scatola scorre.
+            <div
+              className="relative"
               style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                transformOrigin: "0 0",
-                transform: ritaglio
-                  ? `translate(${-ritaglio.offsetX}px, ${-ritaglio.offsetY}px) scale(${ritaglio.scala})`
-                  : undefined,
+                width: larghezzaResa ? `${larghezzaResa}px` : undefined,
+                height: altezzaResa ? `${altezzaResa}px` : undefined,
+                transform:
+                  ritaglio && !paginaIntera
+                    ? `translate(${-ritaglio.offsetX}px, ${-ritaglio.offsetY}px)`
+                    : undefined,
                 visibility: ritaglio ? "visible" : "hidden",
               }}
-              onLoad={e => setMisure({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-              onError={() => setErroreImmagine(true)}
-            />
-          )}
-          {ritaglio?.rettangolo && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute rounded-sm border-2 border-primary bg-primary/10"
-              style={{
-                left: `${ritaglio.rettangolo.left - 2}px`,
-                top: `${ritaglio.rettangolo.top - 2}px`,
-                width: `${ritaglio.rettangolo.width + 4}px`,
-                height: `${ritaglio.rettangolo.height + 4}px`,
-              }}
-            />
+            >
+              <img
+                src={url}
+                alt={`Pagina ${pagina} del documento, ritaglio della zona letta`}
+                draggable={false}
+                className="block max-w-none select-none"
+                style={{
+                  width: larghezzaResa ? `${larghezzaResa}px` : undefined,
+                  height: altezzaResa ? `${altezzaResa}px` : undefined,
+                }}
+                onLoad={e => setMisure({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+                onError={() => setErroreImmagine(true)}
+              />
+              {ritaglio?.rettangolo && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute rounded-sm border-2 border-primary bg-primary/10"
+                  style={{
+                    left: `${ritaglio.rettangolo.left + ritaglio.offsetX - 2}px`,
+                    top: `${ritaglio.rettangolo.top + ritaglio.offsetY - 2}px`,
+                    width: `${ritaglio.rettangolo.width + 4}px`,
+                    height: `${ritaglio.rettangolo.height + 4}px`,
+                  }}
+                />
+              )}
+            </div>
           )}
           {/* Bordi sfumati (c'è altro a sinistra/destra): ombre interne, niente gradienti fuori da DataSurface. */}
           {ritaglio?.sfumaSinistra && (

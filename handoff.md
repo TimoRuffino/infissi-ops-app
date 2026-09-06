@@ -3953,22 +3953,23 @@ verità da leggere per coerenza interna), PDF giusti per i 6 casi esclusi.
     `claude/ocr-crm-overview-1adbb2`)**: 13 task del piano
     `docs/superpowers/plans/2026-09-06-anteprime-evidenze.md` eseguiti con
     test (spec `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`),
-    non ancora su `main`. Aperti: (1) **verifica nel browser a 1440×900 e
-    390×844 non eseguita dall'agente** (serve il login demo: config «Promo
-    Capture (demo data)», caricare una conferma d'ordine e aprire il tasto
-    accanto al costo); (2) tasto nella chat di Tars e nelle proposte
-    (`TarsThread` elenca già le evidenze dei payload); (3) conversione HEIC
+    non ancora su `main`. Aperti: (1) **verifica nel browser dentro l'app non eseguita dall'agente** (serve
+    il login demo); il 06/09 sera la direzione l'ha provata in produzione a
+    flag acceso: la vignetta usciva dal pannello (larghezza fissa a 480 px con
+    ritaglio fino a 640) e la pagina intera non scorreva — corretto lo stesso
+    giorno (pannello che si stringe sul contenuto, pagina intera scorrevole,
+    riga letta sempre visibile quando ci sta), struttura verificata su una
+    pagina di prova statica nel pannello Browser, non nell'app; (2) FATTO il 06/09 sera: `leggi_conferma_ordine` 1.4.0 porta le evidenze
+    localizzate e il thread di Tars mostra il tasto (registro 1.22.0); le
+    proposte dell'analisi restano senza; (3) conversione HEIC
     prima della cascata; (4) posizione grossolana chiesta al modello quando
     l'OCR non dà riquadri; (5) coda unica «Da verificare»; (6) i record
     vecchi mostrano «pagina intera» finché il worker non rilegge (lettura
     1.9.0) o si preme «Rileggi» sul contratto; (7) `FLAG_ANTEPRIME_EVIDENZE`
-    da accendere in Railway dopo il merge (runbook, fase 4); (8) dopo la
-    fusione con `origin/main` (fase 3 dello studio: sui contratti scansionati
-    la lettura visiva viene PRIMA dell'OCR) le evidenze di un contratto letto
-    dal modello non hanno la geometria dell'OCR e cadono su «pagina intera»:
-    per avere il riquadro anche lì serve far girare tesseract solo per i
-    riquadri dopo la trascrizione, decisione da prendere (costa tempo, non
-    soldi).
+    da accendere in Railway dopo il merge (runbook, fase 4); (8) FATTO il 06/09 sera: con «visione prima» tesseract gira solo per i
+    riquadri a 150 dpi dopo la trascrizione (`parserRegistry.ts`), quindi
+    anche i contratti scansionati hanno il riquadro; senza binari o con
+    `ocr: false` restano «pagina intera».
 
 ## 13. Cosa resta della piattaforma
 
