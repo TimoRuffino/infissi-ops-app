@@ -26,6 +26,7 @@ import {
   spostaCostoDelDocumento,
 } from "../commesse/costiRegistro";
 import type { LetturaCostoDocumento } from "../commesse/letturaCostoTipi";
+import type { AnteprimeDocumento } from "../documenti/anteprime";
 import {
   prodottiDelDocumento,
   rimuoviProdottiDelDocumento,
@@ -97,6 +98,12 @@ export type Documento = {
    * anche se il testo non la cita: da qui costo e merce possono nascere.
    */
   riscontroConfermato?: boolean;
+  /**
+   * Le pagine rese per le anteprime delle evidenze (06/09/2026): metadato
+   * piccolo, le immagini stanno nello storage. Null finché nessuno le ha
+   * rese; si rifanno se cambiano versione o impronta.
+   */
+  anteprime?: AnteprimeDocumento | null;
 };
 
 // ── In-memory data ──────────────────────────────────────────────────────────
@@ -141,6 +148,8 @@ const _documentiStore = persistedStore<Documento>(
       // Conferme archiviate prima della regola del costo: da leggere.
       if ((d as any).letturaCosto === undefined) (d as any).letturaCosto = null;
       if ((d as any).origine === undefined) (d as any).origine = origineDaRecord(d);
+      // Anteprime delle evidenze: nessuna finché qualcuno non le rende.
+      if ((d as any).anteprime === undefined) (d as any).anteprime = null;
     }
   }
 );
@@ -980,6 +989,17 @@ export function salvaLetturaCostoDocumento(
   _documentiStore.save();
 }
 
+/** Il metadato delle pagine rese (anteprime delle evidenze): lo scrive solo il servizio delle anteprime. */
+export function salvaAnteprimeDocumento(
+  documentoId: number,
+  anteprime: AnteprimeDocumento | null
+): void {
+  const documento = documenti.find(d => d.id === documentoId);
+  if (!documento) return;
+  documento.anteprime = anteprime;
+  _documentiStore.save();
+}
+
 /**
  * La regola del 03/09/2026: una conferma d'ordine che entra nel fascicolo
  * porta il suo costo imponibile sulla commessa. Senza OCR (il percorso della
@@ -1255,6 +1275,8 @@ export const preventiviContrattiRouter = router({
     documenti.splice(idx, 1);
     _documentiStore.save();
     deleteFileQuiet(doc.storageKey);
+    // Le pagine rese per le anteprime sono derivate: spariscono con il file.
+    for (const chiave of doc.anteprime?.chiavi ?? []) deleteFileQuiet(chiave);
     // Costo e merce nati da questa conferma se ne vanno con lei.
     rimuoviCostoDelDocumento(doc.id, doc.commessaId);
     rimuoviProdottiDelDocumento(doc.id);

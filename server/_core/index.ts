@@ -251,6 +251,10 @@ async function startServer() {
   registerCommessaFileRoutes(app);
   const { registerAllegatoMailRoutes } = await import("./allegatoMailRoutes");
   registerAllegatoMailRoutes(app);
+  // Le pagine rese per le anteprime delle evidenze («Dove l'ho letto»):
+  // stessa famiglia di guardie del file, dietro FLAG_ANTEPRIME_EVIDENZE.
+  const { registerAnteprimaRoutes } = await import("./anteprimaRoutes");
+  registerAnteprimaRoutes(app);
 
   // Gli endpoint JSON (tRPC compreso) mantengono il limite storico.
   app.use(express.json({ limit: "50mb" }));
