@@ -199,3 +199,17 @@ describe("interruttori — OCR", () => {
     expect((esito as any).motivo).toContain("FLAG_OCR");
   });
 });
+
+describe("interruttori — anteprime delle evidenze", () => {
+  it("nascono spente in produzione e si accendono con FLAG_ANTEPRIME_EVIDENZE", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.FLAG_ANTEPRIME_EVIDENZE;
+    expect(interruttoreAttivo("anteprimeEvidenze")).toBe(false);
+    vi.stubEnv("FLAG_ANTEPRIME_EVIDENZE", "on");
+    expect(interruttoreAttivo("anteprimeEvidenze")).toBe(true);
+    expect(statoInterruttori().anteprimeEvidenze).toBe(true);
+    // Non è una funzione di Tars: il master di Tars non la governa.
+    vi.stubEnv("FLAG_TARS", "off");
+    expect(interruttoreAttivo("anteprimeEvidenze")).toBe(true);
+  });
+});

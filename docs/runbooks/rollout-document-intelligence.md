@@ -19,6 +19,7 @@ default d'ambiente.
 | `FLAG_DOCUMENT_INTELLIGENCE` | analisi conferme (`analisiDocumenti.*`) e collegamento assistito | endpoint → `PRECONDITION_FAILED`; pannello «Conferma d'ordine» e azione «Collega a un ordine» nascosti |
 | `FLAG_PROPOSTE` | approval gateway (`proposte.*`) | endpoint → `PRECONDITION_FAILED`; pannello «Proposte dall'analisi» nascosto |
 | `FLAG_OCR` | fallback OCR nel registro parser | le scansioni restano `scansione_senza_testo` con motivo «OCR disattivato dalla configurazione (FLAG_OCR)»; firma OCR = `assente` (i run restano rianalizzabili) |
+| `FLAG_ANTEPRIME_EVIDENZE` | anteprime delle evidenze: pagine rese in JPEG, tasto «Dove l'ho letto» (06/09/2026) | rotta `/api/documenti/:id/pagina/:n` → `404`; nessun rendering nei worker; il client nasconde il tasto |
 
 Il confine è il **server**: la UI nasconde soltanto. I test
 (`server/platform/interruttori.test.ts`) dimostrano che nemmeno la
@@ -75,6 +76,16 @@ lasciandola respirare almeno un giorno lavorativo.
   confidenza; sotto soglia compare «DA VERIFICARE».
 - Controllare tempi (~0,5-2 s/pagina attesi) e che in `/tmp` del
   container non restino directory `ruffino-ocr-*`.
+
+**Fase 4 — anteprime delle evidenze** (`FLAG_ANTEPRIME_EVIDENZE=on`, 06/09/2026).
+- Aprire una commessa con una conferma letta: il tasto «Dove l'ho letto» accanto
+  al costo apre la vignetta con il ritaglio della pagina; «Apri PDF» porta alla
+  pagina giusta.
+- Il worker dei costi scalda le pagine dopo ogni lettura: controllare nei log
+  `[anteprime]` tempi per pagina (attesi 0,1–0,3 s) e che in `/tmp` non restino
+  cartelle `ruffino-pagine-*`.
+- Le pagine rese vivono nello storage sotto `anteprime/`: derivate e
+  rigenerabili, escluse dal backup Drive.
 
 ## 4. Rollback
 

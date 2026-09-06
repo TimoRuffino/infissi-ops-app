@@ -55,7 +55,11 @@ export type Interruttore =
   // Lettura del contratto PDF (piano 3, 04/09/2026): il modello legge le
   // pagine e propone il contratto strutturato con evidenze; mai applicato
   // senza conferma umana. Richiede anche FLAG_LIMITI e il provider Tars reale.
-  | "contrattoEstrazione";
+  | "contrattoEstrazione"
+  // Anteprime delle evidenze (06/09/2026): rotta delle pagine rese, rendering
+  // nei worker e tasto «Dove l'ho letto» nel client. Nessun modello: solo
+  // pdftoppm e coordinate dei parser.
+  | "anteprimeEvidenze";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -79,6 +83,7 @@ const VARIABILE: Record<Interruttore, string> = {
   letturaVisiva: "FLAG_LETTURA_VISIVA",
   fatturazione: "FLAG_FATTURAZIONE",
   contrattoEstrazione: "FLAG_CONTRATTO_ESTRAZIONE",
+  anteprimeEvidenze: "FLAG_ANTEPRIME_EVIDENZE",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -105,6 +110,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   fatturazione:
     "La fatturazione dal contratto (bozza, emissione su Fatture in Cloud, stati SdI)",
   contrattoEstrazione: "La lettura automatica del contratto PDF (proposta con evidenze)",
+  anteprimeEvidenze: "Le anteprime delle evidenze («Dove l'ho letto»)",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -146,6 +152,7 @@ export function tarsAttivo(
     | "letturaVisiva"
     | "fatturazione"
     | "contrattoEstrazione"
+    | "anteprimeEvidenze"
   >
 ): boolean {
   if (!interruttoreAttivo("tars")) return false;
@@ -164,6 +171,7 @@ export function assicuraTars(
     | "letturaVisiva"
     | "fatturazione"
     | "contrattoEstrazione"
+    | "anteprimeEvidenze"
   >
 ): void {
   assicuraInterruttore("tars");
