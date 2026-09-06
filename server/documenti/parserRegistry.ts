@@ -403,6 +403,12 @@ export type OpzioniLettura = {
    * per il governor (sede e utente). Assente = mai una chiamata a pagamento.
    */
   visione?: OpzioneVisione | null | false;
+  /**
+   * Con `visione`: prima il modello, l'OCR locale solo se la lettura visiva
+   * non riesce (contratti: fase 3 dello studio, 06/09/2026 — l'OCR sbaglia
+   * cifre, il modello no). Default: OCR prima, visione quando l'OCR non basta.
+   */
+  preferisciVisione?: boolean;
 };
 
 export async function estraiTestoDocumento(
@@ -433,6 +439,10 @@ export async function estraiTestoDocumento(
   // Scansione o foto: prima l'OCR locale (gratis), poi — se chi chiama lo
   // ammette — la lettura visiva quando l'OCR manca, fallisce o legge poco.
   let letto: EsitoParser = esito;
+  if (opzioni?.visione && opzioni.preferisciVisione) {
+    letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
+    if (letto.esito === "estratto") return letto;
+  }
   if (opzioni?.ocr !== false) {
     letto = await tentaOcr(
       bytes,
@@ -441,7 +451,7 @@ export async function estraiTestoDocumento(
       opzioni?.ocr === undefined ? undefined : opzioni.ocr
     );
   }
-  if (opzioni?.visione && ocrInsufficiente(letto)) {
+  if (opzioni?.visione && !opzioni.preferisciVisione && ocrInsufficiente(letto)) {
     letto = await tentaVisione(bytes, mimeType, nomeFile, opzioni.visione, letto);
   }
   if (letto.esito === "scansione_senza_testo" && !letto.motivo) {

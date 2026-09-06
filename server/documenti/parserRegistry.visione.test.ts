@@ -69,6 +69,26 @@ describe("estraiTestoDocumento — foto e lettura visiva", () => {
     expect(esito.esito === "scansione_senza_testo" && esito.motivo).toMatch(/heic.*non è accettato/i);
   });
 
+  it("con preferisciVisione il modello legge per primo, senza aspettare l'esito dell'OCR", async () => {
+    const richieste: unknown[] = [];
+    const esito = await estraiTestoDocumento(PNG, "image/png", "foto.png", {
+      preferisciVisione: true,
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => providerConTesto("Contratto 1", richieste), modello: "m" } },
+    });
+    expect(esito.esito === "estratto" && esito.parser).toBe("visione");
+    expect(richieste).toHaveLength(1);
+  });
+
+  it("con preferisciVisione e visione non disponibile si passa all'OCR (o resta senza testo se manca anche quello)", async () => {
+    const esito = await estraiTestoDocumento(PNG, "image/png", "foto.png", {
+      preferisciVisione: true,
+      ocr: false,
+      visione: { sedeId: 1, utenteId: 7, deps: { provider: () => null, modello: "m" } },
+    });
+    expect(esito.esito).toBe("scansione_senza_testo");
+    expect(esito.esito === "scansione_senza_testo" && esito.motivo).toContain("Lettura visiva non riuscita");
+  });
+
   it("se la lettura visiva non è disponibile il documento resta com'era, con il motivo in coda", async () => {
     const esito = await estraiTestoDocumento(PNG, "image/png", "foto.png", {
       ocr: false,

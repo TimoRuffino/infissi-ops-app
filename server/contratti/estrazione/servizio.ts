@@ -263,12 +263,14 @@ async function eseguiEstrazioneCorpo(
     }
   }
 
-  // Le scansioni: OCR locale e, quando legge poco o male, la lettura visiva
-  // del modello con l'identità di chi ha chiesto la lettura (fase 3 dello
-  // studio, 06/09/2026: su 21 contratti scansionati l'OCR sbagliava cifre e
-  // un prezzo di riga su tre). Un contratto ha più pagine di una conferma.
+  // Le scansioni: prima la lettura visiva del modello con l'identità di chi
+  // ha chiesto la lettura, l'OCR locale solo come ripiego (fase 3 dello
+  // studio, 06/09/2026, 14 contratti scansionati letti nei due modi: l'OCR
+  // sbaglia cifre — «L 1000» letto «4000» — e un prezzo di riga su tre, la
+  // visione no). Un contratto ha più pagine di una conferma d'ordine.
   const esitoParser = await estrai(buffer, documento.mimeType, documento.nome, {
     visione: { sedeId, utenteId: actorUserId ?? 0, maxPagine: PAGINE_VISIONE_CONTRATTO, troncaOltre: true },
+    preferisciVisione: true,
   });
   if (esitoParser.esito !== "estratto") {
     throw new Error(`PRECONDIZIONE: ${motivoLetturaFallita(esitoParser)}`);
