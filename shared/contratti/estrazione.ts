@@ -10,10 +10,22 @@
 // PropostaContratto è il contenuto strutturato che il servizio costruisce
 // dall'esito del modello prima di mostrarlo all'utente per la conferma.
 
+import type { PosizioneEvidenza } from "../documenti/evidenze";
 import type { CategoriaRiga, DetrazioneTipo, OscuranteIntegrato, PattuitoTipo, RataContratto } from "../limiti/tipi";
 
-/** Dove il modello ha trovato un valore: pagina del PDF e frammento di testo citato. */
-export type EvidenzaEstratta = { pagina: number; frammento: string };
+/**
+ * Dove il modello ha trovato un valore: pagina del PDF e frammento di testo
+ * citato, verificato sul testo vero. `posizione` sono gli scarti del
+ * frammento nel testo della pagina e `area` il suo posto sulla pagina resa
+ * (06/09/2026, anteprime delle evidenze): facoltativi, assenti nelle
+ * proposte salvate prima.
+ */
+export type EvidenzaEstratta = {
+  pagina: number;
+  frammento: string;
+  posizione?: { inizio: number; fine: number } | null;
+  area?: PosizioneEvidenza | null;
+};
 
 /** Un campo proposto dal modello: valore, evidenza (se citata) e stato di verifica. */
 export type CampoProposto<T> = {

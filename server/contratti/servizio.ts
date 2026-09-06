@@ -29,6 +29,14 @@ import { DEFAULT_SEDE_ID } from "../routers/sedi";
 import { hashParametri, hashRighe } from "./hash";
 import { getContrattiRepository, type RigaPersist } from "./repository";
 
+/** Rettangolo in frazioni della pagina resa (shared/documenti/evidenze.ts). */
+const areaSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  w: z.number().min(0).max(1),
+  h: z.number().min(0).max(1),
+});
+
 export const rigaInputSchema = z.object({
   id: z.number().int().nullable().optional(),
   categoria: z.enum(CATEGORIE_RIGA),
@@ -58,8 +66,26 @@ export const rigaInputSchema = z.object({
     .max(60),
   note: z.string().trim().max(500).nullable(),
   origine: z.enum(["estrazione", "manuale", "prodotto_legacy"]),
+  // Pagina e frammento del PDF; posizione e area (anteprime delle evidenze,
+  // 06/09/2026) viaggiano con la proposta e si salvano come arrivano.
   evidenza: z
-    .object({ pagina: z.number().int().min(1), frammento: z.string().max(300) })
+    .object({
+      pagina: z.number().int().min(1),
+      frammento: z.string().max(300),
+      posizione: z
+        .object({ inizio: z.number().int().min(0), fine: z.number().int().min(0) })
+        .nullable()
+        .optional(),
+      area: z
+        .object({
+          grado: z.enum(["riquadro", "zona", "pagina"]),
+          frammento: areaSchema.optional(),
+          riga: areaSchema.optional(),
+          contesto: areaSchema.optional(),
+        })
+        .nullable()
+        .optional(),
+    })
     .nullable(),
 });
 

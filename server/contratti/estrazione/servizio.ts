@@ -25,6 +25,7 @@ import { creaProviderPerRun, statoProvider } from "../../tars/costi/providerGove
 import type { TarsProvider } from "../../tars/provider";
 import { tariffeAttive, type Tariffe } from "../../computo/tariffe";
 import { salvaContratto } from "../servizio";
+import { annotaAreeProposta } from "./aree";
 import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "./layoutWnd";
 import { costruisciProposta, type ContestoMappa } from "./mappa";
 import { estraiConModello, modelloEstrazione, type ContestoEstrazione } from "./modello";
@@ -340,6 +341,10 @@ async function eseguiEstrazioneCorpo(
       troncato: esitoModello.troncato,
     });
   }
+  // Dove sta ogni evidenza sulla pagina (anteprime «Dove l'ho letto»): dalla
+  // geometria del parser, dopo l'arricchimento che può riscrivere le
+  // evidenze dei numeri. Senza geometria resta «pagina».
+  proposta = annotaAreeProposta(proposta, esitoParser.geometria);
 
   const creata = await repo.crea({
     sedeId,

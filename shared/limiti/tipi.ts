@@ -1,6 +1,8 @@
 // Tipi del contratto strutturato e del computo limiti, condivisi tra
 // server e client. Nessuna logica: solo forme. Le regole vivono nei servizi.
 
+import type { PosizioneEvidenza } from "../documenti/evidenze";
+
 export const CATEGORIE_RIGA = [
   "serramento_pvc",
   "serramento_alluminio",
@@ -54,7 +56,17 @@ export type RigaContratto = {
   accessori: AccessorioRiga[];
   note: string | null;
   origine: "estrazione" | "manuale" | "prodotto_legacy";
-  evidenza: { pagina: number; frammento: string } | null;
+  /**
+   * Da dove la riga è stata letta: pagina e frammento del PDF, e dal
+   * 06/09/2026 (anteprime delle evidenze) anche la posizione nel testo e
+   * l'area sulla pagina, quando la proposta le aveva.
+   */
+  evidenza: {
+    pagina: number;
+    frammento: string;
+    posizione?: { inizio: number; fine: number } | null;
+    area?: PosizioneEvidenza | null;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
 };

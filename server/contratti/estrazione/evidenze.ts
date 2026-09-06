@@ -129,7 +129,9 @@ export function verificaEvidenza(
     if (posizione < 0) continue;
     const inizio = mappa[posizione];
     const fine = mappa[posizione + cercato.length - 1] + 1;
-    return { pagina: indice + 1, frammento: ritaglia(pagine[indice], inizio, fine) };
+    // Gli scarti nel testo VERO della pagina: sono quelli che il
+    // localizzatore trasforma nell'area della vignetta (anteprime).
+    return { pagina: indice + 1, frammento: ritaglia(pagine[indice], inizio, fine), posizione: { inizio, fine } };
   }
   return null;
 }

@@ -13,6 +13,7 @@ import { creaCommessa, getCommessaById } from "../../routers/commesse";
 import { caricaDocumentoCommessaDaBuffer } from "../../routers/preventiviContratti";
 import { timelineRouter } from "../../routers/timeline";
 import type { estraiTestoDocumento, EsitoParser } from "../../documenti/parserRegistry";
+import { righeConGeometriaDaElementi } from "../../documenti/testoPdf";
 import { creaProviderFinto, rispostaTesto } from "../../tars/openai/fake";
 import { leggiContratto } from "../servizio";
 import { PROMPT_ESTRAZIONE_VERSIONE } from "./prompt";
@@ -460,6 +461,35 @@ describe("servizio di lettura del contratto (piano 3, Task 6)", () => {
     });
     expect(seconda.riusata).toBe(true);
     expect(conta.n).toBe(0);
+  });
+
+  it("(g2) con la geometria del parser le evidenze della proposta hanno l'area sulla pagina", async () => {
+    const commessaId = await nuovaCommessa(SEDE);
+    const documentoId = await nuovoDocumento(commessaId, SEDE);
+    const { provider } = providerCheConta(() => JSON.stringify(esitoValido()));
+    // Testo e geometria dalla stessa ricostruzione dei frammenti, come per un PDF nativo.
+    const el = (str: string, x: number, y: number) => ({ str, transform: [8, 0, 0, 8, x, y], width: str.length * 4.5, height: 8 });
+    const { testo, righe } = righeConGeometriaDaElementi(
+      RIGHE_DOCUMENTO.map((riga, i) => el(riga, 40, 780 - i * 16)),
+      { larghezza: 595, altezza: 842, aVista: (x, y) => [x, 842 - y] }
+    );
+    const estraiTesto = (async (): Promise<EsitoParser> => ({
+      esito: "estratto",
+      parser: "pdf-testo-nativo",
+      versione: "2.1.0",
+      pagine: [testo],
+      avvertenze: [],
+      geometria: [{ larghezza: 595, altezza: 842, allineata: true, righe }],
+    })) as unknown as typeof estraiTestoDocumento;
+
+    const { estrazione } = await eseguiEstrazioneContratto({
+      sedeId: SEDE, commessaId, documentoId, actorUserId: 5, repository: repo, provider, estraiTesto,
+    });
+    const pattuito = estrazione.proposta.pattuitoCent.evidenza;
+    expect(pattuito?.area?.grado).toBe("riquadro");
+    expect(pattuito?.area?.riga?.y).toBeCloseTo(righe[3].y0 / 842, 3);
+    expect(estrazione.proposta.righe[0].descrizione.evidenza?.area?.grado).toBe("riquadro");
+    expect(estrazione.proposta.righe[0].descrizione.evidenza?.area?.riga?.y).toBeCloseTo(righe[1].y0 / 842, 3);
   });
 
   // P3-R19: chi applica la proposta firma anche le milestone che la board

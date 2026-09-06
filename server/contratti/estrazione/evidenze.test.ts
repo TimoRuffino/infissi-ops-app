@@ -52,6 +52,12 @@ describe("verificaEvidenza", () => {
     expect(trovata?.frammento).toBe("Totale IVA Inclusa 15.494,72");
   });
 
+  it("porta gli scarti veri del frammento nella pagina (anteprime delle evidenze)", () => {
+    const trovata = verificaEvidenza(PAGINE, 2, "totale iva inclusa 15.494,72")!;
+    expect(trovata.posizione).toBeTruthy();
+    expect(PAGINE[1].slice(trovata.posizione!.inizio, trovata.posizione!.fine)).toBe("Totale IVA Inclusa 15.494,72");
+  });
+
   it("restituisce null quando il frammento non esiste nel documento", () => {
     expect(verificaEvidenza(PAGINE, 1, "Fornitura di serramenti in alluminio")).toBeNull();
   });
