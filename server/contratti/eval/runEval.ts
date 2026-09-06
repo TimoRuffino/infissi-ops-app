@@ -23,7 +23,7 @@ import { arricchisciDaLayoutWnd, riconosceLayoutWnd } from "../estrazione/layout
 import { costruisciProposta, type ContestoMappa } from "../estrazione/mappa";
 import { estraiConModello, modelloEstrazione, type ContestoEstrazione } from "../estrazione/modello";
 import type { EsitoModello } from "../estrazione/schema";
-import { caricaCasiContrattoReali, casiContrattoSintetici, type CasoContrattoEval } from "./casi";
+import { caricaCasiContrattoReali, casiContrattoSintetici, type AttesoRigaContratto, type CasoContrattoEval } from "./casi";
 
 export type GiudizioCampoContratto = "corretto" | "errato" | "mancante" | "corretto_negativo" | "falso_positivo";
 
@@ -77,6 +77,66 @@ function giudicaCampo<T>(atteso: T | null, effettivo: T | null): GiudizioCampoCo
       ? JSON.stringify(atteso) === JSON.stringify(effettivo)
       : atteso === effettivo;
   return uguale ? "corretto" : "errato";
+}
+
+/**
+ * Abbina ogni riga attesa a una riga estratta per misure (±5 mm) e
+ * quantità, non per posizione: il contratto elenca coprifili e accessori
+ * che la verità (foglio limiti o layout WnD) non ha, e una riga in più in
+ * testa non deve far sbagliare tutte le altre. Preferenza: la riga allo
+ * stesso indice se compatibile, poi la prima libera con misure e quantità
+ * uguali, poi la prima libera con le sole misure. Un campo atteso assente
+ * non si giudica; una riga attesa senza abbinamento è «mancante» su ogni
+ * campo noto. Le righe estratte rimaste libere finiscono nelle note.
+ */
+function abbinaRighe(attese: AttesoRigaContratto[], proposta: PropostaContratto, esito: EsitoCasoContratto): void {
+  const libere = new Set(proposta.righe.map((_, i) => i));
+  const misuraOk = (attesa: number | null | undefined, effettiva: number | null): boolean => {
+    if (attesa === undefined) return true;
+    if (attesa === null) return effettiva === null;
+    return effettiva != null && Math.abs(effettiva - attesa) <= 5;
+  };
+  const compatibile = (a: AttesoRigaContratto, i: number): boolean => {
+    const r = proposta.righe[i];
+    return misuraOk(a.larghezzaMm, r.larghezzaMm.valore) && misuraOk(a.altezzaMm, r.altezzaMm.valore);
+  };
+  const stessaQuantita = (a: AttesoRigaContratto, i: number): boolean =>
+    a.quantita === undefined || a.quantita === proposta.righe[i].quantita.valore;
+  const senzaMisure = (a: AttesoRigaContratto): boolean => a.larghezzaMm == null && a.altezzaMm == null;
+
+  attese.forEach((attesa, indice) => {
+    let scelta: number | null = null;
+    if (libere.has(indice) && compatibile(attesa, indice) && stessaQuantita(attesa, indice)) scelta = indice;
+    else {
+      const candidati = [...libere].filter(i => compatibile(attesa, i));
+      // Senza misure attese (coprifili, accessori) servono quantità e prezzo, altrimenti si abbina alla cieca.
+      const stretti = candidati.filter(i =>
+        stessaQuantita(attesa, i) &&
+        (!senzaMisure(attesa) || attesa.prezzoTotCent === undefined || attesa.prezzoTotCent === proposta.righe[i].prezzoTotCent.valore)
+      );
+      scelta = stretti[0] ?? (senzaMisure(attesa) ? null : candidati[0] ?? null);
+    }
+    const riga = scelta != null ? proposta.righe[scelta] : null;
+    if (scelta != null) libere.delete(scelta);
+    const prefisso = `riga${indice}`;
+    const giudica = <T,>(campo: string, atteso: T | null | undefined, effettivo: T | null) => {
+      if (atteso !== undefined) esito.campi[`${prefisso}:${campo}`] = giudicaCampo(atteso, effettivo);
+    };
+    giudica("larghezza", attesa.larghezzaMm, riga ? riga.larghezzaMm.valore : null);
+    giudica("altezza", attesa.altezzaMm, riga ? riga.altezzaMm.valore : null);
+    giudica("quantita", attesa.quantita, riga ? riga.quantita.valore : null);
+    giudica("prezzo", attesa.prezzoTotCent, riga ? riga.prezzoTotCent.valore : null);
+    if (!riga) {
+      esito.note.push(`riga attesa ${indice} senza abbinamento: L${attesa.larghezzaMm ?? "-"} x H${attesa.altezzaMm ?? "-"} q${attesa.quantita ?? "-"}`);
+    }
+  });
+  if (libere.size > 0) {
+    const descrizioni = [...libere].map(i => {
+      const r = proposta.righe[i];
+      return `${r.descrizione.valore.slice(0, 40)} L${r.larghezzaMm.valore ?? "-"} x H${r.altezzaMm.valore ?? "-"} q${r.quantita.valore}`;
+    });
+    esito.note.push(`righe estratte in più (${libere.size}): ${descrizioni.join("; ")}`);
+  }
 }
 
 async function eseguiCasoContratto(
@@ -140,7 +200,8 @@ async function eseguiCasoContratto(
   let proposta: PropostaContratto = costruisciProposta(esitoModello, contestoMappa, troncato);
   const layoutRiconosciuto = riconosceLayoutWnd(parser.pagine);
   esito.layoutWndRiconosciuto = layoutRiconosciuto;
-  esito.layoutWndCorretto = layoutRiconosciuto === caso.atteso.layoutWndRiconosciuto;
+  esito.layoutWndCorretto =
+    caso.atteso.layoutWndRiconosciuto === undefined ? null : layoutRiconosciuto === caso.atteso.layoutWndRiconosciuto;
   if (layoutRiconosciuto) {
     proposta = arricchisciDaLayoutWnd(parser.pagine, proposta, {
       ivaDescrizione: esitoModello.pattuito.ivaDescrizione,
@@ -148,25 +209,44 @@ async function eseguiCasoContratto(
     });
   }
 
-  esito.campi.pattuitoCent = giudicaCampo(caso.atteso.pattuitoCent, proposta.pattuitoCent.valore);
-  esito.campi.pattuitoTipo = giudicaCampo(caso.atteso.pattuitoTipo, proposta.pattuitoTipo.valore);
-  esito.campi.numeroRighe = giudicaCampo(caso.atteso.numeroRighe, proposta.righe.length);
-  esito.campi.rateQuote = giudicaCampo(
-    caso.atteso.rateQuote,
-    proposta.rate.valore.map(r => r.quotaPct)
-  );
+  // Un campo assente nell'atteso non è noto: non si giudica (fase 3 dello
+  // studio: la verità dei fogli limiti copre misure e quantità, non il
+  // pattuito né le rate).
+  if (caso.atteso.pattuitoCent !== undefined) {
+    esito.campi.pattuitoCent = giudicaCampo(caso.atteso.pattuitoCent, proposta.pattuitoCent.valore);
+  }
+  if (caso.atteso.pattuitoTipo !== undefined) {
+    esito.campi.pattuitoTipo = giudicaCampo(caso.atteso.pattuitoTipo, proposta.pattuitoTipo.valore);
+  }
+  if (caso.atteso.numeroRighe !== undefined) {
+    esito.campi.numeroRighe = giudicaCampo(caso.atteso.numeroRighe, proposta.righe.length);
+  }
+  if (caso.atteso.rateQuote !== undefined) {
+    esito.campi.rateQuote = giudicaCampo(
+      caso.atteso.rateQuote,
+      proposta.rate.valore.map(r => r.quotaPct)
+    );
+  }
   if (caso.atteso.comuneCantiere !== undefined) {
     esito.campi.comuneCantiere = giudicaCampo(caso.atteso.comuneCantiere, proposta.comuneCantiere.valore);
   }
   if (caso.atteso.righe) {
-    caso.atteso.righe.forEach((rigaAttesa, indice) => {
-      const riga = proposta.righe[indice] ?? null;
-      const prefisso = `riga${indice}`;
-      esito.campi[`${prefisso}:larghezza`] = giudicaCampo(rigaAttesa.larghezzaMm, riga?.larghezzaMm.valore ?? null);
-      esito.campi[`${prefisso}:altezza`] = giudicaCampo(rigaAttesa.altezzaMm, riga?.altezzaMm.valore ?? null);
-      esito.campi[`${prefisso}:quantita`] = giudicaCampo(rigaAttesa.quantita, riga?.quantita.valore ?? null);
-      esito.campi[`${prefisso}:prezzo`] = giudicaCampo(rigaAttesa.prezzoTotCent, riga?.prezzoTotCent.valore ?? null);
-    });
+    abbinaRighe(caso.atteso.righe, proposta, esito);
+  }
+
+  // Con EVAL_CONTRATTI_DUMP=<cartella> ogni caso lascia testo letto, esito
+  // del modello e proposta finale in un JSON: è il materiale per capire
+  // PERCHÉ una riga manca (OCR, modello o mappatura). Contiene il documento
+  // in chiaro: solo fuori dal repository.
+  const cartellaDump = (process.env.EVAL_CONTRATTI_DUMP ?? "").trim();
+  if (cartellaDump) {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    await fs.mkdir(cartellaDump, { recursive: true });
+    await fs.writeFile(
+      path.join(cartellaDump, `${caso.nome}.json`),
+      JSON.stringify({ parser: parser.parser, avvertenzeParser: parser.avvertenze, ocr: parser.ocr ?? null, pagine: parser.pagine, troncato, esitoModello, proposta }, null, 1)
+    );
   }
 
   const codiciControllo = proposta.controlli.map(c => c.codice);
@@ -229,7 +309,7 @@ export async function eseguiEvalContratti(opzioni?: {
   }
 
   const eseguiti = esiti.filter(esito => !esito.saltato);
-  const conLayout = eseguiti.filter(esito => esito.layoutWndRiconosciuto != null);
+  const conLayout = eseguiti.filter(esito => esito.layoutWndCorretto != null);
 
   const campi: MetricheEvalContratti["campi"] = {};
   let attesiNonNull = 0;
