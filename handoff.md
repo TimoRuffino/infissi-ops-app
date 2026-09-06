@@ -47,7 +47,10 @@
 > `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` (PRD
 > §60.9) — porta chiusa a chiave, `proprietario` ottavo ruolo, servizio
 > `tenants` con comandi eseguiti solo dal server, `FLAG_MULTI_AZIENDA`,
-> stato del tenant con sola lettura. Piano da scrivere, nessun codice.
+> stato del tenant con sola lettura. Piano di implementazione scritto e
+> autorevisionato: `docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`
+> (15 task, TDD, un commit per task; da eseguire su un branch di lavoro
+> creato da `main`). Nessun codice ancora.
 > Terza decisione della sera: **prova gratuita di 30 giorni** per ogni nuova
 > azienda (spec madre §18-bis): tocca WS4 e WS5, non il WS1; aperti carta
 > alla registrazione, soglie in prova, una prova per partita IVA, avvisi.
@@ -4128,8 +4131,9 @@ a vuoto e dice «57 saltati»).
     le soglie commerciali si chiamano «soglie d'uso». **Sera del 06/09:**
     spec tecnica del WS1 approvata a sezioni
     (`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
-    PRD §60.9); prossimo passo il piano di implementazione; i punti (1)–(6)
-    hanno lì la loro risposta, gli altri restano per WS2–WS6.
+    PRD §60.9) e piano in 15 task
+    (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`); i punti
+    (1)–(6) hanno lì la loro risposta, gli altri restano per WS2–WS6.
 
 ## 13. Cosa resta della piattaforma
 

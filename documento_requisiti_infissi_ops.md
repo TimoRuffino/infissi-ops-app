@@ -3835,8 +3835,10 @@ la direzione non apre il workstream 1 con la sua spec tecnica.
 ### 60.9 Workstream 1 — fondazione tenant (design, 06/09/2026 sera)
 
 Spec tecnica approvata a sezioni in chat:
-`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`. Piano
-da scrivere; nessun codice finché il piano non è approvato. Contratto in
+`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`; piano di
+implementazione in 15 task
+`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`. Nessun codice
+finché la direzione non avvia l'esecuzione. Contratto in
 breve: **porta chiusa a chiave** (il tenant esiste, è nel contesto, ha
 guardie; gli archivi business restano quelli di oggi e ogni tenant diverso
 da 1 è rifiutato finché WS2 non apre la porta); tabelle `tenants`,
