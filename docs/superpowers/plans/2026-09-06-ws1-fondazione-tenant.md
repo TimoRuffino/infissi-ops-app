@@ -21,7 +21,7 @@
 - Ruolo `proprietario`: ottavo valore in `RUOLI`, conta nel massimo di 3; capability `tenant.manage_proprietari` la dà solo il ruolo, mai la direzione per costruzione, mai override o delega (spec §4.4).
 - Non toccare i 50 store business, i 165 filtri per sede, file, backup, integrazioni, worker, ledger Tars (spec §3.3).
 - Definizione di completato del repo: `pnpm check`, `pnpm test`, `pnpm build` verdi; UI verificata a 1440×900 e 390×844 o dichiarata non verificata; PRD e handoff aggiornati.
-- Commit in italiano, stile del repo (`feat(tenant): …`, `test(tenant): …`, `docs: …`), con la coda `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Un commit per task, sul branch di lavoro `feature/ws1-fondazione-tenant` creato da `main` aggiornato (`git checkout -b feature/ws1-fondazione-tenant origin/main`). Mai push su `main` (= produzione).
+- Commit in italiano, stile del repo (`feat(tenant): …`, `test(tenant): …`, `docs: …`), con la coda `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Un commit per task, sul branch di lavoro `feature/ws1-fondazione-tenant` creato da `claude/ruffino-flow-saas-multi-afaecf` (= `main` più spec e piano: `git checkout -b feature/ws1-fondazione-tenant claude/ruffino-flow-saas-multi-afaecf`), in un worktree dedicato. Mai push su `main` (= produzione).
 
 ## Mappa dei file
 
