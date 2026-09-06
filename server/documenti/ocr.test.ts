@@ -183,6 +183,12 @@ describe.skipIf(!binariPresenti)("ocr — con i binari reali", { timeout: 120_00
     expect(conOcr.ocr?.confidenzaMedia).toBeGreaterThan(0);
     expect(typeof conOcr.ocr?.daVerificare).toBe("boolean");
     expect(conOcr.avvertenze.join(" ")).toContain("OCR locale");
+    // La geometria delle parole arriva insieme al testo (anteprime delle evidenze).
+    const geometria = conOcr.geometria?.[0];
+    expect(geometria?.allineata).toBe(true);
+    expect(geometria?.righe.length).toBeGreaterThan(0);
+    const rigaOrdine = geometria!.righe.find(r => r.tratti.some(t => t.testo.includes("ORD-OCR-77")))!;
+    expect(conOcr.pagine[0].slice(rigaOrdine.inizio, rigaOrdine.inizio + 3)).toBe(conOcr.pagine[0].split("\n")[geometria!.righe.indexOf(rigaOrdine)].slice(0, 3));
     // Le directory temporanee non restano in giro.
     expect(residui).toEqual([]);
   });

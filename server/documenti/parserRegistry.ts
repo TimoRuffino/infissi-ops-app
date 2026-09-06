@@ -29,7 +29,8 @@ import {
   type DipendenzeVisione,
   type IdentitaLettura,
 } from "./letturaVisiva";
-import { pagineDaDocumento, type DocumentoPdf } from "./testoPdf";
+import { pagineConGeometriaDaDocumento, type DocumentoPdf } from "./testoPdf";
+import type { GeometriaPagina } from "@shared/documenti/evidenze";
 
 export type MetadatiOcr = {
   lingue: string;
@@ -58,6 +59,13 @@ export type EsitoParser =
       ocr?: MetadatiOcr;
       /** Presente solo quando il testo è la trascrizione del modello (lettura visiva). */
       visione?: MetadatiVisione;
+      /**
+       * Geometria per pagina (06/09/2026, anteprime delle evidenze): dove
+       * sta ogni riga e ogni tratto di testo. Allineata al testo per il
+       * nativo e l'OCR; per la trascrizione del modello è quella dell'OCR
+       * che l'ha preceduta, con `allineata: false`. Null dove manca.
+       */
+      geometria?: Array<GeometriaPagina | null>;
     }
   | {
       // Il PDF esiste ma non ha un layer testuale: è una scansione (o una
@@ -89,17 +97,21 @@ const MAX_BYTE_ANALISI = 15 * 1024 * 1024;
 
 /**
  * Le pagine di un PDF con testo nativo: righe ricostruite dalla geometria
- * dei frammenti (2.0.0). Se la geometria manca (frammenti senza coordinate)
- * resta il testo piatto di unpdf, nell'ordine del flusso.
+ * dei frammenti (2.0.0) e, dal 2.1.0, la geometria stessa accanto al testo.
+ * Se la geometria manca (frammenti senza coordinate) resta il testo piatto
+ * di unpdf, nell'ordine del flusso, senza geometria.
  */
-async function pagineNative(pdf: unknown): Promise<string[]> {
+async function pagineNative(
+  pdf: unknown
+): Promise<{ pagine: string[]; geometria: Array<GeometriaPagina | null> }> {
   try {
-    return await pagineDaDocumento(pdf as DocumentoPdf);
+    return await pagineConGeometriaDaDocumento(pdf as DocumentoPdf);
   } catch {
     const { text } = await extractText(pdf as any, { mergePages: false });
-    return (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
+    const pagine = (Array.isArray(text) ? text : [text ?? ""]).map(pagina =>
       String(pagina ?? "")
     );
+    return { pagine, geometria: pagine.map(() => null) };
   }
 }
 
@@ -107,7 +119,9 @@ const pdfTestoNativo: ParserDocumento = {
   nome: "pdf-testo-nativo",
   // 2.0.0 (04/09/2026): righe dalla geometria, non dal flusso di contenuto —
   // etichette e valori tornano affiancati, le colonne restano celle.
-  versione: "2.0.0",
+  // 2.1.0 (06/09/2026): la geometria delle righe esce accanto al testo,
+  // che resta identico: serve alle anteprime delle evidenze.
+  versione: "2.1.0",
   supporta: (mimeType, nomeFile) =>
     (mimeType ?? "").toLowerCase().includes("pdf") ||
     nomeFile.toLowerCase().endsWith(".pdf"),
@@ -119,9 +133,14 @@ const pdfTestoNativo: ParserDocumento = {
       const pdf = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
       // Si tolgono gli spazi in coda alle righe e le righe vuote ai bordi,
       // NON il rientro iniziale: è la colonna del frammento, e un valore
-      // sotto la sua etichetta si riconosce da lì.
-      const pagine = (await pagineNative(pdf)).map(pagina =>
-        pagina.replace(/[ \t]+\n/g, "\n").replace(/^\n+/, "").replace(/\s+$/, "")
+      // sotto la sua etichetta si riconosce da lì. Con la geometria il
+      // testo esce già così dalla ricostruzione: non lo si tocca, perché
+      // gli scarti delle righe devono restare quelli.
+      const native = await pagineNative(pdf);
+      const pagine = native.pagine.map((pagina, i) =>
+        native.geometria[i]
+          ? pagina
+          : pagina.replace(/[ \t]+\n/g, "\n").replace(/^\n+/, "").replace(/\s+$/, "")
       );
       const totale = pagine.reduce((somma, p) => somma + p.length, 0);
       if (totale === 0) {
@@ -144,6 +163,7 @@ const pdfTestoNativo: ParserDocumento = {
         versione: this.versione,
         pagine,
         avvertenze,
+        geometria: native.geometria,
       };
     } catch (errore: any) {
       // PDF cifrato, troncato o corrotto: unpdf lancia. È un esito, non un
@@ -253,6 +273,13 @@ async function tentaVisione(
     tokenOutput: trascrizione.uso.output,
     modello: trascrizione.modello,
   });
+  // La geometria dell'OCR che ha preceduto la trascrizione: le sue parole
+  // con posizione servono a localizzare i frammenti nella pagina, anche se
+  // il suo testo non bastava. Non è allineata al testo del modello.
+  const geometriaOcr =
+    precedente.esito === "estratto" && precedente.geometria
+      ? precedente.geometria.map(g => (g ? { ...g, allineata: false } : null))
+      : undefined;
   return {
     esito: "estratto",
     parser: "visione",
@@ -267,6 +294,7 @@ async function tentaVisione(
       tokenInput: trascrizione.uso.input,
       tokenOutput: trascrizione.uso.output,
     },
+    ...(geometriaOcr ? { geometria: geometriaOcr } : {}),
   };
 }
 
@@ -361,6 +389,7 @@ async function tentaOcr(
     versione: OCR_VERSIONE,
     pagine: esitoOcr.pagine.map(pagina => pagina.testo),
     avvertenze,
+    geometria: esitoOcr.pagine.map(pagina => pagina.geometria),
     ocr: {
       lingue: esitoOcr.lingue,
       lingueMancanti: esitoOcr.lingueMancanti,
