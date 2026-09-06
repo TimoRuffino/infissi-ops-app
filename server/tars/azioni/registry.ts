@@ -31,7 +31,9 @@ import type {
   ScopeAzioneTars,
 } from "./types";
 
-export const VERSIONE_REGISTRO_AZIONI = "1.21.0";
+// 1.22.0 (06/09/2026): leggi_conferma_ordine 1.4.0 porta le evidenze localizzate
+// (pagina, frammento, area) per le anteprime «Dove l'ho letto» nella chat.
+export const VERSIONE_REGISTRO_AZIONI = "1.22.0";
 
 const schemaLettura = z
   .object({

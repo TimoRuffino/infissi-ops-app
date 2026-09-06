@@ -119,3 +119,40 @@ describe("leggiConfermaAllegata", () => {
     expect(lettura.avvertenze.join(" ")).toContain("non l'imponibile");
   });
 });
+
+describe("le evidenze della lettura portano l'area quando il parser dà la geometria (anteprime)", () => {
+  it("con la geometria l'imponibile ha il riquadro; senza resta «pagina»", async () => {
+    // Due pagine, una riga ciascuna: la geometria è per pagina, allineata al testo.
+    const pagine = [
+      "TESCONI SRL — Conferma d'ordine n. 4471 del 28/08/2026",
+      "Totale imponibile: EUR 3.500,00",
+    ];
+    const geometria = pagine.map(riga => ({
+      larghezza: 600,
+      altezza: 800,
+      allineata: true,
+      righe: [
+        {
+          inizio: 0,
+          y0: 100,
+          y1: 120,
+          tratti: [{ testo: riga, inizio: 0, fine: riga.length, x0: 40, x1: 40 + riga.length * 6 }],
+        },
+      ],
+    }));
+    const conGeometria = await leggiConfermaAllegata({
+      comunicazione,
+      allegatoIndex: 0,
+      deps: deps({
+        estraiTesto: async () => ({ pagine, daOcr: false, avvertenze: [], geometria }),
+      }),
+    });
+    const ev = conGeometria.estrazione?.imponibileDocumento?.evidenza;
+    expect(ev?.pagina).toBe(2);
+    expect(ev?.area?.grado).toBe("riquadro");
+    expect(ev?.area?.riga?.y).toBeCloseTo(100 / 800, 3);
+
+    const senza = await leggiConfermaAllegata({ comunicazione, allegatoIndex: 0, deps: deps() });
+    expect(senza.estrazione?.imponibileDocumento?.evidenza.area?.grado).toBe("pagina");
+  });
+});

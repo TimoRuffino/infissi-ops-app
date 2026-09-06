@@ -21,7 +21,9 @@
 import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
 import type { Comunicazione } from "../../comunicazioni/comunicazioni";
 import { riferimentiDellaCommessa } from "../../commesse/costoDaConferma";
+import type { GeometriaPagina } from "@shared/documenti/evidenze";
 import {
+  annotaAreeEstrazione,
   estraiConfermeNelDocumento,
   type EstrazioneConferma,
 } from "../../documenti/estrazioneConferma";
@@ -69,7 +71,14 @@ export type DipendenzeLettura = {
     nome: string,
     visione?: IdentitaLettura | null
   ) => Promise<
-    | { pagine: string[]; daOcr: boolean; daVisione?: boolean; avvertenze: string[] }
+    | {
+        pagine: string[];
+        daOcr: boolean;
+        daVisione?: boolean;
+        avvertenze: string[];
+        /** Geometria del parser per le anteprime delle evidenze (assente = «pagina intera»). */
+        geometria?: Array<GeometriaPagina | null>;
+      }
     | { pagine: null; motivo: string }
   >;
 };
@@ -88,6 +97,7 @@ export function dipendenzeLetturaReali(): DipendenzeLettura {
           daOcr: esito.ocr != null,
           daVisione: esito.visione != null,
           avvertenze: esito.avvertenze ?? [],
+          geometria: esito.geometria,
         };
       }
       return {
@@ -108,7 +118,13 @@ export function dipendenzeLetturaReali(): DipendenzeLettura {
 function componiLettura(input: {
   raw: { nome: string; mimeType: string };
   testo:
-    | { pagine: string[]; daOcr: boolean; daVisione?: boolean; avvertenze: string[] }
+    | {
+        pagine: string[];
+        daOcr: boolean;
+        daVisione?: boolean;
+        avvertenze: string[];
+        geometria?: Array<GeometriaPagina | null>;
+      }
     | { pagine: null; motivo: string };
   codiceCommessa: string | null;
   commessa: any | null;
@@ -144,7 +160,9 @@ function componiLettura(input: {
     fornitoreNome: input.fornitoreAtteso,
     righeOrdine: [],
   });
-  const estrazione = documentoLetto.estrazione;
+  // Le aree delle evidenze (anteprime «Dove l'ho letto»): dalla geometria
+  // del parser; senza geometria restano «pagina intera».
+  const estrazione = annotaAreeEstrazione(documentoLetto.estrazione, testo.geometria);
   if (documentoLetto.sezioni.length > 1) {
     avvertenze.push(
       documentoLetto.motivoSomma ??

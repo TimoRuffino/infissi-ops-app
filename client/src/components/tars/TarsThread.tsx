@@ -1,4 +1,6 @@
+import DoveLetto from "@/components/documenti/DoveLetto";
 import RispostaFormattata from "@/components/tars/RispostaFormattata";
+import type { PosizioneEvidenza } from "@shared/documenti/evidenze";
 import TarsAvatar, { type StatoTarsAvatar } from "@/components/tars/TarsAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,7 +54,12 @@ export type RichiestaApprovazioneTars = {
   propostaId: number;
 };
 
-type EvidenzaTarsView = { descrizione: string; riferimento: string };
+type EvidenzaTarsView = {
+  descrizione: string;
+  riferimento: string;
+  /** Dove sta il frammento nel documento del fascicolo: accende «Dove l'ho letto». */
+  posizione?: { documentoId: number; pagina: number; frammento: string; area: PosizioneEvidenza | null };
+};
 type AzioneTarsView = {
   strumento: string;
   stato: string;
@@ -146,7 +153,20 @@ function evidenzeDaPayload(
     ) {
       return [];
     }
-    return [{ descrizione: value.descrizione, riferimento: value.riferimento }];
+    const p = value.posizione;
+    const posizione =
+      isRecord(p) &&
+      typeof p.documentoId === "number" &&
+      typeof p.pagina === "number" &&
+      typeof p.frammento === "string"
+        ? {
+            documentoId: p.documentoId,
+            pagina: p.pagina,
+            frammento: p.frammento,
+            area: isRecord(p.area) && typeof p.area.grado === "string" ? (p.area as PosizioneEvidenza) : null,
+          }
+        : undefined;
+    return [{ descrizione: value.descrizione, riferimento: value.riferimento, ...(posizione ? { posizione } : {}) }];
   });
 }
 
@@ -245,8 +265,18 @@ function EvidenzeTurno({
             className="min-w-0 border-l-2 border-border-strong pl-2"
           >
             <p className="break-words text-text-2">{evidenza.descrizione}</p>
-            <p className="break-all font-mono text-[11px] text-text-3">
+            <p className="flex items-center gap-1 break-all font-mono text-[11px] text-text-3">
               {evidenza.riferimento}
+              {evidenza.posizione && (
+                <DoveLetto
+                  documentoId={evidenza.posizione.documentoId}
+                  evidenza={{
+                    pagina: evidenza.posizione.pagina,
+                    frammento: evidenza.posizione.frammento,
+                    area: evidenza.posizione.area,
+                  }}
+                />
+              )}
             </p>
           </div>
         ))}

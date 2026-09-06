@@ -38,6 +38,7 @@ import {
   findDocumentoComunicazione,
   getDocumentoCommessaById,
 } from "../../routers/preventiviContratti";
+import type { PosizioneEvidenza } from "@shared/documenti/evidenze";
 import type { ContestoRun, EsitoLettura, EvidenzaTars, StrumentoTars } from "./tipi";
 
 const FONTE_CRM = "CRM Ruffino Flow";
@@ -379,7 +380,8 @@ const leggiConferma: StrumentoTars = {
   // leggono il vostro riferimento e il fornitore dall'intestazione. 1.3.0
   // (04/09, mattina): scansioni e foto che l'OCR non legge vengono
   // trascritte dal modello (lettura visiva, a carico dell'utente sul ledger).
-  versione: "1.3.0",
+  // 1.4.0 (06/09/2026): le evidenze portano la posizione sulla pagina (anteprime «Dove l'ho letto»).
+  versione: "1.4.0",
   categoria: "documenti",
   livello: "L0",
   effetto: "nessuno",
@@ -416,6 +418,9 @@ const leggiConferma: StrumentoTars = {
     let lettura_;
     let riferimentoEvidenza: string;
     let descrizioneEvidenza: string;
+    // Le evidenze localizzate (anteprime «Dove l'ho letto»): solo per un
+    // documento del fascicolo, che ha una pagina resa da mostrare.
+    const evidenzeLocalizzate: EvidenzaTars[] = [];
     if (daDocumento) {
       const documento = getDocumentoCommessaById(input.documentoId, contesto.sedeId);
       if (!documento) throw new Error("NOT_FOUND: documento non trovato in questa sede.");
@@ -432,6 +437,31 @@ const leggiConferma: StrumentoTars = {
       lettura_ = letto;
       riferimentoEvidenza = `documento:${documento.id}`;
       descrizioneEvidenza = `${lettura_.nomeFile} — nel fascicolo di ${commessa?.codice ?? documento.commessaId}`;
+      const estr = letto.estrazione;
+      const campi: Array<[string, { valore: unknown; evidenza: { pagina: number; frammento: string; area?: PosizioneEvidenza | null } } | null | undefined]> = [
+        ["imponibile", estr?.imponibileDocumento],
+        ["totale", estr?.totaleDocumento],
+        ["fornitore", estr?.fornitoreCitato],
+        ["numero conferma", estr?.numeroConferma],
+        ["riferimento ordine", estr?.riferimentoOrdine],
+        ["vostro riferimento", estr?.riferimentoCliente],
+        ["data documento", estr?.dataDocumento],
+        ["consegna", estr?.dateConsegna?.[0] ?? estr?.settimaneConsegna?.[0]],
+      ];
+      for (const [campo, c] of campi) {
+        if (!c) continue;
+        evidenzeLocalizzate.push({
+          tipo: "documento",
+          riferimento: `documento:${documento.id}`,
+          descrizione: `${campo}: «${c.evidenza.frammento.slice(0, 120)}» (pag. ${c.evidenza.pagina})`,
+          posizione: {
+            documentoId: documento.id,
+            pagina: c.evidenza.pagina,
+            frammento: c.evidenza.frammento.slice(0, 160),
+            area: c.evidenza.area ?? null,
+          },
+        });
+      }
     } else {
       if (input.allegatoIndex == null) {
         throw new Error("FORBIDDEN: con comunicazioneId serve anche allegatoIndex.");
@@ -490,6 +520,7 @@ const leggiConferma: StrumentoTars = {
           riferimento: riferimentoEvidenza,
           descrizione: descrizioneEvidenza,
         },
+        ...evidenzeLocalizzate,
       ],
       omissioni: [
         "questa è una lettura: nessun costo, ordine o documento viene registrato",

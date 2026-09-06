@@ -7,6 +7,7 @@
 // principal non può vedere non parte, e lo si dice).
 
 import type { z } from "zod";
+import type { PosizioneEvidenza } from "@shared/documenti/evidenze";
 import type { Capability } from "../../authz/capabilities";
 import type { Interruttore } from "../../platform/interruttori";
 
@@ -101,6 +102,18 @@ export type EvidenzaTars = {
   tipo: "entita" | "documento" | "run_analisi" | "caso";
   riferimento: string; // es. "commessa:124", "documento:88", "analisi:12"
   descrizione: string;
+  /**
+   * Dove, nel documento del fascicolo, sta il frammento letto (anteprime
+   * «Dove l'ho letto», 06/09/2026): la chat mostra il tasto e la vignetta.
+   * Solo per documenti del fascicolo (serve `documentoId`), mai per gli
+   * allegati di posta non archiviati.
+   */
+  posizione?: {
+    documentoId: number;
+    pagina: number;
+    frammento: string;
+    area: PosizioneEvidenza | null;
+  };
 };
 
 export type EsitoLettura<T> = {
