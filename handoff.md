@@ -151,7 +151,7 @@
 
 > **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
 > registrato, nessun codice.** La direzione ha approvato in chat il modello
-> commerciale e l'architettura per distribuire Ruffino Flow a più
+> commerciale e l'architettura per distribuire Wyndor a più
 > rivenditori: testo integrale in
 > `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (sezioni
 > 1–18), riassunto in PRD §60 (v5.49). Decisioni fisse: un solo prodotto
@@ -162,7 +162,7 @@
 > sessione e mai dal client, `NOT_FOUND` cross-tenant; Proprietario azienda
 > in più ai sette ruoli; Platform Admin globale con MFA che non legge i dati
 > delle aziende; abbonamenti omaggio senza oggetti sul provider; marchio
-> Ruffino Flow con personalizzazione del rivenditore; Ruffino Group =
+> Wyndor con personalizzazione del rivenditore; Ruffino Group =
 > tenant 1, migrazione con backup, dry-run, chiavi `tenant:1:<store>`
 > accanto alle legacy in sola lettura, rollback. Otto workstream ordinati
 > (fondazione tenant → migrazione → file, comunicazioni e integrazioni →

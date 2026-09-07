@@ -47,7 +47,7 @@ import { verificaStore } from "./verifica";
 /** Come si arriva alla sede di un record: `sedeId` diretto, oppure il riferimento da risalire. */
 type Forma = "sedeId" | "commessaId" | "userId" | "ticketId" | "sediIds" | "nessuna";
 
-// Le 50 famiglie del 07/09/2026, a mano. Solo "sedeId" è la forma diretta;
+// Le 51 famiglie del 07/09/2026, a mano. Solo "sedeId" è la forma diretta;
 // il resto dice attraverso quale campo si risale alla sede, o che una sede
 // non c'è ("nessuna": famiglie globali senza sede — o che SONO la sede).
 // Chi aggiunge una famiglia la mette qui (l'inventario sotto lo pretende) e,
@@ -88,6 +88,7 @@ const FORMA_DEL_RECORD: Record<string, Forma> = {
   fic_pagamenti_links: "sedeId",
   fic_regole_costi: "sedeId",
   fornitori: "sedeId", // `sedeId?:` nel tipo, ma onLoad lo riempie con 1
+  fornitori_archivio: "sedeId", // pagina Fornitori (fusione di `main` del 07/09)
   fornitori_listini: "sedeId", // idem
   fornitori_ordini: "sedeId", // idem
   garanzie: "sedeId",
@@ -131,8 +132,8 @@ describe("inventario delle famiglie", () => {
     expect(Object.keys(FORMA_DEL_RECORD).sort()).toEqual(NOMI);
   });
 
-  it("sono 50 il 07/09/2026: 7 globali (2 con sedeId) e 43 per tenant (5 senza sedeId)", () => {
-    expect(NOMI).toHaveLength(50);
+  it("sono 51 il 07/09/2026: 7 globali (2 con sedeId) e 44 per tenant (5 senza sedeId)", () => {
+    expect(NOMI).toHaveLength(51);
     expect(NOMI.filter(n => globale(n))).toHaveLength(7);
     expect(NOMI.filter(n => globale(n) && conSedeId(n))).toHaveLength(2);
     expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(5);

@@ -105,10 +105,10 @@ export type VoceArchivioFornitore = {
   updatedAt: Date;
 };
 
-let nextId = 1;
-const _store = persistedStore<VoceArchivioFornitore>("fornitori_archivio", loaded => {
-  nextId = loaded.length ? Math.max(...loaded.map(v => v.id)) + 1 : 1;
-});
+// Gli id li assegna la famiglia dello store, non un contatore di modulo
+// (WS2 §4): sono unici in tutta l'installazione, quindi anche fra le
+// aziende, e `server/_core/idGlobali.test.ts` vieta di tornare indietro.
+const _store = persistedStore<VoceArchivioFornitore>("fornitori_archivio");
 const voci = _store.items;
 
 export function getArchivioFornitoriStore(): readonly VoceArchivioFornitore[] {
@@ -118,7 +118,6 @@ export function getArchivioFornitoriStore(): readonly VoceArchivioFornitore[] {
 /** Solo per i test. */
 export function azzeraArchivioFornitoriPerTest(): void {
   voci.splice(0, voci.length);
-  nextId = 1;
 }
 
 export function voceArchivioDiAllegato(
@@ -309,7 +308,7 @@ export async function eseguiGiroArchivioFornitori(input: {
       let voce = voceArchivioDiAllegato(input.sedeId, c.id, indice);
       if (!voce) {
         voce = {
-          id: nextId++,
+          id: _store.prossimoId(),
           sedeId: input.sedeId,
           fornitore,
           comunicazioneId: c.id,

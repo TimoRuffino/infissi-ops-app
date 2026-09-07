@@ -3733,7 +3733,7 @@ workstream (§60.8) non è su `main`, il codice resta mono-azienda e nessuna
 divergenza da §60 è un bug. Questa sezione è il riassunto del contratto
 funzionale; in caso di dubbio vale la spec. **Decisione successiva
 (06/09/2026 sera):** il prodotto si chiamerà **Wyndor**; dove qui e nella
-spec si legge «marchio Ruffino Flow» vale «marchio Wyndor» (spec §18-bis).
+spec si legge il vecchio nome del marchio vale «marchio Wyndor» (spec §18-bis).
 Ruffino Group resta il tenant 1; il rebranding dell'applicazione è un lavoro
 separato, fuori da §60. **Seconda decisione della sera:** ogni nuova azienda
 ha una **prova gratuita di 30 giorni** con funzioni e soglie ordinarie; il
@@ -3745,7 +3745,7 @@ una sola prova per partita IVA, avvisi prima della scadenza (spec §18-bis).
 
 ### 60.1 Decisione e perimetro
 
-Ruffino Flow viene distribuito a più rivenditori di infissi come SaaS con
+Wyndor viene distribuito a più rivenditori di infissi come SaaS con
 **un solo prodotto completo**: canone fisso per azienda, **mensile o
 annuale** (l'annuale è anticipato e scontato), stesse funzioni e stessi
 limiti d'uso per tutti. Niente piani Base/Pro/Enterprise, niente moduli
@@ -3755,7 +3755,7 @@ inclusi; i canoni dei fornitori esterni (Meta, casella email, Fatture in
 Cloud) restano a carico dell'azienda cliente. Le sole risorse misurate
 commercialmente sono **storage** e **consumo Tars**. Il marchio della
 piattaforma è uno solo (nome, dominio, login, design system: **Wyndor** dal
-06/09 sera, prima «Ruffino Flow»); il rivenditore
+06/09 sera, prima il vecchio nome); il rivenditore
 personalizza logo, colore, dati societari e fiscali, intestazioni dei
 documenti, firme email/WhatsApp e dati delle sedi. Niente white-label nella
 prima versione. Prezzo di listino, prezzo dei pacchetti extra e budget Tars
@@ -3840,7 +3840,7 @@ massimali fiscali DM MITE del contratto.
   serve richiesta esplicita del Proprietario, verifica e obblighi di
   conservazione.
 - La fattura del canone la emette il sistema contabile della società
-  proprietaria di Ruffino Flow, separato dalle integrazioni FiC dei tenant.
+  proprietaria di Wyndor, separato dalle integrazioni FiC dei tenant.
 - **Omaggio** (`complimentary`, solo Platform Admin): tutte le funzioni e le
   soglie ordinarie, senza oggetti né sconti sul provider; con o senza
   scadenza; dicitura «Abbonamento omaggio» al Proprietario; motivazione,

@@ -35,6 +35,10 @@ function contesto(sedeId: number): TrpcContext {
     res: {} as any,
     sedeId,
     sediIds: [SEDE, ALTRA_SEDE],
+    // Il contesto passa da `guardiaTenant` (WS2 §5.2): senza azienda
+    // dichiarata risponderebbe «L'azienda non è ancora attiva…».
+    tenantId: 1,
+    tenant: null,
   };
 }
 const caller = (sedeId = SEDE) => appRouter.createCaller(contesto(sedeId));
