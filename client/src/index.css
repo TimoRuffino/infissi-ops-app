@@ -47,6 +47,8 @@
   --color-on-focal: var(--on-focal);
   --color-mora: var(--mora);
   --color-on-mora: var(--on-mora);
+  /* Accento del solo marchio: non è un colore semantico e non indica stati. */
+  --color-brand-accent: var(--brand-accent);
   /* La firma deve restare leggibile anche se acquisita in dark mode e poi
      stampata su carta bianca. */
   --color-signature-paper: #ffffff;
@@ -168,6 +170,7 @@
   --popover-foreground: #242126;
   --primary: #d92f55;
   --primary-foreground: #ffffff;
+  --brand-accent: #e8a33d;
   --secondary: #f5e9ed;
   --secondary-foreground: #4d303a;
   --muted: #f4eff1;
@@ -233,6 +236,7 @@
   --popover-foreground: #fbf7f8;
   --primary: #ff6b79;
   --primary-foreground: #2d1419;
+  --brand-accent: #f0b657;
   --secondary: #342a2e;
   --secondary-foreground: #fbf7f8;
   --muted: #2b292b;
