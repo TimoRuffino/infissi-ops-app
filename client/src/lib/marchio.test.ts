@@ -28,6 +28,7 @@ const LEGACY = readFileSync(
   "utf8"
 );
 const LOGIN = readFileSync(join("client", "src", "pages", "LoginPage.tsx"), "utf8");
+const FAVICON = readFileSync(join("client", "public", "favicon.svg"), "utf8");
 
 /** Anta in apertura, spec 07/09/2026 Appendice A. Normativo. */
 const ANTA_IN_APERTURA =
@@ -96,5 +97,40 @@ describe("il marchio nella chrome", () => {
     // Il confronto tollera a capo e indentazione: in JSX la parola sta su una
     // riga sua fra i due tag.
     expect(LOCKUP).toMatch(/>\s*Wyndor\s*</);
+  });
+});
+
+/** Larghezza e altezza lette dall'header IHDR, senza dipendenze. */
+function dimensioniPng(percorso: string): { larghezza: number; altezza: number } {
+  const b = readFileSync(percorso);
+  const firma = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  expect(b.subarray(0, 8).equals(firma), `${percorso} non è un PNG`).toBe(true);
+  return { larghezza: b.readUInt32BE(16), altezza: b.readUInt32BE(20) };
+}
+
+describe("file statici del marchio", () => {
+  it("la favicon porta il tracciato canonico e i colori del tema chiaro", () => {
+    expect(FAVICON.replace(/\s+/g, " ")).toContain(ANTA_IN_APERTURA);
+    expect(FAVICON).toContain("#d92f55");
+    expect(FAVICON).toContain("#e8a33d");
+  });
+
+  it("esiste l'icona che iOS sa leggere", () => {
+    expect(dimensioniPng(join("client", "public", "apple-touch-icon.png"))).toEqual(
+      { larghezza: 180, altezza: 180 }
+    );
+  });
+
+  it("esiste l'icona che il service worker cerca da sempre", () => {
+    // notification-sw.js punta a /icon-192.png per icon e badge.
+    expect(dimensioniPng(join("client", "public", "icon-192.png"))).toEqual({
+      larghezza: 192,
+      altezza: 192,
+    });
+  });
+
+  it("index.html non offre più un SVG a iOS, che lo ignora", () => {
+    const html = readFileSync(join("client", "index.html"), "utf8");
+    expect(html).toContain('rel="apple-touch-icon" href="/apple-touch-icon.png"');
   });
 });
