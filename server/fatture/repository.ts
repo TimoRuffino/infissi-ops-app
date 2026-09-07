@@ -231,6 +231,7 @@ export function createMemoryFattureRepository(): FattureRepository {
       const id = prossimoId++;
       const f: Fattura = {
         ...conSnapshot(clona(fattura)),
+        origine: fattura.origine ?? "contratto",
         id,
         revisione: 1,
         createdAt: now,
@@ -407,6 +408,7 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     // lo riempie col default invece di lasciare un `undefined` che il tipo
     // dichiara obbligatorio.
     clienteSnapshot: normalizzaSnapshot(row.cliente_snapshot),
+    origine: row.origine === "libera" ? "libera" : "contratto",
     pattuitoTipo: row.pattuito_tipo,
     pattuitoCent: Number(row.pattuito_cent),
     imponibileCent: Number(row.imponibile_cent),
@@ -646,6 +648,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
           created_by BIGINT, emessa_da BIGINT, emessa_at TIMESTAMPTZ, revisione INTEGER NOT NULL DEFAULT 1,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Fatture libere (07/09/2026): la colonna nasce con il default per le righe già scritte.
+        await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'contratto'`;
         await tx`CREATE INDEX IF NOT EXISTS fatture_sede_commessa_idx ON fatture (sede_id, commessa_id, id DESC)`;
         await tx`CREATE UNIQUE INDEX IF NOT EXISTS fatture_fic_document_idx ON fatture (sede_id, fic_document_id) WHERE fic_document_id IS NOT NULL`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_righe (
@@ -740,7 +744,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             diciture, note, intestazione_cantiere, detrazione_tipo,
             pdf_storage_key, xml_storage_key, xml_sha256, documento_id,
             ei_status_fic, ei_errore, inviata_dry_run, scavalco_limiti, scavalco_motivo,
-            created_by, emessa_da, emessa_at, revisione, created_at, updated_at
+            created_by, emessa_da, emessa_at, revisione, created_at, updated_at, origine
           ) VALUES (
             ${f.sedeId}, ${f.commessaId}, ${f.computoId}, ${f.hashRighe}, ${f.tipo}, ${f.notaCreditoDi}, ${f.stato},
             ${f.ficDocumentId}, ${f.numero}, ${f.data},
@@ -750,7 +754,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             ${tx.json(f.diciture as any)}, ${f.note}, ${f.intestazioneCantiere}, ${f.detrazioneTipo},
             ${f.pdfStorageKey}, ${f.xmlStorageKey}, ${f.xmlSha256}, ${f.documentoId},
             ${f.eiStatusFic}, ${f.eiErrore}, ${f.inviataDryRun}, ${f.scavalcoLimiti}, ${f.scavalcoMotivo},
-            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}
+            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}, ${f.origine ?? "contratto"}
           ) RETURNING *`;
         const id = Number(rows[0].id);
         // Una fattura nuova non ha scadenze precedenti da conservare.

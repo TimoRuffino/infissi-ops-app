@@ -253,6 +253,7 @@ export async function creaNotaCredito(
     fattura: {
       sedeId: input.sedeId,
       commessaId: origine.commessaId,
+      origine: origine.origine,
       computoId: origine.computoId,
       hashRighe: origine.hashRighe,
       tipo: "nota_credito",

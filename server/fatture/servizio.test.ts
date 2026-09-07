@@ -23,6 +23,7 @@ import {
   annullaBozza,
   eliminaBozza,
   creaBozza,
+  creaBozzaLibera,
   fatturePerCommessa,
   leggiFattura,
   rigeneraBozza,
@@ -1092,8 +1093,10 @@ describe("validaPerEmissione", () => {
 
     const esito = await validaPerEmissione(SEDE, fattura.id, dip());
     expect(errori(esito.controlli)).toEqual(
-      expect.arrayContaining(["cliente_cap", "cliente_provincia", "cliente_cf", "cliente_cf_bonus", "computo_non_valido"])
+      expect.arrayContaining(["cliente_cap", "cliente_provincia", "cliente_cf", "cliente_cf_bonus"])
     );
+    // Limiti opzionali (07/09/2026): il computo assente è un avviso, non un blocco.
+    expect(errori(esito.controlli)).not.toContain("computo_non_valido");
     const avviso = esito.controlli.find(c => c.codice === "scadenza_passata")!;
     expect(avviso.esito).toBe("avviso");
     expect(avviso.messaggio).toContain("2026-01-15");
@@ -1117,6 +1120,7 @@ describe("validaPerEmissione", () => {
     });
     const dopo = await validaPerEmissione(SEDE, fattura.id, dip());
     expect(errori(dopo.controlli)).not.toContain("computo_non_valido");
+    expect(dopo.controlli.filter(c => c.codice === "limiti_non_verificati").every(c => c.esito === "avviso")).toBe(true);
   });
 
   // R19 (fatture 106 e 119): la riga della pratica edilizia nasce come
@@ -1558,5 +1562,116 @@ describe("annullaBozza", () => {
     await expect(
       annullaBozza({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, motivo: null, ...dip() })
     ).rejects.toThrow("FATTURA_IMMUTABILE:");
+  });
+});
+
+// ── Fattura libera e anagrafica in fattura (07/09/2026, direzione) ──────
+describe("creaBozzaLibera", () => {
+  it("nasce vuota nella commessa, con l'anagrafica del cliente, senza contratto né computo, e più d'una per commessa", async () => {
+    const commessaId = await nuovaCommessa();
+    const { fattura, avvertenze } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    expect(fattura.origine).toBe("libera");
+    expect(fattura.computoId).toBeNull();
+    expect(fattura.righe).toEqual([]);
+    expect(fattura.totaleCent).toBe(0);
+    expect(fattura.pattuitoCent).toBe(0);
+    expect(fattura.detrazioneTipo).toBe("nessuna");
+    expect(fattura.clienteSnapshot?.nome).toBeTruthy();
+    expect(fattura.scadenze).toHaveLength(1);
+    expect(fattura.scadenze[0]!.quotaPct).toBe(100);
+    expect(avvertenze[0]).toContain("Fattura libera");
+    // Una seconda fattura libera sulla stessa commessa è ammessa.
+    const seconda = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    expect(seconda.fattura.id).not.toBe(fattura.id);
+  });
+
+  it("le righe a mano fanno il totale: il pattuito segue le righe, il markup resta zero, e l'emissione non chiede i limiti", async () => {
+    const commessaId = await nuovaCommessa();
+    const { fattura } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const { fattura: dopo } = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE,
+      modifica: {
+        righeAggiunte: [
+          { tipo: "bene", descrizione: "N.2 Finestre in PVC", importoCent: 150000, aliquota: 22, beneSignificativo: true },
+          { tipo: "servizio", descrizione: "Posa in opera", importoCent: 50000, aliquota: 10, beneSignificativo: false },
+        ],
+      },
+      ...dip(),
+    });
+    expect(dopo.pattuitoCent).toBe(200000);
+    expect(dopo.imponibileCent).toBe(200000);
+    expect(dopo.markupCent).toBe(0);
+    expect(dopo.deltaPattuitoCent).toBe(0);
+    // Beni significativi con servizi al 10 %: storno e riaddebito restano (regola fiscale, non del contratto).
+    expect(dopo.stornoCent).toBe(50000);
+    const esito = await validaPerEmissione(SEDE, dopo.id, dip());
+    expect(errori(esito.controlli)).not.toContain("computo_non_valido");
+    expect(codici(esito.controlli)).not.toContain("limite_totale");
+  });
+
+  it("la detrazione si sceglie sulla libera e resta del contratto sulle altre; la libera non si rigenera", async () => {
+    const commessaId = await nuovaCommessa();
+    const { fattura } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const { fattura: dopo } = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE,
+      modifica: { detrazioneTipo: "ristrutturazione" }, ...dip(),
+    });
+    expect(dopo.detrazioneTipo).toBe("ristrutturazione");
+    await expect(
+      rigeneraBozza({ sedeId: SEDE, id: dopo.id, revisione: dopo.revisione, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow(/PRECONDIZIONE: una fattura libera/);
+
+    const { commessaId: conContratto } = await scenario127();
+    const { fattura: dalContratto } = await creaBozza({ sedeId: SEDE, commessaId: conContratto, actorUserId: ATTORE, ...dip() });
+    await expect(
+      aggiornaBozza({
+        sedeId: SEDE, id: dalContratto.id, revisione: dalContratto.revisione, actorUserId: ATTORE,
+        modifica: { detrazioneTipo: "nessuna" }, ...dip(),
+      })
+    ).rejects.toThrow(/VALIDAZIONE: la detrazione di una fattura nata dal contratto/);
+  });
+});
+
+describe("anagrafica in fattura", () => {
+  it("corregge lo snapshot e la scheda cliente (recapito e codici), senza toccare Fatture in Cloud", async () => {
+    const cliente = nuovoCliente(SEDE, { cap: "", provincia: null, codiceFiscale: null });
+    const commessaId = await nuovaCommessa(SEDE, cliente);
+    const { fattura } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    expect(fattura.clienteSnapshot?.cap).toBe("");
+    const { fattura: dopo, controlli } = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE,
+      modifica: {
+        clienteSnapshot: { cap: "19038", citta: "Sarzana", provincia: "sp", codiceFiscale: "rssmra85t10a562s", indirizzo: "Via Alta 80", pec: null },
+      },
+      ...dip(),
+    });
+    expect(dopo.clienteSnapshot).toMatchObject({ cap: "19038", citta: "Sarzana", provincia: "SP", codiceFiscale: "RSSMRA85T10A562S", indirizzo: "Via Alta 80" });
+    expect(dopo.clienteSnapshot?.ficEntityId).toBe(fattura.clienteSnapshot?.ficEntityId ?? null);
+    const scheda = getClientiStore().find((c: any) => c.id === cliente.id);
+    expect(scheda).toMatchObject({ cap: "19038", citta: "Sarzana", provincia: "SP", codiceFiscale: "RSSMRA85T10A562S", indirizzo: "Via Alta 80" });
+    // I controlli sul cliente ripartono dallo snapshot corretto.
+    expect(controlli.filter(c => c.codice.startsWith("cliente_")).map(c => c.codice)).not.toContain("cliente_cap");
+  });
+
+  it("per un privato il nome resta quello della scheda (cognome e nome sono due campi); per un'azienda diventa la ragione sociale", async () => {
+    const azienda = nuovoCliente(SEDE, { tipo: "azienda", ragioneSociale: "Vecchia Srl", partitaIva: "01500270119", codiceDestinatario: "ABCDEFG" });
+    const commessaId = await nuovaCommessa(SEDE, azienda);
+    const { fattura } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE,
+      modifica: { clienteSnapshot: { nome: "Nuova Srl" } }, ...dip(),
+    });
+    expect(getClientiStore().find((c: any) => c.id === azienda.id)?.ragioneSociale).toBe("Nuova Srl");
+
+    const privato = nuovoCliente(SEDE);
+    const commessa2 = await nuovaCommessa(SEDE, privato);
+    const { fattura: f2 } = await creaBozzaLibera({ sedeId: SEDE, commessaId: commessa2, actorUserId: ATTORE, ...dip() });
+    const { fattura: dopo2 } = await aggiornaBozza({
+      sedeId: SEDE, id: f2.id, revisione: f2.revisione, actorUserId: ATTORE,
+      modifica: { clienteSnapshot: { nome: "Altro Nome" } }, ...dip(),
+    });
+    expect(dopo2.clienteSnapshot?.nome).toBe("Altro Nome");
+    const scheda = getClientiStore().find((c: any) => c.id === privato.id)!;
+    expect(`${scheda.cognome} ${scheda.nome}`).toBe(`${privato.cognome} ${privato.nome}`);
   });
 });

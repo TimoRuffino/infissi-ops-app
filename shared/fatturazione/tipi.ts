@@ -133,10 +133,16 @@ export type ClienteSnapshot = {
   praticaEdilizia: PraticaEdilizia;
 };
 
+/** Da dove nasce la fattura: dal contratto e dal computo (proposta del sistema) oppure libera, scritta a mano dentro la commessa. */
+export const FATTURA_ORIGINI = ["contratto", "libera"] as const;
+export type OrigineFattura = (typeof FATTURA_ORIGINI)[number];
+
 export type Fattura = {
   id: number;
   sedeId: number;
   commessaId: number;
+  /** «libera»: nessun contratto né computo dietro, righe a mano, totale = somma delle righe; sempre dentro una commessa. */
+  origine: OrigineFattura;
   computoId: number | null;
   hashRighe: string | null;
   tipo: TipoFattura;

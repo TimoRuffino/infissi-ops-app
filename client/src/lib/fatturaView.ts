@@ -177,7 +177,9 @@ export function riepilogoView(
     | "pattuitoCent"
     | "pattuitoTipo"
     | "markupCent"
-  >
+  >,
+  /** Fattura libera (07/09/2026): il pattuito segue le righe e il markup è sempre zero — quelle due righe non dicono niente. */
+  opzioni?: { libera?: boolean }
 ): Array<{
   etichetta: string;
   valore: string;
@@ -194,6 +196,7 @@ export function riepilogoView(
 
   righe.push({ etichetta: "IVA", valore: formatCent(f.ivaCent) });
   righe.push({ etichetta: "Totale", valore: formatCent(f.totaleCent) });
+  if (opzioni?.libera) return righe;
   righe.push({
     etichetta: "Markup",
     valore: formatCent(f.markupCent),
@@ -501,7 +504,7 @@ export function azionePerControllo(codice: string): AzioneControllo | null {
   if (codice.startsWith("config")) {
     return { tipo: "impostazioni", etichetta: "Apri le impostazioni" };
   }
-  if (codice === "computo_non_valido" || codice.startsWith("limit")) {
+  if (codice === "computo_non_valido" || codice === "computo_assente" || codice.startsWith("limit")) {
     return { tipo: "passo", passo: "limiti", etichetta: "Vai ai limiti" };
   }
   if (codice === "cantiere") {

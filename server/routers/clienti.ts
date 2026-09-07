@@ -145,6 +145,50 @@ export function getClienteById(id: number) {
   return clienti.find((c) => c.id === id) ?? null;
 }
 
+/**
+ * L'anagrafica corretta dalla bozza di fattura (07/09/2026) torna nella
+ * scheda cliente: recapito, codici e — per aziende, condomini ed enti — la
+ * ragione sociale. Un privato tiene cognome e nome separati e da un nome
+ * solo non si ricostruiscono: per lui il nome resta quello della scheda.
+ * Stessa cascata delle modifiche dalla scheda (`syncClienteOnCommesse`),
+ * nessuna scrittura su Fatture in Cloud. Chiamata dal servizio fatture
+ * dopo che la bozza è stata salvata; l'autorizzazione (capability
+ * `cliente.update_operational`) la verifica il router della fattura.
+ */
+export function aggiornaAnagraficaCliente(
+  clienteId: number,
+  sedeId: number,
+  dati: {
+    nome?: string; tipo?: "privato" | "azienda" | "condominio" | "ente_pubblico";
+    codiceFiscale?: string | null; partitaIva?: string | null; indirizzo?: string; cap?: string; citta?: string;
+    provincia?: string; email?: string | null; pec?: string | null; codiceDestinatario?: string;
+  }
+): boolean {
+  const idx = clienti.findIndex((c) => c.id === clienteId && (c.sedeId ?? 1) === sedeId);
+  if (idx === -1) return false;
+  const prev = { ...clienti[idx] };
+  const aggiornamenti: Record<string, unknown> = {};
+  if (dati.tipo) aggiornamenti.tipo = dati.tipo;
+  const tipo = (dati.tipo ?? clienti[idx].tipo) as string;
+  if (dati.nome && tipo !== "privato") aggiornamenti.ragioneSociale = dati.nome;
+  for (const campo of ["codiceFiscale", "partitaIva", "indirizzo", "cap", "citta", "email", "pec"] as const) {
+    if (dati[campo] !== undefined) aggiornamenti[campo] = dati[campo] || null;
+  }
+  if (dati.provincia !== undefined) aggiornamenti.provincia = siglaProvincia(dati.provincia) ?? null;
+  if (dati.codiceDestinatario !== undefined) aggiornamenti.codiceDestinatario = dati.codiceDestinatario || null;
+  if (Object.keys(aggiornamenti).length === 0) return false;
+  clienti[idx] = { ...clienti[idx], ...aggiornamenti, updatedAt: new Date() };
+  _store.save();
+  void import("./commesse").then(({ syncClienteOnCommesse }) =>
+    syncClienteOnCommesse(
+      clienteId,
+      { email: dati.email ?? undefined, indirizzo: dati.indirizzo, citta: dati.citta },
+      { nome: prev.nome, cognome: prev.cognome, telefono: prev.telefono, email: prev.email, indirizzo: prev.indirizzo, citta: prev.citta }
+    )
+  );
+  return true;
+}
+
 const PRATICA_EDILIZIA = ["nessuna", "cil", "cila", "scia"] as const;
 const TIPO_DETRAZIONE = ["ecobonus", "ristrutturazione"] as const;
 

@@ -3812,6 +3812,18 @@ fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
 `embeddedfolderview`, download con `drive.usercontent.google.com/download`;
 gdown non funziona più).
 
+**Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
+direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la
+commessa (`origine: "libera"`, colonna `fatture.origine` con default
+`contratto`): senza contratto né computo, righe a mano, pattuito = somma
+delle righe, markup sempre zero, detrazione scelta in bozza, più d'una per
+commessa, non si rigenera. Senza computo l'emissione non si blocca più
+(`computo_assente` è un avviso); un computo superato blocca ancora salvo
+scavalco. Nella bozza il riquadro «Anagrafica cliente» corregge lo
+snapshot e la scheda cliente (`aggiornaAnagraficaCliente`, capability
+`cliente.update_operational`, mai il cliente su FiC). Verifica browser
+1440/390 non eseguita (login demo). PRD 5.48.
+
 **Fase 5 (06/09/2026 sera): il corpus del Drive** (spec §11). 229 fogli
 2022-24 raccolti: 134 al centesimo, 71 nuovi in fixture (148 casi d'oro);
 62 non riproducibili per misure decimali nel foglio (foro + alette, il CRM
