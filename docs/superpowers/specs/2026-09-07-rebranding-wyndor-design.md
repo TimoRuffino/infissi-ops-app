@@ -128,8 +128,15 @@ Restano immagini soltanto le superfici che escono dal DOM dell'applicazione:
 - `client/public/favicon.svg` — solo segno, colori fissi,
   `viewBox="9 5 82 90"`: stretto sull'ingombro, perché a 16 px ogni unità di
   margine è massa sottratta al segno.
-- `client/public/logo.svg` — lockup orizzontale, colori fissi, per PDF, e-mail
-  e anteprime.
+- `client/public/logo.svg` — il segno, colori fissi, con margine.
+
+  Il file conteneva il lockup, ma un lockup in SVG richiede la parola come
+  tracciato: `<text>` dipende da un font che fuori dall'applicazione non c'è,
+  e convertirlo in curve richiede strumenti tipografici che il repository non
+  ha. Dopo la sostituzione della chrome (§4.1) nessun componente consuma più
+  questo file: resta perché `server/_core/cacheStatica.test.ts` ne verifica il
+  percorso. Il **lockup vettoriale con la parola in tracciati**, quello da
+  consegnare a stampatori e partner, è un lavoro dichiarato e non fatto.
 - `client/public/apple-touch-icon.png` — 180×180, generato (§9).
 
 I nomi dei file non cambiano: `server/_core/cacheStatica.test.ts` verifica
@@ -286,12 +293,31 @@ problema commerciale, non estetico.
 
 - `pnpm check`, `pnpm test`, `pnpm build` passano.
 - I quattro test che citano la vecchia stringa sono allineati.
-- Test nuovo: `WyndorMark` rende in tema chiaro e scuro e non dipende da alcun
-  filtro CSS.
-- Controllo browser a 1440×900 e 390×844, con la barra laterale sia espansa
-  sia compressa, senza errori in console.
-- Nessuna occorrenza residua di «Ruffino Flow» fuori dai documenti storici
-  elencati in §10.
+
+Sui test nuovi vale un vincolo del progetto: `vitest.config.ts` gira in
+ambiente `node`, senza jsdom né testing-library, e raccoglie solo
+`server/**`, `shared/**` e `client/src/lib/**/*.test.ts`. Un test che *renda*
+`WyndorMark` non è scrivibile senza introdurre un ambiente DOM, e introdurlo
+non appartiene a un rebranding. I test nuovi seguono quindi la disciplina già
+in uso in `client/src/lib/tokenDiscipline.test.ts`: contratti letti dal
+sorgente e dal CSS.
+
+- `--brand-accent` è dichiarato sia nel tema chiaro sia in quello scuro.
+- `WyndorMark` colora con `currentColor` e col token, mai con un hex, e porta
+  il tracciato canonico dell'Appendice A.
+- `.sidebar-logo` e ogni `filter: brightness(0)` sono spariti dal CSS.
+- La cartella `"Backup CRM Ruffino"` è ancora nominata così in
+  `driveBackup.ts` (guardia contro §7).
+- I prompt `v1`–`v4` contengono ancora il vecchio nome, e l'orchestratore
+  importa ancora solo `v9` (guardia contro §8).
+- Nessuna occorrenza residua di «Ruffino Flow» fuori dall'archivio di §10,
+  verificata da una scansione del repository.
+
+Verifica visiva: la pagina di accesso si controlla nel browser a 1440×900 e
+390×844, perché è raggiungibile senza sessione. Barra laterale, ContextBar e
+MobileTopBar richiedono un utente autenticato: l'agente non digita
+credenziali, quindi quel controllo resta a carico di una persona e va
+dichiarato non eseguito, non dato per fatto.
 
 ## 14. Rischi
 
