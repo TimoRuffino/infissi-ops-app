@@ -12,7 +12,7 @@ import {
   secretBoxConfigured,
 } from "../_core/secretBox";
 import { DEFAULT_SEDE_ID, sediAttiveDelTenant } from "./sedi";
-import { perOgniTenantAttivo } from "../tenants/giri";
+import { conTenantDellaSede, perOgniTenantAttivo } from "../tenants/giri";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   collegaFattureAutomatiche,
@@ -335,23 +335,30 @@ export async function handleFicOAuthCallback(
   if (!token.refresh_token) {
     throw new Error("Fatture in Cloud non ha restituito il refresh token");
   }
-  const cfg = getCfg(pending.sedeId);
-  cfg.scopeScrittura = pending.scrittura;
-  salvaTokenOAuth(cfg, token);
+  // Google rimanda il browser su una rotta ANONIMA: non c'è utente, quindi
+  // non c'è tenant nel contesto della richiesta, e `fic_config` è uno store
+  // per tenant. Il tenant lo dice la sede da cui è partito il collegamento,
+  // custodita nello state monouso: da qui in giù si scrive nell'archivio di
+  // quell'azienda (fix wave finale, F1/R19).
+  return conTenantDellaSede(pending.sedeId, async () => {
+    const cfg = getCfg(pending.sedeId);
+    cfg.scopeScrittura = pending.scrittura;
+    salvaTokenOAuth(cfg, token);
 
-  // Riduce un passaggio: quando l'account espone una sola azienda, la
-  // selezioniamo subito. Gli account multi-azienda restano espliciti in UI.
-  try {
-    const companies = await ficGet("/user/companies", token.access_token!);
-    const list: any[] = companies?.data?.companies ?? [];
-    if (list.length === 1) {
-      cfg.companyId = Number(list[0].id);
-      _cfgStore.save();
+    // Riduce un passaggio: quando l'account espone una sola azienda, la
+    // selezioniamo subito. Gli account multi-azienda restano espliciti in UI.
+    try {
+      const companies = await ficGet("/user/companies", token.access_token!);
+      const list: any[] = companies?.data?.companies ?? [];
+      if (list.length === 1) {
+        cfg.companyId = Number(list[0].id);
+        _cfgStore.save();
+      }
+    } catch {
+      // Il collegamento OAuth è valido anche se la scoperta azienda fallisce.
     }
-  } catch {
-    // Il collegamento OAuth è valido anche se la scoperta azienda fallisce.
-  }
-  return { sedeId: pending.sedeId };
+    return { sedeId: pending.sedeId };
+  });
 }
 
 const refreshInFlight = new Map<number, Promise<string>>();
