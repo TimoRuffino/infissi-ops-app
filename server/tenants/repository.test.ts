@@ -91,4 +91,32 @@ describe("repository tenant in memoria", () => {
     // Il resto del payload resta leggibile (non è un redact totale).
     expect((chiuso?.payload as any)?.proprietario?.email).toBe("mario@acme.test");
   });
+
+  it("lo specchio delle sedi in memoria è idempotente, segue il tenant di una sede e salta i tenant inesistenti", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const due = await repo.inserisci({ slug: "due", nome: "Due Srl" });
+    expect(await repo.tenantSedi()).toEqual([]);
+    await repo.sincronizzaTenantSedi([
+      { sedeId: 2, tenantId: 1 },
+      { sedeId: 1, tenantId: 1 },
+    ]);
+    await repo.sincronizzaTenantSedi([{ sedeId: 1, tenantId: 1 }]);
+    // Ordinate per sede, come la variante Postgres.
+    expect(await repo.tenantSedi()).toEqual([
+      { sedeId: 1, tenantId: 1 },
+      { sedeId: 2, tenantId: 1 },
+    ]);
+    await repo.sincronizzaTenantSedi([{ sedeId: 2, tenantId: due.id }]);
+    expect(await repo.tenantSedi()).toEqual([
+      { sedeId: 1, tenantId: 1 },
+      { sedeId: 2, tenantId: due.id },
+    ]);
+    // Tenant inesistente: la riga viene saltata, come farebbe la chiave
+    // esterna su Postgres. Non è un errore.
+    await repo.sincronizzaTenantSedi([{ sedeId: 3, tenantId: 99 }]);
+    expect((await repo.tenantSedi()).map(r => r.sedeId)).toEqual([1, 2]);
+    await repo.sincronizzaTenantSedi([]);
+    expect((await repo.tenantSedi()).length).toBe(2);
+  });
 });

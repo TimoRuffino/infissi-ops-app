@@ -157,6 +157,15 @@ async function startServer() {
   const { startEventWorkers } = await import("../events/worker");
   startEventWorkers();
 
+  // Colonna `tenant_id` sulle tabelle relazionali per sede (Task 12):
+  // additiva, riempita da un trigger che legge lo specchio `tenant_sedi` e da
+  // un backfill una tantum. Va QUI, in coda agli `ensureSchema()` qui sopra
+  // (che creano quelle tabelle) e dopo `completaTenants` (che ha allineato lo
+  // specchio). Le tabelle ancora assenti vengono saltate e segnalate: le
+  // creerà il loro modulo, e il boot successivo le prenderà.
+  const { applicaSchemaTabelleTenant } = await import("../tenants/boot");
+  await applicaSchemaTabelleTenant();
+
   // Il processo serve le richieste e fa girare i lavori di fondo — riconcilia
   // il Centro Azioni, smista le comunicazioni col modello, legge la posta —
   // nello stesso thread. La sonda dice quando quel lavoro tiene fermo il

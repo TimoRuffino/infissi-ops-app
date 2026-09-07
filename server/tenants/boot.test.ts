@@ -1,7 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getSediStore } from "../routers/sedi";
 import { avviaTenants, completaTenants, fermaTenants, preparaTenants } from "./boot";
 import { INTERVALLO_COMANDI_MS } from "./costanti";
+import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+
+const SEDE_A = 91201;
+const SEDE_B = 91202;
+
+/** Due sedi di prova nello store vivo, con il loro ripristino. */
+function seminaSedi(): () => void {
+  const sedi = getSediStore();
+  const quante = sedi.length;
+  const now = new Date();
+  const base = { citta: null, indirizzo: null, attiva: true, createdAt: now, updatedAt: now };
+  sedi.push(
+    { ...base, id: SEDE_A, tenantId: 1, nome: "Sede tenant 1" },
+    { ...base, id: SEDE_B, tenantId: 2, nome: "Sede tenant 2" }
+  );
+  return () => sedi.splice(quante);
+}
 
 beforeEach(() => {
   resetTenantRepositoryForTesting();
@@ -87,5 +105,44 @@ describe("completaTenants", () => {
     await completaTenants();
     expect(repo.perId(1)).toBeNull();
     expect((await repo.comandiInAttesa()).length).toBe(1);
+  });
+
+  it("sincronizza lo specchio tenant_sedi anche a interruttore spento", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    const ripristina = seminaSedi();
+    try {
+      const repo = getTenantRepository();
+      const spia = vi.spyOn(repo, "sincronizzaTenantSedi");
+      const attese = righeTenantSedi(getSediStore());
+      expect(attese).toEqual([
+        { sedeId: SEDE_A, tenantId: 1 },
+        { sedeId: SEDE_B, tenantId: 2 },
+      ]);
+      await preparaTenants();
+      await completaTenants();
+      expect(spia).toHaveBeenCalledWith(attese);
+      // A interruttore spento il control plane non è seminato: lo specchio
+      // resta vuoto invece di puntare a tenant che non esistono (su Postgres
+      // sarebbe la chiave esterna a rifiutarli, e il boot morirebbe lì).
+      expect(await repo.tenantSedi()).toEqual([]);
+    } finally {
+      ripristina();
+    }
+  });
+
+  it("acceso: lo specchio contiene le sedi dei tenant esistenti", async () => {
+    const ripristina = seminaSedi();
+    try {
+      const repo = getTenantRepository();
+      await preparaTenants(); // semina il tenant 1
+      const due = await repo.inserisci({ slug: "due", nome: "Due Srl" });
+      await completaTenants();
+      expect(await repo.tenantSedi()).toEqual([
+        { sedeId: SEDE_A, tenantId: 1 },
+        { sedeId: SEDE_B, tenantId: due.id },
+      ]);
+    } finally {
+      ripristina();
+    }
   });
 });

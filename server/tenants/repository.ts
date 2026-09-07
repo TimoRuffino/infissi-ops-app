@@ -49,6 +49,22 @@ export type TenantRepository = {
     esegui: (comando: TenantComando) => Promise<EsitoComando>
   ): Promise<"eseguito" | "errore" | "nessuno">;
   assicuraTenantPredefinito(): Promise<TenantRecord>;
+  /**
+   * Specchio sede → tenant (Task 12): lo legge il trigger `tenant_id` delle
+   * tabelle per sede. Idempotente, una riga per sede; le sedi non elencate
+   * restano come sono (nessuna cancellazione: una sede non sparisce).
+   *
+   * Una sede il cui tenant non esiste nel control plane viene SALTATA, non è
+   * un errore: con l'interruttore spento `tenants` è vuota (il seed della
+   * riga 1 è compito di `preparaTenants` a interruttore acceso) e lo specchio
+   * resta vuoto invece di far fallire il boot sulla chiave esterna. Appena
+   * l'interruttore si accende, il boot semina il tenant e il giro successivo
+   * riempie lo specchio; il backfill delle tabelle chiude i `tenant_id` NULL.
+   */
+  sincronizzaTenantSedi(
+    righe: ReadonlyArray<{ sedeId: number; tenantId: number }>
+  ): Promise<void>;
+  tenantSedi(): Promise<Array<{ sedeId: number; tenantId: number }>>;
 };
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -77,6 +93,7 @@ function createMemoryTenantRepository(): TenantRepository {
   const tenants: TenantRecord[] = [];
   const eventi: TenantEvento[] = [];
   const comandi: TenantComando[] = [];
+  const sedi = new Map<number, number>(); // sedeId → tenantId
   let prossimoTenant = 1;
   let prossimoEvento = 1;
   let prossimoComando = 1;
@@ -175,6 +192,18 @@ function createMemoryTenantRepository(): TenantRepository {
         nome: TENANT_PREDEFINITO_NOME,
       });
     },
+    async sincronizzaTenantSedi(righe) {
+      // Stessa regola della chiave esterna su Postgres: un tenant che non
+      // esiste non entra nello specchio.
+      for (const r of righe) {
+        if (tenants.some(t => t.id === r.tenantId)) sedi.set(r.sedeId, r.tenantId);
+      }
+    },
+    async tenantSedi() {
+      return [...sedi.entries()]
+        .map(([sedeId, tenantId]) => ({ sedeId, tenantId }))
+        .sort((a, b) => a.sedeId - b.sedeId);
+    },
   };
   return repo;
 }
@@ -235,9 +264,10 @@ export function createPostgresTenantRepository(
   // Sonda in sola lettura (spec WS1 §6.3): `to_regclass` è NULL se la tabella manca.
   const verificaSchema = async (): Promise<void> => {
     const rows = await sql`SELECT to_regclass('tenants') AS tenants,
-      to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi`;
+      to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi,
+      to_regclass('tenant_sedi') AS sedi`;
     const r = rows[0];
-    if (!r?.tenants || !r?.eventi || !r?.comandi) throw new Error(MESSAGGI.schemaAssente);
+    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi) throw new Error(MESSAGGI.schemaAssente);
   };
 
   const creaSchema = (): Promise<void> =>
@@ -284,6 +314,15 @@ export function createPostgresTenantRepository(
         )`;
         await tx`CREATE INDEX IF NOT EXISTS tenant_comandi_attesa_idx
           ON tenant_comandi (stato, id) WHERE stato = 'in_attesa'`;
+        // Specchio sede → tenant (Task 12, spec WS2 §6.1): lo legge il trigger
+        // `tenant_id` delle tabelle per sede, che gira dentro l'INSERT di chiunque. Vive
+        // qui, nel control plane, e non nello store JSONB `sedi`: un trigger
+        // non può leggere una riga di `kv_store`.
+        await tx`CREATE TABLE IF NOT EXISTS tenant_sedi (
+          sede_id BIGINT PRIMARY KEY,
+          tenant_id BIGINT NOT NULL REFERENCES tenants(id),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`;
       })
       .then(() => undefined);
 
@@ -396,6 +435,26 @@ export function createPostgresTenantRepository(
       await allineaSequenza();
       const rows = await sql`SELECT * FROM tenants WHERE id = ${TENANT_PREDEFINITO_ID}`;
       return memorizza(rigaTenant(rows[0]));
+    },
+    async sincronizzaTenantSedi(righe) {
+      await ensureSchema();
+      if (righe.length === 0) return;
+      await sql.begin(async tx => {
+        for (const r of righe) {
+          // `SELECT … WHERE EXISTS` invece di `VALUES`: una sede il cui tenant
+          // non è (ancora) nel control plane viene saltata, non fa esplodere
+          // la chiave esterna e con essa il boot.
+          await tx`INSERT INTO tenant_sedi (sede_id, tenant_id)
+            SELECT ${r.sedeId}, ${r.tenantId}
+            WHERE EXISTS (SELECT 1 FROM tenants WHERE id = ${r.tenantId})
+            ON CONFLICT (sede_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id, updated_at = NOW()`;
+        }
+      });
+    },
+    async tenantSedi() {
+      await ensureSchema();
+      const rows = await sql`SELECT sede_id, tenant_id FROM tenant_sedi ORDER BY sede_id`;
+      return rows.map(r => ({ sedeId: Number(r.sede_id), tenantId: Number(r.tenant_id) }));
     },
   };
   return repo;

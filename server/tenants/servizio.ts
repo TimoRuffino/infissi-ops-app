@@ -8,7 +8,14 @@ import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } f
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
-import { contaPresidi, motivoRifiutoPresidio, presidioDi, ruoliDi, slugValido } from "./regole";
+import {
+  contaPresidi,
+  motivoRifiutoPresidio,
+  presidioDi,
+  righeTenantSedi,
+  ruoliDi,
+  slugValido,
+} from "./regole";
 import { getTenantRepository } from "./repository";
 import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
 
@@ -134,6 +141,11 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
     }
     throw e;
   }
+
+  // Transazione riuscita: la sede esiste ed è del tenant. Lo specchio va
+  // allineato PRIMA che qualcuno scriva righe per quella sede, altrimenti il
+  // trigger le lascia con `tenant_id` NULL fino al backfill del boot.
+  await repo.sincronizzaTenantSedi(righeTenantSedi(getSediStore()));
 
   if (utenteCreato) {
     await repo.registraEvento({

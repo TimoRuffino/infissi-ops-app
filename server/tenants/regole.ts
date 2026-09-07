@@ -106,3 +106,17 @@ export function presidioDi(u: any): UtentePresidio {
 export function tenantDelContesto(ctx: { tenantId: number | null }): number {
   return ctx.tenantId ?? TENANT_PREDEFINITO_ID;
 }
+
+/**
+ * Lo store `sedi` letto come righe dello specchio `tenant_sedi` (Task 12):
+ * una sede senza `tenantId` è una sede legacy, cioè del tenant 1 — la stessa
+ * regola di ripiego di `presidioDi`. Pura: chi la chiama passa lo store.
+ */
+export function righeTenantSedi(
+  sedi: ReadonlyArray<{ id: number; tenantId?: number | null }>
+): Array<{ sedeId: number; tenantId: number }> {
+  return sedi.map(s => ({
+    sedeId: s.id,
+    tenantId: typeof s.tenantId === "number" ? s.tenantId : TENANT_PREDEFINITO_ID,
+  }));
+}

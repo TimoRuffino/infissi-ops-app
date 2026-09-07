@@ -7,6 +7,7 @@ import {
   presidioDi,
   proprietarioAggiunto,
   proprietarioTolto,
+  righeTenantSedi,
   ruoliDi,
   slugValido,
   tenantDelContesto,
@@ -126,5 +127,16 @@ describe("presìdi per tenant", () => {
   it("tenantDelContesto ricade su 1", () => {
     expect(tenantDelContesto({ tenantId: null })).toBe(1);
     expect(tenantDelContesto({ tenantId: 5 })).toBe(5);
+  });
+
+  it("righeTenantSedi mette il tenant 1 dove il campo manca", () => {
+    expect(
+      righeTenantSedi([{ id: 1 }, { id: 2, tenantId: null }, { id: 3, tenantId: 7 }])
+    ).toEqual([
+      { sedeId: 1, tenantId: 1 },
+      { sedeId: 2, tenantId: 1 },
+      { sedeId: 3, tenantId: 7 },
+    ]);
+    expect(righeTenantSedi([])).toEqual([]);
   });
 });
