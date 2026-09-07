@@ -167,7 +167,10 @@ senza timbro e compare nel rapporto. Quindi:
   continuo (comunicazioni, commesse, documenti), è **atteso**;
 - si azzera **da solo al riavvio successivo**, che li carica e li timbra;
 - un conteggio che resta dell'ordine di grandezza del rapporto di partenza
-  significa che il backfill non è passato: torna ai log del punto 7.
+  significa che il backfill non è passato: torna ai log del **passo 3**
+  (`[persistence] backfill tenantId <chiave>: N record` — è il backfill
+  degli store, non quello delle tabelle del passo 7, che ha un prefisso e un
+  formato diversi).
 
 Il modo pulito di leggerlo: fai `verifica` **subito dopo** la riga di log del
 backfill, quando l'istanza ha appena caricato tutto e non ha ancora scritto
@@ -202,6 +205,22 @@ azienda lavorano — il Proxy di `persistedStore` non lo indovina:
   e `pattuiti:reset` pretende un backup Drive fresco. `--tenant` non cambia
   nulla di questo. Nessuno di questi script fa il backfill di `tenantId`:
   chiamano `bootstrapAll()` senza `backfill` (lo timbra solo il server).
+
+### Test su Postgres
+
+I file `*.pg.test.ts` condividono un solo database di prova: lanciati
+insieme e in parallelo (comportamento di default di `vitest`) scoprono una
+corsa preesistente su `tenant_sedi` — un file la elimina in `afterAll`
+mentre un altro vi inserisce nel frattempo, e i tre test falliscono con
+`relation "tenant_sedi" does not exist`. Non è una regressione del codice:
+lanciarli in sequenza è verde.
+
+    DATABASE_URL=postgres://… npx vitest run --no-file-parallelism \
+      $(git ls-files 'server/**/*.pg.test.ts')
+
+Il gemello PDF del PRD (`PRD_infissi_ops_v4.pdf`, generato da
+`scripts/build-prd-pdf.sh`, richiede Chrome e rete) non si rigenera da qui:
+resta un passo della direzione, non dell'agente.
 
 ### Produzione, in ordine (WS2)
 

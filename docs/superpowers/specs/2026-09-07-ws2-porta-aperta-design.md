@@ -68,8 +68,10 @@ registrata qui e nel PRD §60.
 
 ## 2-bis. Decisioni in corso d'opera (07/09/2026)
 
-Diciotto scelte prese mentre il piano veniva eseguito, quando il codice
-vero ha contraddetto la lettera della spec o del piano. Ognuna è un
+Ventidue scelte prese mentre il piano veniva eseguito, quando il codice
+vero ha contraddetto la lettera della spec o del piano — le ultime quattro
+(R19-R22) durante la revisione finale dell'intero branch e la fusione di
+`main`, dopo che i 15 task erano già tutti completi. Ognuna è un
 emendamento a questo documento: le sezioni sotto sono già corrette di
 conseguenza e portano la nota «(esecuzione, R\<n\>)». Registro completo:
 `.superpowers/sdd/2026-09-07-ws2-porta-aperta/progress.md`.
@@ -94,6 +96,10 @@ conseguenza e portano la nota «(esecuzione, R\<n\>)». Registro completo:
 | R16 | un blob di `kv_store` che non è un array conta come anomalia (`blobNonValido`), non come store vuoto | è la peggiore condizione d'integrità che lo strumento possa incontrare, e il piano la faceva passare in silenzio | nessuno |
 | R17 | in `server/routers/clienti.ts` i «non trovato» diventano `TRPCError NOT_FOUND`; l'idioma negli altri router resta un lavoro a parte | il 500 non fa trapelare nulla (stesso messaggio per id assente e altrui) ma non è il contratto della §9, e riscrivere 19 router esula dal WS2 | negli altri router un id altrui risponde 500 invece di 404 fino alla pulizia (§9) |
 | R18 | gli insiemi di esenzione di `pnpm tenant verifica` (§7.2) hanno una guardia strutturale, `server/tenants/verifica.confine.test.ts`: l'ambito delle famiglie si legge dai sorgenti (`dichiarazioniPersistedStore` in `sorgentiDiProva.ts`, condiviso con `storeGlobali.test.ts`), la forma del record (con o senza `sedeId`) è una classificazione a mano che il test confronta con l'inventario delle dichiarazioni, con i tipi dei record e con il comportamento di `verificaStore`, famiglia per famiglia | senza guardia una famiglia nuova senza `sedeId` diretto farebbe segnalare ogni sua riga a ogni giro, e lo si scoprirebbe solo su un database vero (è successo con `timeline_steps`) | una famiglia nuova fa fallire un test finché qualcuno non ne dichiara la forma |
+| R19 | le quattro rotte Express anonime (`GET`/`POST /api/webhook/whatsapp`, `GET /api/ics/:token/:feed`, `GET /api/oauth/fic/callback`) dichiarano il tenant con `trovaNeiTenant` (cerca in ogni tenant attivo chi riconosce il token/la firma/il token ICS) e poi `conTenantDellaSede` (esegue nel tenant trovato); corpi in `server/_core/rotteAnonime.ts`, ognuno avvolto in try/catch con risposta generica | la spec inventariava solo le rotte con `createContext` (§5.2): queste quattro non hanno utente, quindi nessun tenant nel contesto della richiesta, ma leggono e scrivono store per tenant; senza try/catch Express 4 non cattura la promise rifiutata di un handler `async` e il processo cade (Meta e Google riprovano: un ciclo di riavvii) | un webhook o un feed di un tenant sconosciuto viene rifiutato con un log invece che ignorato in silenzio |
+| R20 | `conTenantDellaSede` è fail-closed anche sulla sede: a interruttore acceso una sede sconosciuta lancia un errore interno invece di ripiegare sul tenant 1; a interruttore spento resta il tenant 1, comportamento invariato | era l'unico punto rimasto in cui il fail-closed della spec (§2 decisione 2) diventava fail-open: un worker o una rotta anonima con un `sedeId` sbagliato avrebbe letto — e scritto — nell'archivio di un'altra azienda | una riga SQL orfana (sede cancellata) fa fallire la sua unità di lavoro con un log, invece di essere elaborata sotto il tenant 1 |
+| R21 | `scripts/reset-pattuiti.ts` e `scripts/importa-clienti.ts` girano dentro `conTenant(--tenant=<id> \| 1)` (default il tenant 1), documentato nel runbook; nessun handler globale `process.on("unhandledRejection")` introdotto nel WS2 | ogni store è per tenant e il Proxy di `persistence.ts` non indovina quale archivio aprire fuori da un contesto (fail-closed); un handler globale resta una raccomandazione per dopo (registrata nel handoff), non un requisito di questo workstream | nessuno di per sé; un `--tenant` dato per sbaglio tocca l'archivio di un'altra azienda, come il runbook avverte già per `--sede` |
+| R22 | il lavoro delle due sessioni in background nate durante l'esecuzione (guardia strutturale «R18» degli insiemi di esenzione, `dichiarazioniPersistedStore` in `sorgentiDiProva.ts`, `storeGlobali.test.ts` riscritto sull'helper, righe R18 in spec/PRD/handoff) è integrato nel WS2 come commit a sé (`2f97cd7`) dopo una revisione di task | è lavoro finito, verde (check e 149 test) e coerente con la spec §7.2; lasciarlo non committato lo avrebbe perso al merge | un commit in più da rivedere o scartare |
 
 ## 3. Persistenza per tenant (`server/_core/persistence.ts`)
 
@@ -371,9 +377,10 @@ export function tenantCorrente(): number | null;   // spento → 1; acceso → d
 export function modalitaTenantStretta(attiva: boolean): void; // solo test: toglie il ripiego sul tenant 1
 
 // server/tenants/giri.ts — importa contestoCorrente, contesto, repository
-export function conTenantDellaSede<T>(sedeId: number, fn: () => T): T; // tenantIdDellaSede (WS1)
+export function conTenantDellaSede<T>(sedeId: number, fn: () => T): T; // sede sconosciuta: errore (acceso) / tenant 1 (spento) — R20
 export function tenantsAttivi(): number[];         // spento o control plane vuoto → [1]; acceso → i tenant `attivo`
 export function perOgniTenantAttivo(etichetta: string, fn: (tenantId: number) => Promise<void>): Promise<void>;
+export function trovaNeiTenant<T>(etichetta: string, fn: (tenantId: number) => Promise<T | null> | T | null): Promise<{ tenantId: number; valore: T } | null>; // rotte anonime — R19
 ```
 
 `persistence.ts` non importa nessuno dei due (ciclo): riceve il resolver con
@@ -385,6 +392,23 @@ con interruttore acceso, ogni accesso a uno store `tenant` è un errore
 I worker che scrivono saltano i tenant sospesi (sola lettura, e Tars costa):
 `perOgniTenantAttivo` itera solo gli `attivo`, ognuno nel suo contesto, e un
 errore di un tenant non ferma gli altri.
+
+**(esecuzione, R20)** `conTenantDellaSede` è fail-closed anche sulla sede,
+non solo sul tenant: a interruttore acceso una sede sconosciuta lancia
+`[tenant] sede sconosciuta: <id>` invece di ripiegare sul tenant 1 — il
+ripiego era comodo ma pericoloso, perché un worker o una rotta anonima con
+un `sedeId` sbagliato avrebbe letto e scritto nell'archivio di un'altra
+azienda. A interruttore spento resta il tenant 1, comportamento invariato.
+`tenantIdDellaSede` (`server/tenants/contesto.ts`, WS1) conserva il vecchio
+ripiego per i suoi chiamanti (es. `driveBackup`): `giri.ts` non lo usa, per
+non ereditarlo.
+
+**(esecuzione, R19)** `trovaNeiTenant` è `perOgniTenantAttivo` con un
+valore di ritorno: vince il primo tenant in cui `fn` trova qualcosa, un
+errore di un tenant è registrato e non ferma gli altri. Serve alle rotte
+anonime (§5.3): l'URL è uno solo per tutta l'installazione (Meta lo
+configura una volta, Google lo sottoscrive con un token), quindi il
+proprietario non si legge dal contesto, si scopre cercando.
 
 ### 5.2 Guardia unica: `motivoRifiutoTenant` (`server/tenants/regole.ts`)
 
@@ -443,7 +467,10 @@ dal contesto):
 | Backup Drive (`buildBackupTree`, cartelle per sede) | `server/_core/driveBackup.ts` |
 | Worker degli eventi business (coda durevole, evento con `sedeId`) | `server/events/worker.ts` |
 | Ponte notifiche Postgres (`startNotificationPgBridge`) | `server/notifications/sse.ts` |
+| **(esecuzione, R10)** Flush di una notifica verso una connessione SSE già aperta (`hub.subscribe`, cintura) | `server/notifications/sse.ts` |
 | **(esecuzione, R8)** Riconciliazione della timeline e conteggio iniziale del costo-da-conferma, al boot | `server/_core/index.ts` |
+| **(esecuzione, R19)** Rotte anonime: handshake e consegna webhook WhatsApp, feed ICS, callback OAuth FiC — il tenant si cerca (`trovaNeiTenant`), non si legge dal contesto | `server/_core/rotteAnonime.ts` |
+| **(esecuzione, fusione `main` 07/09)** Archiviazione fornitori: arrivato da `main` fuori da ogni contesto, reso per tenant alla fusione | `server/fornitori/archivioWorker.ts` |
 
 `snapshotByKey()` del backup legge il registro (`getAllStoreSnapshots`), non
 passa dal Proxy e non ha bisogno del contesto.
@@ -461,6 +488,17 @@ passa dal Proxy e non ha bisogno del contesto.
   — il flush verso una connessione già aperta, innescato da un publish di
   chiunque — gira dentro `conTenantDellaSede(sedeId, …)`: cintura, non
   correzione di un difetto attuale.
+- **(R19)** Le quattro rotte Express anonime (nessun utente, quindi nessun
+  tenant nel contesto della richiesta) cercano il proprietario con
+  `trovaNeiTenant` e agiscono con `conTenantDellaSede`: webhook WhatsApp
+  (handshake e consegna — di chi è il verify token, di chi è la firma HMAC),
+  feed ICS (di chi è il token nell'URL). Il callback OAuth FiC fa eccezione:
+  la sede sta nello state monouso, quindi va dritto a `conTenantDellaSede`
+  senza dover cercare. Corpi in `server/_core/rotteAnonime.ts`, chiamati da
+  `server/_core/index.ts` dentro un try/catch: Express 4 non cattura la
+  promise rifiutata di un handler `async`, e senza try/catch una lettura
+  fuori contesto avrebbe abbattuto il processo (Meta e Google riprovano: un
+  ciclo di riavvii).
 - IMAP: poller e watcher IDLE girano entrambi per tenant. Durante il Task 10
   si è scoperto e corretto un guasto che non c'entrava col multi-azienda: il
   processo moriva a 60 s per un'eccezione non intercettata in
@@ -711,6 +749,7 @@ l'accensione.
 | tenant creato a caldo, caricamento di una famiglia fallito | `servizio.crea` | istanze rimosse, comando `errore`, evento `comando_fallito` |
 | `pnpm tenant verifica` trova orfani o discordanze | CLI | exit `1`, rapporto |
 | script contro database senza control plane | CLI | «Tabelle del control plane del tenant assenti…» (WS1); `verifica` è l'eccezione: gira lo stesso (esecuzione, R1) |
+| errore in una rotta Express anonima (webhook WhatsApp, feed ICS, callback OAuth FiC) | `server/_core/rotteAnonime.ts` via `server/_core/index.ts` | risposta generica (403/404/500, o redirect `?fic=errore`) e log `[whatsapp-webhook]`/`[ics]`/`[fic-oauth]`; ogni handler ha il proprio try/catch, mai un crash del processo (esecuzione, R19) |
 
 **(esecuzione, R17) Residuo aperto sulla terza riga.** Il contratto «un id di
 un altro tenant risponde `NOT_FOUND`» vale oggi in
@@ -766,6 +805,11 @@ nel rapporto del Task 14.
   tenant 1.
 - **Tars** (`contesto.tenant.test.ts` esteso): `eseguiRun` gira dentro il
   contesto del tenant del run.
+- **(esecuzione)** I file `*.pg.test.ts` condividono un solo database di
+  prova: lanciati insieme e in parallelo scoprono una corsa preesistente su
+  `tenant_sedi` (un file la elimina in `afterAll` mentre un altro vi
+  inserisce). Vanno lanciati con `--no-file-parallelism`, oppure uno alla
+  volta.
 - `pnpm check`, `pnpm test`, `pnpm build` verdi; baseline dei 3 test HEIC
   legati alla macchina.
 
@@ -778,7 +822,8 @@ davvero nel branch, non che cosa era previsto.
 |---|---|
 | `server/_core/persistence.ts` | famiglie e istanze, `chiaveStore`, Proxy, `ambito`, `LoadMeta.tenantId`, backfill centrale opt-in (R6), `prossimoId`/`riservaIdFinoA`, `bootstrapAll({ tenantIds, backfill })`, `istanziaStoresPerTenant`, `storeDi`, `impostaResolverTenant`, `tenantsNoti`, `leggiBlobDaDb`/`elencaChiaviDaDb`, snapshot con `nome`/`tenantId` |
 | `server/tenants/contestoCorrente.ts` (nuovo) | FOGLIA (R9): `conTenant`, `tenantCorrente`, `modalitaTenantStretta`, auto-registrazione del resolver |
-| `server/tenants/giri.ts` (nuovo, R9) | `conTenantDellaSede`, `tenantsAttivi`, `perOgniTenantAttivo` |
+| `server/tenants/giri.ts` (nuovo, R9) | `conTenantDellaSede` (fail-closed su sede sconosciuta a interruttore acceso, R20), `tenantsAttivi`, `perOgniTenantAttivo`, `trovaNeiTenant` (rotte anonime, R19) |
+| `server/_core/rotteAnonime.ts` (nuovo, R19) | corpi delle quattro rotte anonime: `verifyTokenDiQualcheTenant`, `mittenteWebhookWhatsApp`, `ingestisciWebhookWhatsApp`, `feedIcsPerToken` |
 | `server/tenants/regole.ts` | `motivoRifiutoTenant`, `tenantDelContesto`, `righeTenantSedi`; via `portaChiusaPerTenant` |
 | `server/tenants/express.ts` (nuovo) | `rifiutaTenant(res, ctx, op)`, `conTenantDelContesto(ctx, fn)` |
 | `server/tenants/tabelle.ts` (nuovo) | `TABELLE_PER_SEDE`, `applicaTenantIdAlleTabelle` (solo DDL), `backfillTenantIdSulleTabelle` (R14) |
@@ -797,6 +842,8 @@ davvero nel branch, non che cosa era previsto.
 | `server/comunicazioni/whatsapp.ts` | seed con `meta.tenantId` |
 | 29 moduli con `nextId` (23 del piano + 6) | `_store.prossimoId()` |
 | `scripts/tenant.ts`, `server/tenants/cli.ts` | sottocomando `verifica` |
+| `scripts/reset-pattuiti.ts`, `scripts/importa-clienti.ts` (R21) | `--tenant=<id>` (default 1), corpo dentro `conTenant` |
+| `server/fornitori/archivioWorker.ts` (arrivato da `main`, reso per tenant alla fusione) | `giroTutteLeSedi` dentro `perOgniTenantAttivo` + `sediAttiveDelTenant` |
 | `server/_core/sorgentiDiProva.ts` (nuovo, R2) | `fileSorgente`, `relativo`, `RADICE` per i test strutturali |
 | `server/_core/contestoDiProva.ts` | `conTenantDiProva` |
 | `docs/runbooks/multi-azienda.md`, PRD §60.10, `handoff.md`, `CLAUDE.md` (regola del contesto implicito), `docs/tars/architettura-tars-v2.md` | documentazione |

@@ -54,9 +54,9 @@
 > verifica --json`). Trovato e corretto per strada un guasto che non c'entra
 > col multi-azienda: il processo moriva a 60 s per un'eccezione non
 > intercettata in `riavviaWatchers` (poller IMAP).
-> **Decisioni d'esecuzione:** diciassette, una per volta, tutte registrate
+> **Decisioni d'esecuzione:** ventidue, una per volta, tutte registrate
 > nella spec `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`
-> **§2-bis «Decisioni in corso d'opera»** (R1…R17) con motivo e costo se
+> **§2-bis «Decisioni in corso d'opera»** (R1…R22) con motivo e costo se
 > sbagliate; il registro esteso è in
 > `.superpowers/sdd/2026-09-07-ws2-porta-aperta/progress.md`. Le più pesanti:
 > il backfill di `tenantId` è **su richiesta** e solo al caricamento (gli
@@ -84,7 +84,22 @@
 > solo sulle sedi **attive** (prima: tutte) — cambio di comportamento, la
 > richiesta manuale da `/tars` è invariata. Runbook:
 > `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per tenant».
-> PRD §60.10 (v5.54). Voce 21 del debito aggiornata.
+> PRD §60.10 (v5.54).
+> **Revisione finale e fusione (07/09, notte).** La revisione dell'intero
+> branch ha trovato 1 Critical e 4 Important, tutti corretti in un'unica
+> onda e riverificati puliti (R19-R21 in spec §2-bis): le quattro rotte
+> Express anonime (webhook WhatsApp, feed ICS, callback FiC) cercano il
+> tenant con `trovaNeiTenant` invece di presumerlo, `conTenantDellaSede` è
+> fail-closed su una sede sconosciuta a interruttore acceso (mai più un
+> ripiego silenzioso sul tenant 1), e gli script di manutenzione
+> (`reset-pattuiti`, `importa-clienti`) accettano `--tenant=<id>`. Il branch
+> ha poi assorbito `main` (PRD a **5.58**, rebranding Wyndor nei documenti
+> vivi, `fornitori_archivio` con id globali e `archivioWorker` per tenant,
+> R22). Resta **non fuso su `main` e non pushato** — la scelta fra merge
+> diretto e PR è della direzione — e i test su Postgres (`*.pg.test.ts`)
+> condividono un database di prova: vanno lanciati con
+> `--no-file-parallelism` per una corsa preesistente su `tenant_sedi`.
+> Voce 21 del debito aggiornata.
 
 > **Novità 07/09/2026 — WS1 fondazione tenant su branch, revisione finale
 > corretta.** I 15 task del piano di implementazione
@@ -4447,6 +4462,36 @@ a vuoto e dice «57 saltati»).
     tabelle rigira a vuoto a ogni boot. Chiuso dopo la revisione: gli
     insiemi di esenzione di `pnpm tenant verifica` hanno una guardia
     strutturale (`server/tenants/verifica.confine.test.ts`, decisione R18).
+
+    **07/09/2026, notte: revisione finale e fusione con `main`.** La
+    revisione dell'intero branch (`94180e1..b4fb2e0`) ha trovato 1 Critical
+    — le quattro rotte Express anonime (webhook WhatsApp, feed ICS,
+    callback FiC) toccavano store per tenant senza contesto, e a
+    interruttore acceso due facevano cadere il processo — e 4 Important
+    (script di manutenzione senza contesto, `conTenantDellaSede` fail-open
+    su una sede sconosciuta, runbook incompleto sul `senzaTenant` residuo e
+    sul primo deploy in rolling). Corretti in un'unica onda e riverificati
+    puliti (decisioni R19-R21 in spec §2-bis): le rotte anonime cercano il
+    tenant con `trovaNeiTenant` (`server/tenants/giri.ts`) prima di agire
+    nel contesto trovato (`server/_core/rotteAnonime.ts`);
+    `conTenantDellaSede` lancia, non ripiega, su una sede sconosciuta a
+    interruttore acceso; `scripts/reset-pattuiti.ts` e
+    `scripts/importa-clienti.ts` accettano `--tenant=<id>`. La guardia
+    strutturale R18 (sopra), nata in una sessione parallela, è stata
+    integrata come commit a sé dopo revisione (decisione R22). Il branch ha
+    poi assorbito `origin/main` (26 commit: rebranding Wyndor, magazzino
+    riscritto, fatture libere, pagina Fornitori — arrivati nel frattempo,
+    in parte dalla PR #3 del WS1): PRD a 5.58, rebranding Wyndor nei
+    documenti vivi ancora scoperti, `fornitori_archivio` (pagina Fornitori)
+    con id globali e `server/fornitori/archivioWorker.ts` per tenant.
+    Verifica finale:
+    check, build, suite 3067 verdi, guardie strutturali 118/118, pg 52/52 in
+    sequenza (`--no-file-parallelism`: i file `*.pg.test.ts` condividono un
+    database di prova e una corsa preesistente su `tenant_sedi` li fa
+    fallire in parallelo), boot a interruttore acceso e spento puliti.
+    **Ancora non fuso su `main`, non pushato**: la scelta fra merge diretto
+    e PR è della direzione. Il gemello PDF del PRD
+    (`PRD_infissi_ops_v4.pdf`) non è stato rigenerato in questa fusione.
 
 ## 13. Cosa resta della piattaforma
 

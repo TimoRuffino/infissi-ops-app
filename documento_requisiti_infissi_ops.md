@@ -4064,10 +4064,11 @@ azienda e poi per sede. Le 33 tabelle SQL con `sede_id` ricevono
 del WS1 sparisce, insieme al suo gemello nel login.
 
 **Decisioni e deviazioni.** Le cinque decisioni di progetto sono nella spec
-§2; le diciassette prese durante l'esecuzione — quando il codice vero ha
-contraddetto la lettera della spec — sono registrate una per una nella spec
-§2-bis «Decisioni in corso d'opera». Le sei che contano per chi legge questo
-documento:
+§2; le ventidue prese durante l'esecuzione — quando il codice vero ha
+contraddetto la lettera della spec, comprese le quattro della revisione
+finale e della fusione con `main` (sotto) — sono registrate una per una
+nella spec §2-bis «Decisioni in corso d'opera». Le sei che contano per chi
+legge questo documento:
 - **Alias delle chiavi per il tenant 1** (deviazione dichiarata dai punti
   3–4 della §14.2 del design madre e dal §18, che prevedevano copia e legacy
   in sola lettura): nessuna copia, nessun cutover, stesso isolamento,
@@ -4128,6 +4129,26 @@ e cicli in-process, una sola replica come oggi).
 - **Cambio di comportamento da conoscere:** l'analisi azienda automatica di
   Tars gira ora solo sulle sedi **attive** (prima: tutte); la richiesta
   manuale da `/tars` è invariata.
+
+**Revisione finale e fusione con `main` (07/09 sera).** La revisione
+dell'intero branch (range `94180e1..b4fb2e0`) ha trovato 1 Critical — le
+quattro rotte Express anonime (webhook WhatsApp, feed ICS, callback FiC)
+toccavano store per tenant senza contesto, e a interruttore acceso due
+facevano cadere il processo — e 4 Important (script di manutenzione senza
+contesto, `conTenantDellaSede` fail-open su una sede sconosciuta, runbook
+incompleto sul `senzaTenant` residuo e sul primo deploy in rolling).
+Corretti in un'unica onda e riverificati puliti (decisioni R19-R21 della
+spec §2-bis): le rotte anonime cercano il tenant con `trovaNeiTenant` prima
+di agire nel contesto trovato (`server/_core/rotteAnonime.ts`),
+`conTenantDellaSede` è ora fail-closed anche sulla sede, gli script
+`reset-pattuiti` e `importa-clienti` accettano `--tenant=<id>`. La guardia
+strutturale R18, nata in una sessione parallela alla direzione, è stata
+integrata come commit a sé dopo revisione (decisione R22). Il branch ha poi
+assorbito `main`: PRD a **5.58**, rebranding Wyndor nei documenti vivi
+ancora scoperti, `fornitori_archivio` (pagina Fornitori) con id globali,
+`server/fornitori/archivioWorker.ts` per tenant. Restano aperti i 96 «non
+trovato» a 500 nei 19 router (sopra, invariato) e il gemello PDF del PRD
+(`PRD_infissi_ops_v4.pdf`), non rigenerato da questa fusione.
 
 **Prossimo passo:** decisione della direzione sul merge (prima la PR #3 del
 WS1, poi questo branch), poi il **WS3** — prefissi e byte dello storage,
