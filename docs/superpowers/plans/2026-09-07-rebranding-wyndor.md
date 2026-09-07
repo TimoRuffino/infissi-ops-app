@@ -216,7 +216,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `client/src/components/layout/NavigationSidebar.tsx:137-155`
 - Modify: `client/src/components/layout/LegacyDashboardLayout.tsx:233-238`
 - Modify: `client/src/pages/LoginPage.tsx:61-71`
-- Modify: `client/src/index.css:925-931` (rimozione)
+- Modify: `client/src/index.css` (rimozione delle due regole `.sidebar-logo`, da cercare per contenuto)
 - Modify: `client/src/lib/marchio.test.ts`
 
 **Interfaces:**
@@ -272,7 +272,9 @@ describe("il marchio nella chrome", () => {
   it("scrive la parola come testo, non come tracciato", () => {
     // Un lockup con la parola in curve non è selezionabile, non scala con le
     // preferenze dell'utente e non arriva agli screen reader.
-    expect(LOCKUP).toContain(">Wyndor<");
+    // Il confronto tollera a capo e indentazione: in JSX la parola sta su una
+    // riga sua fra i due tag.
+    expect(LOCKUP).toMatch(/>\s*Wyndor\s*</);
   });
 });
 ```
@@ -385,7 +387,7 @@ Il segno resta decorativo (senza `title`) perché l'`<h1>` accanto dice già il 
 
 - [ ] **Step 7: Elimina il filtro da `client/src/index.css`**
 
-Cancella per intero le righe 925-931, cioè le due regole:
+Cancella per contenuto, non per numero di riga: il Task 1 ha inserito righe più in alto nello stesso file, quindi le regole si sono spostate di tre o quattro righe rispetto alla 925 di partenza. Cercale con `sidebar-logo` e cancellale per intero, entrambe:
 
 ```css
 .sidebar-logo {
