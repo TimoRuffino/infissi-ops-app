@@ -2,9 +2,15 @@ import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getSessionCookieOptions } from "../_core/cookies";
+import { assertTenantScope } from "../_core/permissions";
 import { SEDE_COOKIE } from "@shared/const";
+import { interruttoreAttivo } from "../platform/interruttori";
 import { getUtentiStore } from "./utenti";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import { tenantDelContesto } from "../tenants/regole";
+// Import ciclico innocuo: contesto.ts importa da questo file, ma sediAmmesse
+// si usa solo dentro gli handler (come già fa contesto.ts con noi).
+import { sediAmmesse } from "../tenants/contesto";
 
 // ── Sedi (showrooms / locations) ─────────────────────────────────────────────
 //
@@ -139,24 +145,35 @@ export function allowedSediForUser(user: any): number[] {
 
 // ── Router ──────────────────────────────────────────────────────────────────
 
+function ammesse(ctx: { user: any; tenantId: number | null }): Set<number> {
+  return new Set(
+    interruttoreAttivo("multiAzienda")
+      ? sediAmmesse(ctx.user, tenantDelContesto(ctx))
+      : allowedSediForUser(ctx.user)
+  );
+}
+
 export const sediRouter = router({
   // Sedi the current user can switch between.
   list: protectedProcedure.query(({ ctx }) => {
-    const allowed = new Set(allowedSediForUser(ctx.user));
+    const allowed = ammesse(ctx);
     return sedi
       .filter((s) => allowed.has(s.id))
       .sort((a, b) => a.nome.localeCompare(b.nome));
   }),
 
-  // Every sede, for direzione management.
-  listAll: adminProcedure.query(() => {
-    return [...sedi].sort((a, b) => a.nome.localeCompare(b.nome));
+  // Every sede of the tenant, for direzione management.
+  listAll: adminProcedure.query(({ ctx }) => {
+    const visibili = interruttoreAttivo("multiAzienda")
+      ? sediDelTenant(tenantDelContesto(ctx))
+      : [...sedi];
+    return visibili.sort((a, b) => a.nome.localeCompare(b.nome));
   }),
 
   // The active sede for this request (resolved in context).
   active: protectedProcedure.query(({ ctx }) => {
-    const id = ctx.sedeId ?? DEFAULT_SEDE_ID;
-    return getSedeById(id);
+    const id = ctx.sedeId ?? (interruttoreAttivo("multiAzienda") ? null : DEFAULT_SEDE_ID);
+    return id == null ? null : getSedeById(id);
   }),
 
   create: adminProcedure
@@ -167,8 +184,8 @@ export const sediRouter = router({
         indirizzo: z.string().optional(),
       })
     )
-    .mutation(({ input }) => {
-      const sede = creaSedeInterna({ tenantId: TENANT_PREDEFINITO_ID, ...input });
+    .mutation(({ input, ctx }) => {
+      const sede = creaSedeInterna({ tenantId: tenantDelContesto(ctx), ...input });
       _store.save();
       return sede;
     }),
@@ -183,8 +200,9 @@ export const sediRouter = router({
         attiva: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const idx = sedi.findIndex((s) => s.id === input.id);
+      if (interruttoreAttivo("multiAzienda")) assertTenantScope(sedi[idx] ?? null, ctx.tenantId);
       if (idx === -1) throw new Error("Sede non trovata");
       const { id, ...updates } = input;
       sedi[idx] = { ...sedi[idx], ...updates, updatedAt: new Date() };
@@ -192,12 +210,12 @@ export const sediRouter = router({
       return sedi[idx];
     }),
 
-  // Switch the active sede. Validates that the user is assigned to it, then
-  // writes the `active_sede` cookie so subsequent requests are scoped to it.
+  // Switch the active sede. Validates that the user may see it, then writes
+  // the `active_sede` cookie so subsequent requests are scoped to it.
   switch: protectedProcedure
     .input(z.object({ sedeId: z.number() }))
     .mutation(({ input, ctx }) => {
-      const allowed = new Set(allowedSediForUser(ctx.user));
+      const allowed = ammesse(ctx);
       if (!allowed.has(input.sedeId)) {
         throw new Error("Non sei assegnato a questa sede");
       }
@@ -206,8 +224,6 @@ export const sediRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(SEDE_COOKIE, String(input.sedeId), {
         ...cookieOptions,
-        // Not httpOnly-sensitive, but keep it httpOnly anyway; the client
-        // never needs to read it directly (it asks sedi.active).
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
       return sede;

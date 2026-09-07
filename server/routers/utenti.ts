@@ -4,8 +4,24 @@ import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { hashPassword, isHashed } from "../_core/password";
-import { isDirezione } from "../_core/permissions";
-import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import { assertTenantScope, isDirezione } from "../_core/permissions";
+import type { TrpcContext } from "../_core/context";
+import { effectiveCapabilitySet } from "../authz/enforcement";
+import { interruttoreAttivo } from "../platform/interruttori";
+import { CAPABILITY_PROPRIETARI, MESSAGGI, RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import {
+  motivoRifiutoPresidio,
+  presidioDi,
+  proprietarioAggiunto,
+  proprietarioTolto,
+  ruoliDi,
+  tenantDelContesto,
+} from "../tenants/regole";
+import { getTenantRepository } from "../tenants/repository";
+import { attoreTesto } from "../tenants/tipi";
+// Import ciclico innocuo: sedi.ts importa getUtentiStore, qui usiamo le sue
+// funzioni solo dentro gli handler (come già fa sedi.ts con noi).
+import { DEFAULT_SEDE_ID, sediDelTenant, sedePredefinita } from "./sedi";
 
 // ── Roles (PRD Section 14) ────────────────────────────────────────────────────
 const RUOLI = [
@@ -16,6 +32,7 @@ const RUOLI = [
   "squadra_posa",
   "post_vendita",
   "ordini",
+  "proprietario",
 ] as const;
 type Ruolo = (typeof RUOLI)[number];
 
@@ -27,15 +44,29 @@ const passwordSchema = z
   .min(12, "La password deve avere almeno 12 caratteri")
   .max(256, "La password è troppo lunga");
 
-// Helpers for the "last attivo direzione user" guard. We refuse to delete or
-// downgrade the very last admin so the app can never lock itself out.
-function isDirezioneAttivo(u: any): boolean {
-  return (
-    !!u && u.attivo && Array.isArray(u.ruoli) && u.ruoli.includes("direzione")
-  );
+/** Ogni sede assegnata deve appartenere al tenant: altrimenti NOT_FOUND, mai un indizio. */
+function assertSediDelTenant(sediIds: number[], tenantId: number): void {
+  const valide = new Set(sediDelTenant(tenantId).map(s => s.id));
+  for (const id of sediIds) {
+    if (!valide.has(id)) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Sede non trovata." });
+    }
+  }
 }
-function countDirezioneAttivi(): number {
-  return utenti.filter(isDirezioneAttivo).length;
+
+/** Chi tocca il ruolo proprietario deve avere tenant.manage_proprietari; spento, il ruolo non si aggiunge. */
+async function assertPuoNominareProprietari(ctx: TrpcContext, multi: boolean): Promise<void> {
+  if (!multi) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: MESSAGGI.proprietarioRichiedeFlag });
+  }
+  const caps = await effectiveCapabilitySet(ctx, [CAPABILITY_PROPRIETARI]);
+  if (!caps.has(CAPABILITY_PROPRIETARI)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: MESSAGGI.soloProprietari });
+  }
+}
+
+function attoreDi(ctx: TrpcContext): string {
+  return attoreTesto({ tipo: "utente", id: Number(ctx.user?.id) });
 }
 
 // A new database gets one bootstrap administrator, never a list of staff with
@@ -171,12 +202,12 @@ export function creaUtenteInterno(input: NuovoUtenteInterno) {
 const scopeInputSchema = z.object({ adminScope: z.boolean().optional() });
 
 function scopedUtenti(
-  ctx: {
-    user: any;
-    sedeId: number | null;
-  },
+  ctx: { user: any; sedeId: number | null; tenantId: number | null },
   adminScope = false
 ) {
+  const delTenant = interruttoreAttivo("multiAzienda")
+    ? utenti.filter(u => presidioDi(u).tenantId === tenantDelContesto(ctx))
+    : utenti;
   if (adminScope) {
     if (!isDirezione(ctx.user)) {
       throw new TRPCError({
@@ -184,10 +215,10 @@ function scopedUtenti(
         message: "Solo la direzione puo consultare tutte le sedi.",
       });
     }
-    return [...utenti];
+    return [...delTenant];
   }
   if (ctx.sedeId == null) return [];
-  return utenti.filter(
+  return delTenant.filter(
     user => Array.isArray(user.sediIds) && user.sediIds.includes(ctx.sedeId)
   );
 }
@@ -246,25 +277,41 @@ export const utentiRouter = router({
         email: z.string().email(),
         telefono: z.string().optional(),
         ruoli: ruoliSchema,
-        // Sedi (showroom) assigned to the user. Defaults to the default sede.
+        // Sedi (showroom) assigned to the user. Defaults to the tenant's first active sede.
         sediIds: z.array(z.number()).optional(),
         password: passwordSchema,
         attivo: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const multi = interruttoreAttivo("multiAzienda");
+      const tenantId = tenantDelContesto(ctx);
+      const sediIds =
+        input.sediIds && input.sediIds.length > 0
+          ? input.sediIds
+          : [sedePredefinita(tenantId) ?? DEFAULT_SEDE_ID];
+      if (multi) assertSediDelTenant(sediIds, tenantId);
+      if (input.ruoli.includes(RUOLO_PROPRIETARIO)) await assertPuoNominareProprietari(ctx, multi);
       const utente = creaUtenteInterno({
-        tenantId: TENANT_PREDEFINITO_ID,
+        tenantId,
         nome: input.nome,
         cognome: input.cognome,
         email: input.email,
         telefono: input.telefono ?? null,
         ruoli: input.ruoli,
-        sediIds: input.sediIds && input.sediIds.length > 0 ? input.sediIds : [1],
+        sediIds,
         passwordHash: hashPassword(input.password),
         attivo: input.attivo,
       });
       _store.save();
+      if (multi && input.ruoli.includes(RUOLO_PROPRIETARIO)) {
+        await getTenantRepository().registraEvento({
+          tenantId,
+          tipo: "proprietario_assegnato",
+          attore: attoreDi(ctx),
+          dettagli: { utenteId: utente.id },
+        });
+      }
       return publicUtente(utente);
     }),
 
@@ -282,46 +329,57 @@ export const utentiRouter = router({
         attivo: z.boolean().optional(),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const multi = interruttoreAttivo("multiAzienda");
       const idx = utenti.findIndex(u => u.id === input.id);
-      if (idx === -1) throw new Error("Utente non trovato");
+      const before = idx === -1 ? null : utenti[idx];
+      if (multi) assertTenantScope(before, ctx.tenantId);
+      if (!before) throw new Error("Utente non trovato");
+      const tenantId = presidioDi(before).tenantId;
       const { id, ...updates } = input;
-      // Never persist an empty sedi list — fall back to default sede.
+      // Never persist an empty sedi list — fall back to the tenant's first sede.
       if (updates.sediIds && updates.sediIds.length === 0) {
-        updates.sediIds = [1];
+        updates.sediIds = [sedePredefinita(tenantId) ?? DEFAULT_SEDE_ID];
       }
+      if (multi && updates.sediIds) assertSediDelTenant(updates.sediIds, tenantId);
       // Only update password if provided (non-empty) — and hash it.
       if (!updates.password) delete updates.password;
       else updates.password = hashPassword(updates.password);
-      // Last-admin guard: refuse the change if it would leave zero attivo
-      // direzione users in the system (deactivation OR removing direzione
-      // from the only remaining admin).
-      const before = utenti[idx];
+
+      const ruoliPrima = ruoliDi(before);
+      const ruoliDopo = updates.ruoli ?? ruoliPrima;
+      const aggiunto = proprietarioAggiunto(ruoliPrima, ruoliDopo);
+      const tolto = proprietarioTolto(ruoliPrima, ruoliDopo);
+      // Aggiungere il ruolo richiede la capability (e l'interruttore); toglierlo
+      // richiede la capability solo con l'interruttore acceso: spento, chi lo
+      // ha lo conserva e la direzione lavora come oggi.
+      if (aggiunto || (tolto && multi)) await assertPuoNominareProprietari(ctx, multi);
+
       const after = { ...before, ...updates };
-      if (
-        isDirezioneAttivo(before) &&
-        !isDirezioneAttivo(after) &&
-        countDirezioneAttivi() <= 1
-      ) {
-        throw new Error(
-          "Impossibile: questo è l'ultimo utente direzione attivo. Promuovi un altro utente prima di disattivarlo o togliergli il ruolo."
-        );
-      }
-      utenti[idx] = { ...before, ...updates, updatedAt: new Date() };
+      const motivo = motivoRifiutoPresidio(presidioDi(before), presidioDi(after), utenti.map(presidioDi));
+      if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
+
+      utenti[idx] = { ...after, updatedAt: new Date() };
       _store.save();
-      const { password, ...rest } = utenti[idx];
-      return { ...rest, hasPassword: !!password };
+      if (multi && (aggiunto || tolto)) {
+        await getTenantRepository().registraEvento({
+          tenantId,
+          tipo: aggiunto ? "proprietario_assegnato" : "proprietario_revocato",
+          attore: attoreDi(ctx),
+          dettagli: { utenteId: before.id },
+        });
+      }
+      return publicUtente(utenti[idx]);
     }),
 
-  delete: adminProcedure.input(z.number()).mutation(({ input }) => {
+  delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
+    const multi = interruttoreAttivo("multiAzienda");
     const idx = utenti.findIndex(u => u.id === input);
-    if (idx === -1) throw new Error("Utente non trovato");
-    // Last-admin guard: refuse to delete the only attivo direzione user.
-    if (isDirezioneAttivo(utenti[idx]) && countDirezioneAttivi() <= 1) {
-      throw new Error(
-        "Impossibile: questo è l'ultimo utente direzione attivo. Promuovi un altro utente prima di eliminarlo."
-      );
-    }
+    const before = idx === -1 ? null : utenti[idx];
+    if (multi) assertTenantScope(before, ctx.tenantId);
+    if (!before) throw new Error("Utente non trovato");
+    const motivo = motivoRifiutoPresidio(presidioDi(before), null, utenti.map(presidioDi));
+    if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
     utenti.splice(idx, 1);
     _store.save();
     return { success: true };
