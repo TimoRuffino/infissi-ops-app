@@ -57,18 +57,18 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
   if (!slugValido(input.slug)) throw new Error(`Slug non valido: ${input.slug}`);
   const repo = getTenantRepository();
   let tenant = repo.perSlug(input.slug);
+  const utenti = getUtentiStore();
+  const email = input.proprietario.email.toLowerCase();
+  let utente: any = utenti.find((u: any) => u.email.toLowerCase() === email) ?? null;
+  if (utente && (!tenant || presidioDi(utente).tenantId !== tenant.id)) {
+    throw new Error("Email già in uso da un'altra azienda");
+  }
   let creatoOra = false;
   if (!tenant) {
     tenant = await repo.inserisci({ slug: input.slug, nome: input.nome });
     creatoOra = true;
   }
   const tenantId = tenant.id;
-  const utenti = getUtentiStore();
-  const email = input.proprietario.email.toLowerCase();
-  let utente: any = utenti.find((u: any) => u.email.toLowerCase() === email) ?? null;
-  if (utente && presidioDi(utente).tenantId !== tenantId) {
-    throw new Error("Email già in uso da un'altra azienda");
-  }
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
   let utenteCreato = false;
 

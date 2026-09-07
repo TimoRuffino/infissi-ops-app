@@ -64,6 +64,7 @@ describe("crea", () => {
     expect(secondo.utenteId).toBe(primo.utenteId);
     await expect(crea({ ...inputAcme(), slug: "Acme" }, script)).rejects.toThrow(/Slug/);
     await expect(crea({ ...inputAcme(), slug: "altra" }, script)).rejects.toThrow(/altra azienda/);
+    expect(getTenantRepository().perSlug("altra")).toBeNull();
   });
 });
 
