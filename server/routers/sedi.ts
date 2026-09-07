@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -205,7 +206,22 @@ export const sediRouter = router({
       if (interruttoreAttivo("multiAzienda")) assertTenantScope(sedi[idx] ?? null, ctx.tenantId);
       if (idx === -1) throw new Error("Sede non trovata");
       const { id, ...updates } = input;
-      sedi[idx] = { ...sedi[idx], ...updates, updatedAt: new Date() };
+      const sede = sedi[idx];
+      // Guardia sull'ultima sede attiva (Important 2): senza, disattivarla
+      // lascerebbe sedeId = null a ogni richiesta del tenant e bloccherebbe
+      // l'intera azienda, riattivazione inclusa.
+      if (
+        interruttoreAttivo("multiAzienda") &&
+        updates.attiva === false &&
+        sede.attiva &&
+        sediAttiveDelTenant(sede.tenantId).length <= 1
+      ) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Impossibile: è l'ultima sede attiva dell'azienda. Attiva un'altra sede prima di disattivarla.",
+        });
+      }
+      sedi[idx] = { ...sede, ...updates, updatedAt: new Date() };
       _store.save();
       return sedi[idx];
     }),

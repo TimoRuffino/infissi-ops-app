@@ -8,6 +8,7 @@ import { allowedSediForUser, DEFAULT_SEDE_ID } from "../routers/sedi";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import { risolviTenantPerUtente, sediAmmesse } from "../tenants/contesto";
+import { ruoliDi } from "../tenants/regole";
 import type { TenantRecord } from "../tenants/tipi";
 
 export type TrpcContext = {
@@ -64,6 +65,15 @@ export async function createContext(
       tenantId = risolto.tenantId;
       tenant = risolto.tenant;
       sediIds = sediAmmesse(risolto.utente, tenantId);
+      // I ruoli vengono dallo store, non dal JWT: una revoca vale alla
+      // richiesta successiva, non fra sette giorni.
+      const ruoli = ruoliDi(risolto.utente);
+      user = {
+        ...user,
+        ruoli,
+        ruolo: ruoli[0] ?? (user as any).ruolo ?? null,
+        role: ruoli.includes("direzione") ? "admin" : "user",
+      } as typeof user;
     }
   } else if (user) {
     tenantId = TENANT_PREDEFINITO_ID;

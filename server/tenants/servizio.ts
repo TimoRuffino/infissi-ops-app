@@ -4,7 +4,7 @@
 // dei comandi e, dal WS6, il pannello del Platform Admin.
 import { conTransazioneStoreAtomica } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
-import { creaSedeInterna, getSediPersistedStore, sediDelTenant } from "../routers/sedi";
+import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
@@ -67,46 +67,68 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
   if (!tenant) {
     tenant = await repo.inserisci({ slug: input.slug, nome: input.nome });
     creatoOra = true;
+    // Subito dopo l'inserimento: la riga in `tenants` è già un fatto, a
+    // prescindere da come va la transazione di sede/utente qui sotto.
+    await repo.registraEvento({
+      tenantId: tenant.id,
+      tipo: "creato",
+      attore: attoreTesto(attore),
+      dettagli: { slug: input.slug, nome: input.nome },
+    });
   }
   const tenantId = tenant.id;
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
   let utenteCreato = false;
+  // Riferimenti a ciò che QUESTO giro spinge negli array vivi: se il commit
+  // fallisce li togliamo con splice, per non lasciare una sede o un utente
+  // orfani che nessun evento racconta (il tenant invece resta: è già un fatto).
+  let sedeCreataQuiId: number | null = null;
+  let utenteCreatoQui: any = null;
 
-  await conTransazioneStoreAtomica(
-    [getSediPersistedStore(), getUtentiPersistedStore()],
-    async commit => {
-      if (sedeId == null) {
-        sedeId = creaSedeInterna({
-          tenantId,
-          nome: input.sede.nome,
-          citta: input.sede.citta ?? null,
-        }).id;
+  try {
+    await conTransazioneStoreAtomica(
+      [getSediPersistedStore(), getUtentiPersistedStore()],
+      async commit => {
+        if (sedeId == null) {
+          const nuovaSede = creaSedeInterna({
+            tenantId,
+            nome: input.sede.nome,
+            citta: input.sede.citta ?? null,
+          });
+          sedeId = nuovaSede.id;
+          sedeCreataQuiId = nuovaSede.id;
+        }
+        if (!utente) {
+          utente = creaUtenteInterno({
+            tenantId,
+            nome: input.proprietario.nome,
+            cognome: input.proprietario.cognome,
+            email: input.proprietario.email,
+            telefono: input.proprietario.telefono ?? null,
+            ruoli: [RUOLO_PROPRIETARIO, "direzione"],
+            sediIds: [sedeId],
+            passwordHash: input.proprietario.passwordHash,
+          });
+          utenteCreato = true;
+          utenteCreatoQui = utente;
+        }
+        await commit();
       }
-      if (!utente) {
-        utente = creaUtenteInterno({
-          tenantId,
-          nome: input.proprietario.nome,
-          cognome: input.proprietario.cognome,
-          email: input.proprietario.email,
-          telefono: input.proprietario.telefono ?? null,
-          ruoli: [RUOLO_PROPRIETARIO, "direzione"],
-          sediIds: [sedeId],
-          passwordHash: input.proprietario.passwordHash,
-        });
-        utenteCreato = true;
-      }
-      await commit();
+    );
+  } catch (e) {
+    if (sedeCreataQuiId != null) {
+      const sediVive = getSediStore();
+      const idx = sediVive.findIndex(s => s.id === sedeCreataQuiId);
+      if (idx !== -1) sediVive.splice(idx, 1);
     }
-  );
-
-  if (creatoOra) {
-    await repo.registraEvento({
-      tenantId,
-      tipo: "creato",
-      attore: attoreTesto(attore),
-      dettagli: { slug: input.slug, nome: input.nome, sedeId },
-    });
+    if (utenteCreatoQui) {
+      const utentiVivi = getUtentiStore();
+      const idx = utentiVivi.findIndex((u: any) => u.id === utenteCreatoQui.id);
+      if (idx !== -1) utentiVivi.splice(idx, 1);
+    }
+    throw e;
   }
+
   if (utenteCreato) {
     await repo.registraEvento({
       tenantId,
