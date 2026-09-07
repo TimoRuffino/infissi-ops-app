@@ -41,7 +41,9 @@ export type RigaMerce = {
 // confine di parola JS (la «ì» non è \w) e passava; le etichette di stanza
 // dei PDF Pail («Bagni», «Cucina») non sono articoli; l'articolo principale
 // preferisce un serramento (porta, finestra, tapparella…) a un codice.
-export const ESTRATTORE_MERCE_VERSIONE = "2.1.0";
+// 2.1.1: nessuna regola nuova; le consegne si rigenerano con il fornitore
+// e il numero corretti nel nome del segnaposto.
+export const ESTRATTORE_MERCE_VERSIONE = "2.1.1";
 
 /** Dove comincia ogni riga nel testo della pagina, separatori compresi. */
 function iniziRighe(testo: string): number[] {

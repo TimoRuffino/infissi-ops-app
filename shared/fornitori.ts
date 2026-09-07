@@ -16,7 +16,8 @@ export type FornitoreNoto = {
 };
 
 export const FORNITORI_NOTI: readonly FornitoreNoto[] = [
-  { nome: "Alias", chiavi: ["alias", "aliasblindate"] },
+  // «DE - DOOR DESIGN S.R.L. Veronica Gregori»: l'agenzia che firma le conferme Alias.
+  { nome: "Alias", chiavi: ["alias", "aliasblindate", "door design", "doordesign"] },
   { nome: "Pail", chiavi: ["pail", "pailporte", "pail serramenti"] },
   { nome: "Oskura", chiavi: ["oskura"] },
   { nome: "Brianzatende", chiavi: ["brianzatende", "brianza tende"] },
@@ -100,7 +101,9 @@ export function normalizzaFornitore(
   if (noto) return noto;
   const grezzo = String(testo ?? "").replace(/\s+/g, " ").trim();
   if (!grezzo) return null;
-  const prima = grezzo.split(/\s+[-–|]\s+/)[0].trim();
+  // Il primo segmento con almeno tre lettere: «DE - DOOR DESIGN…» non è «DE».
+  const segmenti = grezzo.split(/\s+[-–|]\s+/).map(s => s.trim());
+  const prima = segmenti.find(s => (s.match(/[a-zà-ú]/gi) ?? []).length >= 3) ?? "";
   if (!prima || NON_FORNITORE.test(prima)) return null;
   return prima.slice(0, 60);
 }

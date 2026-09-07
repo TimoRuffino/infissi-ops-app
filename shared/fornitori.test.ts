@@ -19,6 +19,8 @@ describe("normalizzaFornitore", () => {
     expect(normalizzaFornitore("ferramentafivizzanese.it")).toBe("Fivizzanese");
     expect(normalizzaFornitore("Wnd")).toBe("Wnd");
     expect(normalizzaFornitore("BT Glass . Ordini")).toBe("BT Glass");
+    // L'agenzia che firma le conferme Alias, anche senza la mail.
+    expect(normalizzaFornitore("DE - DOOR DESIGN S.R.L. Veronica Gregori CECCONI")).toBe("Alias");
   });
 
   it("riconosce il fornitore dal dominio della mail quando il testo è un agente o un referente", () => {
@@ -37,6 +39,8 @@ describe("normalizzaFornitore", () => {
     expect(normalizzaFornitore(null)).toBeNull();
     expect(normalizzaFornitore("Palmira Iacobitti")).toBe("Palmira Iacobitti");
     expect(normalizzaFornitore("Vetreria Ligure Srl - Ufficio ordini")).toBe("Vetreria Ligure Srl");
+    // Due lettere non sono un nome: si passa al segmento dopo.
+    expect(normalizzaFornitore("XY - Vetreria Ligure Srl")).toBe("Vetreria Ligure Srl");
   });
 
   it("le chiavi corte valgono solo come parola intera («wnd» non è dentro «downdraft»)", () => {

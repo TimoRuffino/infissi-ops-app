@@ -1054,10 +1054,11 @@ function applicaMerceDaConferma(input: {
   // (anteprime «Dove l'ho letto», 06/09).
   const righe = annotaAreeMerce(estraiRigheMerce(input.pagine), input.geometria);
   const principale = articoloPrincipale(righe);
+  const numeroPerNome = input.numeroOrdine ?? input.estrazione.numeroConferma?.valore ?? null;
   const nome = principale
     ? principale.nome
     : `Merce conferma ${input.fornitore ?? "d'ordine"}${
-        input.numeroOrdine ? ` n. ${input.numeroOrdine}` : input.fornitore ? "" : ` ${input.documento.nome}`
+        numeroPerNome ? ` n. ${numeroPerNome}` : input.fornitore ? "" : ` ${input.documento.nome}`
       }`;
   const nota = (
     righe.length > 0
