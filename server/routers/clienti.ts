@@ -519,7 +519,7 @@ export const clientiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input.id);
-      if (idx === -1) throw new Error("Cliente non trovato");
+      if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
       assertSedeScope(clienti[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
@@ -593,7 +593,7 @@ export const clientiRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input);
-      if (idx === -1) throw new Error("Cliente non trovato");
+      if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
       assertSedeScope(clienti[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
@@ -624,7 +624,7 @@ export const clientiRouter = router({
   // brings both back.
   archive: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = clienti.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Cliente non trovato");
+    if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
     assertSedeScope(clienti[idx], ctx.sedeId);
     await authorizeCoreOperation({
       ctx,
@@ -648,7 +648,7 @@ export const clientiRouter = router({
 
   restore: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = clienti.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Cliente non trovato");
+    if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
     assertSedeScope(clienti[idx], ctx.sedeId);
     await authorizeCoreOperation({
       ctx,

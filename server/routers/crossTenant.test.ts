@@ -79,23 +79,23 @@ describe("isolamento fra tenant: clienti", () => {
   });
 
   /**
-   * DIFETTO NOTO (non introdotto dai Task 1-13 di WS2, ma reso raggiungibile
-   * da loro — v. report del Task 14 per la diagnosi completa): il ramo
+   * Fino al fix round 1 del Task 14, il ramo
    * `if (idx === -1) throw new Error("Cliente non trovato")` di
-   * `clienti.update` (server/routers/clienti.ts:522) lancia un `Error`
-   * generico invece di `TRPCError({ code: "NOT_FOUND" })`; tRPC lo
-   * trasforma in `INTERNAL_SERVER_ERROR`. Prima degli store per tenant e
-   * degli id globali (Task 3, Task 13) un id valido esisteva SEMPRE da
-   * qualche parte nell'unico array condiviso, quindi questo ramo era
-   * raggiungibile solo con un id inventato; ora un id di un altro tenant è
-   * reale e globale, e ci arriva davvero — con un codice diverso da quello
-   * di un cliente di un'altra sede (assertSedeScope, riga sotto, corretto),
-   * il che viola l'invariante «mai informazioni utili a enumerare l'id»
-   * (CLAUDE.md). Questa asserzione documenta il comportamento CORRETTO e
-   * fallisce finché il difetto non è risolto nel task responsabile:
-   * non annacquarla per farla passare.
+   * `clienti.update` (server/routers/clienti.ts, insieme a `delete`,
+   * `archive`, `restore`) lanciava un `Error` generico invece di
+   * `TRPCError({ code: "NOT_FOUND" })`; tRPC lo trasformava in
+   * `INTERNAL_SERVER_ERROR`. Prima degli store per tenant e degli id
+   * globali (Task 3, Task 13) un id valido esisteva SEMPRE da qualche
+   * parte nell'unico array condiviso, quindi questo ramo era raggiungibile
+   * solo con un id inventato; con gli store per tenant un id di un altro
+   * tenant è reale e globale, e ci arriva davvero — con un codice diverso
+   * da quello di un cliente di un'altra sede (assertSedeScope, riga sotto)
+   * violava l'invariante «mai informazioni utili a enumerare l'id»
+   * (CLAUDE.md). Risolto (R17): i quattro siti ora lanciano
+   * `TRPCError({ code: "NOT_FOUND" })`, lo stesso messaggio generico di
+   * `assertSedeScope`.
    */
-  it("mutation NOT_FOUND per il tenant 2 (difetto noto, vedi report Task 14)", async () => {
+  it("mutation NOT_FOUND per il tenant 2", async () => {
     await expect(
       caller(UTENTE2, SEDE2, t2).clienti.update({ id: c1.id, nome: "X" })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
