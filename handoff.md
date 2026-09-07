@@ -206,7 +206,7 @@
 > (certe/probabili/non letti). Metodo che ha funzionato: leggere i log del
 > giro dopo ogni deploy e togliere UNA classe di falsi positivi per volta.
 >
-> **05/09/2026 — «La gestione del magazzino è assolutamente un casino».**
+> **07/09/2026 — «La gestione del magazzino è assolutamente un casino».**
 > Diagnosi sui dati veri (155 righe, 52 commesse, sonda in sola lettura):
 > la regola del 03/09 riversava a magazzino le righe articolo dei PDF così
 > come stanno — una porta Alias = otto «consegne» di kit, falso telaio,

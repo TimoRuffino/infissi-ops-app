@@ -1,5 +1,5 @@
 // I nomi dei fornitori come li scrivono i PDF e le mail, ricondotti al nome
-// aziendale (05/09/2026: dieci nomi per Alias nel magazzino, referenti e
+// aziendale (07/09/2026: dieci nomi per Alias nel magazzino, referenti e
 // agenti presi per fornitori).
 
 import { describe, expect, it } from "vitest";

@@ -172,7 +172,7 @@ export default function Magazzino() {
       utils.magazzino.invalidate();
     },
   });
-  // «Ricevuto tutto» per commessa (direzione 05/09/2026): il server segna
+  // «Ricevuto tutto» per commessa (direzione 07/09/2026): il server segna
   // le consegne aperte, la UI ripete il numero che il server ha risposto.
   const ricevutoTutto = trpc.magazzino.segnaTuttoRicevuto.useMutation({
     onSuccess: r => {

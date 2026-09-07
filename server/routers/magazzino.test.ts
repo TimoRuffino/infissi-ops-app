@@ -1,4 +1,4 @@
-// «Ricevuto tutto» per commessa (direzione 05/09/2026) e la consegna che
+// «Ricevuto tutto» per commessa (direzione 07/09/2026) e la consegna che
 // nasce da una conferma: una riga sola con gli articoli dentro.
 
 import { describe, expect, it } from "vitest";

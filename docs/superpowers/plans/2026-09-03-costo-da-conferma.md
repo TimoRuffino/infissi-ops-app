@@ -317,7 +317,7 @@ persino escluso come «ordine del cliente».
    cognome/telefono/comunicazioni prima di dire non posso) e «sicurezza»
    (conclusioni senza attenuazioni, niente «vuoi che proceda?»).
 
-## Nona tranche (05/09): una conferma = una consegna
+## Nona tranche (07/09): una conferma = una consegna
 
 «La gestione del magazzino è assolutamente un casino.» In produzione 155
 righe su 52 commesse: la seconda tranche scriveva una riga per ARTICOLO del

@@ -123,7 +123,7 @@ describe("dataDaSettimanaIso", () => {
   });
 });
 
-describe("estraiRigheMerce — 2.0.0 (05/09/2026: il magazzino era un casino)", () => {
+describe("estraiRigheMerce — 2.0.0 (07/09/2026: il magazzino era un casino)", () => {
   it("una riga che comincia con un giorno o una data non è un articolo, e 808 non è una quantità", () => {
     // Oskura: la riga di intestazione della commessa del fornitore entrava a
     // magazzino come «giovedì 25 giugno 2026 Commessa» con quantità 808.

@@ -28,7 +28,7 @@ import type { EvidenzeLetturaCosto } from "@shared/documenti/evidenze";
 // 1.10.0 (06/09/2026): le foto HEIC/HEIF (iPhone) si convertono in JPEG
 // prima della lettura: quelle finite «non leggibili» si rileggono. Valori
 // invariati per tutto il resto.
-// 1.11.0 (05/09/2026, «la gestione del magazzino è un casino»): a magazzino
+// 1.11.0 (07/09/2026, «la gestione del magazzino è un casino»): a magazzino
 // UNA conferma = UNA consegna con gli articoli dentro (estrattore merce
 // 2.0.0), fornitore ricondotto al nome aziendale, «pronta dal» dalla
 // settimana di approntamento; le righe vecchie si rigenerano nella forma

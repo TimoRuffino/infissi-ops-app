@@ -14,7 +14,7 @@ import { assertSedeScope } from "../_core/permissions";
 // posa si pianifica sugli arrivi veri.
 //
 // Dal 03/09/2026 le righe nascono anche da sole dalla conferma d'ordine che
-// entra nel fascicolo (`documentoId` la lega al documento). Dal 05/09/2026
+// entra nel fascicolo (`documentoId` la lega al documento). Dal 07/09/2026
 // («la gestione del magazzino è un casino») UNA CONFERMA = UNA CONSEGNA: gli
 // articoli del PDF (porta, kit, falso telaio, coprifili…) stanno dentro la
 // consegna come dettaglio (`articoli`), non come otto consegne a quantità 1.
@@ -309,7 +309,7 @@ export const magazzinoRouter = router({
 
   /**
    * «Ricevuto tutto»: ogni consegna della commessa non ancora ricevuta viene
-   * segnata ricevuta in un colpo (direzione 05/09/2026). Reversibile riga
+   * segnata ricevuta in un colpo (direzione 07/09/2026). Reversibile riga
    * per riga con «Riapri consegna».
    */
   segnaTuttoRicevuto: protectedProcedure

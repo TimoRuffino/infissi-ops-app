@@ -1,4 +1,4 @@
-// I fornitori dell'azienda con un nome solo (05/09/2026, «la gestione del
+// I fornitori dell'azienda con un nome solo (07/09/2026, «la gestione del
 // magazzino è un casino»): le conferme d'ordine portano il fornitore come
 // lo scrive il PDF («ALIAS Srl Porte blindate», «DE - DOOR DESIGN S.R.L.
 // Veronica Gregori», «REFERENTE Natascia De Biasi -», «PAIL SERRAMENTI -

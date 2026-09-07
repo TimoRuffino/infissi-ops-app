@@ -67,7 +67,7 @@ export type CommessaConsegneCardProps = {
   /** Ingresso al form di aggiunta già esistente: la scheda non crea nulla. */
   onAddConsegna?(id: number): void;
   onToggleArrivato(id: number, arrivato: boolean): void;
-  /** Tutte le consegne della commessa ricevute in un colpo (direzione 05/09/2026). */
+  /** Tutte le consegne della commessa ricevute in un colpo (direzione 07/09/2026). */
   onRicevutoTutto?(commessaId: number): void;
 };
 

@@ -32,7 +32,7 @@ export type RigaMerce = {
 // che si sommano invece di sparire.
 // 1.3.0 (06/09/2026): ogni riga porta la posizione nel testo della pagina
 // (anteprime delle evidenze). Nomi e quantità non cambiano.
-// 2.0.0 (05/09/2026): una riga che comincia con un giorno o una data non è
+// 2.0.0 (07/09/2026): una riga che comincia con un giorno o una data non è
 // merce («giovedì 25 giugno 2026 Commessa» entrava a magazzino con quantità
 // 808); una quantità a pezzi sopra 500 è un codice, non un conteggio; e si
 // riconosce l'ARTICOLO PRINCIPALE della conferma (la porta, non il kit) —

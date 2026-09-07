@@ -985,7 +985,7 @@ function applicaMerceDaConferma(input: {
   if (gia.length > 0) {
     const estrattoreVecchio =
       (input.precedente?.versioneEstrattore ?? null) !== ESTRATTORE_MERCE_VERSIONE;
-    // Prima del 05/09 ogni articolo era una riga: quella forma si rigenera.
+    // Prima del 07/09 ogni articolo era una riga: quella forma si rigenera.
     const formaVecchia = gia.length > 1 || gia[0].articoli === undefined;
     if (!estrattoreVecchio && !formaVecchia) {
       return {
@@ -1049,7 +1049,7 @@ function applicaMerceDaConferma(input: {
             approntamento.dal ? ` (merce pronta dal fornitore dal ${approntamento.dal})` : ""
           }: la consegna va concordata, la data resta vuota.`
         : "";
-  // UNA conferma = UNA consegna (05/09/2026): la porta dà il nome, kit e
+  // UNA conferma = UNA consegna (07/09/2026): la porta dà il nome, kit e
   // coprifili stanno dentro come articoli, ognuno con la sua evidenza
   // (anteprime «Dove l'ho letto», 06/09).
   const righe = annotaAreeMerce(estraiRigheMerce(input.pagine), input.geometria);
