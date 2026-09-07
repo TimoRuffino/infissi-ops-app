@@ -6,6 +6,16 @@
 //
 // Il nome vecchio non compare mai per esteso in questo file: viene composto
 // da pezzi, così la spazzata non inciampa in sé stessa.
+//
+// Limite noto: `percorsi()` cammina solo i file di testo elencati in
+// ESTENSIONI. Un binario generato le è invisibile — in particolare
+// PRD_infissi_ops_v4.pdf, il gemello PDF di
+// documento_requisiti_infissi_ops.md (`handoff.md` lo cataloga «versione
+// PDF del PRD»). Se il markdown cambia ma il PDF non viene
+// rigenerato, questo test resta verde mentre il PDF consegnato a chi è
+// fuori dall'azienda porta ancora il nome vecchio. Dopo ogni modifica al
+// PRD: `bash scripts/build-prd-pdf.sh`, poi verificare a mano (pdftotext)
+// che il nome nuovo compaia e il vecchio no.
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, sep } from "node:path";
