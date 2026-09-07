@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileSorgente, relativo, RADICE } from "../_core/sorgentiDiProva";
+import { TENANT_PREDEFINITO_ID } from "./costanti";
 
 const PRODUZIONE = fileSorgente(["server", "shared", "scripts"]).filter(f => !/\.test\.ts$/.test(f));
 const testo = (f: string) => readFileSync(f, "utf8");
@@ -42,6 +43,43 @@ describe("confine del tenant", () => {
   it("AsyncLocalStorage compare solo in server/tenants/contestoCorrente.ts", () => {
     const usi = PRODUZIONE.filter(f => /AsyncLocalStorage/.test(testo(f))).map(relativo);
     expect(usi).toEqual([join("server", "tenants", "contestoCorrente.ts")]);
+  });
+
+  // Task 15 (spec WS2 §3.1, §5.1): il verso della dipendenza è uno solo.
+  // `persistence.ts` non sa che esistono i tenant — riceve il resolver con
+  // `impostaResolverTenant` e la lista degli id come parametro di
+  // `bootstrapAll`. Un import di `../tenants/*` da qui riaprirebbe il ciclo
+  // (contestoCorrente importa persistence) e legherebbe il registro degli
+  // store al control plane.
+  it("server/_core/persistence.ts non importa da server/tenants/", () => {
+    const testoModulo = testo(join(RADICE, "server", "_core", "persistence.ts"));
+    const specifiers = [...testoModulo.matchAll(/from\s+["']([^"']+)["']/g)].map(m => m[1]);
+    expect(specifiers.filter(s => s.includes("tenants/"))).toEqual([]);
+  });
+
+  // Task 15 (spec WS2 §3.2): `storeDi(tenantId, nome)` scavalca il contesto e
+  // restituisce l'array reale di un'altra azienda. È lo strumento di
+  // migrazione, verifica e (domani) Platform Admin: dentro un router o uno
+  // strumento di Tars sarebbe una porta aperta sui dati altrui, perché lì il
+  // tenant deve venire SEMPRE dal contesto (il Proxy di `store.items`).
+  it("storeDi non compare in server/routers/ né in server/tars/strumenti/", () => {
+    const superficie = fileSorgente([join("server", "routers"), join("server", "tars", "strumenti")]);
+    const colpevoli = superficie
+      .filter(f => !/\.test\.ts$/.test(f) && /\bstoreDi\s*\(/.test(testo(f)))
+      .map(relativo);
+    expect(colpevoli).toEqual([]);
+  });
+
+  // Task 15 (spec WS2 §3.1): `persistence.ts` non importa `./costanti` (v. la
+  // guardia sopra), quindi il numero del tenant predefinito è scritto due
+  // volte. Le due copie devono restare uguali: se divergessero,
+  // `chiaveStore(1, "clienti")` smetterebbe di essere l'alias della chiave di
+  // oggi e il tenant 1 si ritroverebbe archivi vuoti sotto `tenant:1:*`.
+  it("il letterale TENANT_PREDEFINITO di persistence.ts vale TENANT_PREDEFINITO_ID", () => {
+    const testoModulo = testo(join(RADICE, "server", "_core", "persistence.ts"));
+    const trovato = /^const TENANT_PREDEFINITO\s*=\s*(\d+);/m.exec(testoModulo);
+    expect(trovato).not.toBeNull();
+    expect(Number(trovato![1])).toBe(TENANT_PREDEFINITO_ID);
   });
 
   it("lo script tenant non importa router né store", () => {
