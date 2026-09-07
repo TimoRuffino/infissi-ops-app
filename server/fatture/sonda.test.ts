@@ -10,6 +10,12 @@ import type { Fattura } from "@shared/fatturazione/tipi";
 import { sha256Hex } from "../_core/fileStorage";
 import type { DocumentoFicCreato } from "../fic/emissione";
 import { creaClientFicFinto, type ChiamataFic } from "../fic/fake";
+import { getSediStore } from "../routers/sedi";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import {
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "../tenants/repository";
 import {
   createMemoryFattureRepository,
   type FattureRepository,
@@ -406,6 +412,17 @@ describe("aggiornaStatoFattura", () => {
 });
 
 describe("giroSonda", () => {
+  // R20 (fix wave finale): `conTenantDellaSede` è fail-closed a interruttore
+  // acceso — una sede che non esiste lancia invece di ripiegare sul tenant 1.
+  // Le sedi vanno quindi dichiarate, come in produzione.
+  beforeEach(() => {
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: SEDE, tenantId: 1, nome: "La Spezia", attiva: true } as any,
+      { id: ALTRA_SEDE, tenantId: 1, nome: "Altra", attiva: true } as any
+    );
+  });
+
   it("nessuna fattura da sondare", async () => {
     expect(await giroSonda({ repository })).toEqual({
       controllate: 0,
@@ -472,6 +489,64 @@ describe("giroSonda", () => {
     expect((await repository.perId(SEDE, fRotta.id))?.stato).toBe("inviata");
     // Due fatture, stessa sede: il token si risolve una volta, non due.
     expect(contesto).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Task 10 (WS2 «porta aperta»): la sonda gira ogni 15 minuti su un timer,
+// fuori da qualunque richiesta. Le righe arrivano già raggruppate per sede:
+// ogni gruppo va lavorato nel contesto del tenant della sua sede, altrimenti
+// con FLAG_MULTI_AZIENDA acceso `contestoFicPerSede` (che legge lo store per
+// tenant `fic_config`) fallisce per ogni fattura.
+describe("giroSonda per tenant (Task 10)", () => {
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    modalitaTenantStretta(true);
+    resetTenantRepositoryForTesting();
+    const tenants = getTenantRepository();
+    await tenants.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+    await tenants.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: 10, tenantId: 1, nome: "A", attiva: true } as any,
+      { id: 20, tenantId: 2, nome: "B", attiva: true } as any
+    );
+  });
+  afterEach(() => modalitaTenantStretta(false));
+
+  it("ogni sede è sondata nel contesto del suo tenant e un errore non ferma le altre", async () => {
+    await creaFatturaInviata({ ficDocumentId: 701 }, 10);
+    await creaFatturaInviata({ ficDocumentId: 702 }, 20);
+    const visti: Array<{ sedeId: number; tenant: number | null }> = [];
+    const client = creaClientFicFinto({
+      leggiDocumento: async (_ctx, documentId) => {
+        visti.push({ sedeId: 10, tenant: tenantCorrente() });
+        return documentoFicDa({ id: documentId, ei_status: "delivered" });
+      },
+    });
+    const errore = vi.spyOn(console, "error").mockImplementation(() => {});
+    let esito: { controllate: number; cambiate: number; errori: number };
+    try {
+      esito = await giroSonda({
+        repository,
+        client,
+        now: () => ora,
+        contesto: async sedeId => {
+          if (sedeId === 20) {
+            visti.push({ sedeId, tenant: tenantCorrente() });
+            throw new Error("PRECONDIZIONE: Fatture in Cloud non è collegato.");
+          }
+          return { companyId: 77, token: "token-finto" };
+        },
+      });
+    } finally {
+      errore.mockRestore();
+    }
+
+    expect(esito).toEqual({ controllate: 2, cambiate: 1, errori: 1 });
+    expect(visti.sort((a, b) => a.sedeId - b.sedeId)).toEqual([
+      { sedeId: 10, tenant: 1 },
+      { sedeId: 20, tenant: 2 },
+    ]);
   });
 });
 

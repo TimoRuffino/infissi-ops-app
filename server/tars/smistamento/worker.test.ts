@@ -3,7 +3,7 @@
 // finto con id verificato, errore isolato per comunicazione, idempotenza
 // del giro successivo.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caselle } from "../../comunicazioni/caselle";
 import { salvaRegolaMittente } from "../../comunicazioni/filtroComunicazioni";
 import {
@@ -18,10 +18,16 @@ import {
 import { getClientiStore } from "../../routers/clienti";
 import { getCommesseStore } from "../../routers/commesse";
 import { getSediStore } from "../../routers/sedi";
+import * as sediRouter from "../../routers/sedi";
 import { getUtentiStore } from "../../routers/utenti";
+import { modalitaTenantStretta, tenantCorrente } from "../../tenants/contestoCorrente";
+import { getTenantRepository, resetTenantRepositoryForTesting } from "../../tenants/repository";
 import { creaProviderFinto, rispostaTesto } from "../openai/fake";
-import { creaRepositorySmistamentoMemoriaPerTest } from "./repository";
-import { eseguiGiroSmistamento, type DipendenzeWorker } from "./worker";
+import {
+  creaRepositorySmistamentoMemoriaPerTest,
+  impostaRepositorySmistamentoPerTest,
+} from "./repository";
+import { eseguiGiroSmistamento, giroTutteLeSedi, type DipendenzeWorker } from "./worker";
 
 const SEDE = 96_401;
 const CLIENTE_ID = 96_410;
@@ -285,5 +291,45 @@ describe("scadenza delle proposte (02/09 notte)", () => {
     const giro = await eseguiGiroSmistamento({ sedeId: SEDE, deps: d, limite: 50 });
     expect(giro.scadute).toBeGreaterThanOrEqual(1);
     expect((await d.repository.perComunicazione(SEDE, vecchia.id))?.propostaStato).toBe("scaduta");
+  });
+});
+
+// Task 9 (WS2 «porta aperta»): il giro periodico gira per tenant, ognuno nel
+// suo contesto — altrimenti ogni store per tenant (clienti, commesse...)
+// letto durante lo smistamento lancerebbe «senza tenant nel contesto» (con
+// FLAG_MULTI_AZIENDA acceso, il default nei test). `sediAttiveDelTenant`
+// viene dal router delle sedi (import diverso dal file sotto test): può
+// essere spiato senza toccare `eseguiGiroSmistamento`, che vive nello
+// stesso modulo di `giroTutteLeSedi` e non è quindi intercettabile da qui.
+describe("giroTutteLeSedi gira per tenant (Task 9)", () => {
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    modalitaTenantStretta(true);
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+    await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    impostaRepositorySmistamentoPerTest(creaRepositorySmistamentoMemoriaPerTest());
+  });
+  afterEach(() => {
+    modalitaTenantStretta(false);
+    impostaRepositorySmistamentoPerTest(null);
+    vi.restoreAllMocks();
+  });
+
+  it("ogni tenant attivo gira nel proprio contesto; un tenant in errore non ferma gli altri", async () => {
+    const visti: Array<{ tenantId: number; tenantNelContesto: number | null }> = [];
+    vi.spyOn(sediRouter, "sediAttiveDelTenant").mockImplementation((tenantId: number) => {
+      visti.push({ tenantId, tenantNelContesto: tenantCorrente() });
+      if (tenantId === 2) throw new Error("boom");
+      return [];
+    });
+
+    await giroTutteLeSedi();
+
+    expect(visti).toEqual([
+      { tenantId: 1, tenantNelContesto: 1 },
+      { tenantId: 2, tenantNelContesto: 2 },
+    ]);
   });
 });

@@ -1,7 +1,8 @@
-import { getSediStore } from "../routers/sedi";
+import { sediAttiveDelTenant } from "../routers/sedi";
 import { segnaliFollowupPreventivi } from "../tars/followup/preventivi";
 import { osservaDaReconcile } from "../tars/proattivita/worker";
 import { segnaliSmistamento } from "../tars/smistamento/segnali";
+import { perOgniTenantAttivo } from "../tenants/giri";
 import { getActionCaseRepository } from "./repository";
 import { parseActionCenterMode, reconcileActionCases } from "./reconcile";
 import { groupSignals } from "./signals";
@@ -101,10 +102,18 @@ export function scheduleActionReconcile(sedeId: number): void {
   timers.set(sedeId, timer);
 }
 
-function reconcileAllSites(): void {
-  for (const sede of getSediStore()) {
-    if (sede.attiva) void runActionReconcile(sede.id);
-  }
+/**
+ * Il giro di recupero: un tenant alla volta, ognuno nel suo contesto, e
+ * dentro il contesto le sue sedi attive. `runActionReconcile` legge gli
+ * store per tenant (segnali, casi): avviata con `void` dentro `conTenant`
+ * eredita comunque il contesto — il contesto corrente segue la promise.
+ * Prima leggeva `getSediStore()` (globale: le sedi di tutte le aziende)
+ * fuori da qualunque contesto.
+ */
+export async function reconcileAllSites(): Promise<void> {
+  await perOgniTenantAttivo("action-center", async tenantId => {
+    for (const sede of sediAttiveDelTenant(tenantId)) void runActionReconcile(sede.id);
+  });
 }
 
 export function startActionCenterScheduler(): void {
@@ -112,9 +121,9 @@ export function startActionCenterScheduler(): void {
     console.info("[action-center] legacy mode");
     return;
   }
-  const bootTimer = setTimeout(reconcileAllSites, BOOT_DELAY_MS);
+  const bootTimer = setTimeout(() => void reconcileAllSites(), BOOT_DELAY_MS);
   bootTimer.unref?.();
-  const interval = setInterval(reconcileAllSites, RECOVERY_INTERVAL_MS);
+  const interval = setInterval(() => void reconcileAllSites(), RECOVERY_INTERVAL_MS);
   interval.unref?.();
   console.info(`[action-center] ${ACTION_CENTER_MODE} mode enabled`);
 }

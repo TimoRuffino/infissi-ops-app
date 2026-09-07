@@ -11,7 +11,8 @@ import {
   encryptSecret,
   secretBoxConfigured,
 } from "../_core/secretBox";
-import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
+import { DEFAULT_SEDE_ID, sediAttiveDelTenant } from "./sedi";
+import { conTenantDellaSede, perOgniTenantAttivo } from "../tenants/giri";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   collegaFattureAutomatiche,
@@ -84,8 +85,6 @@ export type FicConfig = {
   scopeScrittura: boolean;
 };
 
-let nextCfgId = 2;
-
 const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
   for (const c of items as any[]) {
     if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
@@ -111,7 +110,6 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
     if (c.economicScopesReady === undefined) c.economicScopesReady = false;
     if (c.scopeScrittura === undefined) c.scopeScrittura = false;
   }
-  nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
 const cfgRows = _cfgStore.items;
 
@@ -120,7 +118,7 @@ export function getCfg(sedeId: number | null): FicConfig {
   let c = cfgRows.find(x => x.sedeId === sede);
   if (!c) {
     c = {
-      id: nextCfgId++,
+      id: _cfgStore.prossimoId(),
       sedeId: sede,
       accessTokenCifrato: null,
       refreshTokenCifrato: null,
@@ -337,23 +335,30 @@ export async function handleFicOAuthCallback(
   if (!token.refresh_token) {
     throw new Error("Fatture in Cloud non ha restituito il refresh token");
   }
-  const cfg = getCfg(pending.sedeId);
-  cfg.scopeScrittura = pending.scrittura;
-  salvaTokenOAuth(cfg, token);
+  // Google rimanda il browser su una rotta ANONIMA: non c'è utente, quindi
+  // non c'è tenant nel contesto della richiesta, e `fic_config` è uno store
+  // per tenant. Il tenant lo dice la sede da cui è partito il collegamento,
+  // custodita nello state monouso: da qui in giù si scrive nell'archivio di
+  // quell'azienda (fix wave finale, F1/R19).
+  return conTenantDellaSede(pending.sedeId, async () => {
+    const cfg = getCfg(pending.sedeId);
+    cfg.scopeScrittura = pending.scrittura;
+    salvaTokenOAuth(cfg, token);
 
-  // Riduce un passaggio: quando l'account espone una sola azienda, la
-  // selezioniamo subito. Gli account multi-azienda restano espliciti in UI.
-  try {
-    const companies = await ficGet("/user/companies", token.access_token!);
-    const list: any[] = companies?.data?.companies ?? [];
-    if (list.length === 1) {
-      cfg.companyId = Number(list[0].id);
-      _cfgStore.save();
+    // Riduce un passaggio: quando l'account espone una sola azienda, la
+    // selezioniamo subito. Gli account multi-azienda restano espliciti in UI.
+    try {
+      const companies = await ficGet("/user/companies", token.access_token!);
+      const list: any[] = companies?.data?.companies ?? [];
+      if (list.length === 1) {
+        cfg.companyId = Number(list[0].id);
+        _cfgStore.save();
+      }
+    } catch {
+      // Il collegamento OAuth è valido anche se la scoperta azienda fallisce.
     }
-  } catch {
-    // Il collegamento OAuth è valido anche se la scoperta azienda fallisce.
-  }
-  return { sedeId: pending.sedeId };
+    return { sedeId: pending.sedeId };
+  });
 }
 
 const refreshInFlight = new Map<number, Promise<string>>();
@@ -1103,29 +1108,44 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
 const INTERVALLO_SYNC_MS = 60 * 60 * 1000;
 
 let ficTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Il giro orario: un tenant alla volta, ognuno nel suo contesto, e dentro
+ * il contesto le sue sedi attive. Prima scorreva `allSedeIds()` — le sedi
+ * attive di TUTTE le aziende — fuori da qualunque contesto, e `getCfg`
+ * (store per tenant `fic_config`) non sapeva di chi fossero.
+ * `sediAttiveDelTenant` è la stessa selezione di `allSedeIds()`, ristretta
+ * al tenant: nessuna sede in più, nessuna in meno.
+ *
+ * `dip.sync` (default `runFicSync`) è iniettabile solo per i test.
+ */
+export async function giroFic(dip?: {
+  sync?: (sedeId: number) => Promise<unknown>;
+}): Promise<void> {
+  const sync = dip?.sync ?? runFicSync;
+  await perOgniTenantAttivo("fic", async tenantId => {
+    // Ogni sede col suo giro: se una ha il token scaduto, le altre
+    // continuano. Un errore per sede non ferma la fila.
+    for (const sedeId of sediAttiveDelTenant(tenantId).map(s => s.id)) {
+      try {
+        const cfg = getCfg(sedeId);
+        const hasCredential =
+          !!cfg.accessTokenCifrato ||
+          !!cfg.refreshTokenCifrato ||
+          !!(cfg as any).accessToken;
+        if (cfg.enabled && hasCredential && cfg.companyId) {
+          await sync(sedeId);
+        }
+      } catch (e) {
+        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
+      }
+    }
+  });
+}
+
 export function startFicScheduler(): void {
   if (ficTimer) return;
-  ficTimer = setInterval(
-    async () => {
-      // Ogni sede col suo giro: se una ha il token scaduto, le altre
-      // continuano. Un errore per sede non ferma la fila.
-      for (const sedeId of allSedeIds()) {
-        try {
-          const cfg = getCfg(sedeId);
-          const hasCredential =
-            !!cfg.accessTokenCifrato ||
-            !!cfg.refreshTokenCifrato ||
-            !!(cfg as any).accessToken;
-          if (cfg.enabled && hasCredential && cfg.companyId) {
-            await runFicSync(sedeId);
-          }
-        } catch (e) {
-          console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
-        }
-      }
-    },
-    INTERVALLO_SYNC_MS
-  );
+  ficTimer = setInterval(() => void giroFic(), INTERVALLO_SYNC_MS);
   ficTimer.unref?.();
 }
 

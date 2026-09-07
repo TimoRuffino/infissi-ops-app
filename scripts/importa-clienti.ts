@@ -4,6 +4,12 @@
 //   npx tsx scripts/importa-clienti.ts <file.csv> --apply
 //   npx tsx scripts/importa-clienti.ts <file.csv> --apply --arricchisci
 //   npx tsx scripts/importa-clienti.ts <file.csv> --sede=2 --dettaglio
+//   npx tsx scripts/importa-clienti.ts <file.csv> --apply --tenant=2
+//
+// `--tenant=<id>` sceglie l'azienda in cui importare (default: 1, Ruffino
+// Group). Ogni store è per tenant: senza contesto il Proxy di `persistence`
+// non saprebbe quale anagrafica aprire, e con `--tenant` sbagliato i clienti
+// finirebbero in un'altra azienda. Il tenant compare nella riga di avvio.
 //
 // Da Excel: aprire il file e salvarlo come CSV UTF-8, oppure esportare in CSV
 // direttamente da Fatture in Cloud.
@@ -21,6 +27,8 @@
 
 import { readFileSync } from "node:fs";
 import { bootstrapAll, flushAll } from "../server/_core/persistence";
+import { conTenant } from "../server/tenants/contestoCorrente";
+import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
 import "../server/routers";
 import {
   getClientiStore,
@@ -39,11 +47,23 @@ function argomento(nome: string): string | null {
   return trovato ? trovato.split("=").slice(1).join("=") : null;
 }
 
+/** `--tenant=<id>`: intero positivo, default il tenant 1. */
+function tenantScelto(): number {
+  const grezzo = argomento("tenant");
+  if (grezzo == null) return TENANT_PREDEFINITO_ID;
+  const valore = Number(grezzo);
+  if (!Number.isInteger(valore) || valore <= 0) {
+    console.error(`--tenant deve essere un intero positivo (ricevuto: ${grezzo})`);
+    process.exit(1);
+  }
+  return valore;
+}
+
 async function main() {
   const percorso = process.argv[2];
   if (!percorso || percorso.startsWith("--")) {
     console.error(
-      "Uso: npx tsx scripts/importa-clienti.ts <file.csv> [--apply] [--arricchisci] [--sede=N] [--dettaglio]"
+      "Uso: npx tsx scripts/importa-clienti.ts <file.csv> [--apply] [--arricchisci] [--sede=N] [--tenant=N] [--dettaglio]"
     );
     process.exit(1);
   }
@@ -51,6 +71,10 @@ async function main() {
   const arricchisci = process.argv.includes("--arricchisci");
   const dettaglio = process.argv.includes("--dettaglio");
   const sedeId = Number(argomento("sede") ?? 1);
+  const tenantId = tenantScelto();
+  console.log(
+    `Import clienti — tenant ${tenantId} — ${apply ? "APPLY" : "simulazione"}`
+  );
 
   const righe = leggiRighe(readFileSync(percorso, "utf8"));
   if (righe.length === 0) {
@@ -59,48 +83,53 @@ async function main() {
   }
 
   await bootstrapAll();
-  const clienti = getClientiStore();
+  // Ogni store è per tenant: il corpo dello script gira nel contesto
+  // dell'azienda scelta, come una richiesta o un giro di worker.
+  const report = conTenant(tenantId, () => {
+    const clienti = getClientiStore();
 
-  const report = importaClienti(
-    righe,
-    { apply, arricchisci },
-    {
-      clientiEsistenti: clienti as any,
-      sedeId,
-      crea: dati => {
-        const creato = createClienteFromSync({
-          sedeId: dati.sedeId,
-          cognome: dati.cognome,
-          nome: dati.nome,
-          tipo: dati.tipo,
-          partitaIva: dati.partitaIva,
-          codiceFiscale: dati.codiceFiscale,
-        });
-        // `createClienteFromSync` copre solo identità e nome: i contatti si
-        // scrivono qui, sullo stesso record appena creato.
-        Object.assign(creato, {
-          email: dati.email ?? null,
-          telefono: dati.telefono ?? null,
-          indirizzo: dati.indirizzo ?? null,
-          citta: dati.citta ?? null,
-          cap: dati.cap ?? null,
-          note: dati.note ?? null,
-        });
-        return creato.id;
-      },
-      arricchisci: (clienteId, campi) => {
-        const cliente: any = clienti.find((c: any) => c.id === clienteId);
-        if (!cliente) return;
-        Object.assign(cliente, campi, { updatedAt: new Date() });
-      },
-      salva: saveClientiStore,
-      isAzienda: nome => COMPANY_RE.test(nome),
-      dividiPersona: (nome, cf) => splitPersona(nome, cf),
-    }
-  );
+    return importaClienti(
+      righe,
+      { apply, arricchisci },
+      {
+        clientiEsistenti: clienti as any,
+        sedeId,
+        crea: dati => {
+          const creato = createClienteFromSync({
+            sedeId: dati.sedeId,
+            cognome: dati.cognome,
+            nome: dati.nome,
+            tipo: dati.tipo,
+            partitaIva: dati.partitaIva,
+            codiceFiscale: dati.codiceFiscale,
+          });
+          // `createClienteFromSync` copre solo identità e nome: i contatti si
+          // scrivono qui, sullo stesso record appena creato.
+          Object.assign(creato, {
+            email: dati.email ?? null,
+            telefono: dati.telefono ?? null,
+            indirizzo: dati.indirizzo ?? null,
+            citta: dati.citta ?? null,
+            cap: dati.cap ?? null,
+            note: dati.note ?? null,
+          });
+          return creato.id;
+        },
+        arricchisci: (clienteId, campi) => {
+          const cliente: any = clienti.find((c: any) => c.id === clienteId);
+          if (!cliente) return;
+          Object.assign(cliente, campi, { updatedAt: new Date() });
+        },
+        salva: saveClientiStore,
+        isAzienda: nome => COMPANY_RE.test(nome),
+        dividiPersona: (nome, cf) => splitPersona(nome, cf),
+      }
+    );
+  });
 
   console.log("\n════ IMPORT CLIENTI ════");
   console.log(`Modalità:      ${report.dryRun ? "SIMULAZIONE (nessuna scrittura)" : "APPLY"}`);
+  console.log(`Tenant:        ${tenantId}`);
   console.log(`Sede:          ${report.sedeId}`);
   console.log(`Arricchimento: ${arricchisci ? "sì (solo campi vuoti)" : "no"}`);
   console.log(`\nRighe lette:            ${report.righeLette}`);

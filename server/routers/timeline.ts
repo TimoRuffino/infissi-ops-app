@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { conTenant } from "../tenants/contestoCorrente";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import {
   advanceCommesseFromTimeline,
   getCommessaById,
@@ -176,10 +178,8 @@ export function migraStepTimeline(caricati: TimelineStep[]): boolean {
 }
 
 // In-memory store (replace with Drizzle queries when DB is available)
-let nextId = 1;
 const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
   if (migraStepTimeline(loaded)) setTimeout(() => _stepsStore.save(), 0);
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;
 
@@ -267,7 +267,7 @@ export function allineaTimelineAlBoard(
 
 function createStepsForCommessa(commessaId: number): TimelineStep[] {
   const newSteps: TimelineStep[] = STEP_LABELS.map((label, idx) => ({
-    id: nextId++,
+    id: _stepsStore.prossimoId(),
     commessaId,
     stepNumber: idx + 1,
     label,
@@ -283,7 +283,12 @@ function createStepsForCommessa(commessaId: number): TimelineStep[] {
 }
 
 // ── Demo data for commessa 1: first 3 steps completed ────────────────────────
-(function seedDemo() {
+// Gira al semplice import del modulo (dentro l'albero di `appRouter`), prima
+// che `startServer()` apra un vero contesto di richiesta: senza un tenant
+// esplicito, il resolver del tenant (server/tenants/contestoCorrente.ts,
+// Task 6) lo rifiuterebbe con «senza tenant nel contesto» — dato che questa
+// è comunque roba legacy del tenant predefinito (Ruffino Group).
+conTenant(TENANT_PREDEFINITO_ID, function seedDemo() {
   const demoSteps = createStepsForCommessa(1);
   demoSteps[0].stato = "completato";
   demoSteps[0].dataCompletamento = "2026-02-12";
@@ -299,7 +304,7 @@ function createStepsForCommessa(commessaId: number): TimelineStep[] {
   demoSteps[2].dataCompletamento = "2026-02-20";
   demoSteps[2].utente = "Anna Russo";
   demoSteps[2].note = "Fattura emessa - importo totale";
-})();
+});
 
 export const timelineRouter = router({
   byCommessa: protectedProcedure

@@ -134,12 +134,7 @@ export type Notifica = {
 // can't grow unbounded — old ids age out naturally because notification ids
 // rotate (dates / updatedAt timestamps).
 const MAX_READ_IDS = 800;
-let nextReadId = 1;
-const _readStore = persistedStore<any>("notifiche_read", (loaded) => {
-  nextReadId = loaded.length
-    ? Math.max(...loaded.map((x: any) => x.id)) + 1
-    : 1;
-});
+const _readStore = persistedStore<any>("notifiche_read", () => {});
 const readRows = _readStore.items;
 
 function readSetFor(userId: number): Set<string> {
@@ -150,7 +145,7 @@ function readSetFor(userId: number): Set<string> {
 function markIdsRead(userId: number, ids: string[]): void {
   let row = readRows.find((r: any) => r.userId === userId);
   if (!row) {
-    row = { id: nextReadId++, userId, readIds: [], updatedAt: new Date() };
+    row = { id: _readStore.prossimoId(), userId, readIds: [], updatedAt: new Date() };
     readRows.push(row);
   }
   const merged = new Set<string>(row.readIds ?? []);

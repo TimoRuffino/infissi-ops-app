@@ -21,6 +21,86 @@
 > è cambiato: script `icone`, devDependency `sharp`), dominio, servizio
 > Railway, callback OAuth.
 
+> **Novità 07/09/2026 sera — WS2 «porta aperta»: gli archivi diventano per
+> azienda, su branch.** I 15 task del piano
+> (`docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md`) sono implementati
+> e committati su `feature/ws2-porta-aperta`, nato dal branch del WS1: dal
+> commit `964fb6b` (spec) al `aa35e51`, più i commit di documentazione di
+> chiusura. **Nessun push, nessun merge su `main`**, `FLAG_MULTI_AZIENDA`
+> resta spento e assente dall'env di produzione: il merge è una decisione
+> della direzione (prima la PR #3 del WS1, poi questo branch).
+> **Che cosa cambia.** Ogni store JSONB è ora una *famiglia* con un archivio
+> per azienda: il tenant 1 tiene le chiavi di sempre (alias
+> `chiaveStore(1, nome) === nome`), dal tenant 2 sono `tenant:<id>:<store>` —
+> nessuna copia, nessun cutover, rollback = redeploy. Sette store restano
+> globali (`sedi`, `utenti`, i due flag di piattaforma, i tre `backup_*`). I
+> moduli non sono cambiati: `store.items` è un Proxy che risolve l'azienda
+> corrente da `AsyncLocalStorage` e **fallisce** se non c'è azienda nel
+> contesto (fail-closed; ripiego sul tenant 1 solo con `NODE_ENV === "test"`).
+> Gli id dei record sono unici in tutta l'installazione (`prossimoId()`, 29
+> moduli convertiti). Una guardia unica `motivoRifiutoTenant` serve tRPC e le
+> quattro rotte Express (upload/download documenti, anteprime, allegati mail,
+> SSE), che rispondono `412` con gli stessi messaggi; la **porta chiusa non
+> esiste più**, nemmeno nel login. Ogni punto d'ingresso fuori richiesta
+> gira prima per azienda e poi per sede (`perOgniTenantAttivo` +
+> `sediAttiveDelTenant`, oppure `conTenantDellaSede`): action center,
+> smistamento, analisi, follow-up, conferme, costo da conferma, sonda
+> fatture, scheduler FiC, poller e watcher IMAP, promemoria, backup Drive,
+> worker degli eventi, SSE, più le due riconciliazioni del boot. Le 33
+> tabelle con `sede_id` ricevono `tenant_id` da un trigger alimentato dalla
+> tabella specchio `tenant_sedi`: DDL prima del `listen` (con `lock_timeout`
+> per tabella), backfill a lotti **dopo** il `listen`. Nuovo comando in sola
+> lettura `pnpm tenant verifica` (per l'automazione: `pnpm --silent tenant
+> verifica --json`). Trovato e corretto per strada un guasto che non c'entra
+> col multi-azienda: il processo moriva a 60 s per un'eccezione non
+> intercettata in `riavviaWatchers` (poller IMAP).
+> **Decisioni d'esecuzione:** ventidue, una per volta, tutte registrate
+> nella spec `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`
+> **§2-bis «Decisioni in corso d'opera»** (R1…R22) con motivo e costo se
+> sbagliate; il registro esteso è in
+> `.superpowers/sdd/2026-09-07-ws2-porta-aperta/progress.md`. Le più pesanti:
+> il backfill di `tenantId` è **su richiesta** e solo al caricamento (gli
+> script non timbrano né riscrivono, R3/R6); `contestoCorrente.ts` è un
+> modulo **foglia** e i giri per azienda stanno in `giri.ts` (R9, un ciclo di
+> import rendeva `protectedProcedure` undefined); la riga `tenants` del
+> tenant 1 si semina **anche a interruttore spento** (R13, altrimenti la
+> migrazione non è verificabile nel deploy spento); DDL e backfill delle
+> tabelle sono separati, il secondo dopo il `listen` (R14).
+> **Verificato:** `pnpm check` e `pnpm build` verdi; suite `vitest` completa
+> verde a parte i 3 FAIL preesistenti e indipendenti «foto HEIC vera (sips)»;
+> i test su Postgres vero (Docker usa-e-getta) per persistenza, control plane
+> e tabelle; boot locale col database a interruttore acceso e spento, fino a
+> `server.listen`, con le righe di log attese; `pnpm tenant verifica` nelle
+> due forme, con e senza control plane; test incrociati fra aziende sui
+> router. **Non verificato:** nulla distribuito su Railway, nessuna verifica
+> a schermo nel browser (serve il login demo che l'agente non digita), il
+> comportamento con più repliche.
+> **Aperto:** 96 «non trovato» in 19 router rispondono `500` invece di `404`
+> per un id di un'altra azienda (solo `clienti.ts` è stato corretto, R17) —
+> nessuna fuga di dati, ma non è il contratto: pulizia a parte prima del WS3;
+> backup ancora globale (`Utenti.json` di ogni sede include gli utenti senza
+> sedi di tutte le aziende) — motivo in più per **nessun tenant 2 in
+> produzione prima del WS3**; l'analisi azienda automatica di Tars ora gira
+> solo sulle sedi **attive** (prima: tutte) — cambio di comportamento, la
+> richiesta manuale da `/tars` è invariata. Runbook:
+> `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per tenant».
+> PRD §60.10 (v5.54).
+> **Revisione finale e fusione (07/09, notte).** La revisione dell'intero
+> branch ha trovato 1 Critical e 4 Important, tutti corretti in un'unica
+> onda e riverificati puliti (R19-R21 in spec §2-bis): le quattro rotte
+> Express anonime (webhook WhatsApp, feed ICS, callback FiC) cercano il
+> tenant con `trovaNeiTenant` invece di presumerlo, `conTenantDellaSede` è
+> fail-closed su una sede sconosciuta a interruttore acceso (mai più un
+> ripiego silenzioso sul tenant 1), e gli script di manutenzione
+> (`reset-pattuiti`, `importa-clienti`) accettano `--tenant=<id>`. Il branch
+> ha poi assorbito `main` (PRD a **5.58**, rebranding Wyndor nei documenti
+> vivi, `fornitori_archivio` con id globali e `archivioWorker` per tenant,
+> R22). Resta **non fuso su `main` e non pushato** — la scelta fra merge
+> diretto e PR è della direzione — e i test su Postgres (`*.pg.test.ts`)
+> condividono un database di prova: vanno lanciati con
+> `--no-file-parallelism` per una corsa preesistente su `tenant_sedi`.
+> Voce 21 del debito aggiornata.
+
 > **Novità 07/09/2026 — WS1 fondazione tenant su branch, revisione finale
 > corretta.** I 15 task del piano di implementazione
 > (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`) sono
@@ -45,6 +125,14 @@
 > corretti (PRD §60.6 e prova gratuita; `pnpm tenant` non esegue più DDL:
 > sonda `to_regclass`, si ferma se le tabelle mancano). Il merge resta alla
 > direzione.
+> **WS2 «porta aperta» progettato (07/09, sera):** spec
+> `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` approvata a
+> sezioni e piano `docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md` (15
+> task) sul branch `feature/ws2-porta-aperta`, nato dal WS1; **eseguito la
+> sera stessa — v. il blocco WS2 qui sopra.** Alias delle chiavi per il tenant 1, contesto implicito con
+> AsyncLocalStorage e Proxy sugli store, id globali, `tenant_id` via trigger,
+> guardia unica tRPC/Express, worker per tenant, `pnpm tenant verifica`; via
+> la porta chiusa. PRD §60.10.
 > **Aperto per il WS2:** le rotte Express che usano `createContext` (upload
 > documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
 > applicano ancora porta chiusa né sola lettura — non conta nel WS1 (solo
@@ -492,7 +580,16 @@ server/comunicazioni/        (era server/tars/, ma non era l'agente)
 server/events/              registro eventi, consumer e recovery lease
 server/notifications/       repository, proiettore, SSE e Web Push
 server/observability/       metriche aggregate privacy-safe
-server/tenants/             control plane multi-azienda: contesto, guardie, servizio, comandi (WS1 su branch, PRD §60.9; FLAG_MULTI_AZIENDA spento)
+server/tenants/             multi-azienda (WS1+WS2 su branch, PRD §60.9-60.10; FLAG_MULTI_AZIENDA spento)
+  contestoCorrente.ts       FOGLIA: AsyncLocalStorage, conTenant, tenantCorrente, resolver
+  giri.ts                   conTenantDellaSede, tenantsAttivi, perOgniTenantAttivo
+  contesto.ts / regole.ts   contesto della richiesta; guardie pure (motivoRifiutoTenant)
+  express.ts                rifiutaTenant (412) e conTenantDelContesto per le rotte Express
+  repository.ts             tabelle tenants/eventi/comandi e specchio tenant_sedi
+  servizio.ts / comandi.ts  servizio di dominio ed esecuzione dei comandi accodati
+  boot.ts                   preparaTenants / completaTenants / schema e backfill tabelle
+  tabelle.ts                tenant_id sulle 33 tabelle per sede: DDL + backfill a lotti
+  verifica.ts / cli.ts      logica pura del rapporto `pnpm tenant verifica` e parsing
 
 server/actionCenter/
   signals.ts                regole pure, priorità e deduplica
@@ -1730,12 +1827,26 @@ Poi verificare nel browser, desktop e mobile:
 - Timeline e board: spostare una commessa sul Kanban e verificare che le
   milestone corrispondenti risultino completate.
 
-Se e quando il branch `feature/ws1-fondazione-tenant` va in produzione
-(decisione della direzione, non automatica col merge): deploy con
-`FLAG_MULTI_AZIENDA` spento, verifica in sola lettura
-(`docs/runbooks/multi-azienda.md`), backup Drive riuscito nelle 24 ore, solo
-allora accendere l'interruttore e controllare la riga di log `[tenants]
-tenant 1 … pronto` e l'evento `proprietario_assegnato`.
+Se e quando i branch multi-azienda vanno in produzione (decisione della
+direzione, non automatica col merge) — `feature/ws1-fondazione-tenant` e
+`feature/ws2-porta-aperta`, che contiene il primo:
+
+1. backup Drive riuscito nelle 24 ore **prima del deploy**, non solo prima
+   dell'accensione: al primo boot il codice timbra `tenantId` sui record e
+   `tenant_id` sulle tabelle anche a interruttore spento;
+2. `pnpm --silent tenant verifica --json` di partenza, salvato;
+3. deploy con `FLAG_MULTI_AZIENDA` spento; nei log, in quest'ordine:
+   `[tenants] tabelle: N applicate, M assenti, R rinviate, specchio K sedi`
+   (prima che la porta si apra) e poi, in sottofondo,
+   `[tenants] backfill tenant_id: T righe in X ms`;
+4. `pnpm --silent tenant verifica --json` **dopo aver visto la seconda
+   riga**: deve dare `Anomalie totali: 0` ed exit 0;
+5. solo allora `FLAG_MULTI_AZIENDA=on`, riavvio, nuovo login; controllare la
+   riga `[tenants] tenant 1 … pronto` e l'evento `proprietario_assegnato`;
+6. nessun tenant 2 in produzione prima del WS3 (storage, backup e credenziali
+   sono ancora globali). Il primo tenant 2 nasce in staging.
+
+Procedura completa e messaggi d'errore: `docs/runbooks/multi-azienda.md`.
 
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
@@ -1760,6 +1871,8 @@ pnpm storage:dry-run
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
 | `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` | design approvato del SaaS multi-azienda (tenant sopra sede, canone fisso, soglie d'uso, Platform Admin, omaggi, migrazione di Ruffino Group) con il riscontro sul codice in Appendice A — nessun codice autorizzato |
 | `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` | spec tecnica del workstream 1 (fondazione tenant): control plane, contesto, guardie, ruolo proprietario, comandi e script, interruttore, test — approvata a sezioni; piano `docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md` eseguito il 07/09/2026 sul branch `feature/ws1-fondazione-tenant` (voce 21), non su `main` |
+| `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` | spec tecnica del workstream 2 (archivi per tenant): famiglie e istanze degli store, Proxy sul tenant corrente, id globali, guardia unica tRPC/Express, worker per azienda, `tenant_id` sulle 33 tabelle, verifica CLI — approvata a sezioni; §2-bis raccoglie le 17 decisioni prese in esecuzione; piano `docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md` eseguito il 07/09/2026 sul branch `feature/ws2-porta-aperta` (voce 21), non su `main` |
+| `docs/runbooks/multi-azienda.md` | runbook operativo WS1+WS2: interruttore, ordine del boot e righe di log attese, `pnpm tenant …`, `pnpm tenant verifica`, ordine in produzione, rollback, errori |
 | `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
 | `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -4277,7 +4390,8 @@ a vuoto e dice «57 saltati»).
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
-21. **SaaS multi-azienda (06/09/2026): design approvato, nessun codice.**
+21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2
+    implementati su branch il 07/09, non su `main`.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -4351,6 +4465,73 @@ a vuoto e dice «57 saltati»).
     `ensureSchema()`; `RUOLO_COLORS` senza `proprietario`; messaggio
     letterale invece che da `MESSAGGI` in `permissions.ts`; doppio guasto
     possibile in `registraEvento` del `comando_fallito`.
+
+    **07/09/2026, sera: WS2 codificato su branch, non su `main`, PR da
+    aprire.** I 15 task del piano
+    (`docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md`) sono committati
+    su `feature/ws2-porta-aperta` (`964fb6b`…`aa35e51`, più la
+    documentazione di chiusura), nato dal branch del WS1: gli archivi JSONB
+    hanno un'istanza per azienda (il tenant 1 tiene le chiavi di oggi), il
+    contesto dell'azienda è implicito e fail-closed, gli id dei record sono
+    unici nell'installazione, la guardia è unica per tRPC ed Express (412),
+    i worker girano per azienda e poi per sede, le 33 tabelle con `sede_id`
+    portano `tenant_id` da un trigger, `pnpm tenant verifica` fotografa lo
+    stato in sola lettura e la «porta chiusa» sparisce. Dei punti aperti
+    elencati sopra, il WS2 chiude il **(3)** (registro dinamico degli store,
+    chiavi per tenant, scelta boot/lazy con la decisione «tutto in memoria»,
+    store globali dichiarati) e la parte di **(1)** che restava sulle rotte
+    Express; **(7)–(16)** restano per WS3–WS6. Le diciotto decisioni prese
+    durante l'esecuzione sono nella spec §2-bis; PRD §60.10 (v5.54); runbook
+    `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per tenant».
+    `pnpm check`/`test`/`build` verdi (sempre a parte i 3 FAIL HEIC
+    preesistenti), test su Postgres vero, boot locale col database acceso e
+    spento; nulla distribuito su Railway, nessuna verifica a schermo. **PR
+    verso `main` ancora da aprire** (la #3 è quella del WS1).
+
+    **Aperto dal WS2, da fare prima del WS3:** in 19 router restano **96
+    siti** che lanciano `throw new Error("… non trovato")`, quindi un id di
+    un'altra azienda risponde `500` invece di `404`; solo
+    `server/routers/clienti.ts` è stato portato a `TRPCError NOT_FOUND`
+    (decisione R17). Nessuna fuga di dati — il messaggio è identico per un id
+    inesistente e per uno altrui — ma non è il contratto della spec §9.
+    L'elenco dei siti è nel rapporto del Task 14
+    (`.superpowers/sdd/2026-09-07-ws2-porta-aperta/`). Sempre aperti: il
+    backup resta globale e il file `Utenti.json` di ogni sede include gli
+    utenti senza sedi di tutte le aziende (fino al WS3); il riavvio dei
+    watcher IMAP non è atomico con due o più aziende; il backfill delle
+    tabelle rigira a vuoto a ogni boot. Chiuso dopo la revisione: gli
+    insiemi di esenzione di `pnpm tenant verifica` hanno una guardia
+    strutturale (`server/tenants/verifica.confine.test.ts`, decisione R18).
+
+    **07/09/2026, notte: revisione finale e fusione con `main`.** La
+    revisione dell'intero branch (`94180e1..b4fb2e0`) ha trovato 1 Critical
+    — le quattro rotte Express anonime (webhook WhatsApp, feed ICS,
+    callback FiC) toccavano store per tenant senza contesto, e a
+    interruttore acceso due facevano cadere il processo — e 4 Important
+    (script di manutenzione senza contesto, `conTenantDellaSede` fail-open
+    su una sede sconosciuta, runbook incompleto sul `senzaTenant` residuo e
+    sul primo deploy in rolling). Corretti in un'unica onda e riverificati
+    puliti (decisioni R19-R21 in spec §2-bis): le rotte anonime cercano il
+    tenant con `trovaNeiTenant` (`server/tenants/giri.ts`) prima di agire
+    nel contesto trovato (`server/_core/rotteAnonime.ts`);
+    `conTenantDellaSede` lancia, non ripiega, su una sede sconosciuta a
+    interruttore acceso; `scripts/reset-pattuiti.ts` e
+    `scripts/importa-clienti.ts` accettano `--tenant=<id>`. La guardia
+    strutturale R18 (sopra), nata in una sessione parallela, è stata
+    integrata come commit a sé dopo revisione (decisione R22). Il branch ha
+    poi assorbito `origin/main` (26 commit: rebranding Wyndor, magazzino
+    riscritto, fatture libere, pagina Fornitori — arrivati nel frattempo,
+    in parte dalla PR #3 del WS1): PRD a 5.58, rebranding Wyndor nei
+    documenti vivi ancora scoperti, `fornitori_archivio` (pagina Fornitori)
+    con id globali e `server/fornitori/archivioWorker.ts` per tenant.
+    Verifica finale:
+    check, build, suite 3067 verdi, guardie strutturali 118/118, pg 52/52 in
+    sequenza (`--no-file-parallelism`: i file `*.pg.test.ts` condividono un
+    database di prova e una corsa preesistente su `tenant_sedi` li fa
+    fallire in parallelo), boot a interruttore acceso e spento puliti.
+    **Ancora non fuso su `main`, non pushato**: la scelta fra merge diretto
+    e PR è della direzione. Il gemello PDF del PRD
+    (`PRD_infissi_ops_v4.pdf`) non è stato rigenerato in questa fusione.
 
 ## 13. Cosa resta della piattaforma
 

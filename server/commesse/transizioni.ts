@@ -78,13 +78,9 @@ type RegistroTransizione = {
   createdAt: Date;
 };
 
-let nextTransizioneId = 1;
 export const storeTransizioniCommessa = persistedStore<RegistroTransizione>(
   "commesse_transizioni",
   righe => {
-    nextTransizioneId = righe.length
-      ? Math.max(...righe.map(riga => Number(riga.id) || 0)) + 1
-      : 1;
     for (const riga of righe) {
       if ((riga as any).compensaTransizioneId === undefined) {
         (riga as any).compensaTransizioneId = null;
@@ -551,7 +547,7 @@ async function applicaTransizioneCommessa(
   );
   const dopo = snapshot(commessa);
   const registro: RegistroTransizione = {
-    id: nextTransizioneId++,
+    id: storeTransizioniCommessa.prossimoId(),
     sedeId: commessa.sedeId,
     commessaId: commessa.id,
     origine: input.origine,

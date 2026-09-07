@@ -28,8 +28,6 @@ type Referente = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let nextId = 1;
-
 /**
  * Backfill dei campi aggiunti dopo il primo salvataggio: un record scritto
  * da una versione precedente non ha la chiave, e `undefined` viaggia
@@ -57,7 +55,6 @@ export function backfillCliente(c: any): void {
 }
 
 const _store = persistedStore<any>("clienti", (items) => {
-  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
   for (const c of items) backfillCliente(c);
 });
 const clienti = _store.items;
@@ -114,7 +111,7 @@ export function createClienteFromSync(data: {
 }) {
   const now = new Date();
   const cliente = {
-    id: nextId++,
+    id: _store.prossimoId(),
     sedeId: data.sedeId,
     nome: data.nome,
     cognome: data.cognome,
@@ -281,7 +278,7 @@ export async function creaCliente(
     });
   }
   const cliente = {
-    id: nextId++,
+    id: _store.prossimoId(),
     ...rest,
     // Stamp the active sede so the cliente belongs to the current showroom.
     sedeId: ctx.sedeId ?? 1,
@@ -566,7 +563,7 @@ export const clientiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input.id);
-      if (idx === -1) throw new Error("Cliente non trovato");
+      if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
       assertSedeScope(clienti[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
@@ -640,7 +637,7 @@ export const clientiRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = clienti.findIndex((c) => c.id === input);
-      if (idx === -1) throw new Error("Cliente non trovato");
+      if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
       assertSedeScope(clienti[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
@@ -671,7 +668,7 @@ export const clientiRouter = router({
   // brings both back.
   archive: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = clienti.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Cliente non trovato");
+    if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
     assertSedeScope(clienti[idx], ctx.sedeId);
     await authorizeCoreOperation({
       ctx,
@@ -695,7 +692,7 @@ export const clientiRouter = router({
 
   restore: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = clienti.findIndex((c) => c.id === input);
-    if (idx === -1) throw new Error("Cliente non trovato");
+    if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
     assertSedeScope(clienti[idx], ctx.sedeId);
     await authorizeCoreOperation({
       ctx,

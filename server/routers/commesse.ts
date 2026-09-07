@@ -85,8 +85,6 @@ export const TIPOLOGIE_PRODOTTO = [
 export { STATI_COMMESSA };
 export type { StatoCommessa };
 
-let nextId = 1;
-
 // ── Sagomatura economica (slice 2, R4) ──────────────────────────────────────
 // La matrice confermata dalla direzione il 28/08/2026
 // (docs/reports/slice-2-authz-economia-proposta.md): il registro pagamenti
@@ -139,7 +137,6 @@ function nextProdottoId(commessa: any): number {
 }
 
 const _store = persistedStore<any>("commesse", (items) => {
-  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
   for (const c of items) {
     // Backfill prodotti[] so the field is always an array.
     if (!Array.isArray((c as any).prodotti)) (c as any).prodotti = [];
@@ -288,7 +285,7 @@ export async function createCommessaFromFic(data: {
   }
   const now = new Date();
   const commessa = {
-    id: nextId++, sedeId: data.sedeId, codice: generaCodiceCommessa(),
+    id: _store.prossimoId(), sedeId: data.sedeId, codice: generaCodiceCommessa(),
     clienteId: cliente.id,
     cliente: `${cliente.cognome ?? ""} ${cliente.nome ?? ""}`.trim(),
     indirizzo: data.indirizzo ?? cliente.indirizzoLavoro ?? cliente.indirizzo ?? null,
@@ -720,7 +717,7 @@ export async function creaCommessa(
     });
   }
   const now = new Date();
-  const id = nextId++;
+  const id = _store.prossimoId();
   const {
     clienteId: inputClienteId,
     cliente: clienteName,

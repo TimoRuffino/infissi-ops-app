@@ -2,12 +2,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "../_core/password";
 import * as persistenceModulo from "../_core/persistence";
+import { storeDi, tenantsNoti } from "../_core/persistence";
+// Side-effect only: registra la famiglia "clienti" (persistedStore) così i
+// test di questo file possono verificare `istanziaStoresPerTenant` su uno
+// store per-tenant vero, senza importare l'intero appRouter.
+import "../routers/clienti";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import {
+  allineaTenantPredefinito,
   assegnaProprietario,
-  assicuraTenantPredefinito,
   crea,
   eseguiComandiInAttesa,
   revocaProprietario,
@@ -103,6 +108,40 @@ describe("crea", () => {
     const eventi = await getTenantRepository().eventi(tenant!.id);
     expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
   });
+
+  it("se istanziaStoresPerTenant fallisce, la sede e l'utente creati in questo giro vengono tolti e il tenant resta", async () => {
+    vi.spyOn(persistenceModulo, "istanziaStoresPerTenant").mockRejectedValueOnce(
+      new Error("istanzia fallita (prova)")
+    );
+    await expect(crea(inputAcme(), script)).rejects.toThrow(/istanzia fallita/);
+    const tenant = getTenantRepository().perSlug("acme");
+    expect(tenant).not.toBeNull();
+    expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
+    expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
+    const eventi = await getTenantRepository().eventi(tenant!.id);
+    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
+  });
+});
+
+describe("crea: store del tenant (Task 6)", () => {
+  it("istanzia gli store del tenant appena creato: storeDi è [] e tenantsNoti() lo contiene", async () => {
+    // Il primo tenant creato in un repo di controllo appena azzerato prende
+    // id 1, che persistence.ts tiene sempre "noto" di default: non basta a
+    // provare che `crea` chiami `istanziaStoresPerTenant`. Un secondo
+    // tenant, invece, nasce con uno store per-tenant che prima non esisteva.
+    await crea(inputAcme(), script);
+    const secondo = await crea(
+      {
+        ...inputAcme(),
+        slug: "beta",
+        nome: "Beta Infissi",
+        proprietario: { ...inputAcme().proprietario, email: "mario@beta.test" },
+      },
+      script
+    );
+    expect(storeDi(secondo.tenant.id, "clienti")).toEqual([]);
+    expect(tenantsNoti()).toContain(secondo.tenant.id);
+  });
 });
 
 describe("stato e proprietari", () => {
@@ -130,20 +169,24 @@ describe("stato e proprietari", () => {
   });
 });
 
-describe("assicuraTenantPredefinito", () => {
-  it("semina il tenant 1 e dà il ruolo alla prima direzione attiva senza proprietari", async () => {
+describe("allineaTenantPredefinito", () => {
+  it("dà il ruolo alla prima direzione attiva senza proprietari, dopo che il control plane ha seminato il tenant 1", async () => {
     const now = new Date();
     utenti.push({ id: 97702, nome: "D", cognome: "Uno", email: "d1@t1.test", ruoli: ["direzione", "amministrazione", "commerciale"], sediIds: [1], attivo: true, tenantId: 1, password: "scrypt$x", createdAt: now, updatedAt: now });
     utenti.push({ id: 97703, nome: "D", cognome: "Due", email: "d2@t1.test", ruoli: ["direzione"], sediIds: [1], attivo: true, tenantId: 1, password: "scrypt$x", createdAt: now, updatedAt: now });
     const giaProprietari = utenti.filter(u => (u.ruoli ?? []).includes("proprietario") && u.tenantId === 1).map(u => u.id);
-    await assicuraTenantPredefinito();
+    // Il seed della riga `tenants` è compito del control plane (`preparaTenants`
+    // lo fa con `repo.assicuraTenantPredefinito()`, PRIMA che gli store
+    // esistano): qui lo riproduciamo a mano perché il test lavora sugli store.
+    await getTenantRepository().assicuraTenantPredefinito();
+    await allineaTenantPredefinito();
     expect(getTenantRepository().perId(1)?.slug).toBe("ruffino-group");
     const oraProprietari = utenti.filter(u => (u.ruoli ?? []).includes("proprietario") && u.tenantId === 1).map(u => u.id);
     // Se il tenant 1 non aveva proprietari, il primo candidato per id con meno di
     // 3 ruoli lo riceve (97702 ha già tre ruoli, quindi 97703 se l'utente 1 non c'è).
     expect(oraProprietari.length).toBeGreaterThanOrEqual(1);
     expect(oraProprietari.length).toBe(Math.max(giaProprietari.length, 1));
-    await assicuraTenantPredefinito();
+    await allineaTenantPredefinito();
     expect(utenti.filter(u => (u.ruoli ?? []).includes("proprietario") && u.tenantId === 1).length).toBe(oraProprietari.length);
   });
 });

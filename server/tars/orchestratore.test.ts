@@ -41,6 +41,8 @@ import { descrittoreAzione } from "./azioni/registry";
 import { azzeraMemoriaPerTest, memorieValide } from "./memoria";
 import { getDocumentoRecordById } from "../routers/preventiviContratti";
 import { getCommessaById } from "../routers/commesse";
+import { __registraTenantNotoPerTest } from "../_core/persistence";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 
 const SEDE = 95001;
 const ALTRA_SEDE = 95002;
@@ -1032,5 +1034,66 @@ describe("sanifica", () => {
     expect(testo).toContain("limite");
     expect(testo).toContain("richiama lo strumento");
     expect(testo).not.toContain("Errore interno");
+  });
+});
+
+describe("tars — cintura di sicurezza del tenant in eseguiRun (Task 11, WS2 §5.4)", () => {
+  beforeEach(() => {
+    // Toglie il ripiego-tenant-1 riservato ai test (contestoCorrente.ts):
+    // senza un contesto ALS esplicito, tenantCorrente() deve dare null,
+    // esattamente come in produzione fuori da una richiesta o da un giro
+    // per-tenant. Così la cintura di eseguiRun non può passare "per caso".
+    modalitaTenantStretta(true);
+    // eseguiRun tocca più store per-tenant (commesse per la risoluzione
+    // deittica, memorie, ecc.): senza un'istanza per il tenant 2, un
+    // accesso fallirebbe con "non istanziato per il tenant 2" invece di
+    // eseguire il percorso pulito che questo test vuole osservare.
+    __registraTenantNotoPerTest(2);
+  });
+
+  afterEach(() => {
+    modalitaTenantStretta(false);
+  });
+
+  it("il run gira SEMPRE nel contesto del proprio tenant, anche chiamato fuori da conTenant", async () => {
+    // Strumento di prova: riusa un vero strumento L0 già catalogato (fixture
+    // esistente, come in "protocollo write-ahead R1" sopra) e ne sostituisce
+    // l'esecuzione per registrare cosa vede tenantCorrente() dall'INTERNO
+    // dell'esecuzione dello strumento — il punto più a valle nel run.
+    const strumento = descrittoreAzione("leggi_promemoria_in_scadenza")!.strumento;
+    let tenantVistoDalTool: number | null | undefined;
+    vi.spyOn(strumento, "esegui").mockImplementation(async () => {
+      tenantVistoDalTool = tenantCorrente();
+      return {
+        dati: {},
+        evidenze: [],
+        freschezza: new Date().toISOString(),
+        fonteAutorevole: "prova",
+        omissioni: [],
+        versioniEntita: {},
+      };
+    });
+
+    // ContestoRun con tenantId 2, costruito come in contesto.tenant.test.ts
+    // ma qui SENZA alcun conTenant intorno alla chiamata: nessuna richiesta
+    // tRPC (guardiaTenant) e nessun perOgniTenantAttivo hanno già impostato
+    // il tenant nel contesto — la cintura di eseguiRun deve farlo da sola.
+    const contesto = await costruisciContesto({
+      ...contestoTrpc(DIREZIONE_ID, ["direzione"]),
+      tenantId: 2,
+    });
+
+    const esito = await eseguiRun({
+      contesto,
+      provider: creaProviderFinto((_richiesta, passo) =>
+        passo === 0
+          ? chiamataTool("leggi_promemoria_in_scadenza", {})
+          : rispostaTesto("Fatto.")
+      ),
+      messaggio: "controlla i promemoria in scadenza",
+    });
+
+    expect(esito.stato).toBe("ok");
+    expect(tenantVistoDalTool).toBe(2);
   });
 });

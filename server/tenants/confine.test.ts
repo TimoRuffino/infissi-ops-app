@@ -2,28 +2,13 @@
 // Guardie STRUTTURALI del tenant (spec WS1 §10.8), sul modello di
 // server/tars/costi/confine.test.ts: leggono il sorgente e falliscono se
 // qualcuno reintroduce un percorso che la spec vieta.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const RADICE = join(__dirname, "..", "..");
-
-function fileSorgente(cartelle: string[]): string[] {
-  const trovati: string[] = [];
-  const visita = (percorso: string) => {
-    for (const voce of readdirSync(percorso)) {
-      if (voce === "node_modules" || voce === "dist" || voce.startsWith(".")) continue;
-      const completo = join(percorso, voce);
-      if (statSync(completo).isDirectory()) visita(completo);
-      else if (/\.(ts|tsx)$/.test(voce)) trovati.push(completo);
-    }
-  };
-  for (const cartella of cartelle) visita(join(RADICE, cartella));
-  return trovati;
-}
+import { fileSorgente, relativo, RADICE } from "../_core/sorgentiDiProva";
+import { TENANT_PREDEFINITO_ID } from "./costanti";
 
 const PRODUZIONE = fileSorgente(["server", "shared", "scripts"]).filter(f => !/\.test\.ts$/.test(f));
-const relativo = (percorso: string) => percorso.slice(RADICE.length + 1);
 const testo = (f: string) => readFileSync(f, "utf8");
 
 describe("confine del tenant", () => {
@@ -37,18 +22,78 @@ describe("confine del tenant", () => {
     expect(scrittori).toEqual([join("server", "tenants", "repository.ts")]);
   });
 
-  it("portaChiusaPerTenant ha esattamente due chiamanti: la guardia e il login", () => {
-    const chiamanti = PRODUZIONE.filter(
-      f => testo(f).includes("portaChiusaPerTenant(") && !f.endsWith(join("tenants", "regole.ts"))
-    )
-      .map(relativo)
-      .sort();
-    expect(chiamanti).toEqual([join("server", "_core", "trpc.ts"), join("server", "routers.ts")]);
+  it("portaChiusaPerTenant non compare più in server/", () => {
+    const superstiti = PRODUZIONE.filter(f => testo(f).includes("portaChiusaPerTenant")).map(relativo);
+    expect(superstiti).toEqual([]);
+  });
+
+  // Fix round 1 (Task 7): contestoCorrente.ts deve restare una FOGLIA del
+  // grafo dei moduli — niente ./contesto, ./repository o router — altrimenti
+  // si riapre il ciclo con _core/trpc.ts (che importa `conTenant` da lì) che
+  // faceva crashare al semplice import un router caricato prima di questo
+  // modulo (v. _core/ordineImport.test.ts).
+  it("server/tenants/contestoCorrente.ts importa solo interruttori, costanti e _core/persistence", () => {
+    const testoModulo = testo(join(RADICE, "server", "tenants", "contestoCorrente.ts"));
+    const specifiers = [...testoModulo.matchAll(/^import\s+(?:.+?\s+from\s+)?["']([^"']+)["'];?\s*$/gm)]
+      .map(m => m[1])
+      .filter(s => !s.startsWith("node:"));
+    expect(new Set(specifiers)).toEqual(new Set(["../platform/interruttori", "./costanti", "../_core/persistence"]));
+  });
+
+  it("AsyncLocalStorage compare solo in server/tenants/contestoCorrente.ts", () => {
+    const usi = PRODUZIONE.filter(f => /AsyncLocalStorage/.test(testo(f))).map(relativo);
+    expect(usi).toEqual([join("server", "tenants", "contestoCorrente.ts")]);
+  });
+
+  // Task 15 (spec WS2 §3.1, §5.1): il verso della dipendenza è uno solo.
+  // `persistence.ts` non sa che esistono i tenant — riceve il resolver con
+  // `impostaResolverTenant` e la lista degli id come parametro di
+  // `bootstrapAll`. Un import di `../tenants/*` da qui riaprirebbe il ciclo
+  // (contestoCorrente importa persistence) e legherebbe il registro degli
+  // store al control plane.
+  it("server/_core/persistence.ts non importa da server/tenants/", () => {
+    const testoModulo = testo(join(RADICE, "server", "_core", "persistence.ts"));
+    const specifiers = [...testoModulo.matchAll(/from\s+["']([^"']+)["']/g)].map(m => m[1]);
+    expect(specifiers.filter(s => s.includes("tenants/"))).toEqual([]);
+  });
+
+  // Task 15 (spec WS2 §3.2): `storeDi(tenantId, nome)` scavalca il contesto e
+  // restituisce l'array reale di un'altra azienda. È lo strumento di
+  // migrazione, verifica e (domani) Platform Admin: dentro un router o uno
+  // strumento di Tars sarebbe una porta aperta sui dati altrui, perché lì il
+  // tenant deve venire SEMPRE dal contesto (il Proxy di `store.items`).
+  it("storeDi non compare in server/routers/ né in server/tars/strumenti/", () => {
+    const superficie = fileSorgente([join("server", "routers"), join("server", "tars", "strumenti")]);
+    const colpevoli = superficie
+      .filter(f => !/\.test\.ts$/.test(f) && /\bstoreDi\s*\(/.test(testo(f)))
+      .map(relativo);
+    expect(colpevoli).toEqual([]);
+  });
+
+  // Task 15 (spec WS2 §3.1): `persistence.ts` non importa `./costanti` (v. la
+  // guardia sopra), quindi il numero del tenant predefinito è scritto due
+  // volte. Le due copie devono restare uguali: se divergessero,
+  // `chiaveStore(1, "clienti")` smetterebbe di essere l'alias della chiave di
+  // oggi e il tenant 1 si ritroverebbe archivi vuoti sotto `tenant:1:*`.
+  it("il letterale TENANT_PREDEFINITO di persistence.ts vale TENANT_PREDEFINITO_ID", () => {
+    const testoModulo = testo(join(RADICE, "server", "_core", "persistence.ts"));
+    const trovato = /^const TENANT_PREDEFINITO\s*=\s*(\d+);/m.exec(testoModulo);
+    expect(trovato).not.toBeNull();
+    expect(Number(trovato![1])).toBe(TENANT_PREDEFINITO_ID);
   });
 
   it("lo script tenant non importa router né store", () => {
     const script = testo(join(RADICE, "scripts", "tenant.ts"));
     expect(script).not.toMatch(/from "\.\.\/server\/routers/);
     expect(script).not.toMatch(/bootstrapAll/);
+  });
+
+  // Task 13: `pnpm tenant verifica` legge `kv_store` SOLO tramite
+  // `leggiBlobDaDb`/`elencaChiaviDaDb` (persistence.ts, §7.2): uno `SELECT …
+  // FROM kv_store` scritto a mano nello script bypasserebbe quel confine e
+  // duplicherebbe la logica di lettura in un posto che deve restare pura.
+  it("lo script tenant non legge kv_store direttamente: usa leggiBlobDaDb/elencaChiaviDaDb", () => {
+    const script = testo(join(RADICE, "scripts", "tenant.ts"));
+    expect(script).not.toMatch(/kv_store/);
   });
 });

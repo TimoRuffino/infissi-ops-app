@@ -52,14 +52,15 @@ const _flagsStore = persistedStore<FeatureFlagRecord>("platform_feature_flags", 
     }
     if (item.contextEngineMode === "active") item.contextEngineMode = "shadow";
   }
-});
+}, { ambito: "globale" });
 
 let nextAuditId = 1;
 const _auditStore = persistedStore<FeatureFlagAudit>(
   "platform_feature_flag_audit",
   items => {
     nextAuditId = items.length ? Math.max(...items.map(item => item.id)) + 1 : 1;
-  }
+  },
+  { ambito: "globale" }
 );
 
 function recordFor(sedeId: number): FeatureFlagRecord {

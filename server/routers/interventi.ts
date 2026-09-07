@@ -41,7 +41,6 @@ function distanzaGiorni(data: string | null | undefined, oggi: string): number {
   return Math.abs(Math.round((a - b) / 86_400_000));
 }
 
-let nextId = 1;
 const _interventiStore = persistedStore<any>("interventi", (loaded) => {
   // One-shot cleanup: hard-delete any legacy "annullato" records so they
   // no longer appear in the calendar. Mutates the loaded array in place,
@@ -73,7 +72,6 @@ const _interventiStore = persistedStore<any>("interventi", (loaded) => {
       (i as any).titolo = titoloDaNotaImportata((i as any).note) ?? null;
     }
   }
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const interventi = _interventiStore.items;
 
@@ -275,7 +273,7 @@ export const interventiRouter = router({
       const now = new Date();
       const esecutore = esecutorePerTipo(input);
       const intervento = {
-        id: nextId++,
+        id: _interventiStore.prossimoId(),
         ...input,
         sedeId: ctx.sedeId ?? 1,
         commessaId: input.commessaId ?? null,

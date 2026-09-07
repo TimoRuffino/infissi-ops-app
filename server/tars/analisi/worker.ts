@@ -4,7 +4,10 @@
 
 import { TZDate } from "@date-fns/tz";
 import { tarsAttivo } from "../../platform/interruttori";
-import { getSediStore } from "../../routers/sedi";
+import { sediAttiveDelTenant } from "../../routers/sedi";
+import { tenantCorrente } from "../../tenants/contestoCorrente";
+import { TENANT_PREDEFINITO_ID } from "../../tenants/costanti";
+import { perOgniTenantAttivo } from "../../tenants/giri";
 import { creaProviderPerRun, statoProvider } from "../costi/providerGovernato";
 import type { TarsProvider } from "../provider";
 import { analisiDeterministica, analizzaConModello, modelloAnalisi } from "./analisi";
@@ -52,7 +55,10 @@ export function dipendenzeAnalisiReali(): DipendenzeAnalisi {
       });
     },
     modello,
-    sedi: () => getSediStore().map(s => s.id),
+    // Il tick chiama questa funzione dentro perOgniTenantAttivo: il tenant
+    // nel contesto è quello del giro corrente. Fuori da un giro (chiamata
+    // diretta, script) ricade sul tenant predefinito, come tenantCorrente().
+    sedi: () => sediAttiveDelTenant(tenantCorrente() ?? TENANT_PREDEFINITO_ID).map(s => s.id),
     now: () => new Date(),
   };
 }
@@ -184,7 +190,10 @@ export function startAnalisiAziendaWorker(): void {
     if (inCorso || !analisiAziendaAttiva()) return;
     inCorso = true;
     try {
-      await giroAnalisi(dipendenzeAnalisiReali());
+      const deps = dipendenzeAnalisiReali();
+      await perOgniTenantAttivo("tars-analisi", async () => {
+        await giroAnalisi(deps);
+      });
     } catch (errore) {
       console.error("[tars.analisi] giro fallito:", errore instanceof Error ? errore.message : errore);
     } finally {

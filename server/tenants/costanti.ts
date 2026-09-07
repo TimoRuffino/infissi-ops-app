@@ -15,7 +15,6 @@ export const INTERVALLO_COMANDI_MS = 30_000;
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 export const MESSAGGI = {
-  portaChiusa: "L'azienda non è ancora attiva su questa installazione.",
   solaLettura: "Azienda sospesa: il gestionale è in sola lettura.",
   senzaSede: "L'azienda non ha una sede attiva.",
   soloProprietari: "Solo un proprietario può nominare o revocare un proprietario.",

@@ -5,7 +5,8 @@
 
 import { TZDate } from "@date-fns/tz";
 import { tarsAttivo } from "../../platform/interruttori";
-import { getSediStore } from "../../routers/sedi";
+import { sediDelTenant } from "../../routers/sedi";
+import { perOgniTenantAttivo } from "../../tenants/giri";
 import { giroSollecitiPreventivi } from "./preventivi";
 
 const INTERVALLO_MS = 30 * 60 * 1000;
@@ -18,19 +19,24 @@ export function followupPreventiviAttivo(): boolean {
 export async function giroFollowup(now = new Date()): Promise<void> {
   const locale = new TZDate(now, "Europe/Rome");
   if (locale.getHours() < ORA_MINIMA_LOCALE) return;
-  for (const sede of getSediStore()) {
-    try {
-      const esito = await giroSollecitiPreventivi({ sedeId: sede.id, adesso: now });
-      if (esito.creati > 0 || esito.errori > 0) {
-        console.info("[tars-followup] solleciti preventivi", { sedeId: sede.id, ...esito });
+  // sediDelTenant, non sediAttiveDelTenant: invariato dal comportamento di
+  // prima del Task 9, che girava su tutte le sedi restituite da
+  // getSediStore() senza filtrare per `attiva`.
+  await perOgniTenantAttivo("tars-followup", async tenantId => {
+    for (const sede of sediDelTenant(tenantId)) {
+      try {
+        const esito = await giroSollecitiPreventivi({ sedeId: sede.id, adesso: now });
+        if (esito.creati > 0 || esito.errori > 0) {
+          console.info("[tars-followup] solleciti preventivi", { sedeId: sede.id, ...esito });
+        }
+      } catch (errore) {
+        console.error(
+          `[tars-followup] sede ${sede.id}:`,
+          errore instanceof Error ? errore.message : errore
+        );
       }
-    } catch (errore) {
-      console.error(
-        `[tars-followup] sede ${sede.id}:`,
-        errore instanceof Error ? errore.message : errore
-      );
     }
-  }
+  });
 }
 
 let timer: NodeJS.Timeout | null = null;

@@ -28,7 +28,8 @@ import { leggiAllegatoRaw } from "../../comunicazioni/allegati";
 import { verificaConfermaPerFascicolo } from "../../commesse/costoDaConferma";
 import { archiviaAllegatoComunicazione } from "../../routers/preventiviContratti";
 import { getCommessaById } from "../../routers/commesse";
-import { getSediStore } from "../../routers/sedi";
+import { sediAttiveDelTenant } from "../../routers/sedi";
+import { perOgniTenantAttivo } from "../../tenants/giri";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
 import {
   confermeOrdineMancanti,
@@ -238,41 +239,44 @@ export function autoArchivioAttivo(): boolean {
 
 const inCorso = new Set<number>();
 
-async function giroTutteLeSedi(): Promise<void> {
-  for (const sede of getSediStore()) {
-    if (!sede.attiva || inCorso.has(sede.id)) continue;
-    inCorso.add(sede.id);
-    try {
-      const esito = await eseguiGiroAutoArchivio({ sedeId: sede.id });
-      const candidati = esito.candidati.certe + esito.candidati.probabili;
-      // Anche un giro senza effetti dice cosa ha visto: «se non l'ha
-      // trovata deve dirmelo» vale pure per i log.
-      if (esito.archiviate > 0 || esito.errori > 0 || esito.saltate > 0 || candidati > 0) {
-        console.info("[conferme-auto-archivio] giro", {
+/** Un giro: per ogni tenant attivo, nel suo contesto, ogni sede attiva del tenant. */
+export async function giroTutteLeSedi(): Promise<void> {
+  await perOgniTenantAttivo("conferme-auto-archivio", async tenantId => {
+    for (const sede of sediAttiveDelTenant(tenantId)) {
+      if (inCorso.has(sede.id)) continue;
+      inCorso.add(sede.id);
+      try {
+        const esito = await eseguiGiroAutoArchivio({ sedeId: sede.id });
+        const candidati = esito.candidati.certe + esito.candidati.probabili;
+        // Anche un giro senza effetti dice cosa ha visto: «se non l'ha
+        // trovata deve dirmelo» vale pure per i log.
+        if (esito.archiviate > 0 || esito.errori > 0 || esito.saltate > 0 || candidati > 0) {
+          console.info("[conferme-auto-archivio] giro", {
+            sedeId: sede.id,
+            commesseEsaminate: esito.commesseEsaminate,
+            candidati: esito.candidati,
+            archiviate: esito.archiviate,
+            collegate: esito.collegate,
+            saltate: esito.saltate,
+            errori: esito.errori,
+            dettagli: esito.dettagli.map(d => ({
+              commessa: d.codice ?? d.commessaId,
+              file: d.nomeFile,
+              esito: d.esito,
+              motivo: d.motivo,
+            })),
+          });
+        }
+      } catch (errore) {
+        console.error("[conferme-auto-archivio] giro fallito", {
           sedeId: sede.id,
-          commesseEsaminate: esito.commesseEsaminate,
-          candidati: esito.candidati,
-          archiviate: esito.archiviate,
-          collegate: esito.collegate,
-          saltate: esito.saltate,
-          errori: esito.errori,
-          dettagli: esito.dettagli.map(d => ({
-            commessa: d.codice ?? d.commessaId,
-            file: d.nomeFile,
-            esito: d.esito,
-            motivo: d.motivo,
-          })),
+          message: errore instanceof Error ? errore.message : "unknown",
         });
+      } finally {
+        inCorso.delete(sede.id);
       }
-    } catch (errore) {
-      console.error("[conferme-auto-archivio] giro fallito", {
-        sedeId: sede.id,
-        message: errore instanceof Error ? errore.message : "unknown",
-      });
-    } finally {
-      inCorso.delete(sede.id);
     }
-  }
+  });
 }
 
 export function startConfermeAutoArchivioWorker(): void {

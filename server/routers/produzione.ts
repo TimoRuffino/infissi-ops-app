@@ -21,6 +21,9 @@ type DistintaBase = {
   commessaId: number;
   aperturaId: number;
   stato: "bozza" | "validata" | "in_produzione" | "completata";
+  // `ComponenteBOM.id` è progressivo DENTRO questa distinta (1, 2, 3 —
+  // `idx + 1` alla creazione), non un id globale: due distinte hanno
+  // entrambe un componente 1. Si cerca sempre partendo dalla distinta.
   componenti: ComponenteBOM[];
   noteValidazione?: string;
   validataDa?: string;
@@ -88,40 +91,24 @@ type NonConformita = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let nextBomId = 1;
-let nextFaseId = 1;
-let nextNcId = 1;
-let nextCompId = 1;
-let nextCheckId = 1;
-
 const _distinteStore = persistedStore<DistintaBase>("produzione_distinte", (loaded) => {
-  nextBomId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-  let maxComp = 0;
   for (const d of loaded) {
     if ((d as any).sedeId === undefined) (d as any).sedeId = 1;
-    for (const c of (d as any).componenti ?? []) {
-      if (c.id > maxComp) maxComp = c.id;
-    }
   }
-  nextCompId = maxComp + 1;
 });
 const distinteBasi = _distinteStore.items;
 
+// Nessuna procedura crea oggi una FaseProduzione (solo lettura/aggiornamento
+// di righe esistenti): lo store resta dichiarato per le rotte che leggono e
+// aggiornano checklistItems, ma non ha ancora un percorso di creazione.
 const _fasiStore = persistedStore<FaseProduzione>("produzione_fasi", (loaded) => {
-  nextFaseId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-  let maxCheck = 0;
   for (const f of loaded) {
     if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
-    for (const c of (f as any).checklistItems ?? []) {
-      if (c.id > maxCheck) maxCheck = c.id;
-    }
   }
-  nextCheckId = maxCheck + 1;
 });
 const fasiProduzione = _fasiStore.items;
 
 const _ncStore = persistedStore<NonConformita>("produzione_nc", (loaded) => {
-  nextNcId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const n of loaded) {
     if ((n as any).sedeId === undefined) (n as any).sedeId = 1;
   }
@@ -169,12 +156,15 @@ export const produzioneRouter = router({
       .mutation(({ input, ctx }) => {
         const now = new Date();
         const bom: DistintaBase = {
-          id: nextBomId++,
+          id: _distinteStore.prossimoId(),
           sedeId: ctx.sedeId ?? 1,
           commessaId: input.commessaId,
           aperturaId: input.aperturaId,
           stato: "bozza",
-          componenti: input.componenti.map((c) => ({ id: nextCompId++, ...c })),
+          // Componenti annidati in un'unica distinta base, creati una sola
+          // volta qui: un indice locale basta, si confrontano solo dentro
+          // la stessa distinta (come per le righe ordine fornitore).
+          componenti: input.componenti.map((c, idx) => ({ id: idx + 1, ...c })),
           createdAt: now,
           updatedAt: now,
         };
@@ -340,7 +330,7 @@ export const produzioneRouter = router({
       .mutation(({ input, ctx }) => {
         const now = new Date();
         const nc: NonConformita = {
-          id: nextNcId++,
+          id: _ncStore.prossimoId(),
           ...input,
           sedeId: ctx.sedeId ?? 1,
           stato: "aperta",

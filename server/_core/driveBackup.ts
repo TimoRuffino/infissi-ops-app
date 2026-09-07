@@ -9,7 +9,9 @@ import { getFile, sha256Hex } from "./fileStorage";
 // either on the namespace itself or on .default.
 const autoTable: (doc: any, opts: any) => void =
   (autoTableImport as any)?.default ?? (autoTableImport as any);
-import { persistedStore, getAllStoreSnapshots } from "./persistence";
+import { chiaveStore, persistedStore, getAllStoreSnapshots } from "./persistence";
+import { tenantIdDellaSede } from "../tenants/contesto";
+import { conTenantDellaSede } from "../tenants/giri";
 import { PRODOTTO } from "@shared/brand";
 
 // ── Nightly Google Drive backup ──────────────────────────────────────────────
@@ -52,7 +54,7 @@ type BackupConfig = {
   enabled: boolean;
 };
 
-const _configStore = persistedStore<BackupConfig>("backup_config", () => {});
+const _configStore = persistedStore<BackupConfig>("backup_config", () => {}, { ambito: "globale" });
 const configRows = _configStore.items;
 
 function getConfig(): BackupConfig {
@@ -86,10 +88,7 @@ type BackupLog = {
   error: string | null;
 };
 
-let nextLogId = 1;
-const _logStore = persistedStore<BackupLog>("backup_log", loaded => {
-  nextLogId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-});
+const _logStore = persistedStore<BackupLog>("backup_log", () => {}, { ambito: "globale" });
 const logRows = _logStore.items;
 
 // ── Service account / Drive REST ─────────────────────────────────────────────
@@ -110,7 +109,7 @@ type OAuthRow = {
   connectedAt: Date;
 };
 
-const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {});
+const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {}, { ambito: "globale" });
 const oauthRows = _oauthStore.items;
 
 // ── File fallback for OAuth credentials ─────────────────────────────────────
@@ -853,91 +852,149 @@ export async function buildBackupTree(): Promise<{
     files.push(jsonFile(["database"], `${key}.json`, value));
   }
 
+  // `sedi` e `utenti` sono store globali: una chiave sola, condivisa.
   const sedi: any[] = stores["sedi"] ?? [];
   const utenti: any[] = (stores["utenti"] ?? []).map(sanitizeUtente);
-  const clienti: any[] = stores["clienti"] ?? [];
-  const commesse: any[] = stores["commesse"] ?? [];
-  const documenti: any[] = stores["preventivi_documenti"] ?? [];
-  const tickets: any[] = stores["tickets"] ?? [];
-  const ticketAllegati: any[] = stores["ticket_allegati"] ?? [];
-  const interventi: any[] = stores["interventi"] ?? [];
-  const garanzie: any[] = stores["garanzie"] ?? [];
+  // Tutto il resto è per tenant, e la chiave dipende dall'azienda della
+  // sede: `stores["commesse"]` è l'alias del tenant 1, quindi la cartella
+  // di una sede di un'altra azienda si sarebbe riempita dei dati di
+  // Ruffino Group (o di niente). Il dump grezzo qui sopra resta completo:
+  // c'è già un file per ogni chiave, `tenant:n:*` comprese.
+  const di = (sede: { id: number }, nome: string): any[] =>
+    stores[chiaveStore(tenantIdDellaSede(sede.id), nome)] ?? [];
 
   const sediList = sedi.length > 0 ? sedi : [{ id: 1, nome: "Principale" }];
 
   for (const sede of sediList) {
-    const sedeSeg = `Sede ${sanitizeName(sede.nome ?? `#${sede.id}`)}`;
+    // Il backup gira su un timer, fuori da ogni richiesta: il contesto
+    // del tenant della sede copre anche quel che il corpo chiama a valle.
+    await conTenantDellaSede(sede.id, async () => {
+      const clienti = di(sede, "clienti");
+      const commesse = di(sede, "commesse");
+      const documenti = di(sede, "preventivi_documenti");
+      const tickets = di(sede, "tickets");
+      const ticketAllegati = di(sede, "ticket_allegati");
+      const interventi = di(sede, "interventi");
+      const garanzie = di(sede, "garanzie");
 
-    // Users assigned to the sede (sediIds array, legacy single sedeId).
-    const sedeUtenti = utenti.filter((u: any) => {
-      const ids: number[] = Array.isArray(u.sediIds)
-        ? u.sediIds
-        : u.sedeId
-          ? [u.sedeId]
-          : [];
-      return ids.length === 0 || ids.includes(sede.id);
-    });
-    files.push(jsonFile([sedeSeg], "Utenti.json", sedeUtenti));
+      const sedeSeg = `Sede ${sanitizeName(sede.nome ?? `#${sede.id}`)}`;
 
-    for (const c of clienti.filter((x: any) => (x.sedeId ?? 1) === sede.id)) {
-      const displayName =
-        `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
-      const clienteSeg = [
-        sedeSeg,
-        "Clienti",
-        `${sanitizeName(displayName)} (CL-${c.id})`,
-      ];
+      // Users assigned to the sede (sediIds array, legacy single sedeId).
+      const sedeUtenti = utenti.filter((u: any) => {
+        const ids: number[] = Array.isArray(u.sediIds)
+          ? u.sediIds
+          : u.sedeId
+            ? [u.sedeId]
+            : [];
+        return ids.length === 0 || ids.includes(sede.id);
+      });
+      files.push(jsonFile([sedeSeg], "Utenti.json", sedeUtenti));
 
-      const clienteCommesse = commesse.filter(
-        (cm: any) =>
-          cm.clienteId === c.id || (c.commesseIds ?? []).includes(cm.id)
-      );
-      const commessaIds = new Set(clienteCommesse.map((cm: any) => cm.id));
-      const clienteInterventi = interventi.filter((i: any) =>
-        commessaIds.has(i.commessaId)
-      );
-      const clienteTicket = tickets.filter((t: any) =>
-        commessaIds.has(t.commessaId)
-      );
-      const clienteGaranzie = garanzie.filter((g: any) =>
-        commessaIds.has(g.commessaId)
-      );
+      for (const c of clienti.filter((x: any) => (x.sedeId ?? 1) === sede.id)) {
+        const displayName =
+          `${c.cognome ?? ""} ${c.nome ?? ""}`.trim() || `Cliente ${c.id}`;
+        const clienteSeg = [
+          sedeSeg,
+          "Clienti",
+          `${sanitizeName(displayName)} (CL-${c.id})`,
+        ];
 
-      files.push(jsonFile(clienteSeg, "cliente.json", c));
-      try {
-        files.push({
-          segments: clienteSeg,
-          name: "Scheda cliente.pdf",
-          mimeType: "application/pdf",
-          data: buildSchedaPdf(
-            c,
-            clienteCommesse,
-            clienteInterventi,
-            clienteTicket,
-            clienteGaranzie,
-            utenti
-          ),
-        });
-      } catch (e: any) {
-        files.push(
-          jsonFile(clienteSeg, "scheda-errore.json", {
-            errore: e?.message ?? "PDF generation failed",
-          })
+        const clienteCommesse = commesse.filter(
+          (cm: any) =>
+            cm.clienteId === c.id || (c.commesseIds ?? []).includes(cm.id)
         );
+        const commessaIds = new Set(clienteCommesse.map((cm: any) => cm.id));
+        const clienteInterventi = interventi.filter((i: any) =>
+          commessaIds.has(i.commessaId)
+        );
+        const clienteTicket = tickets.filter((t: any) =>
+          commessaIds.has(t.commessaId)
+        );
+        const clienteGaranzie = garanzie.filter((g: any) =>
+          commessaIds.has(g.commessaId)
+        );
+
+        files.push(jsonFile(clienteSeg, "cliente.json", c));
+        try {
+          files.push({
+            segments: clienteSeg,
+            name: "Scheda cliente.pdf",
+            mimeType: "application/pdf",
+            data: buildSchedaPdf(
+              c,
+              clienteCommesse,
+              clienteInterventi,
+              clienteTicket,
+              clienteGaranzie,
+              utenti
+            ),
+          });
+        } catch (e: any) {
+          files.push(
+            jsonFile(clienteSeg, "scheda-errore.json", {
+              errore: e?.message ?? "PDF generation failed",
+            })
+          );
+        }
+
+        for (const cm of clienteCommesse) {
+          const cmSeg = [
+            ...clienteSeg,
+            "Commesse",
+            sanitizeName(cm.codice ?? `COM-${cm.id}`),
+          ];
+          files.push(jsonFile(cmSeg, "commessa.json", cm));
+
+          // Uploaded documents grouped by type.
+          for (const doc of documenti.filter(
+            (x: any) => x.commessaId === cm.id
+          )) {
+            const data = await resolveBackupFileData(doc);
+            if (!data) continue;
+            files.push({
+              segments: [...cmSeg, docFolder(doc.tipo)],
+              name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
+              mimeType: doc.mimeType || "application/octet-stream",
+              data,
+            });
+          }
+
+          // Ticket attachments under the commessa.
+          for (const t of clienteTicket.filter(
+            (x: any) => x.commessaId === cm.id
+          )) {
+            const all = ticketAllegati.filter((a: any) => a.ticketId === t.id);
+            for (const a of all) {
+              const data = await resolveBackupFileData(a);
+              if (!data) continue;
+              files.push({
+                segments: [...cmSeg, `Ticket ${t.id}`],
+                name: sanitizeName(a.nome ?? `allegato-${a.id}`),
+                mimeType: a.mimeType || "application/octet-stream",
+                data,
+              });
+            }
+          }
+        }
       }
 
-      for (const cm of clienteCommesse) {
+      // Commesse of the sede without a linked cliente — still backed up.
+      const orphan = commesse.filter(
+        (cm: any) =>
+          (cm.sedeId ?? 1) === sede.id &&
+          !clienti.some(
+            (c: any) =>
+              c.id === cm.clienteId || (c.commesseIds ?? []).includes(cm.id)
+          )
+      );
+      for (const cm of orphan) {
         const cmSeg = [
-          ...clienteSeg,
-          "Commesse",
+          sedeSeg,
+          "Commesse senza cliente",
           sanitizeName(cm.codice ?? `COM-${cm.id}`),
         ];
         files.push(jsonFile(cmSeg, "commessa.json", cm));
-
-        // Uploaded documents grouped by type.
-        for (const doc of documenti.filter(
-          (x: any) => x.commessaId === cm.id
-        )) {
+        for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
           const data = await resolveBackupFileData(doc);
           if (!data) continue;
           files.push({
@@ -948,12 +1005,10 @@ export async function buildBackupTree(): Promise<{
           });
         }
 
-        // Ticket attachments under the commessa.
-        for (const t of clienteTicket.filter(
-          (x: any) => x.commessaId === cm.id
-        )) {
-          const all = ticketAllegati.filter((a: any) => a.ticketId === t.id);
-          for (const a of all) {
+        for (const t of tickets.filter((x: any) => x.commessaId === cm.id)) {
+          for (const a of ticketAllegati.filter(
+            (x: any) => x.ticketId === t.id
+          )) {
             const data = await resolveBackupFileData(a);
             if (!data) continue;
             files.push({
@@ -965,50 +1020,7 @@ export async function buildBackupTree(): Promise<{
           }
         }
       }
-    }
-
-    // Commesse of the sede without a linked cliente — still backed up.
-    const orphan = commesse.filter(
-      (cm: any) =>
-        (cm.sedeId ?? 1) === sede.id &&
-        !clienti.some(
-          (c: any) =>
-            c.id === cm.clienteId || (c.commesseIds ?? []).includes(cm.id)
-        )
-    );
-    for (const cm of orphan) {
-      const cmSeg = [
-        sedeSeg,
-        "Commesse senza cliente",
-        sanitizeName(cm.codice ?? `COM-${cm.id}`),
-      ];
-      files.push(jsonFile(cmSeg, "commessa.json", cm));
-      for (const doc of documenti.filter((x: any) => x.commessaId === cm.id)) {
-        const data = await resolveBackupFileData(doc);
-        if (!data) continue;
-        files.push({
-          segments: [...cmSeg, docFolder(doc.tipo)],
-          name: sanitizeName(doc.nome ?? `doc-${doc.id}`),
-          mimeType: doc.mimeType || "application/octet-stream",
-          data,
-        });
-      }
-
-      for (const t of tickets.filter((x: any) => x.commessaId === cm.id)) {
-        for (const a of ticketAllegati.filter(
-          (x: any) => x.ticketId === t.id
-        )) {
-          const data = await resolveBackupFileData(a);
-          if (!data) continue;
-          files.push({
-            segments: [...cmSeg, `Ticket ${t.id}`],
-            name: sanitizeName(a.nome ?? `allegato-${a.id}`),
-            mimeType: a.mimeType || "application/octet-stream",
-            data,
-          });
-        }
-      }
-    }
+    });
   }
 
   return { rootName, files };
@@ -1071,7 +1083,7 @@ export async function runBackup(
   running = true;
   const cfg = getConfig();
   const log: BackupLog = {
-    id: nextLogId++,
+    id: _logStore.prossimoId(),
     startedAt: new Date(),
     finishedAt: null,
     ok: null,

@@ -28,10 +28,7 @@ type TicketAllegato = {
   createdAt: Date;
 };
 
-let nextId = 1;
-const _store = persistedStore<TicketAllegato>("ticket_allegati", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-});
+const _store = persistedStore<TicketAllegato>("ticket_allegati", () => {});
 const allegati = _store.items;
 
 registerMigratableCollection({
@@ -143,7 +140,7 @@ export const ticketAllegatiRouter = router({
         );
       }
       const a: TicketAllegato = {
-        id: nextId++,
+        id: _store.prossimoId(),
         ticketId: input.ticketId,
         nome: input.nome,
         mimeType: input.mimeType,

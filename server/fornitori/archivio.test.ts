@@ -60,6 +60,8 @@ function contestoTrpc(): TrpcContext {
     res: {} as any,
     sedeId: SEDE,
     sediIds: [SEDE],
+    // Il contesto passa da `guardiaTenant` (WS2 §5.2): senza azienda
+    // dichiarata risponderebbe «L'azienda non è ancora attiva…».
     tenantId: 1,
     tenant: null,
   };

@@ -8,6 +8,7 @@ import {
   documentiConfermaOrdine,
   type Documento,
 } from "../routers/preventiviContratti";
+import { perOgniTenantAttivo } from "../tenants/giri";
 import { registraCostoDaConferma } from "./costoDaConferma";
 import {
   ESITI_TERMINALI,
@@ -140,12 +141,24 @@ export function costoDaConfermaWorkerAttivo(): boolean {
 
 let inCorso = false;
 
+/**
+ * Un giro per ogni tenant attivo, ognuno nel suo contesto:
+ * `eseguiGiroCostiDaConferma` legge `preventivi_documenti` (store per
+ * tenant) da sé, quindi il contesto è tutto ciò che serve. Senza,
+ * l'errore «senza tenant nel contesto» tornava ad ogni tick del minuto.
+ */
+export async function eseguiGiroCostiPerOgniTenant(): Promise<void> {
+  await perOgniTenantAttivo("costo-da-conferma", async () => {
+    const esito = await eseguiGiroCostiDaConferma();
+    if (esito.esaminati > 0) console.info("[costo-da-conferma] giro", esito);
+  });
+}
+
 async function giro(): Promise<void> {
   if (inCorso) return;
   inCorso = true;
   try {
-    const esito = await eseguiGiroCostiDaConferma();
-    if (esito.esaminati > 0) console.info("[costo-da-conferma] giro", esito);
+    await eseguiGiroCostiPerOgniTenant();
   } catch (errore) {
     console.error("[costo-da-conferma] giro fallito", {
       message: errore instanceof Error ? errore.message : "unknown",
@@ -155,7 +168,7 @@ async function giro(): Promise<void> {
   }
 }
 
-export function startCostoDaConfermaWorker(): void {
+export async function startCostoDaConfermaWorker(): Promise<void> {
   if (!costoDaConfermaWorkerAttivo()) {
     console.info("[costo-da-conferma] spento (COSTO_DA_CONFERMA_WORKER=off)");
     return;
@@ -164,9 +177,19 @@ export function startCostoDaConfermaWorker(): void {
   boot.unref?.();
   const timer = setInterval(() => void giro(), INTERVALLO_MS);
   timer.unref?.();
+  // `documentiConfermaOrdine()` legge uno store per tenant (`preventivi_documenti`):
+  // fuori da `giro()` (deferred, gira ogni minuto) questa riga girava
+  // sincrona al boot, fuori da qualunque contesto — stesso difetto di
+  // `reconcileTimelineBoardStates` in server/_core/index.ts (Ruling R8),
+  // qui usato solo per il conteggio della riga di log di avvio: una volta
+  // per tenant attivo, nel suo contesto.
+  let daLeggereTotale = 0;
+  await perOgniTenantAttivo("costo-da-conferma", async () => {
+    daLeggereTotale += documentiConfermaOrdine().filter(daLeggere).length;
+  });
   console.info("[costo-da-conferma] attivo", {
     lotto: LOTTO_PER_GIRO,
     intervalloMs: INTERVALLO_MS,
-    daLeggere: documentiConfermaOrdine().filter(daLeggere).length,
+    daLeggere: daLeggereTotale,
   });
 }

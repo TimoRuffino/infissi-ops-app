@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryNotificationRepository } from "../notifications/repository";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import {
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "../tenants/repository";
+import { getSediStore } from "../routers/sedi";
 import { createMemoryReminderRepository } from "./repository";
 import { runReminderWorkerOnce, startReminderWorker } from "./worker";
 
@@ -24,6 +30,14 @@ afterEach(() => {
 });
 
 describe("reminder worker", () => {
+  // R20 (fix wave finale): `conTenantDellaSede` è fail-closed a interruttore
+  // acceso — una sede che non esiste lancia invece di ripiegare sul tenant 1.
+  // Le sedi vanno quindi dichiarate, come in produzione.
+  beforeEach(() => {
+    getSediStore().length = 0;
+    getSediStore().push({ id: 1, tenantId: 1, nome: "La Spezia", attiva: true } as any);
+  });
+
   it("proietta una sola notifica per revisione anche con due worker", async () => {
     const reminders = createMemoryReminderRepository();
     const notifications = createMemoryNotificationRepository();
@@ -132,6 +146,62 @@ describe("reminder worker", () => {
         })
       ).items,
     ).toHaveLength(0);
+  });
+
+  // Task 10 (WS2 «porta aperta»): il worker gira su un timer, fuori da
+  // qualunque richiesta. Ogni promemoria va proiettato nel contesto del
+  // tenant della SUA sede: `isRecipientActive` legge gli utenti, la
+  // proiezione e la pubblicazione toccano i dati di quell'azienda.
+  describe("contesto del tenant (Task 10)", () => {
+    beforeEach(async () => {
+      delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+      modalitaTenantStretta(true);
+      resetTenantRepositoryForTesting();
+      const tenants = getTenantRepository();
+      await tenants.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+      await tenants.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+      getSediStore().length = 0;
+      getSediStore().push(
+        { id: 10, tenantId: 1, nome: "A", attiva: true } as any,
+        { id: 20, tenantId: 2, nome: "B", attiva: true } as any
+      );
+    });
+    afterEach(() => modalitaTenantStretta(false));
+
+    it("proietta ogni promemoria nel contesto del tenant della sua sede, isolando gli errori", async () => {
+      const reminders = createMemoryReminderRepository();
+      const notifications = createMemoryNotificationRepository();
+      const visti: Array<{ sedeId: number; tenant: number | null }> = [];
+      await reminders.create({
+        ...expiredInput,
+        sedeId: 10,
+        canonicalKey: "reminder:10:7:tenant",
+      });
+      await reminders.create({
+        ...expiredInput,
+        sedeId: 20,
+        sourceProposalId: 97,
+        canonicalKey: "reminder:20:7:tenant",
+      });
+
+      const esito = await runReminderWorkerOnce({
+        reminders,
+        notifications,
+        publish: vi.fn(),
+        isRecipientActive: async sedeId => {
+          visti.push({ sedeId, tenant: tenantCorrente() });
+          if (sedeId === 10) throw new Error("store non disponibile");
+          return true;
+        },
+        now,
+      });
+
+      expect(visti.sort((a, b) => a.sedeId - b.sedeId)).toEqual([
+        { sedeId: 10, tenant: 1 },
+        { sedeId: 20, tenant: 2 },
+      ]);
+      expect(esito).toEqual({ projected: 1 });
+    });
   });
 
   it("rispetta il kill switch ed esegue subito più ogni 15 secondi", async () => {

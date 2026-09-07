@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import { getSediStore } from "./sedi";
 import {
   buildFicAuthUrl,
   FIC_SCOPES_LETTURA,
@@ -42,6 +43,11 @@ beforeEach(() => {
   process.env.FIC_OAUTH_CLIENT_ID = "client-test";
   process.env.FIC_OAUTH_CLIENT_SECRET = "secret-test";
   process.env.MAIL_ENCRYPTION_KEY = "test-only-encryption-key";
+  // Il callback OAuth è una rotta anonima: il tenant lo dichiara la sede
+  // custodita nello state (F1/R19), e `conTenantDellaSede` è fail-closed
+  // (R20). La sede va quindi dichiarata, come in produzione.
+  getSediStore().length = 0;
+  getSediStore().push({ id: 1, tenantId: 1, nome: "La Spezia", attiva: true } as any);
 });
 
 afterEach(() => {

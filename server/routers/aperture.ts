@@ -4,10 +4,7 @@ import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { requireOwnershipOrDirezione } from "../_core/permissions";
 
-let nextId = 1;
-const _apertureStore = persistedStore<any>("aperture", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-});
+const _apertureStore = persistedStore<any>("aperture", () => {});
 const aperture = _apertureStore.items;
 
 // Cross-sede guard: an apertura is only visible/mutable when its parent
@@ -59,7 +56,7 @@ export const apertureRouter = router({
       }
       const now = new Date();
       const apertura = {
-        id: nextId++,
+        id: _apertureStore.prossimoId(),
         ...input,
         stato: "da_rilevare" as const,
         createdAt: now,

@@ -3,14 +3,23 @@
 // risposta giusta è riprovare: questi test tengono in piedi la differenza fra
 // un errore che passa da solo e uno che non passerà mai.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   attesaMs,
+  buildBackupTree,
   driveFetch,
   erroreTransitorio,
   resolveBackupFileData,
 } from "./driveBackup";
 import { sha256Hex } from "./fileStorage";
+import { __registraTenantNotoPerTest, storeDi } from "./persistence";
+import { getSediStore } from "../routers/sedi";
+import { getCommesseStore } from "../routers/commesse";
+import { modalitaTenantStretta } from "../tenants/contestoCorrente";
+import {
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "../tenants/repository";
 
 const TRANSIENTE_503 = JSON.stringify({
   error: {
@@ -201,5 +210,72 @@ describe("resolveBackupFileData", () => {
         async () => Buffer.from("corrotto")
       )
     ).rejects.toThrow(/Backup incompleto.*checksum non valido/);
+  });
+});
+
+// Task 10 (WS2 «porta aperta»): il backup notturno gira su un timer, fuori
+// da qualunque richiesta, e monta l'albero leggendo la fotografia di TUTTI
+// gli store (`getAllStoreSnapshots`, nessun Proxy). Le chiavi però sono per
+// tenant: `stores["commesse"]` è l'alias del tenant 1, quindi la cartella
+// «Sede …» di un'azienda diversa restava vuota — o, peggio, si sarebbe
+// riempita dei dati di Ruffino Group. Ogni sede deve leggere le chiavi del
+// SUO tenant.
+describe("buildBackupTree per tenant (Task 10)", () => {
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    modalitaTenantStretta(true);
+    resetTenantRepositoryForTesting();
+    const tenants = getTenantRepository();
+    await tenants.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+    await tenants.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    __registraTenantNotoPerTest(2);
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: 10, tenantId: 1, nome: "Alfa", attiva: true } as any,
+      { id: 20, tenantId: 2, nome: "Beta", attiva: true } as any
+    );
+    getCommesseStore(); // registra la famiglia prima di storeDi
+    storeDi(1, "commesse").length = 0;
+    storeDi(2, "commesse").length = 0;
+    storeDi(1, "commesse").push({
+      id: 1,
+      codice: "COM-T1",
+      sedeId: 10,
+      clienteId: null,
+    } as any);
+    storeDi(2, "commesse").push({
+      id: 2,
+      codice: "COM-T2",
+      sedeId: 20,
+      clienteId: null,
+    } as any);
+  });
+  afterEach(() => modalitaTenantStretta(false));
+
+  it("la cartella di ogni sede porta le commesse del suo tenant, non quelle dell'altra azienda", async () => {
+    const { files } = await buildBackupTree();
+    const percorsi = files.map(f => [...f.segments, f.name].join("/"));
+
+    expect(percorsi).toContain(
+      "Sede Alfa/Commesse senza cliente/COM-T1/commessa.json"
+    );
+    expect(percorsi).toContain(
+      "Sede Beta/Commesse senza cliente/COM-T2/commessa.json"
+    );
+    expect(percorsi).not.toContain(
+      "Sede Beta/Commesse senza cliente/COM-T1/commessa.json"
+    );
+    expect(percorsi).not.toContain(
+      "Sede Alfa/Commesse senza cliente/COM-T2/commessa.json"
+    );
+  });
+
+  it("il dump grezzo resta completo: una chiave per istanza, tenant compresi", async () => {
+    const { files } = await buildBackupTree();
+    const dump = files
+      .filter(f => f.segments.join("/") === "database")
+      .map(f => f.name);
+    expect(dump).toContain("commesse.json");
+    expect(dump).toContain("tenant:2:commesse.json");
   });
 });

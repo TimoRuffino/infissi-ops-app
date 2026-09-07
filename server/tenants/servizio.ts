@@ -2,13 +2,20 @@
 // Servizio di dominio del tenant (WS1, spec §6). Unico punto che crea
 // tenant, sedi e proprietari fuori dai router: lo usano il boot, il ciclo
 // dei comandi e, dal WS6, il pannello del Platform Admin.
-import { conTransazioneStoreAtomica } from "../_core/persistence";
+import { conTransazioneStoreAtomica, istanziaStoresPerTenant } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
-import { contaPresidi, motivoRifiutoPresidio, presidioDi, ruoliDi, slugValido } from "./regole";
+import {
+  contaPresidi,
+  motivoRifiutoPresidio,
+  presidioDi,
+  righeTenantSedi,
+  ruoliDi,
+  slugValido,
+} from "./regole";
 import { getTenantRepository } from "./repository";
 import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
 
@@ -98,6 +105,12 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
           sedeId = nuovaSede.id;
           sedeCreataQuiId = nuovaSede.id;
         }
+        // Store del tenant (Task 6): idempotente, non fa nulla se il tenant
+        // è già noto (es. riesecuzione di un comando `crea` idempotente per
+        // slug). Se fallisce, il catch sotto toglie sede/utente spinti in
+        // questo giro; il tenant (già un fatto) resta senza store, e un
+        // comando successivo può riprovare.
+        await istanziaStoresPerTenant(tenantId);
         if (!utente) {
           utente = creaUtenteInterno({
             tenantId,
@@ -128,6 +141,11 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
     }
     throw e;
   }
+
+  // Transazione riuscita: la sede esiste ed è del tenant. Lo specchio va
+  // allineato PRIMA che qualcuno scriva righe per quella sede, altrimenti il
+  // trigger le lascia con `tenant_id` NULL fino al backfill del boot.
+  await repo.sincronizzaTenantSedi(righeTenantSedi(getSediStore()));
 
   if (utenteCreato) {
     await repo.registraEvento({
@@ -193,13 +211,16 @@ export async function revocaProprietario(tenantId: number, utenteId: number, att
 }
 
 /**
- * Al boot con interruttore acceso (spec §4.3): tenant 1 seminato; ogni tenant
- * senza proprietari attivi dà il ruolo alla prima direzione attiva (id più
- * basso) con meno di 3 ruoli; altrimenti lo dice nel log.
+ * Al boot con interruttore acceso, DOPO che gli store sono caricati (spec
+ * §4.3; Task 6: chiamata da `completaTenants`, mai da `preparaTenants` — qui
+ * `utenti`/`sedi` esistono già): ogni tenant senza proprietari attivi dà il
+ * ruolo alla prima direzione attiva (id più basso) con meno di 3 ruoli;
+ * altrimenti lo dice nel log. Il seed della riga `tenants` predefinita è
+ * compito di `preparaTenants` (`repo.assicuraTenantPredefinito()`, control
+ * plane puro, PRIMA che gli store esistano).
  */
-export async function assicuraTenantPredefinito(): Promise<void> {
+export async function allineaTenantPredefinito(): Promise<void> {
   const repo = getTenantRepository();
-  await repo.assicuraTenantPredefinito();
   const utenti = getUtentiStore();
   for (const tenant of repo.tutti()) {
     if (contaPresidi(utenti.map(presidioDi), tenant.id).proprietari > 0) continue;

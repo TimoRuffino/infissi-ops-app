@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { conTenantDellaSede } from "../tenants/giri";
 import {
   getBusinessEventRepository,
   type BusinessEventRepository,
@@ -47,7 +48,14 @@ export async function runEventWorkerOnce(input: {
   await Promise.all(
     events.map(async event => {
       try {
-        await consumer.handle(event);
+        // Il worker gira su un timer, fuori da ogni richiesta: il consumer
+        // legge e scrive gli store del tenant della sede dell'evento.
+        // A interruttore acceso una sede sconosciuta fa lanciare
+        // `conTenantDellaSede` (R20: fail-closed, nessun ripiego sul tenant
+        // 1): l'evento orfano finisce nel ramo di errore qui sotto — viene
+        // riprovato e poi messo da parte — invece di essere elaborato
+        // nell'archivio dell'azienda sbagliata.
+        await conTenantDellaSede(event.sedeId, () => consumer.handle(event));
         const completed = await input.repository.complete({
           eventId: event.id,
           consumerName: consumer.name,

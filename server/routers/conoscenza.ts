@@ -35,12 +35,9 @@ export type VoceConoscenza = {
   createdAt: Date;
 };
 
-let nextVoceId = 1;
 const _conoscenzaStore = persistedStore<VoceConoscenza>(
   "conoscenza_aziendale",
-  items => {
-    nextVoceId = items.length ? Math.max(...items.map(v => v.id)) + 1 : 1;
-  }
+  () => {}
 );
 export const conoscenza = _conoscenzaStore.items;
 export const saveConoscenza = () => _conoscenzaStore.save();
@@ -75,7 +72,7 @@ export const conoscenzaRouter = router({
     .mutation(({ input, ctx }) => {
       requireDirezione(ctx.user);
       const voce: VoceConoscenza = {
-        id: nextVoceId++,
+        id: _conoscenzaStore.prossimoId(),
         sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
         categoria: input.categoria,
         titolo: input.titolo.trim(),

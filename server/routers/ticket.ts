@@ -19,10 +19,7 @@ const TICKET_STATI = [
 ] as const;
 type TicketStato = (typeof TICKET_STATI)[number];
 
-let nextId = 1;
-
 const _store = persistedStore<any>("tickets", (items) => {
-  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
   let changed = false;
   for (const t of items) {
     if ((t as any).sedeId === undefined) (t as any).sedeId = 1;
@@ -84,7 +81,7 @@ export async function creaTicketRecord(input: {
 }) {
   const now = new Date();
   const t = {
-    id: nextId++,
+    id: _store.prossimoId(),
     oggetto: input.oggetto,
     descrizione: input.descrizione,
     categoria: input.categoria,

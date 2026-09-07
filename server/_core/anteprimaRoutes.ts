@@ -13,6 +13,7 @@ import type { Express, Request } from "express";
 import { ANTEPRIME_VERSIONE, leggiAnteprima } from "../documenti/anteprime";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getDocumentoCommessaById } from "../routers/preventiviContratti";
+import { conTenantDelContesto, rifiutaTenant } from "../tenants/express";
 import { createContext } from "./context";
 
 function sameOrigin(req: Request): boolean {
@@ -48,42 +49,47 @@ export function registerAnteprimaRoutes(app: Express): void {
         res.status(401).json({ error: "Autenticazione richiesta" });
         return;
       }
-      const documentoId = Number(req.params.documentoId);
-      const pagina = Number(req.params.pagina);
-      if (!Number.isSafeInteger(documentoId) || !Number.isSafeInteger(pagina) || pagina < 1) {
-        res.status(404).end();
-        return;
-      }
-      const documento = getDocumentoCommessaById(documentoId, context.sedeId);
-      if (!documento) {
-        res.status(404).end();
-        return;
-      }
-      const etag = `"anteprima:${documento.checksum ?? documentoId}:${pagina}:${ANTEPRIME_VERSIONE}"`;
-      if (req.headers["if-none-match"] === etag) {
-        res.setHeader("ETag", etag);
-        res.setHeader("Cache-Control", "private, max-age=86400");
-        res.status(304).end();
-        return;
-      }
-      const letta = await leggiAnteprima(documentoId, context.sedeId, pagina);
-      if (letta.esito === "fuori_intervallo") {
-        res.status(404).end();
-        return;
-      }
-      if (letta.esito === "non_disponibile") {
-        if (letta.codice === "documento" || letta.codice === "spento") {
+      if (rifiutaTenant(res, context, { scrittura: false })) return;
+      const sedeId = context.sedeId;
+
+      await conTenantDelContesto(context, async () => {
+        const documentoId = Number(req.params.documentoId);
+        const pagina = Number(req.params.pagina);
+        if (!Number.isSafeInteger(documentoId) || !Number.isSafeInteger(pagina) || pagina < 1) {
           res.status(404).end();
           return;
         }
-        res.status(503).json({ error: letta.motivo });
-        return;
-      }
-      res.setHeader("Content-Type", letta.mimeType);
-      res.setHeader("Cache-Control", "private, max-age=86400");
-      res.setHeader("ETag", etag);
-      res.setHeader("Content-Length", letta.buffer.length);
-      res.end(letta.buffer);
+        const documento = getDocumentoCommessaById(documentoId, sedeId);
+        if (!documento) {
+          res.status(404).end();
+          return;
+        }
+        const etag = `"anteprima:${documento.checksum ?? documentoId}:${pagina}:${ANTEPRIME_VERSIONE}"`;
+        if (req.headers["if-none-match"] === etag) {
+          res.setHeader("ETag", etag);
+          res.setHeader("Cache-Control", "private, max-age=86400");
+          res.status(304).end();
+          return;
+        }
+        const letta = await leggiAnteprima(documentoId, sedeId, pagina);
+        if (letta.esito === "fuori_intervallo") {
+          res.status(404).end();
+          return;
+        }
+        if (letta.esito === "non_disponibile") {
+          if (letta.codice === "documento" || letta.codice === "spento") {
+            res.status(404).end();
+            return;
+          }
+          res.status(503).json({ error: letta.motivo });
+          return;
+        }
+        res.setHeader("Content-Type", letta.mimeType);
+        res.setHeader("Cache-Control", "private, max-age=86400");
+        res.setHeader("ETag", etag);
+        res.setHeader("Content-Length", letta.buffer.length);
+        res.end(letta.buffer);
+      });
     } catch (error) {
       next(error);
     }

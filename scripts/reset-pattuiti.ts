@@ -3,7 +3,14 @@
 //   npx tsx scripts/reset-pattuiti.ts                     # dry-run
 //   npx tsx scripts/reset-pattuiti.ts --apply             # esegue
 //   npx tsx scripts/reset-pattuiti.ts --apply --sede=2    # una sola sede
+//   npx tsx scripts/reset-pattuiti.ts --apply --tenant=2  # un'altra azienda
 //   npx tsx scripts/reset-pattuiti.ts --apply --includi-archiviate
+//
+// `--tenant=<id>` sceglie l'azienda su cui lavorare (default: 1, Ruffino
+// Group). Ogni store è per tenant: senza contesto il Proxy di `persistence`
+// non saprebbe quale archivio aprire, e con `--tenant` sbagliato si
+// azzererebbero i pattuiti di un'altra azienda. Il tenant compare nella riga
+// di intestazione del report: leggerlo prima di dare `--apply`.
 //
 // Richiede DATABASE_URL: senza, tocca solo lo store in memoria e non
 // dimostra nulla sui dati Railway. Su Railway usare `railway run`.
@@ -26,6 +33,8 @@
 // Questo script resta utile a servizio fermo o su un ripristino offline.
 
 import { bootstrapAll, flushAll } from "../server/_core/persistence";
+import { conTenant } from "../server/tenants/contestoCorrente";
+import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
 // L'import dei router registra gli store persistiti.
 import "../server/routers";
 import { getCommesseStore, saveCommesseStore } from "../server/routers/commesse";
@@ -39,11 +48,29 @@ function argomentoNumerico(nome: string): number | null {
   return Number.isFinite(valore) ? valore : null;
 }
 
+/** `--tenant=<id>`: intero positivo, default il tenant 1. */
+function tenantScelto(): number {
+  const grezzo = process.argv.find(a => a.startsWith("--tenant="));
+  if (!grezzo) return TENANT_PREDEFINITO_ID;
+  const valore = Number(grezzo.slice("--tenant=".length));
+  if (!Number.isInteger(valore) || valore <= 0) {
+    console.error(`--tenant deve essere un intero positivo (ricevuto: ${grezzo.slice("--tenant=".length)})`);
+    process.exit(1);
+  }
+  return valore;
+}
+
 async function main() {
   const apply = process.argv.includes("--apply");
+  const tenantId = tenantScelto();
+  console.log(
+    `Reset pattuiti — tenant ${tenantId} — ${apply ? "APPLY" : "dry-run"}`
+  );
 
   await bootstrapAll();
-  const report = resetPattuiti(
+  // Ogni store è per tenant: il corpo dello script gira nel contesto
+  // dell'azienda scelta, come una richiesta o un giro di worker.
+  const report = conTenant(tenantId, () => resetPattuiti(
     {
       apply,
       sedeId: argomentoNumerico("sede"),
@@ -55,12 +82,13 @@ async function main() {
       save: saveCommesseStore,
       ricalcolaImportoIncassato,
     }
-  );
+  ));
 
   console.log("\n════ RESET PATTUITO E RATE ════");
   console.log(
     `Modalità: ${report.dryRun ? "DRY-RUN (nessuna scrittura)" : "APPLY"}`
   );
+  console.log(`Tenant:   ${tenantId}`);
   console.log(`Sede:     ${report.sedeId ?? "tutte"}`);
   if (report.refusedReason) {
     console.error(`\n${report.refusedReason}`);

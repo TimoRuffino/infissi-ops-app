@@ -8,7 +8,9 @@ import { SEDE_COOKIE } from "@shared/const";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getUtentiStore } from "./utenti";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
-import { tenantDelContesto } from "../tenants/regole";
+import { righeTenantSedi, tenantDelContesto } from "../tenants/regole";
+// `repository.ts` e `regole.ts` non importano i router: nessun ciclo nuovo.
+import { getTenantRepository } from "../tenants/repository";
 // Import ciclico innocuo: contesto.ts importa da questo file, ma sediAmmesse
 // si usa solo dentro gli handler (come già fa contesto.ts con noi).
 import { sediAmmesse } from "../tenants/contesto";
@@ -64,7 +66,7 @@ const _store = persistedStore<Sede>("sedi", (items, { firstBoot }) => {
   }
   if (migrate) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x) => x.id)) + 1 : 2;
-});
+}, { ambito: "globale" });
 const sedi = _store.items;
 
 // ── Exports used by context + scoped routers ────────────────────────────────
@@ -188,6 +190,13 @@ export const sediRouter = router({
     .mutation(({ input, ctx }) => {
       const sede = creaSedeInterna({ tenantId: tenantDelContesto(ctx), ...input });
       _store.save();
+      // Specchio sede → tenant (Task 12): senza, le righe della sede appena
+      // nata resterebbero con `tenant_id` NULL fino al boot successivo. Non
+      // blocca la risposta e non fa fallire la creazione: la sede esiste
+      // comunque, e il boot riallinea lo specchio.
+      void getTenantRepository()
+        .sincronizzaTenantSedi(righeTenantSedi(getSediStore()))
+        .catch(e => console.error("[tenants] specchio sedi:", e));
       return sede;
     }),
 

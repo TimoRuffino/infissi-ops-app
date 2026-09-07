@@ -1,7 +1,7 @@
 # Documento Requisiti — Wyndor (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (07/09/2026: rebranding Wyndor e pagina Fornitori su `main`; fatture libere e anagrafica in fattura; magazzino rifatto; fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione; design SaaS multi-azienda registrato in §60; WS1 fondazione tenant implementato sul branch `feature/ws1-fondazione-tenant`, non su `main`, interruttore `FLAG_MULTI_AZIENDA` spento).
-**Versione:** 5.60 - Quarta fusione di `main` (5.58: selezione delle consegne derivata nella pagina Fornitori) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026 in serata, sopra la 5.59; ogni push su `main` che alza questa riga rimette in conflitto la PR #3 finché non è fusa. Prima (main): 5.58 - La pagina Fornitori non si spegne più: la selezione delle consegne si deriva dall'elenco (React #185).. Prima (branch WS1): 5.59 - Terza fusione di `main` (5.57: pagina Fornitori unica con conferme e merce in arrivo) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.57; la 5.58 è la fusione analoga sul branch WS2. Prima (main): 5.57 - Fornitori e conferme d'ordine sono una pagina sola: elenco unico raggruppato (collegate da Tars, incerte, da collegare a mano, nel fascicolo, scartate), anteprima del file sempre a portata, e la vista «In arrivo» che serve il magazzino (§36-bis, §36).. Prima (branch WS1): 5.57 - Seconda fusione di `main` (pagina Fornitori 5.56) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.56 di fusione del branch: la catena qui sotto è quella del branch, che contiene già `main` fino alla 5.55. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis).. Prima (branch WS1): 5.56 - Fusione di `main` (rebranding Wyndor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws1-fondazione-tenant` (5.50–5.52 della fondazione tenant) il 07/09/2026: le due numerazioni erano divergenti dalla 5.48, qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.55 - Rebranding Wyndor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12).. Prima (branch WS1, numerazione parallela): 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9). Prima: 5.51 - WS1 fondazione tenant: revisione finale del branch il 07/09 (§60.9), nessun Critical; corretti ruoli dallo store a ogni richiesta (non più dal JWT), guardia sull'ultima sede attiva del tenant, `crea` resiliente a un commit fallito, hash della password azzerato dal payload alla chiusura del comando, guardia dell'ultimo proprietario applicata solo con l'interruttore acceso (commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`); aperto per il WS2: le rotte Express (upload documenti, allegati mail, anteprime, SSE) non applicano ancora porta chiusa né sola lettura. Prima: 5.50 - WS1 fondazione tenant (§60.9): contratto implementato sul branch `feature/ws1-fondazione-tenant` in 15 task (codice `4c3a71b`…`a01a757`, documentazione `07f1b1f`) — porta chiusa a chiave, tabelle `tenants`/`tenant_eventi`/`tenant_comandi`, `tenantId` su utenti e sedi, ruolo `proprietario` (ottavo, §4.1), servizio `tenants` con comandi da `pnpm tenant`, Tars con `tenantId` obbligatorio; `pnpm check`/`test`/`build` verdi e repository provato su Postgres vero; non verificati a schermo `/utenti` (serve login demo) né la produzione Railway; `FLAG_MULTI_AZIENDA` spento e branch non ancora su `main`. Prima: 5.49 - SaaS multi-azienda: design approvato dalla direzione e registrato in §60 (tenant sopra sede, un solo prodotto a canone fisso per azienda, storage e Tars come sole risorse misurate, Platform Admin separato, abbonamenti omaggio, Ruffino Group come tenant 1) con il riscontro sul codice del checkout; nessuna implementazione autorizzata. Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (07/09/2026: rebranding Wyndor e pagina Fornitori su `main`; fatture libere e anagrafica in fattura; magazzino rifatto; fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione; design SaaS multi-azienda registrato in §60; WS1 fondazione tenant e WS2 archivi per tenant implementati sui branch `feature/ws1-fondazione-tenant` e `feature/ws2-porta-aperta`, non su `main`, interruttore `FLAG_MULTI_AZIENDA` spento).
+**Versione:** 5.61 - `main` ha fuso la PR #3 (WS1 fondazione tenant, con le sue fusioni 5.56→5.60) e il branch `feature/ws2-porta-aperta` lo rifonde il 08/09/2026 sopra la sua 5.58: qui sotto le voci arrivate da `main`, poi la catena del branch WS2. Prima (main): 5.60 - Quarta fusione di `main` (5.58: selezione delle consegne derivata nella pagina Fornitori) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026 in serata, sopra la 5.59; ogni push su `main` che alza questa riga rimette in conflitto la PR #3 finché non è fusa. Prima (main): 5.58 - La pagina Fornitori non si spegne più: la selezione delle consegne si deriva dall'elenco (React #185).. Prima (branch WS1): 5.59 - Terza fusione di `main` (5.57: pagina Fornitori unica con conferme e merce in arrivo) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.57; la 5.58 è la fusione analoga sul branch WS2. Prima (main): 5.57 - Fornitori e conferme d'ordine sono una pagina sola: elenco unico raggruppato (collegate da Tars, incerte, da collegare a mano, nel fascicolo, scartate), anteprima del file sempre a portata, e la vista «In arrivo» che serve il magazzino (§36-bis, §36).. Prima (branch WS1): 5.57 - Seconda fusione di `main` (pagina Fornitori 5.56) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.56 di fusione del branch: la catena qui sotto è quella del branch, che contiene già `main` fino alla 5.55. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis).. Prima (branch WS1): 5.56 - Fusione di `main` (rebranding Wyndor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws1-fondazione-tenant` (5.50–5.52 della fondazione tenant) il 07/09/2026: le due numerazioni erano divergenti dalla 5.48, qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.55 - Rebranding Wyndor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12).. Prima (branch WS1, numerazione parallela): 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9).. Prima (branch WS2): 5.58 - Fusione di `main` (pagina Fornitori 5.56, rebranding Wyndor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws2-porta-aperta` (5.53–5.54 del WS2 sopra 5.50–5.52 del WS1) il 07/09/2026; la 5.57 è la fusione analoga sul branch WS1. Le due numerazioni erano divergenti dalla 5.48: qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis). Prima: 5.55 - Rebranding Wyndor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12). Prima (branch WS2/WS1, numerazione parallela): 5.54 - WS2 «porta aperta» implementato sul branch `feature/ws2-porta-aperta` in 15 task (§60.10): un archivio JSONB per azienda con le chiavi di oggi per il tenant 1, contesto implicito, id globali, guardia unica tRPC/Express, worker per azienda, `tenant_id` sulle 33 tabelle via trigger, `pnpm tenant verifica`, via la porta chiusa; diciotto decisioni d'esecuzione nella spec §2-bis; non su `main`, non in produzione; aperto il ripasso dei 96 «non trovato» che rispondono 500 invece di 404. Prima: 5.53 - WS2 «porta aperta» progettato: spec tecnica approvata a sezioni e piano in 15 task sul branch `feature/ws2-porta-aperta` (§60.10), codice non partito; alias delle chiavi per il tenant 1 (deviazione registrata dalla §14.2 del design), contesto implicito con AsyncLocalStorage, id globali, `tenant_id` via trigger. Prima: 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9). Prima: 5.51 - WS1 fondazione tenant: revisione finale del branch il 07/09 (§60.9), nessun Critical; corretti ruoli dallo store a ogni richiesta (non più dal JWT), guardia sull'ultima sede attiva del tenant, `crea` resiliente a un commit fallito, hash della password azzerato dal payload alla chiusura del comando, guardia dell'ultimo proprietario applicata solo con l'interruttore acceso (commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`); aperto per il WS2: le rotte Express (upload documenti, allegati mail, anteprime, SSE) non applicano ancora porta chiusa né sola lettura. Prima: 5.50 - WS1 fondazione tenant (§60.9): contratto implementato sul branch `feature/ws1-fondazione-tenant` in 15 task (codice `4c3a71b`…`a01a757`, documentazione `07f1b1f`) — porta chiusa a chiave, tabelle `tenants`/`tenant_eventi`/`tenant_comandi`, `tenantId` su utenti e sedi, ruolo `proprietario` (ottavo, §4.1), servizio `tenants` con comandi da `pnpm tenant`, Tars con `tenantId` obbligatorio; `pnpm check`/`test`/`build` verdi e repository provato su Postgres vero; non verificati a schermo `/utenti` (serve login demo) né la produzione Railway; `FLAG_MULTI_AZIENDA` spento e branch non ancora su `main`. Prima: 5.49 - SaaS multi-azienda: design approvato dalla direzione e registrato in §60 (tenant sopra sede, un solo prodotto a canone fisso per azienda, storage e Tars come sole risorse misurate, Platform Admin separato, abbonamenti omaggio, Ruffino Group come tenant 1) con il riscontro sul codice del checkout; nessuna implementazione autorizzata. Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -1541,7 +1541,7 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 - Store `sedi`: `{ id, nome, indirizzo?, citta?, attiva, tenantId }` (seed prima sede "La Spezia"; `tenantId` con backfill a 1 — WS1, §60.9).
 - Ogni entità business porta `sedeId` (backfill = 1 per i record pre‑esistenti).
 - Gli utenti hanno `sediIds: number[]` (accesso multi‑sede).
-- Sopra la sede c'è il **tenant** (azienda): §60.9, contratto implementato sul branch `feature/ws1-fondazione-tenant`, non su `main`; `FLAG_MULTI_AZIENDA` spento in produzione.
+- Sopra la sede c'è il **tenant** (azienda): §60.9 e §60.10, contratto implementato sui branch `feature/ws1-fondazione-tenant` e `feature/ws2-porta-aperta`, non su `main`; `FLAG_MULTI_AZIENDA` spento in produzione. Col WS2 ogni store JSONB ha un archivio per azienda: il tenant 1 tiene le chiavi di oggi, dal tenant 2 sono `tenant:<id>:<store>`.
 
 ### 34.2 Risoluzione della sede attiva
 - Cookie/claim `active_sede` → `ctx.sedeId` su ogni richiesta tRPC.
@@ -3776,7 +3776,7 @@ nulla finché `FLAG_LIMITI` e `FLAG_FATTURAZIONE` restano spenti.
 
 ---
 
-## 60. SaaS multi-azienda — modello commerciale e architettura (design approvato il 06/09/2026; WS1 su branch dal 07/09, workstream 2–8 non implementati)
+## 60. SaaS multi-azienda — modello commerciale e architettura (design approvato il 06/09/2026; WS1 e WS2 su branch dal 07/09, workstream 3–8 non implementati)
 
 **Stato.** Design approvato dalla direzione in conversazione il 06/09/2026 e
 registrato in `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`
@@ -3977,10 +3977,10 @@ legacy mai cancellati col cutover.
 
 **Non deciso, fuori dal codice:** prezzo mensile e annuale, budget Tars
 incluso in euro, tolleranze di storage e Tars, prezzo dei pacchetti extra,
-provider di pagamento. **Stato dei workstream:** il workstream 1 è stato aperto dalla direzione ed è
-realizzato su branch (§60.9), non su `main`; per i workstream 2–8 nessuna riga
-di codice è autorizzata finché la direzione non apre ciascuno con la sua spec
-tecnica.
+provider di pagamento. **Stato dei workstream:** i workstream 1 e 2 sono stati aperti dalla direzione
+e sono realizzati su branch (§60.9 e §60.10), non su `main`; per i
+workstream 3–8 nessuna riga di codice è autorizzata finché la direzione non
+apre ciascuno con la sua spec tecnica.
 
 ### 60.9 Workstream 1 — fondazione tenant (contratto implementato su branch, 07/09/2026; non in produzione)
 
@@ -4017,7 +4017,9 @@ documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
 applicano ancora porta chiusa né sola lettura. Nel WS1 non conta (un solo
 tenant reale, la sospensione è solo un atto dell'operatore); nel WS2 va
 estratta una guardia pura `motivoRifiutoTenant` in `regole.ts`, riusata sia
-da `trpc.ts` sia dalle rotte Express.
+da `trpc.ts` sia dalle rotte Express. *Chiuso dal WS2 (§60.10):
+`motivoRifiutoTenant` esiste in `regole.ts` e le quattro rotte la applicano
+con `rifiutaTenant` (412).*
 
 **Revisione automatica della PR #3 (07/09):** cinque segnalazioni «da
 verificare», verificate a mano. Infondate: la porta chiusa su
@@ -4080,3 +4082,127 @@ come oggi).
 
 **Prossimo passo:** verifica a schermo dell'utente, poi la decisione della
 direzione sul merge su `main`.
+
+### 60.10 Workstream 2 — porta aperta: archivi per tenant (contratto implementato su branch, 07/09/2026; non in produzione)
+
+Spec tecnica approvata a sezioni in chat:
+`docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`; piano in 15
+task: `docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md`; runbook
+operativo: `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per
+tenant».
+
+**Stato reale.** I 15 task sono implementati e committati sul branch
+`feature/ws2-porta-aperta`, nato dal branch del WS1
+(`feature/ws1-fondazione-tenant`, PR #3 ancora aperta verso `main`): dal
+commit `964fb6b` (spec) al `aa35e51`, più i commit di documentazione di
+chiusura. Il branch **non è su `main`** e `FLAG_MULTI_AZIENDA` resta spento e
+assente dall'env di produzione: nessun push, nessun merge da qui. Il merge è
+una decisione della direzione.
+
+**Che cosa fa.** Ogni store JSONB diventa una *famiglia* con un archivio per
+azienda: il tenant 1 tiene le chiavi di sempre (alias), dal tenant 2 le
+chiavi sono `tenant:<id>:<store>`. Sette store restano globali (`sedi`,
+`utenti`, i due flag di piattaforma, i tre `backup_*`). I moduli non
+cambiano: `store.items` è un Proxy che risolve l'azienda corrente da
+`AsyncLocalStorage`, e senza azienda nel contesto fallisce invece di
+tirare a indovinare. Gli id dei record diventano unici in tutta
+l'installazione (`prossimoId()`, 29 moduli convertiti). Una guardia unica
+(`motivoRifiutoTenant`) serve sia tRPC sia le quattro rotte Express (upload e
+download documenti, anteprime, allegati mail, SSE), che ora rispondono `412`
+con gli stessi messaggi. Ogni punto d'ingresso fuori richiesta — worker,
+scheduler, poller IMAP, backup, riconciliazioni del boot — gira prima per
+azienda e poi per sede. Le 33 tabelle SQL con `sede_id` ricevono
+`tenant_id` da un trigger alimentato dalla tabella specchio `tenant_sedi`.
+`pnpm tenant verifica` fotografa lo stato in sola lettura. La «porta chiusa»
+del WS1 sparisce, insieme al suo gemello nel login.
+
+**Decisioni e deviazioni.** Le cinque decisioni di progetto sono nella spec
+§2; le ventidue prese durante l'esecuzione — quando il codice vero ha
+contraddetto la lettera della spec, comprese le quattro della revisione
+finale e della fusione con `main` (sotto) — sono registrate una per una
+nella spec §2-bis «Decisioni in corso d'opera». Le sei che contano per chi
+legge questo documento:
+- **Alias delle chiavi per il tenant 1** (deviazione dichiarata dai punti
+  3–4 della §14.2 del design madre e dal §18, che prevedevano copia e legacy
+  in sola lettura): nessuna copia, nessun cutover, stesso isolamento,
+  rollback = redeploy. Resta possibile in futuro rinominare a chiavi
+  uniformi con un solo `UPDATE` reversibile.
+- **Contesto implicito** invece del `tenantId` esplicito in ogni punto d'uso:
+  centinaia di modifiche risparmiate, in cambio di una regola nuova per chi
+  scrive codice (ora in `CLAUDE.md`).
+- **Id globali** invece di contatori per azienda: nessun riferimento
+  incrociato deve portarsi dietro il tenant.
+- **`tenant_id` via trigger** invece che nei 33 punti di INSERT: le query
+  restano per sede, il valore lo scrive il database.
+- **Il backfill delle tabelle gira dopo l'apertura della porta** (`server.listen`),
+  a lotti; prima del `listen` restano solo colonna, indice e trigger, con un
+  `lock_timeout` per tabella. Il primo boot non tiene il servizio giù.
+- **La riga del tenant 1 nel control plane si semina anche a interruttore
+  spento**: senza, specchio e `tenant_id` sarebbero rimasti vuoti fino alla
+  prima accensione, cioè la migrazione additiva non sarebbe verificabile nel
+  deploy spento — che è esattamente ciò che il runbook chiede di fare.
+
+**Verificato:** `pnpm check` e `pnpm build` verdi; suite `vitest` completa
+verde a parte i 3 FAIL preesistenti e indipendenti (foto HEIC vera via
+`sips`, legati ai binari della macchina); i test su Postgres vero (Docker
+usa-e-getta) per persistenza, control plane e tabelle — chiavi `tenant:2:*`
+scritte davvero, chiave legacy intatta, colonna/indice/trigger idempotenti,
+trigger che riempie `tenant_id` dallo specchio, backfill a lotti, tabella
+assente saltata; boot locale col database sia a interruttore acceso sia
+spento, fino a `server.listen`, con le righe di log attese; `pnpm tenant
+verifica` nelle due forme, con e senza control plane. Test incrociati fra
+aziende sui router (liste vuote e `NOT_FOUND` per id di un'altra azienda) e
+guardie strutturali che vietano le regressioni (nessun `AsyncLocalStorage`
+fuori dal contesto, nessun `storeDi` nei router, `persistence.ts` che non
+importa il modulo tenant, l'elenco dei sette store globali, nessun contatore
+di id locale).
+
+**Non verificato:** niente è stato distribuito su Railway — nessuna verifica
+in produzione, `FLAG_MULTI_AZIENDA` non esiste ancora in quell'env (= spento);
+nessuna verifica a schermo nel browser (serve il login demo, che l'agente non
+può digitare); il comportamento con più repliche resta quello del WS1 (cache
+e cicli in-process, una sola replica come oggi).
+
+**Aperto.**
+- **96 «non trovato» che rispondono 500 invece di 404**, in 19 router: solo
+  `clienti.ts` è stato portato a `TRPCError NOT_FOUND` (spec §9, decisione
+  R17). Non è una fuga di dati — il messaggio è identico per un id
+  inesistente e per uno di un'altra azienda — ma non è il contratto: pulizia
+  a parte, prima del WS3.
+- **Backup ancora globale:** un archivio unico contiene tutte le aziende, e
+  il file `Utenti.json` di ogni sede include gli utenti senza sedi di tutte.
+  Motivo in più per la regola di runbook «nessun tenant 2 in produzione
+  prima del WS3».
+- Minori registrati: il riavvio dei watcher IMAP non è atomico con due o più
+  aziende; il backfill delle tabelle rigira a vuoto a ogni boot; `tenant_id`
+  non si riscrive se una sede cambiasse azienda (oggi non succede). Gli
+  insiemi di esenzione di `pnpm tenant verifica` hanno ora una guardia
+  strutturale (`server/tenants/verifica.confine.test.ts`, decisione R18
+  della spec).
+- **Cambio di comportamento da conoscere:** l'analisi azienda automatica di
+  Tars gira ora solo sulle sedi **attive** (prima: tutte); la richiesta
+  manuale da `/tars` è invariata.
+
+**Revisione finale e fusione con `main` (07/09 sera).** La revisione
+dell'intero branch (range `94180e1..b4fb2e0`) ha trovato 1 Critical — le
+quattro rotte Express anonime (webhook WhatsApp, feed ICS, callback FiC)
+toccavano store per tenant senza contesto, e a interruttore acceso due
+facevano cadere il processo — e 4 Important (script di manutenzione senza
+contesto, `conTenantDellaSede` fail-open su una sede sconosciuta, runbook
+incompleto sul `senzaTenant` residuo e sul primo deploy in rolling).
+Corretti in un'unica onda e riverificati puliti (decisioni R19-R21 della
+spec §2-bis): le rotte anonime cercano il tenant con `trovaNeiTenant` prima
+di agire nel contesto trovato (`server/_core/rotteAnonime.ts`),
+`conTenantDellaSede` è ora fail-closed anche sulla sede, gli script
+`reset-pattuiti` e `importa-clienti` accettano `--tenant=<id>`. La guardia
+strutturale R18, nata in una sessione parallela alla direzione, è stata
+integrata come commit a sé dopo revisione (decisione R22). Il branch ha poi
+assorbito `main`: PRD a **5.58**, rebranding Wyndor nei documenti vivi
+ancora scoperti, `fornitori_archivio` (pagina Fornitori) con id globali,
+`server/fornitori/archivioWorker.ts` per tenant. Restano aperti i 96 «non
+trovato» a 500 nei 19 router (sopra, invariato) e il gemello PDF del PRD
+(`PRD_infissi_ops_v4.pdf`), non rigenerato da questa fusione.
+
+**Prossimo passo:** decisione della direzione sul merge (prima la PR #3 del
+WS1, poi questo branch), poi il **WS3** — prefissi e byte dello storage,
+backup ed export per azienda, `state` OAuth persistito, retry e dead-letter.
