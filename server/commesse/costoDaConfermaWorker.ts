@@ -155,7 +155,7 @@ async function giro(): Promise<void> {
   }
 }
 
-export function startCostoDaConfermaWorker(): void {
+export async function startCostoDaConfermaWorker(): Promise<void> {
   if (!costoDaConfermaWorkerAttivo()) {
     console.info("[costo-da-conferma] spento (COSTO_DA_CONFERMA_WORKER=off)");
     return;
@@ -164,9 +164,20 @@ export function startCostoDaConfermaWorker(): void {
   boot.unref?.();
   const timer = setInterval(() => void giro(), INTERVALLO_MS);
   timer.unref?.();
+  // `documentiConfermaOrdine()` legge uno store per tenant (`preventivi_documenti`):
+  // fuori da `giro()` (deferred, gira ogni minuto) questa riga girava
+  // sincrona al boot, fuori da qualunque contesto — stesso difetto di
+  // `reconcileTimelineBoardStates` in server/_core/index.ts (Ruling R8),
+  // qui usato solo per il conteggio della riga di log di avvio: una volta
+  // per tenant attivo, nel suo contesto.
+  const { perOgniTenantAttivo } = await import("../tenants/contestoCorrente");
+  let daLeggereTotale = 0;
+  await perOgniTenantAttivo("costo-da-conferma", async () => {
+    daLeggereTotale += documentiConfermaOrdine().filter(daLeggere).length;
+  });
   console.info("[costo-da-conferma] attivo", {
     lotto: LOTTO_PER_GIRO,
     intervalloMs: INTERVALLO_MS,
-    daLeggere: documentiConfermaOrdine().filter(daLeggere).length,
+    daLeggere: daLeggereTotale,
   });
 }

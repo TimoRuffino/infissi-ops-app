@@ -67,14 +67,23 @@ async function startServer() {
 
   // Historical timeline rows predate automatic board synchronization. This
   // forward-only reconciliation is idempotent and keeps every existing
-  // commessa at least at its most advanced completed milestone.
+  // commessa at least at its most advanced completed milestone. It reads
+  // per-tenant stores (`timeline_steps`, `commesse`) outside any request,
+  // quindi al boot va ripetuta per ogni tenant attivo, nel suo contesto
+  // (Ruling R8): senza, `tenantCorrente()` non ha nulla da risolvere e la
+  // lettura dello store lancerebbe «senza tenant nel contesto». Con
+  // l'interruttore spento, o un control plane vuoto, `perOgniTenantAttivo`
+  // gira una sola volta per il tenant 1: comportamento di oggi invariato.
   const { reconcileTimelineBoardStates } = await import("../routers/timeline");
-  const timelineSync = reconcileTimelineBoardStates();
-  if (timelineSync.aggiornate > 0) {
-    console.log(
-      `[timeline] board riallineato: ${timelineSync.aggiornate}/${timelineSync.analizzate} commesse avanzate`
-    );
-  }
+  const { perOgniTenantAttivo } = await import("../tenants/contestoCorrente");
+  await perOgniTenantAttivo("timeline", async tenantId => {
+    const timelineSync = reconcileTimelineBoardStates();
+    if (timelineSync.aggiornate > 0) {
+      console.log(
+        `[timeline] tenant ${tenantId}: board riallineato: ${timelineSync.aggiornate}/${timelineSync.analizzate} commesse avanzate`
+      );
+    }
+  });
 
   // Action cases use dedicated relational tables. In production schema
   // failures must stop startup instead of silently degrading to memory.
@@ -111,11 +120,14 @@ async function startServer() {
   startFollowupPreventiviWorker();
   // Costo fornitore dalla conferma d'ordine (03/09/2026): il flusso vivo lo
   // registra all'archiviazione; il worker legge le conferme già nei
-  // fascicoli e le scansioni che aspettano l'OCR.
+  // fascicoli e le scansioni che aspettano l'OCR. Il suo avvio conta le
+  // conferme da leggere per tenant attivo (Ruling R8) prima di loggare,
+  // quindi si attende: `await`ed come `completaTenants`/il riallineamento
+  // della timeline qui sopra.
   const { startCostoDaConfermaWorker } = await import(
     "../commesse/costoDaConfermaWorker"
   );
-  startCostoDaConfermaWorker();
+  await startCostoDaConfermaWorker();
   // Conferme d'ordine certe (mail già collegata alla commessa + file che si
   // dichiara conferma): archiviate da sole, per tutte le commesse da «Da
   // ordinare» in poi; le dubbie restano proposte nella Situazione di Tars.
