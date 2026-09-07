@@ -5,6 +5,7 @@
 // una replica sola, aggiornata da ogni scrittura.
 import { kvSql } from "../_core/persistence";
 import {
+  MESSAGGI,
   TENANT_PREDEFINITO_ID,
   TENANT_PREDEFINITO_NOME,
   TENANT_PREDEFINITO_SLUG,
@@ -180,8 +181,17 @@ function createMemoryTenantRepository(): TenantRepository {
 
 // ── Postgres ────────────────────────────────────────────────────────────────
 
-function createPostgresTenantRepository(
-  sql: NonNullable<typeof kvSql>
+export type OpzioniRepositoryPostgres = {
+  /**
+   * `false` per lo script `pnpm tenant`: nessun DDL, solo una sonda in sola
+   * lettura che si ferma se le tabelle mancano (le crea il server al boot).
+   */
+  creaSchema?: boolean;
+};
+
+export function createPostgresTenantRepository(
+  sql: NonNullable<typeof kvSql>,
+  opzioni: OpzioniRepositoryPostgres = {}
 ): TenantRepository {
   const cache = new Map<number, TenantRecord>();
   let schemaPromise: Promise<void> | null = null;
@@ -222,8 +232,16 @@ function createPostgresTenantRepository(
   const allineaSequenza = () =>
     sql`SELECT setval(pg_get_serial_sequence('tenants', 'id'), GREATEST((SELECT MAX(id) FROM tenants), 1))`;
 
-  const ensureSchema = (): Promise<void> => {
-    schemaPromise ??= sql
+  // Sonda in sola lettura (spec WS1 §6.3): `to_regclass` è NULL se la tabella manca.
+  const verificaSchema = async (): Promise<void> => {
+    const rows = await sql`SELECT to_regclass('tenants') AS tenants,
+      to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi`;
+    const r = rows[0];
+    if (!r?.tenants || !r?.eventi || !r?.comandi) throw new Error(MESSAGGI.schemaAssente);
+  };
+
+  const creaSchema = (): Promise<void> =>
+    sql
       .begin(async tx => {
         await tx`CREATE TABLE IF NOT EXISTS tenants (
           id BIGSERIAL PRIMARY KEY,
@@ -267,11 +285,13 @@ function createPostgresTenantRepository(
         await tx`CREATE INDEX IF NOT EXISTS tenant_comandi_attesa_idx
           ON tenant_comandi (stato, id) WHERE stato = 'in_attesa'`;
       })
-      .then(() => undefined)
-      .catch(e => {
-        schemaPromise = null;
-        throw e;
-      });
+      .then(() => undefined);
+
+  const ensureSchema = (): Promise<void> => {
+    schemaPromise ??= (opzioni.creaSchema === false ? verificaSchema() : creaSchema()).catch(e => {
+      schemaPromise = null;
+      throw e;
+    });
     return schemaPromise;
   };
 

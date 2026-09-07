@@ -40,6 +40,7 @@ Mai scritture sugli store con l'istanza viva.
     pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna --scrivi
 
 - Senza `--scrivi`: anteprima, nessuna scrittura. `--attendi`: aspetta l'esito fino a 90 s.
+- Nessun DDL dallo script, nemmeno per `elenco`: se le tabelle del control plane mancano si ferma con «Tabelle del control plane del tenant assenti…»; le crea il server al primo avvio con questa versione (deploy prima, script poi).
 - Password del proprietario: `TENANT_PROPRIETARIO_PASSWORD` nell'env o prompt nascosto; hashata prima di accodare.
 - Un comando fallito resta `errore` con il motivo in `esito` e un evento `comando_fallito`: correggi e riaccoda. Nessun retry automatico.
 - Su Railway: `railway run pnpm tenant …`. Sospendere il tenant 1 richiede `--anche-tenant-1`.
@@ -74,3 +75,6 @@ L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
   sede attiva del tenant.
 - «Solo un proprietario può nominare o revocare un proprietario.»
 - «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
+- (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
+  (tenants, tenant_eventi, tenant_comandi)…» — script lanciato contro un
+  database su cui il server con questa versione non è mai partito.

@@ -11,7 +11,9 @@
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
 // nascosto; viene hashata qui e mai scritta in chiaro. Senza --scrivi mostra
-// l'anteprima e non tocca nulla. Runbook: docs/runbooks/multi-azienda.md.
+// l'anteprima e non tocca nulla. Lo schema non lo tocca mai, nemmeno per
+// `elenco`: lo crea il server al boot; se manca, lo script si ferma.
+// Runbook: docs/runbooks/multi-azienda.md.
 
 import "dotenv/config";
 import { createInterface } from "node:readline";
@@ -27,7 +29,10 @@ import {
   schemaPayloadStato,
 } from "../server/tenants/comandi";
 import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
-import { getTenantRepository } from "../server/tenants/repository";
+import {
+  createPostgresTenantRepository,
+  type TenantRepository,
+} from "../server/tenants/repository";
 import type { TipoComando } from "../server/tenants/tipi";
 
 const USO =
@@ -53,8 +58,7 @@ async function passwordProprietario(): Promise<string> {
   return scelta;
 }
 
-async function attendi(id: number): Promise<number> {
-  const repo = getTenantRepository();
+async function attendi(repo: TenantRepository, id: number): Promise<number> {
   const scadenza = Date.now() + 90_000;
   while (Date.now() < scadenza) {
     const c = await repo.comando(id);
@@ -69,7 +73,8 @@ async function attendi(id: number): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!kvSql) {
+  const sql = kvSql;
+  if (!sql) {
     console.error("DATABASE_URL mancante: lo script parla solo con il database.");
     return 2;
   }
@@ -79,8 +84,9 @@ async function main(): Promise<number> {
     if (!v) throw new Error(`Manca --${nome}=…\n${USO}`);
     return v;
   };
-  const repo = getTenantRepository();
-  await repo.ensureSchema();
+  // Lo schema lo crea il server al boot: qui si verifica soltanto che esista
+  // (sonda in sola lettura; nessun DDL da uno script, nemmeno per `elenco`).
+  const repo = createPostgresTenantRepository(sql, { creaSchema: false });
   await repo.caricaCache();
 
   if (sotto === "elenco") {
@@ -146,7 +152,7 @@ async function main(): Promise<number> {
   }
   const comando = await repo.accodaComando({ tipo, tenantId, payload, richiestoDa: richiestoDa() });
   console.log(`Comando #${comando.id} accodato (${tipo}).`);
-  return flag.has("attendi") ? attendi(comando.id) : 0;
+  return flag.has("attendi") ? attendi(repo, comando.id) : 0;
 }
 
 main().then(

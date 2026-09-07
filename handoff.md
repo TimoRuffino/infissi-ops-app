@@ -26,6 +26,12 @@
 > tolti dagli array vivi se il commit di store fallisce); hash della
 > password azzerato dal payload del comando alla sua chiusura; guardia
 > dell'ultimo proprietario applicata solo con `FLAG_MULTI_AZIENDA` acceso.
+> **PR #3 verso `main` aperta il 07/09, CI verde.** La revisione automatica
+> ha segnalato 5 punti «da verificare»: 3 infondati (porta chiusa voluta,
+> anteprima già mascherata, `sedeId` nullo coperto da guardia e rotte), 2
+> corretti (PRD §60.6 e prova gratuita; `pnpm tenant` non esegue più DDL:
+> sonda `to_regclass`, si ferma se le tabelle mancano). Il merge resta alla
+> direzione.
 > **Aperto per il WS2:** le rotte Express che usano `createContext` (upload
 > documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
 > applicano ancora porta chiusa né sola lettura — non conta nel WS1 (solo

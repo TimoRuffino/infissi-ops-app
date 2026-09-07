@@ -21,4 +21,6 @@ export const MESSAGGI = {
   soloProprietari: "Solo un proprietario può nominare o revocare un proprietario.",
   proprietarioRichiedeFlag: "Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.",
   nonTrovato: "Risorsa non trovata.",
+  schemaAssente:
+    "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
 } as const;

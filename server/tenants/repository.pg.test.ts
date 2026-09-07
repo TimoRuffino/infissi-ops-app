@@ -5,7 +5,11 @@
 //     pnpm vitest run server/tenants/repository.pg.test.ts
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { kvSql } from "../_core/persistence";
-import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+import {
+  createPostgresTenantRepository,
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "./repository";
 
 const conDatabase = Boolean(process.env.DATABASE_URL && kvSql);
 
@@ -63,5 +67,27 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     await expect(repo2.inserisci({ slug: "doppio", nome: "Due" })).rejects.toThrow(/slug già usato/);
     const righe = await sql`SELECT COUNT(*)::int AS n FROM tenants WHERE slug = 'doppio'`;
     expect(righe[0].n).toBe(1);
+  });
+
+  it("con creaSchema:false lo script non esegue DDL: si ferma se le tabelle mancano e non ricrea il trigger", async () => {
+    await sql`DROP TABLE IF EXISTS tenant_comandi, tenant_eventi, tenants CASCADE`;
+    const soloLettura = createPostgresTenantRepository(sql, { creaSchema: false });
+    await expect(soloLettura.caricaCache()).rejects.toThrow(/control plane del tenant assenti/);
+    expect((await sql`SELECT to_regclass('tenants') AS t`)[0].t).toBeNull();
+
+    // Il server crea lo schema; poi lo script legge senza DROP/CREATE TRIGGER.
+    resetTenantRepositoryForTesting();
+    await getTenantRepository().ensureSchema();
+    const trigger = () => sql`SELECT oid FROM pg_trigger WHERE tgname = 'tenant_eventi_solo_insert'`;
+    const prima = (await trigger())[0].oid;
+    const soloLettura2 = createPostgresTenantRepository(sql, { creaSchema: false });
+    await soloLettura2.caricaCache();
+    expect(soloLettura2.tutti()).toEqual([]);
+    expect((await trigger())[0].oid).toBe(prima);
+
+    // Controprova: il repository del server ricrea il trigger (oid nuovo).
+    resetTenantRepositoryForTesting();
+    await getTenantRepository().ensureSchema();
+    expect((await trigger())[0].oid).not.toBe(prima);
   });
 });

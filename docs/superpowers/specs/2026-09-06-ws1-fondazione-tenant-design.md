@@ -394,6 +394,10 @@ pnpm tenant proprietario --slug acme --email m.rossi@acme.it (--assegna | --revo
 - `--attendi` interroga `tenant_comandi` fino a 90 s e stampa l'esito.
 - Lo script parla solo con il database (`DATABASE_URL`), mai con gli store:
   è sicuro con l'istanza viva. Senza database rifiuta di partire.
+- Lo script non esegue DDL: `ensureSchema` è del server (§8, boot). Lo
+  script apre il repository con `creaSchema: false`, che sonda `to_regclass`
+  e si ferma con «Tabelle del control plane del tenant assenti…» se le
+  tabelle mancano (correzione dopo la revisione della PR #3, 07/09/2026).
 - Ogni sottocomando registra `richiesto_da = script:tenant@<hostname>`.
 
 ### 6.4 Router `tenants` (`server/tenants/router.ts`)
