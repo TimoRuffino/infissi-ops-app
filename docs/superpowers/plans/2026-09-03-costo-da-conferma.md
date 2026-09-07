@@ -317,6 +317,57 @@ persino escluso come «ordine del cliente».
    cognome/telefono/comunicazioni prima di dire non posso) e «sicurezza»
    (conclusioni senza attenuazioni, niente «vuoi che proceda?»).
 
+## Nona tranche (07/09): una conferma = una consegna
+
+«La gestione del magazzino è assolutamente un casino.» In produzione 155
+righe su 52 commesse: la seconda tranche scriveva una riga per ARTICOLO del
+PDF, quindi una porta Alias erano otto consegne di kit e coprifili senza
+data, «giovedì 25 giugno 2026 Commessa» entrava con quantità 808, i
+fornitori avevano dieci nomi e le conferme di maggio rilette a settembre
+risultavano «in ritardo» su commesse già posate.
+
+1. `routers/magazzino.ts`: `Prodotto.articoli[]` e `prontaDal`;
+   `creaConsegnaDaConferma` (una riga per documento, idempotente, eredita
+   il «ricevuto»); `segnaTuttoRicevuto` (bottone per commessa; niente
+   «ricevuto» automatico: decisione della direzione).
+2. `documenti/estrazioneMerce.ts` 2.0.0: righe che iniziano con giorno o
+   data escluse, pezzi > 500 non sono quantità, `articoloPrincipale`.
+3. `shared/fornitori.ts`: lista aziendale + `normalizzaFornitore` (testo o
+   dominio mail → nome; referenti e agenti mai); usata dalla regola e dai
+   filtri della pagina.
+4. `costoDaConferma.ts`: `applicaMerceDaConferma` crea la consegna unica
+   con gli articoli, il nome dall'articolo principale, «pronta dal»
+   dall'approntamento; `deps.mittente` porta anche l'email; lettura 1.11.0
+   rigenera le righe della forma vecchia.
+5. Client: scheda commessa con «Ricevuto tutto», dettaglio «N articoli»,
+   «Pronta dal fornitore dal…», copy «Da ordinare»; registro conferme
+   «1 consegna · N articoli».
+
+## Decima tranche (07/09): la pagina Fornitori
+
+«Crea la pagina fornitori in cui automaticamente per ogni fornitore vengono
+archiviate tutte le conf. ordine e le comunicazioni in automatico da Tars.»
+Fino a qui la conferma poteva vivere solo dentro il fascicolo di una
+commessa: quelle di cui non si capiva la commessa restavano allegati di una
+mail, invisibili. Ora c'è un posto dove stanno, con il motivo per cui non
+sono ancora collegate.
+
+1. `server/fornitori/archivio.ts`: store `fornitori_archivio` (indice, non
+   byte), `fornitoreDiComunicazione`, `eseguiGiroArchivioFornitori`
+   (scansione → lettura → decisione), `collegaVoceArchivio` (a mano),
+   `scartaVoceArchivio` / `riapriVoceArchivio` / `rileggiVoceArchivio`,
+   proiezioni `riepilogoFornitori` e `confermeArchivio`.
+2. `server/fornitori/archivioWorker.ts`: ogni 10 minuti per sede,
+   `ARCHIVIO_FORNITORI=off`, avviato in `_core/index.ts`.
+3. `fornitoriRouter.archivio.*`: fornitori, conferme, comunicazioni,
+   collega, scarta, riapri, rileggi, aggiorna.
+4. Origine documento `fornitori` (collegata a mano dall'archivio).
+5. Pagina `client/src/pages/Fornitori.tsx`, rotta ripristinata,
+   navigazione sotto Cantiere, contratto delle rotte aggiornato.
+6. Test `server/fornitori/archivio.test.ts` (9 casi): riconoscimento del
+   fornitore, collegamento automatico con costo e merce, ambigua coi
+   candidati, collegamento a mano, conflitti, scarto e riepilogo.
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

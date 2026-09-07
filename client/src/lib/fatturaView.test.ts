@@ -262,6 +262,11 @@ describe("fatturaView", () => {
     ]);
   });
 
+  it("riepilogoView su una fattura libera si ferma al totale: niente markup né Δ pattuito (07/09/2026)", () => {
+    const righe = riepilogoView({ ...fatturaCaso127, deltaPattuitoCent: 500 }, { libera: true });
+    expect(righe.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale"]);
+  });
+
   it("riepilogoView aggiunge «Δ pattuito» con tono attenzione solo se il delta non è zero", () => {
     expect(
       riepilogoView(fatturaCaso127).some(r => r.etichetta === "Δ pattuito")
@@ -493,6 +498,8 @@ describe("azionePerControllo", () => {
     expect(azionePerControllo("cliente_cf")?.tipo).toBe("cliente");
     expect(azionePerControllo("cliente_provincia")?.tipo).toBe("cliente");
     expect(azionePerControllo("config_iban")?.tipo).toBe("impostazioni");
+    // Limiti opzionali: il computo assente è un avviso che porta al passo Limiti.
+    expect(azionePerControllo("computo_assente")).toEqual({ tipo: "passo", passo: "limiti", etichetta: "Vai ai limiti" });
     expect(azionePerControllo("config_scope")?.tipo).toBe("impostazioni");
     expect(azionePerControllo("computo_non_valido")).toMatchObject({ tipo: "passo", passo: "limiti" });
     expect(azionePerControllo("limite_riga")).toMatchObject({ tipo: "passo", passo: "limiti" });

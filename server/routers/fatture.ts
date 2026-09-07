@@ -26,6 +26,7 @@ import { getFattureRepository } from "../fatture/repository";
 import { sdiDryRun } from "../fatture/dryRun";
 import {
   aggiornaBozza as aggiornaBozzaServizio,
+  creaBozzaLibera as creaBozzaLiberaServizio,
   annullaBozza as annullaBozzaServizio,
   eliminaBozza as eliminaBozzaServizio,
   creaBozza as creaBozzaServizio,
@@ -104,6 +105,25 @@ const modificaBozzaSchema = z.object({
   scavalcoLimiti: z
     .object({ attivo: z.boolean(), motivo: z.string().trim().max(300).nullable() })
     .optional(),
+  // Anagrafica corretta dalla fattura (07/09/2026): il servizio normalizza,
+  // `controlliCliente` giudica; qui solo forma e lunghezze.
+  clienteSnapshot: z
+    .object({
+      nome: z.string().trim().min(1).max(200),
+      tipo: z.enum(["privato", "azienda", "condominio", "ente_pubblico"]),
+      codiceFiscale: z.string().trim().max(16).nullable(),
+      partitaIva: z.string().trim().max(11).nullable(),
+      indirizzo: z.string().trim().max(200),
+      cap: z.string().trim().max(5),
+      citta: z.string().trim().max(100),
+      provincia: z.string().trim().max(2),
+      email: z.string().trim().max(200).nullable(),
+      pec: z.string().trim().max(200).nullable(),
+      codiceDestinatario: z.string().trim().max(7),
+    })
+    .partial()
+    .optional(),
+  detrazioneTipo: z.enum(["nessuna", "ecobonus", "ristrutturazione"]).optional(),
 });
 
 const selezioneNotaCreditoSchema = z.discriminatedUnion("tipo", [
@@ -134,13 +154,15 @@ export const fattureRouter = router({
       });
       const [elenco, caps] = await Promise.all([
         fatturePerCommessa(sedeId, input.commessaId),
-        effectiveCapabilitySet(ctx, ["fattura.draft", "fattura.emit", "fattura.credit_note"]),
+        effectiveCapabilitySet(ctx, ["fattura.draft", "fattura.emit", "fattura.credit_note", "cliente.update_operational"]),
       ]);
       return {
         fatture: elenco.map(f => ({ ...f, righe: [], riepilogo: [], scadenze: [] })),
         puoDraft: caps.has("fattura.draft"),
         puoEmettere: caps.has("fattura.emit"),
         puoNotaCredito: caps.has("fattura.credit_note"),
+        // L'anagrafica si corregge dalla bozza solo con il permesso sui clienti.
+        puoModificareCliente: caps.has("cliente.update_operational"),
         dryRun: sdiDryRun(),
       };
     }),
@@ -184,6 +206,28 @@ export const fattureRouter = router({
       }
     }),
 
+  /** Fattura libera (07/09/2026): vuota, senza contratto né computo, sempre dentro la commessa. */
+  creaBozzaLibera: procedura
+    .input(z.object({ commessaId: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("limiti");
+      const sedeId = sedeCorrente(ctx);
+      commessaInSede(input.commessaId, sedeId);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "fatture.creaBozzaLibera",
+        capability: "fattura.draft",
+        resourceType: "fattura",
+        resource: { sedeId },
+        legacyAllowed: "capability",
+      });
+      try {
+        return await creaBozzaLiberaServizio({ sedeId, commessaId: input.commessaId, actorUserId: ctx.user.id });
+      } catch (errore) {
+        erroreServizioComeTrpc(errore);
+      }
+    }),
+
   aggiornaBozza: procedura
     .input(
       z.object({
@@ -203,6 +247,18 @@ export const fattureRouter = router({
         resource: { sedeId },
         legacyAllowed: "capability",
       });
+      // L'anagrafica corretta dalla bozza torna nella scheda cliente: è una
+      // modifica al cliente, con il suo permesso (come da `clienti.update`).
+      if (input.modifica.clienteSnapshot) {
+        await authorizeCoreOperation({
+          ctx,
+          endpoint: "fatture.aggiornaBozza.cliente",
+          capability: "cliente.update_operational",
+          resourceType: "cliente",
+          resource: { sedeId },
+          legacyAllowed: "capability",
+        });
+      }
       // Ruling R34: «Procedi comunque» sui limiti è una decisione di chi
       // emette, non di chi compila la bozza — spec §7.3. Seconda
       // autorizzazione, mai un controllo lasciato alla UI. Spegnere lo

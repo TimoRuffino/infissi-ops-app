@@ -8,14 +8,24 @@ import { STATI_COMMESSA } from "../commesse/transizioni";
 import { assertSedeScope } from "../_core/permissions";
 
 // ── Magazzino ────────────────────────────────────────────────────────────────
-// Products sitting in the warehouse for a commessa, each with its own
-// expected/actual delivery date. Commesse from "da_ordinare" onwards can
-// receive products: an ordered good is already in transit. The board card
-// surfaces them so posa can be planned around real material arrivals.
+// Le consegne attese da una commessa, ognuna con la sua data prevista e il
+// suo «ricevuto». Le commesse da «da ordinare» in poi possono averne: la
+// merce ordinata è già in viaggio. La scheda del board le mostra così la
+// posa si pianifica sugli arrivi veri.
 //
-// Dal 03/09/2026 le righe nascono anche da sole: la conferma d'ordine che
-// entra nel fascicolo porta la sua merce in arrivo (`documentoId` la lega
-// al documento; più conferme per commessa = più gruppi di righe).
+// Dal 03/09/2026 le righe nascono anche da sole dalla conferma d'ordine che
+// entra nel fascicolo (`documentoId` la lega al documento). Dal 07/09/2026
+// («la gestione del magazzino è un casino») UNA CONFERMA = UNA CONSEGNA: gli
+// articoli del PDF (porta, kit, falso telaio, coprifili…) stanno dentro la
+// consegna come dettaglio (`articoli`), non come otto consegne a quantità 1.
+// Le righe a mano restano quello che erano: un prodotto, una quantità.
+
+export type ArticoloConsegna = {
+  nome: string;
+  quantita: number;
+  /** Dove sta la riga nella conferma (anteprime «Dove l'ho letto»). */
+  evidenza?: EvidenzaLetta | null;
+};
 
 export type Prodotto = {
   id: number;
@@ -37,6 +47,10 @@ export type Prodotto = {
    * le righe lette prima di questo campo.
    */
   evidenza?: EvidenzaLetta | null;
+  /** Gli articoli letti nella conferma (null = riga a mano, o lettura vecchia). */
+  articoli: ArticoloConsegna[] | null;
+  /** Merce pronta dal fornitore da questa data (settimana di approntamento): non è la consegna. */
+  prontaDal: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -47,6 +61,8 @@ const _store = persistedStore<Prodotto>("magazzino_prodotti", (loaded) => {
     if ((p as any).dataOrdine === undefined) (p as any).dataOrdine = null;
     if ((p as any).documentoId === undefined) (p as any).documentoId = null;
     if ((p as any).evidenza === undefined) (p as any).evidenza = null;
+    if ((p as any).articoli === undefined) (p as any).articoli = null;
+    if ((p as any).prontaDal === undefined) (p as any).prontaDal = null;
   }
 });
 const prodotti = _store.items;
@@ -70,51 +86,74 @@ export function prodottiDelDocumento(documentoId: number): Prodotto[] {
   return prodotti.filter((p) => p.documentoId === documentoId);
 }
 
+const ARTICOLI_MASSIMI = 40;
+
+function articoliPuliti(
+  righe: ReadonlyArray<{ nome: string; quantita: number; evidenza?: EvidenzaLetta | null }>
+): ArticoloConsegna[] {
+  const puliti: ArticoloConsegna[] = [];
+  for (const r of righe) {
+    const nome = String(r.nome ?? "").trim().slice(0, 160);
+    if (!nome) continue;
+    puliti.push({
+      nome,
+      quantita: Math.max(1, Math.round(Number(r.quantita) || 1)),
+      ...(r.evidenza ? { evidenza: r.evidenza } : {}),
+    });
+    if (puliti.length >= ARTICOLI_MASSIMI) break;
+  }
+  return puliti;
+}
+
 /**
- * Le righe di merce lette da una conferma d'ordine. Idempotente per
- * documento: se le righe esistono già non se ne aggiungono altre. Nessuna
- * autorizzazione qui: chi chiama è la regola di dominio del fascicolo.
+ * LA consegna che una conferma d'ordine promette: una riga sola per
+ * documento, con gli articoli dentro. Idempotente per documento: se la riga
+ * esiste già la restituisce. Nessuna autorizzazione qui: chi chiama è la
+ * regola di dominio del fascicolo.
  */
-export function creaProdottiDaConferma(input: {
+export function creaConsegnaDaConferma(input: {
   commessaId: number;
   sedeId: number;
   documentoId: number;
-  righe: ReadonlyArray<{ nome: string; quantita: number; evidenza?: EvidenzaLetta | null }>;
+  nome: string;
+  articoli: ReadonlyArray<{ nome: string; quantita: number }>;
+  /** Dove sta l'articolo principale nella conferma (anteprime «Dove l'ho letto»). */
+  evidenza?: EvidenzaLetta | null;
   fornitore: string | null;
   numeroOrdine: string | null;
   dataOrdine: string | null;
   dataConsegna: string | null;
+  prontaDal: string | null;
   note: string | null;
-}): Prodotto[] {
-  const esistenti = prodottiDelDocumento(input.documentoId);
-  if (esistenti.length > 0) return esistenti;
+  /** Stato ereditato da righe precedenti dello stesso documento (rigenerazione). */
+  arrivato?: boolean;
+}): Prodotto {
+  const esistente = prodottiDelDocumento(input.documentoId)[0];
+  if (esistente) return esistente;
   const now = new Date();
-  const creati: Prodotto[] = [];
-  for (const riga of input.righe) {
-    const nome = riga.nome.trim();
-    if (!nome) continue;
-    const row: Prodotto = {
-      id: _store.prossimoId(),
-      sedeId: input.sedeId,
-      commessaId: input.commessaId,
-      nome: nome.slice(0, 160),
-      quantita: Math.max(1, Math.round(riga.quantita || 1)),
-      fornitore: input.fornitore?.trim() || null,
-      numeroOrdine: input.numeroOrdine?.trim() || null,
-      dataOrdine: input.dataOrdine,
-      dataConsegna: input.dataConsegna,
-      arrivato: false,
-      note: input.note,
-      documentoId: input.documentoId,
-      evidenza: riga.evidenza ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    prodotti.push(row);
-    creati.push(row);
-  }
-  if (creati.length > 0) _store.save();
-  return creati;
+  const articoli = articoliPuliti(input.articoli);
+  const row: Prodotto = {
+    id: _store.prossimoId(),
+    sedeId: input.sedeId,
+    commessaId: input.commessaId,
+    nome: (input.nome.trim() || "Merce conferma d'ordine").slice(0, 160),
+    quantita: 1,
+    fornitore: input.fornitore?.trim() || null,
+    numeroOrdine: input.numeroOrdine?.trim() || null,
+    dataOrdine: input.dataOrdine,
+    dataConsegna: input.dataConsegna,
+    arrivato: input.arrivato === true,
+    note: input.note,
+    documentoId: input.documentoId,
+    articoli: articoli.length > 0 ? articoli : null,
+    evidenza: input.evidenza ?? null,
+    prontaDal: input.prontaDal,
+    createdAt: now,
+    updatedAt: now,
+  };
+  prodotti.push(row);
+  _store.save();
+  return row;
 }
 
 /** Il documento esce dal fascicolo (o non è più una conferma): la sua merce non è più attesa. */
@@ -219,6 +258,8 @@ export const magazzinoRouter = router({
         arrivato: false,
         note: input.note?.trim() || null,
         documentoId: null,
+        articoli: null,
+        prontaDal: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -262,6 +303,31 @@ export const magazzinoRouter = router({
       row.updatedAt = new Date();
       _store.save();
       return row;
+    }),
+
+  /**
+   * «Ricevuto tutto»: ogni consegna della commessa non ancora ricevuta viene
+   * segnata ricevuta in un colpo (direzione 07/09/2026). Reversibile riga
+   * per riga con «Riapri consegna».
+   */
+  segnaTuttoRicevuto: protectedProcedure
+    .input(z.object({ commessaId: z.number() }))
+    .mutation(({ input, ctx }) => {
+      const c = getCommessaById(input.commessaId);
+      if (!c) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Commessa non trovata" });
+      }
+      assertSedeScope(c, ctx.sedeId);
+      const now = new Date();
+      let segnate = 0;
+      for (const p of prodotti) {
+        if (p.commessaId !== input.commessaId || p.sedeId !== ctx.sedeId || p.arrivato) continue;
+        p.arrivato = true;
+        p.updatedAt = now;
+        segnate += 1;
+      }
+      if (segnate > 0) _store.save();
+      return { segnate };
     }),
 
   remove: protectedProcedure

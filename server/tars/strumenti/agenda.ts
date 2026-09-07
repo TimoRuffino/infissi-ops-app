@@ -32,8 +32,9 @@ import type {
   EvidenzaTars,
   StrumentoTars,
 } from "./tipi";
+import { PRODOTTO } from "@shared/brand";
 
-const FONTE_CRM = "CRM Ruffino Flow";
+const FONTE_CRM = `CRM ${PRODOTTO}`;
 
 function assicuraL2(): void {
   if (!tarsAttivo("tarsL2Actions")) {

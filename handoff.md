@@ -1,4 +1,4 @@
-# Handoff - Ruffino Flow (`infissi-ops-app`)
+# Handoff - Wyndor (`infissi-ops-app`)
 
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
@@ -7,6 +7,19 @@
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 07/09/2026 — il CRM si chiama Wyndor** (spec
+> `docs/superpowers/specs/2026-09-07-rebranding-wyndor-design.md`, piano
+> `docs/superpowers/plans/2026-09-07-rebranding-wyndor.md`). Nome e marchio
+> nuovi: due ante in prospettiva, borgogna e ambra, montate come componente
+> React invece che come immagine — via il filtro che appiattiva il logo a
+> silhouette. Ruffino Group resta il tenant 1: firma WhatsApp, intestatario
+> fatture e messaggi ai clienti restano suoi. Non toccati: la cartella Drive
+> `Backup CRM Ruffino` (è la chiave dei backup, non un marchio), i prompt
+> Tars da v1 a v8 e i verbali datati. Fuori perimetro e ancora da fare:
+> nome del repository, il campo `name` di `package.json` (il resto del file
+> è cambiato: script `icone`, devDependency `sharp`), dominio, servizio
+> Railway, callback OAuth.
 
 > **Novità 07/09/2026 sera — WS2 «porta aperta»: gli archivi diventano per
 > azienda, su branch.** I 15 task del piano
@@ -380,10 +393,62 @@
 > `[ricerca-commessa]` nei log, e il giro del worker conta i candidati
 > (certe/probabili/non letti). Metodo che ha funzionato: leggere i log del
 > giro dopo ogni deploy e togliere UNA classe di falsi positivi per volta.
+>
+> **07/09/2026 — «La gestione del magazzino è assolutamente un casino».**
+> Diagnosi sui dati veri (155 righe, 52 commesse, sonda in sola lettura):
+> la regola del 03/09 riversava a magazzino le righe articolo dei PDF così
+> come stanno — una porta Alias = otto «consegne» di kit, falso telaio,
+> coprifili, pomolino a quantità 1 senza data; righe spazzatura («giovedì
+> 25 giugno 2026 Commessa» ×808, segnaposto col nome del file); fornitori
+> in dieci forme («ALIAS Srl Porte blindate», «REFERENTE Natascia De Biasi
+> -», l'agente col nome del cliente) che il filtro a lista fissa non
+> trovava; conferme di maggio rilette a settembre = «in ritardo» su
+> commesse già posate; revisioni che raddoppiano. Fatto (§36, §54.7 del
+> PRD): **una conferma = una consegna** (`Prodotto.articoli[]`,
+> `prontaDal`, nome dall'articolo principale via `articoloPrincipale`,
+> `creaConsegnaDaConferma` idempotente per documento); fornitore
+> normalizzato (`shared/fornitori.ts`: testo o dominio mail → nome
+> aziendale, referenti mai); estrattore merce 2.0.0 (righe che iniziano
+> con un giorno o una data non sono merce, pezzi > 500 non sono una
+> quantità); lettura 1.11.0 rigenera le righe vecchie nella forma nuova
+> ereditando il «ricevuto» di chi le aveva toccate (decisione direzione:
+> niente «ricevuto» automatico per le commesse già posate → bottone
+> **«Ricevuto tutto»** per commessa, `magazzino.segnaTuttoRicevuto`);
+> pagina con copy corretta («Da ordinare»), dettaglio «N articoli»,
+> «Pronta dal fornitore dal …»; registro conferme con «1 consegna · N
+> articoli». In produzione il worker rilegge le 40 conferme al primo giro
+> dopo il deploy (OCR/visione per le scansioni: pochi centesimi). La
+> verifica nel browser (1440/390) resta da fare a mano: il server demo
+> chiede il login e l'agente non entra.
+>
+> **07/09/2026 — La pagina Fornitori: l'archivio delle conferme.** Mandato:
+> «per ogni fornitore vengono archiviate tutte le conf. ordine e le
+> comunicazioni in automatico da Tars; da lì analizza la conf. ordine e
+> capisce di quale commessa è, e se non lo capisce deve dirlo e va collegata
+> a mano, così che una volta collegata compaia nella commessa e da lì si
+> ricavi il costo fornitore, stessa cosa per il prodotto in magazzino».
+> Fatto (§36-bis del PRD): `server/fornitori/archivio.ts` — un INDICE sulle
+> comunicazioni (store `fornitori_archivio`), non una copia dei byte: le
+> conferme restano allegati delle mail. Worker `archivioFornitoriWorker`
+> (boot +60 s, ogni 10 min, 8 letture nuove per giro,
+> `ARCHIVIO_FORNITORI=off`): scansione (fornitore dal mittente o dal
+> dominio, `shared/fornitori.ts`; allegato «da conferma» via
+> `nomeDaConferma`), lettura (`ricercaCommessaNelDocumento`: testo nativo,
+> OCR, trascrizione del modello) e decisione — **commessa unica** → entra da
+> sola nel fascicolo con `origine: "automatico"`, la mail libera viene
+> collegata, e nascono costo e consegna; **altrimenti «da collegare» col
+> motivo**. Pagina `/fornitori` (era redirect): fornitori a sinistra,
+> conferme a destra con i candidati che il testo nomina, ricerca libera,
+> Rileggi / Non è da collegare / Rimettila in coda, e le comunicazioni del
+> fornitore. Procedure `fornitori.archivio.*`; collegare e scartare come
+> «È di questa commessa» (direzione o amministrazione); nuova origine
+> documento `fornitori`. Suite 251 file / 2.703 test. Da fare a mano: la
+> verifica nel browser (1440/390) e il primo giro in produzione, dove le
+> conferme già nei fascicoli entrano in archivio come «collegate».
 
 ## 1. Contesto
 
-Ruffino Flow è il gestionale operativo di Ruffino Group per clienti, commesse,
+Wyndor è il gestionale operativo di Ruffino Group per clienti, commesse,
 rilievi, ordini, produzione, posa, pagamenti e post-vendita. È usato su dati
 reali: compatibilità dei record esistenti, isolamento tra sedi e possibilità di
 rollback hanno priorità sulle riscritture estese.
@@ -2067,6 +2132,10 @@ production) SETTE variabili, con un solo redeploy:
     FLAG_TARS, FLAG_TARS_READ_TOOLS, FLAG_TARS_REMINDERS,
     FLAG_TARS_MEMORY, FLAG_TARS_L2_ACTIONS, FLAG_TARS_PROACTIVE,
     FLAG_TARS_COMMUNICATIONS  = on
+
+(il servizio su Railway porta ancora il vecchio nome: la rinomina è
+un'operazione di piattaforma, fuori dal perimetro del rebranding —
+spec §12)
 
 NON impostate (e da non impostare senza un gate esplicito):
 `TARS_PROVIDER` (farebbe partire chiamate reali sulla chiave residua
@@ -4021,6 +4090,18 @@ righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
 fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
 `embeddedfolderview`, download con `drive.usercontent.google.com/download`;
 gdown non funziona più).
+
+**Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
+direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la
+commessa (`origine: "libera"`, colonna `fatture.origine` con default
+`contratto`): senza contratto né computo, righe a mano, pattuito = somma
+delle righe, markup sempre zero, detrazione scelta in bozza, più d'una per
+commessa, non si rigenera. Senza computo l'emissione non si blocca più
+(`computo_assente` è un avviso); un computo superato blocca ancora salvo
+scavalco. Nella bozza il riquadro «Anagrafica cliente» corregge lo
+snapshot e la scheda cliente (`aggiornaAnagraficaCliente`, capability
+`cliente.update_operational`, mai il cliente su FiC). Verifica browser
+1440/390 non eseguita (login demo). PRD 5.48.
 
 **Fase 5 (06/09/2026 sera): il corpus del Drive** (spec §11). 229 fogli
 2022-24 raccolti: 134 al centesimo, 71 nuovi in fixture (148 casi d'oro);

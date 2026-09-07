@@ -17,7 +17,7 @@
 //   FATTURA_IMMUTABILE: dalla bozza in poi si corregge con una nota di credito
 //   CONFLITTO:          revisione superata (propagato dal repository)
 import { TZDate } from "@date-fns/tz";
-import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
+import { DICITURE, dicitureDefault, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import {
   fatturaModificabile,
   type ClienteSnapshot,
@@ -31,7 +31,7 @@ import {
 import type { Computo, Contratto } from "@shared/limiti/tipi";
 import { ultimoComputo } from "../computo/servizio";
 import { leggiContratto } from "../contratti/servizio";
-import { getClienteById } from "../routers/clienti";
+import { aggiornaAnagraficaCliente, getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
 import { controlliCliente, snapshotCliente } from "./cliente";
@@ -69,6 +69,18 @@ export type ModificaBozza = {
   /** Scala le righe bene significative finché il markup vale questo importo. */
   riequilibraBeniAMarkupCent?: number;
   scavalcoLimiti?: { attivo: boolean; motivo: string | null };
+  /**
+   * Anagrafica del cliente corretta dalla fattura (07/09/2026): aggiorna lo
+   * snapshot e, se la fattura ha un cliente in anagrafica, anche la scheda
+   * cliente (mai il cliente su Fatture in Cloud). Il nome torna in anagrafica
+   * solo per aziende, condomini ed enti (ragione sociale): per un privato
+   * cognome e nome sono due campi e non si indovinano da una riga sola.
+   */
+  clienteSnapshot?: Partial<
+    Pick<ClienteSnapshot, "nome" | "tipo" | "codiceFiscale" | "partitaIva" | "indirizzo" | "cap" | "citta" | "provincia" | "email" | "pec" | "codiceDestinatario">
+  >;
+  /** Solo per una fattura libera: dal contratto la detrazione la decide il contratto. */
+  detrazioneTipo?: Fattura["detrazioneTipo"];
 };
 
 /** Scarto ammesso sul markup dopo il riequilibrio: l'IVA non restituisce sempre il centesimo esatto. */
@@ -268,6 +280,7 @@ export async function creaBozza(
     fattura: {
       sedeId: input.sedeId,
       commessaId: input.commessaId,
+      origine: "contratto",
       computoId,
       hashRighe: contratto.hashRighe,
       tipo: "fattura",
@@ -317,6 +330,86 @@ export async function creaBozza(
     payload: { avvertenze },
     actorUserId: input.actorUserId,
   });
+  return { fattura, avvertenze };
+}
+
+/**
+ * Fattura libera (07/09/2026, richiesta della direzione): nasce vuota
+ * dentro la commessa, senza contratto né computo, con l'anagrafica del
+ * cliente della commessa; le righe si scrivono a mano e il totale è la
+ * somma delle righe (il pattuito segue le righe, il markup resta zero).
+ * Storno e riaddebito dei beni significativi restano quelli del
+ * risolutore quando ci sono righe al 10 %: è la regola fiscale, non una
+ * regola del contratto. Se ne possono fare più d'una per commessa
+ * (acconti, lavori extra): la regola «una sola fattura» vale per quella
+ * nata dal contratto.
+ */
+export async function creaBozzaLibera(
+  input: { sedeId: number; commessaId: number; actorUserId: number | null } & Dipendenze
+): Promise<{ fattura: Fattura; avvertenze: string[] }> {
+  const repository = repo(input);
+  const now = adesso(input);
+  const commessa = commessaInSede(input.sedeId, input.commessaId);
+  const config = await repository.config(input.sedeId);
+  const cliente = commessa.clienteId ? getClienteById(commessa.clienteId) : null;
+  const clienteSnapshot = snapshotCliente(cliente, commessa);
+  const avvertenze: string[] = ["Fattura libera: nessun contratto né computo dietro, righe da scrivere a mano."];
+  if (!cliente) avvertenze.push("La commessa non ha un cliente in anagrafica: i dati vanno completati qui in fattura.");
+  const { righe, esito } = senzaMarkupVuoto(ricalcola({ righe: [], pattuitoCent: 0, pattuitoTipo: "imponibile" }));
+  const dataFattura = iso(now);
+  const fattura = await repository.crea({
+    fattura: {
+      sedeId: input.sedeId,
+      commessaId: input.commessaId,
+      origine: "libera",
+      computoId: null,
+      hashRighe: null,
+      tipo: "fattura",
+      notaCreditoDi: null,
+      stato: "bozza",
+      ficDocumentId: null,
+      numero: null,
+      data: null,
+      clienteSnapshot,
+      pattuitoTipo: "imponibile",
+      pattuitoCent: 0,
+      imponibileCent: esito.imponibileCent,
+      ivaCent: esito.ivaCent,
+      totaleCent: esito.totaleCent,
+      deltaPattuitoCent: 0,
+      markupCent: 0,
+      stornoCent: esito.stornoCent,
+      diciture: dicitureDefault("nessuna", clienteSnapshot.praticaEdilizia),
+      note: null,
+      intestazioneCantiere: null,
+      detrazioneTipo: "nessuna",
+      pdfStorageKey: null,
+      xmlStorageKey: null,
+      xmlSha256: null,
+      documentoId: null,
+      eiStatusFic: null,
+      eiErrore: null,
+      inviataDryRun: false,
+      scavalcoLimiti: false,
+      scavalcoMotivo: null,
+      createdBy: input.actorUserId,
+      emessaDa: null,
+      emessaAt: null,
+    },
+    righe,
+    riepilogo: esito.riepilogo,
+    // Una scadenza sola, a vista: l'operatore la ridistribuisce dall'editor.
+    scadenze: scadenzeDaRate([{ numero: 1, quotaPct: 100, giorni: 0, data: null, descrizione: "Saldo" }], esito.totaleCent, dataFattura),
+    now,
+  });
+  await repository.appendEvento({
+    fatturaId: fattura.id,
+    sedeId: input.sedeId,
+    tipo: "creata",
+    payload: { origine: "libera", avvertenze },
+    actorUserId: input.actorUserId,
+  });
+  void config;
   return { fattura, avvertenze };
 }
 
@@ -595,6 +688,16 @@ export async function aggiornaBozza(
     throw new Error("VALIDAZIONE: indica il motivo dello scavalco.");
   }
 
+  if (modifica.detrazioneTipo !== undefined && fattura.origine !== "libera" && modifica.detrazioneTipo !== fattura.detrazioneTipo) {
+    throw new Error("VALIDAZIONE: la detrazione di una fattura nata dal contratto la decide il contratto.");
+  }
+  // Anagrafica corretta dalla fattura: lo snapshot si aggiorna subito, la
+  // scheda cliente dopo il salvataggio (se la bozza non si salva, nemmeno
+  // la scheda cambia).
+  const clienteSnapshot = modifica.clienteSnapshot && fattura.clienteSnapshot
+    ? snapshotCorretto(fattura.clienteSnapshot, modifica.clienteSnapshot)
+    : undefined;
+
   let righe = fattura.righe.map(comeRigaInput);
   // Correzioni e rimozioni parlano degli ordini correnti: si applicano
   // prima delle aggiunte, che quegli ordini li sposterebbero.
@@ -605,11 +708,13 @@ export async function aggiornaBozza(
     righe = riequilibra(righe, fattura, modifica.riequilibraBeniAMarkupCent);
   }
 
-  const { righe: righeComplete, esito } = ricalcola({
-    righe,
-    pattuitoCent: fattura.pattuitoCent,
-    pattuitoTipo: fattura.pattuitoTipo,
-  });
+  // Fattura libera: il pattuito è la somma delle righe scritte a mano, così il
+  // markup resta zero e il totale è quello che si legge nelle righe.
+  const pattuitoCent = fattura.origine === "libera"
+    ? righe.filter(r => !r.derivata && (r.tipo === "bene" || r.tipo === "servizio")).reduce((s, r) => s + r.importoCent, 0)
+    : fattura.pattuitoCent;
+  const ricalcolo = ricalcola({ righe, pattuitoCent, pattuitoTipo: fattura.pattuitoTipo });
+  const { righe: righeComplete, esito } = fattura.origine === "libera" ? senzaMarkupVuoto(ricalcolo) : ricalcolo;
 
   const avvisi: Controllo[] = [];
   if (modifica.riequilibraBeniAMarkupCent !== undefined) {
@@ -641,6 +746,9 @@ export async function aggiornaBozza(
     intestazioneCantiere: modifica.intestazioneCantiere,
     scavalcoLimiti: modifica.scavalcoLimiti?.attivo,
     scavalcoMotivo: modifica.scavalcoLimiti ? modifica.scavalcoLimiti.motivo : undefined,
+    clienteSnapshot,
+    detrazioneTipo: modifica.detrazioneTipo,
+    pattuitoCent: fattura.origine === "libera" ? pattuitoCent : undefined,
   };
 
   const aggiornata = await repository.aggiornaBozza({
@@ -653,6 +761,10 @@ export async function aggiornaBozza(
     scadenze,
     now,
   });
+
+  if (clienteSnapshot && aggiornata.clienteSnapshot?.clienteId != null) {
+    aggiornaAnagraficaCliente(aggiornata.clienteSnapshot.clienteId, input.sedeId, clienteSnapshot);
+  }
 
   await repository.appendEvento({
     fatturaId: aggiornata.id,
@@ -689,6 +801,39 @@ export async function aggiornaBozza(
   };
 }
 
+/**
+ * Su una fattura libera il markup è sempre zero (il pattuito segue le
+ * righe): la riga derivata «MarkUp» a 0,00 non dice niente e non deve
+ * finire su Fatture in Cloud. Storno e riaddebito restano quando ci sono.
+ */
+function senzaMarkupVuoto<T extends { righe: RigaFatturaInput[] }>(ricalcolo: T): T {
+  const righe = ricalcolo.righe
+    .filter(r => !(r.derivata && r.tipo === "markup" && r.importoCent === 0))
+    .map((r, i) => ({ ...r, ordine: i + 1 }));
+  return { ...ricalcolo, righe };
+}
+
+/** Lo snapshot con i campi corretti dall'operatore, normalizzati come li scrive `snapshotCliente`. */
+function snapshotCorretto(base: ClienteSnapshot, correzione: NonNullable<ModificaBozza["clienteSnapshot"]>): ClienteSnapshot {
+  const testo = (v: string | null | undefined, corrente: string): string => (v === undefined ? corrente : String(v ?? "").trim());
+  const opzionale = (v: string | null | undefined, corrente: string | null): string | null =>
+    v === undefined ? corrente : (String(v ?? "").trim() || null);
+  return {
+    ...base,
+    nome: testo(correzione.nome, base.nome),
+    tipo: correzione.tipo ?? base.tipo,
+    codiceFiscale: opzionale(correzione.codiceFiscale, base.codiceFiscale)?.toUpperCase() ?? null,
+    partitaIva: opzionale(correzione.partitaIva, base.partitaIva),
+    indirizzo: testo(correzione.indirizzo, base.indirizzo),
+    cap: testo(correzione.cap, base.cap),
+    citta: testo(correzione.citta, base.citta),
+    provincia: testo(correzione.provincia, base.provincia).toUpperCase(),
+    email: opzionale(correzione.email, base.email),
+    pec: opzionale(correzione.pec, base.pec),
+    codiceDestinatario: (testo(correzione.codiceDestinatario, base.codiceDestinatario) || "0000000").toUpperCase(),
+  };
+}
+
 /** Ricrea righe e scadenze dal contratto e dal computo correnti: la bozza torna alla proposta del sistema. */
 export async function rigeneraBozza(
   input: { sedeId: number; id: number; revisione: number; actorUserId: number | null } & Dipendenze
@@ -696,6 +841,9 @@ export async function rigeneraBozza(
   const repository = repo(input);
   const now = adesso(input);
   const fattura = await bozzaModificabile(repository, input.sedeId, input.id);
+  if (fattura.origine === "libera") {
+    throw new Error("PRECONDIZIONE: una fattura libera non nasce dal contratto e non si rigenera.");
+  }
   // Ruling R16: rigenerare rilegge il contratto e il computo — una nota di
   // credito non ha né l'uno né l'altro, le sue righe vengono dalla fattura
   // che storna (v. notaCredito.ts).
@@ -931,8 +1079,12 @@ export async function validaPerEmissione(
   // propone prestazioni nuove — il computo e i suoi limiti non la
   // riguardano. Cliente, configurazione e scadenze restano controllati
   // come per qualunque fattura.
-  if (fattura.tipo !== "nota_credito" && fattura.computoId == null && !fattura.scavalcoLimiti) {
-    errore("computo_non_valido", "Il computo dei limiti non è aggiornato: ricalcolalo o registra lo scavalco.");
+  // Limiti opzionali (07/09/2026, direzione): senza computo la fattura si
+  // emette lo stesso, con l'avviso. Con un computo presente e superato
+  // restano gli errori di `verificaLimiti`, che lo scavalco registrato
+  // trasforma in avvisi.
+  if (fattura.tipo !== "nota_credito" && fattura.origine !== "libera" && fattura.computoId == null && !fattura.scavalcoLimiti) {
+    avviso("computo_assente", "Il computo dei limiti manca o non è aggiornato: la fattura si emette senza il confronto con i limiti.");
   }
 
   if (fattura.scadenze.length === 0) {

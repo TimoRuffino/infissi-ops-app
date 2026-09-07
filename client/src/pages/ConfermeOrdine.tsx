@@ -38,6 +38,7 @@ const ORIGINE_LABEL: Record<string, string> = {
   automatico: "Automatica",
   smistamento: "Smistamento Tars",
   tars: "Tars su richiesta",
+  fornitori: "Dall'archivio fornitori",
   mail: "Dai Messaggi",
   upload: "Dalla scheda",
   fic: "Fatture in Cloud",
@@ -309,10 +310,18 @@ export default function ConfermeOrdine() {
                     </TableCell>
                     <TableCell className="text-text-2">
                       {r.merce.righe > 0
-                        ? `${r.merce.righe} ${r.merce.righe === 1 ? "riga" : "righe"} · consegna ${dataIt(r.merce.dataConsegna)}${
-                            r.merce.arrivate > 0 ? ` · ${r.merce.arrivate} arrivate` : ""
-                          }`
-                        : "nessuna riga"}
+                        ? `${r.merce.righe === 1 ? "1 consegna" : `${r.merce.righe} consegne`}${
+                            r.merce.articoli > 0
+                              ? ` · ${r.merce.articoli} ${r.merce.articoli === 1 ? "articolo" : "articoli"}`
+                              : ""
+                          } · ${
+                            r.merce.dataConsegna
+                              ? `consegna ${dataIt(r.merce.dataConsegna)}`
+                              : r.merce.prontaDal
+                                ? `pronta dal ${dataIt(r.merce.prontaDal)}`
+                                : "data da definire"
+                          }${r.merce.arrivate > 0 ? ` · ricevuta` : ""}`
+                        : "nessuna consegna"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -372,8 +381,14 @@ export default function ConfermeOrdine() {
                     <dt className="text-text-3">Merce</dt>
                     <dd className="text-right">
                       {r.merce.righe > 0
-                        ? `${r.merce.righe} righe · ${dataIt(r.merce.dataConsegna)}`
-                        : "nessuna riga"}
+                        ? `${r.merce.articoli > 0 ? `${r.merce.articoli} articoli · ` : ""}${
+                            r.merce.dataConsegna
+                              ? dataIt(r.merce.dataConsegna)
+                              : r.merce.prontaDal
+                                ? `pronta dal ${dataIt(r.merce.prontaDal)}`
+                                : "data da definire"
+                          }`
+                        : "nessuna consegna"}
                     </dd>
                   </div>
                 </dl>

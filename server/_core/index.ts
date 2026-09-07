@@ -139,6 +139,13 @@ async function startServer() {
     "../tars/documenti/confermeAutoArchivio"
   );
   startConfermeAutoArchivioWorker();
+  // Archivio fornitori: ogni conferma arrivata da un fornitore entra in
+  // archivio, viene letta e — se la commessa è una sola — collegata da sola;
+  // le altre aspettano una persona sulla pagina Fornitori (07/09/2026).
+  const { startArchivioFornitoriWorker } = await import(
+    "../fornitori/archivioWorker"
+  );
+  startArchivioFornitoriWorker();
 
   const { getBusinessEventRepository } = await import("../events/repository");
   await getBusinessEventRepository().ensureSchema();

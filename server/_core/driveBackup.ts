@@ -12,6 +12,7 @@ const autoTable: (doc: any, opts: any) => void =
 import { chiaveStore, persistedStore, getAllStoreSnapshots } from "./persistence";
 import { tenantIdDellaSede } from "../tenants/contesto";
 import { conTenantDellaSede } from "../tenants/giri";
+import { PRODOTTO } from "@shared/brand";
 
 // ── Nightly Google Drive backup ──────────────────────────────────────────────
 //
@@ -630,7 +631,7 @@ function buildSchedaPdf(
   doc.setFontSize(9);
   doc.setTextColor(110);
   doc.text(
-    `Backup del ${new Date().toLocaleDateString("it-IT")} — Ruffino Flow`,
+    `Backup del ${new Date().toLocaleDateString("it-IT")} — ${PRODOTTO}`,
     marginX,
     y
   );

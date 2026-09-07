@@ -57,7 +57,7 @@ export function routePresentation(
 ): RoutePresentation {
   return (
     ROUTE_PRESENTATION[route.path] ?? {
-      section: "Ruffino Flow",
+      section: "Wyndor",
       title: route.target,
     }
   );
