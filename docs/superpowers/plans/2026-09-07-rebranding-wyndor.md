@@ -555,7 +555,11 @@ const CARTELLA_BACKUP = ["Backup", "CRM", "Ruffino"].join(" ");
 
 describe("marchio e backup su Drive", () => {
   it("non rinomina la cartella dei backup insieme al prodotto", () => {
-    expect(SORGENTE).toContain(`"${CARTELLA_BACKUP}"`);
+    // Ancora l'asserzione alla chiamata funzionale, non solo alla stringa nei
+    // commenti: la cartella è nominata anche in un commento poco sopra, e
+    // cercare la sola stringa lascerebbe passare chi rinomina la chiamata e
+    // dimentica il commento — cioè esattamente lo scenario da intercettare.
+    expect(SORGENTE).toContain(`driveCreateFolder(token, "${CARTELLA_BACKUP}"`);
   });
 
   it("firma i PDF col nome nuovo del prodotto", () => {
