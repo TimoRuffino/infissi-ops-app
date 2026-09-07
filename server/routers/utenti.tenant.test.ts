@@ -94,6 +94,32 @@ describe("ruolo proprietario", () => {
       message: expect.stringMatching(/ultimo utente direzione/),
     });
   });
+
+  it("cancellare un secondo proprietario registra proprietario_revocato nel ledger", async () => {
+    const now = new Date();
+    utenti.push({
+      id: 97515,
+      nome: "N",
+      cognome: "C",
+      attivo: true,
+      password: "scrypt$x",
+      createdAt: now,
+      updatedAt: now,
+      email: "p3@ws1.test",
+      ruoli: ["proprietario"],
+      sediIds: [SEDE_T1],
+      tenantId: 1,
+    });
+    await expect(
+      come(PROPRIETARIO_T1, ["proprietario", "direzione"]).utenti.delete(97515)
+    ).resolves.toEqual({ success: true });
+    const eventi = await getTenantRepository().eventi(1);
+    expect(eventi.at(-1)).toMatchObject({
+      tipo: "proprietario_revocato",
+      attore: `utente:${PROPRIETARIO_T1}`,
+      dettagli: { cancellato: true },
+    });
+  });
 });
 
 describe("isolamento del control plane", () => {

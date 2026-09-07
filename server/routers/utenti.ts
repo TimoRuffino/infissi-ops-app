@@ -372,7 +372,7 @@ export const utentiRouter = router({
       return publicUtente(utenti[idx]);
     }),
 
-  delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
+  delete: adminProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const multi = interruttoreAttivo("multiAzienda");
     const idx = utenti.findIndex(u => u.id === input);
     const before = idx === -1 ? null : utenti[idx];
@@ -382,6 +382,14 @@ export const utentiRouter = router({
     if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
     utenti.splice(idx, 1);
     _store.save();
+    if (multi && ruoliDi(before).includes(RUOLO_PROPRIETARIO)) {
+      await getTenantRepository().registraEvento({
+        tenantId: presidioDi(before).tenantId,
+        tipo: "proprietario_revocato",
+        attore: attoreDi(ctx),
+        dettagli: { utenteId: before.id, cancellato: true },
+      });
+    }
     return { success: true };
   }),
 
