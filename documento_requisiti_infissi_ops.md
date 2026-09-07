@@ -1577,20 +1577,22 @@ l'avanzamento già salvato.
 ## 36. Magazzino (`/magazzino`)
 
 ### 36.1 Scope
-Prodotti fisici in arrivo/da magazzino **per commessa**. Eleggibili solo commesse **da `produzione` in poi** (incluso; escluse archiviate) — gate applicato sia lato server (create) sia nel filtro pagina.
+Le **consegne** attese **per commessa**. Eleggibili solo commesse **da `da_ordinare` in poi** (dal 03/09/2026: è lì che parte l'ordine e torna la conferma; escluse archiviate) — gate applicato lato server (create) e nel filtro pagina.
 
 ### 36.2 Modello (`magazzino_prodotti`)
-`{ id, sedeId, commessaId, nome, quantita, fornitore?, numeroOrdine?, dataOrdine?, dataConsegna?, arrivato, note?, createdAt, updatedAt }`.
-- **Fornitore** da dropdown fisso aziendale: Wnd, Oknoplast, Alias, Pail, Primed, HenryGlass, Palmieri, Errecci, Fivizzanese, Oskura, Korus, Punto del Serramento, Kopern, Citea, Cerrato, Brianzatende, Seraplastic, St Scale, Sharknet (valori legacy liberi restano selezionabili).
-- **Lead time** = giorni `dataOrdine → dataConsegna`, mostrato per prodotto (⏱ N gg) e come **KPI medio** sugli arrivati.
-- Cascade: eliminando una commessa si eliminano i suoi prodotti.
+`{ id, sedeId, commessaId, nome, quantita, fornitore?, numeroOrdine?, dataOrdine?, dataConsegna?, prontaDal?, arrivato, note?, documentoId?, articoli?, createdAt, updatedAt }`.
+- **Due origini, una forma.** Riga **a mano**: un prodotto, una quantità (`documentoId` e `articoli` nulli). Riga **dalla conferma d'ordine** (dal 03/09/2026, riscritta il 05/09/2026 — «la gestione del magazzino è un casino»): **UNA conferma = UNA consegna**, `nome` = l'articolo principale letto nel PDF (il serramento, non il kit o i coprifili), `quantita` = 1, `articoli[] = {nome, quantita}` con tutte le righe riconosciute (fino a 40), `documentoId` che la lega al documento; la consegna nasce, si sposta e sparisce con il documento (§54.7). Prima del 05/09 ogni articolo era una riga: una porta blindata Alias diventava otto «consegne» di kit e coprifili senza data; quelle righe si rigenerano nella forma nuova alla rilettura, ereditando il «ricevuto» messo da una persona.
+- **Fornitore** con il nome aziendale (`shared/fornitori.ts`: Alias, Pail, Oskura, Brianzatende, Primed, Henry Glass, Fivizzanese, Wnd, Oknoplast, Palmieri, Erreci, Korus, Punto del Serramento, Kopern, Citea, Cerrato, Seraplastic, ST Scale, Sharknet, BT Glass, Bertolotto, Cibofer, Effe Industrial, Bodytech, Gianesin): il testo letto nel PDF o il dominio della mail si riconduce al nome; un referente o un agente non è mai un fornitore; un nome sconosciuto resta, ripulito. Valori legacy liberi restano selezionabili.
+- **Date**: `dataConsegna` dal documento (data o settimana di consegna); la settimana di **approntamento** non è una consegna: resta `prontaDal` («pronta dal fornitore dal…») e la data vuota.
+- **Lead time** = giorni `dataOrdine → dataConsegna`, mostrato per consegna (⏱ N gg) e come **KPI medio** sulle ricevute.
+- Cascade: eliminando una commessa si eliminano le sue consegne.
+- `magazzino.segnaTuttoRicevuto({ commessaId })`: **«Ricevuto tutto»** — ogni consegna aperta della commessa segnata ricevuta in un colpo (sede verificata); reversibile riga per riga. Le righe esistenti NON si segnano ricevute da sole (decisione della direzione 05/09/2026: «le lascio come sono e un bottone per commessa»).
 
 ### 36.3 UI
-- **KPI**: Prodotti, In arrivo, Arrivati, Lead time medio.
-- **Strip "Prossime consegne"**: le 5 consegne pendenti più vicine cross‑commessa (rosse se scadute); il click apre il popup della commessa.
-- **Ricerca + filtri**: chip di stato (Tutte / In arrivo / In ritardo / Arrivati) affiancati da un **menu a tendina dei fornitori** («Tutti i fornitori» + i 19 dell'elenco) che filtra le commesse contenenti almeno un prodotto di quel fornitore. Il vecchio chip «Con prodotti» è stato sostituito da questo dropdown.
-- **Griglia di tile** (**2 per riga** su desktop, 1 su mobile): codice, StatoChip, cliente (17 px bold), città, **primi 4 prodotti** colorati per stato (✓ verde arrivato, rosso in ritardo con data corta, grigio in arrivo) ciascuno con **mini‑badge fornitore** accanto alla data, "+N altri prodotti", badge "N/M arrivati". Bordo rosso (ritardi) / verde (tutto arrivato). Ordinamento per urgenza (ritardi → consegna più vicina).
-- **Popup dettaglio** (click sul tile, `max-w-6xl`): header con codice/cliente/stato/città + "Apri commessa" + badge; righe prodotto **tutte editabili inline** (quantità, fornitore, n° ordine, date, switch arrivato, nota ghost click‑to‑edit con blur‑save); form "Aggiungi prodotto" su due righe.
+- **Testata**: consegne registrate, ancora da ricevere, in ritardo, lead time medio; «Aggiungi consegna» (scelta della commessa fra quelle da `da_ordinare` in poi: offerta, non permesso — l'eleggibilità la decide il server).
+- **Ricerca + filtri**: ricerca su prodotto, codice, cliente, città; **menu dei fornitori** (la lista di `shared/fornitori.ts`); stato (Tutte / Da ricevere / In ritardo / Arrivati).
+- **Una scheda per commessa** (2 per riga su desktop, 1 su mobile): codice, StatoChip, cliente, città; riga di sintesi «N consegne · N ricevute · N in ritardo» con il bottone **«Ricevuto tutto»** quando restano consegne aperte; poi le consegne, ognuna con nome, stato testuale (In ritardo / Prevista oggi / In arrivo / Ricevuto / Data da definire), data di consegna oppure «Pronta dal fornitore dal …», fornitore, numero d'ordine, «Segna ricevuto / Riapri consegna» e — per le consegne da conferma — il dettaglio **«N articoli»** apribile con quantità e descrizione. Le righe a mano mostrano la quantità; quelle da conferma no (sta negli articoli). A vista libera compaiono anche le commesse eleggibili senza consegne (il buco da notare); con filtri attivi no. Ordinamento per urgenza (ritardi → data più vicina → codice), in fondo le commesse senza consegne.
+- **Dettaglio commessa** (click sul titolo): «Apri commessa»; righe **editabili inline** (quantità solo per le righe a mano, fornitore, n° ordine, date, switch ricevuto, nota) con gli articoli e «pronta dal» in sola lettura; form «Aggiungi prodotto» su due righe; eliminazione con conferma.
 
 ### 36.4 Board
 Le card del Kanban mostrano il blocco prodotti (vedi §11.2).

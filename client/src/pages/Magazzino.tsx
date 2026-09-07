@@ -14,7 +14,9 @@ import { useLocation } from "wouter";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
 import CommessaConsegneCard, {
+  ArticoliConsegna,
   ConsegnaStatoChip,
+  etichettaConsegna,
   type ConsegnaItem,
   type ConsegneSintesi,
 } from "@/components/magazzino/CommessaConsegneCard";
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toDateStr } from "@/lib/calendario";
+import { FORNITORI } from "@shared/fornitori";
 import { deliveryState, type DeliveryState } from "@/lib/operationalRoutes";
 import { STATI_ORDER } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
@@ -57,29 +60,6 @@ function isEligible(c: any): boolean {
   return idx >= DA_ORDINARE_IDX && c.stato !== "archiviata" && !c.archivedAt;
 }
 
-// Company supplier list — fixed dropdown so names stay consistent (and the
-// per-supplier lead-time stats mean something).
-const FORNITORI = [
-  "Wnd",
-  "Oknoplast",
-  "Alias",
-  "Pail",
-  "Primed",
-  "HenryGlass",
-  "Palmieri",
-  "Errecci",
-  "Fivizzanese",
-  "Oskura",
-  "Korus",
-  "Punto del Serramento",
-  "Kopern",
-  "Citea",
-  "Cerrato",
-  "Brianzatende",
-  "Seraplastic",
-  "St Scale",
-  "Sharknet",
-];
 
 // `short` evita che quattro etichette lunghe sfondino la riga a 390 px.
 //
@@ -192,6 +172,24 @@ export default function Magazzino() {
       utils.magazzino.invalidate();
     },
   });
+  // «Ricevuto tutto» per commessa (direzione 05/09/2026): il server segna
+  // le consegne aperte, la UI ripete il numero che il server ha risposto.
+  const ricevutoTutto = trpc.magazzino.segnaTuttoRicevuto.useMutation({
+    onSuccess: r => {
+      utils.magazzino.invalidate();
+      toast.success(
+        r.segnate === 0
+          ? "Nessuna consegna da segnare."
+          : r.segnate === 1
+            ? "1 consegna segnata ricevuta."
+            : `${r.segnate} consegne segnate ricevute.`
+      );
+    },
+    onError: e => {
+      toast.error(e.message ?? "Salvataggio non riuscito");
+      utils.magazzino.invalidate();
+    },
+  });
   const remove = trpc.magazzino.remove.useMutation({
     onSuccess: () => {
       utils.magazzino.invalidate();
@@ -293,6 +291,8 @@ export default function Magazzino() {
         fornitore: r.prodotto.fornitore,
         numeroOrdine: r.prodotto.numeroOrdine,
         dataConsegna: r.prodotto.dataConsegna,
+        prontaDal: r.prodotto.prontaDal ?? null,
+        articoli: r.prodotto.articoli ?? null,
         arrivato: r.prodotto.arrivato,
       };
       const gruppo = map.get(commessaId);
@@ -403,6 +403,15 @@ export default function Magazzino() {
     );
   }
 
+  const commessaInCorso =
+    ricevutoTutto.isPending && ricevutoTutto.variables
+      ? (ricevutoTutto.variables.commessaId ?? null)
+      : null;
+
+  function segnaTuttoRicevuto(commessaId: number) {
+    ricevutoTutto.mutate({ commessaId });
+  }
+
   function apriDettaglio(commessaId: number) {
     setDetailFor(commessaId);
     setFormFor(null);
@@ -474,7 +483,7 @@ export default function Magazzino() {
             kind: "empty",
             title: "Nessun prodotto a magazzino in questa sede",
             description:
-              "I prodotti si aggiungono a una commessa dallo stato Produzione in poi.",
+              "Le consegne si aggiungono a una commessa dallo stato Da ordinare in poi, oppure nascono da sole dalla conferma d'ordine nel fascicolo.",
             action:
               eligibili.length > 0 ? (
                 <Button
@@ -526,7 +535,7 @@ export default function Magazzino() {
             Magazzino
           </span>
         }
-        description="Le consegne raggruppate nella loro commessa, dallo stato Produzione in poi. Ogni scheda dice cosa manca e quando arriva."
+        description="Le consegne raggruppate nella loro commessa, dallo stato Da ordinare in poi. Una conferma d'ordine è una consegna: gli articoli stanno dentro. Ogni scheda dice cosa manca e quando arriva."
         busy={prodotti.isFetching}
         metadata={
           <>
@@ -679,9 +688,11 @@ export default function Magazzino() {
                   sintesi={g.sintesi}
                   today={today}
                   pendingId={consegnaInCorso}
+                  pendingCommessaId={commessaInCorso}
                   onOpenCommessa={apriDettaglio}
                   onAddConsegna={apriForm}
                   onToggleArrivato={segnaArrivato}
+                  onRicevutoTutto={segnaTuttoRicevuto}
                 />
               ))}
             </div>
@@ -702,8 +713,8 @@ export default function Magazzino() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-text-2">
-              Scegli la commessa a cui aggiungere il prodotto. Restano
-              disponibili le commesse dallo stato Produzione in poi.
+              Scegli la commessa a cui aggiungere la consegna. Restano
+              disponibili le commesse dallo stato Da ordinare in poi.
             </p>
             {commesse.isPending ? (
               <p className="text-sm text-text-3">Carico le commesse…</p>
@@ -713,7 +724,7 @@ export default function Magazzino() {
               </p>
             ) : eligibili.length === 0 ? (
               <p className="text-sm text-text-3">
-                Nessuna commessa dallo stato Produzione in poi.
+                Nessuna commessa dallo stato Da ordinare in poi.
               </p>
             ) : (
               <SearchSelect
@@ -821,8 +832,7 @@ export default function Magazzino() {
 
             {commessaDettaglio && !isEligible(commessaDettaglio) ? (
               <p className="text-sm text-text-3">
-                I prodotti a magazzino si aggiungono solo dallo stato Produzione
-                in poi.
+                Le consegne si aggiungono solo dallo stato Da ordinare in poi.
               </p>
             ) : detailFor != null && formFor === detailFor ? (
               <div className="space-y-3 rounded-[var(--radius-panel)] border border-border-soft bg-surface-2 p-3">
@@ -1040,6 +1050,17 @@ function ProdottoRow({
               />
             )}
           </div>
+          {!p.dataConsegna && p.prontaDal ? (
+            <p className="mt-0.5 text-xs text-text-2">
+              Pronta dal fornitore dal{" "}
+              <span className="tabular-nums">{etichettaConsegna(p.prontaDal)}</span>
+            </p>
+          ) : null}
+          {p.articoli?.length ? (
+            <div className="mt-1">
+              <ArticoliConsegna articoli={p.articoli} />
+            </div>
+          ) : null}
           <div className="mt-1 flex items-center gap-2">
             <ConsegnaStatoChip stato={stato} />
             {lead != null && (
@@ -1054,7 +1075,8 @@ function ProdottoRow({
           </div>
         </div>
 
-        {field(
+        {/* Una consegna da conferma è una: la quantità sta negli articoli. */}
+        {p.articoli == null && field(
           "Q.tà",
           <Input
             aria-label="Quantità"

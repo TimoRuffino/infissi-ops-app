@@ -32,7 +32,12 @@ export type RigaMerce = {
 // che si sommano invece di sparire.
 // 1.3.0 (06/09/2026): ogni riga porta la posizione nel testo della pagina
 // (anteprime delle evidenze). Nomi e quantità non cambiano.
-export const ESTRATTORE_MERCE_VERSIONE = "1.3.0";
+// 2.0.0 (05/09/2026): una riga che comincia con un giorno o una data non è
+// merce («giovedì 25 giugno 2026 Commessa» entrava a magazzino con quantità
+// 808); una quantità a pezzi sopra 500 è un codice, non un conteggio; e si
+// riconosce l'ARTICOLO PRINCIPALE della conferma (la porta, non il kit) —
+// a magazzino la conferma è una consegna sola con gli articoli dentro.
+export const ESTRATTORE_MERCE_VERSIONE = "2.0.0";
 
 /** Dove comincia ogni riga nel testo della pagina, separatori compresi. */
 function iniziRighe(testo: string): number[] {
@@ -58,6 +63,29 @@ export function annotaAreeMerce(
 }
 
 const MASSIMO_RIGHE = 40;
+/** Oltre questi pezzi non è una quantità di serramenti: è un codice o un prezzo. */
+const PEZZI_MASSIMI = 500;
+
+/** «giovedì 25 giugno 2026», «25/06/2026 …»: una data, non un articolo. */
+const INIZIA_CON_DATA =
+  /^(?:lun(?:ed[iì])?|mar(?:ted[iì])?|mer(?:coled[iì])?|gio(?:ved[iì])?|ven(?:erd[iì])?|sab(?:ato)?|dom(?:enica)?)\b|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/i;
+
+/**
+ * Accessori e complementi che accompagnano il serramento nella stessa
+ * conferma: non sono la consegna, sono dentro la consegna.
+ */
+const ACCESSORIO =
+  /\b(?:kit|falso|falsi|coprifil\w*|imbott\w*|ritocco|busta|pomol\w*|manigli\w*|set|accessor\w*|cassa|riv\.?|rivest\w*|guarniz\w*|vite|viti|tassell\w*|silicon\w*|schium\w*|telecomand\w*|centralin\w*|anemometr\w*|ricevitor\w*|staff\w*|tapp[oi]|cernier\w*|serratur\w*|cilindr\w*|spioncin\w*|imball\w*|trasport\w*|zoccol\w*|profil\w*|copert\w*|carter|piastr\w*|supporto|supporti|distanzial\w*|adattator\w*|batteri\w*|alimentator\w*|cavo|cavi|motore|motori)\b/i;
+
+/**
+ * L'articolo che dà il nome alla consegna: il primo che non è un accessorio
+ * (la porta blindata, la finestra, la tenda); se sono tutti accessori, il
+ * primo letto.
+ */
+export function articoloPrincipale<T extends { nome: string }>(righe: readonly T[]): T | null {
+  if (righe.length === 0) return null;
+  return righe.find(r => !ACCESSORIO.test(r.nome)) ?? righe[0];
+}
 
 /** Righe che non sono merce anche se contengono un numero. */
 const NON_MERCE =
@@ -168,7 +196,7 @@ function candidato(
 ): { nome: string; quantita: number } | null {
   const nome = pulisciNome(nomeGrezzo);
   const quantita = Number(quantitaGrezza);
-  if (!nomeValido(nome) || !(quantita >= 1 && quantita <= 9999)) return null;
+  if (!nomeValido(nome) || !(quantita >= 1 && quantita <= PEZZI_MASSIMI)) return null;
   return { nome, quantita };
 }
 
@@ -221,6 +249,9 @@ function leggiRigaCelle(
     if (!q) continue;
     const quantita = Number(q[1].replace(",", "."));
     if (!(quantita > 0 && quantita <= 9999)) continue;
+    // A pezzi, sopra il tetto è un codice o un prezzo finito nella colonna
+    // sbagliata; a misura (metri, chili) i numeri grandi sono normali.
+    if (aPezzi && quantita > PEZZI_MASSIMI) continue;
     const descrizione = celle.slice(0, prima ? u - 1 : u).join(" ");
     if (lettere(descrizione) < 4 || NON_MERCE.test(descrizione.slice(0, 40))) return null;
     const nome = pulisciNome(descrizione);
@@ -292,6 +323,7 @@ export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
     for (let i = 0; i < linee.length; i += 1) {
       const riga = linee[i];
       if (riga.length < 8) continue;
+      if (INIZIA_CON_DATA.test(riga)) continue;
       const indiceRiga = i;
       const aCelle = leggiRigaCelle(riga, linee[i + 1] ?? null);
       if (aCelle?.usaRigaSotto) i += 1;

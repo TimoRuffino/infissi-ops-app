@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dataDaSettimanaIso, estraiRigheMerce } from "./estrazioneMerce";
+import { articoloPrincipale, dataDaSettimanaIso, estraiRigheMerce } from "./estrazioneMerce";
 
 describe("estraiRigheMerce", () => {
   it("riconosce i disegni comuni e scarta totali, indirizzi e pagamenti", () => {
@@ -120,5 +120,41 @@ describe("dataDaSettimanaIso", () => {
     expect(dataDaSettimanaIso(3, new Date("2026-09-01T00:00:00Z"))).toBe("2027-01-18");
     expect(dataDaSettimanaIso(0, new Date("2026-09-01T00:00:00Z"))).toBeNull();
     expect(dataDaSettimanaIso(54, new Date("2026-09-01T00:00:00Z"))).toBeNull();
+  });
+});
+
+describe("estraiRigheMerce — 2.0.0 (05/09/2026: il magazzino era un casino)", () => {
+  it("una riga che comincia con un giorno o una data non è un articolo, e 808 non è una quantità", () => {
+    // Oskura: la riga di intestazione della commessa del fornitore entrava a
+    // magazzino come «giovedì 25 giugno 2026 Commessa» con quantità 808.
+    const pagina = [
+      "giovedì 25 giugno 2026 Commessa N. 1013363 PENULTIMO PIANO APP. DX 808 pz",
+      "25/06/2026 Rif. cantiere Cadimare 404 pz",
+      "1 pz Tapparella alluminio 1200x1400 coibentata",
+      "Motore 30 Nm 2 pz 120,00 240,00",
+    ].join("\n");
+    const righe = estraiRigheMerce([pagina]);
+    expect(righe.map(r => [r.nome, r.quantita])).toEqual([
+      ["Tapparella alluminio 1200x1400 coibentata", 1],
+      ["Motore 30 Nm", 2],
+    ]);
+  });
+
+  it("l'articolo principale è il serramento, non il kit o i coprifili; se sono tutti accessori, il primo", () => {
+    const alias = [
+      { nome: "KPO50 KIT PORTA" },
+      { nome: "PORVP5 PORTA BLINDATA VEGAPLUS" },
+      { nome: "FCO085 FALSO COMMESSA H 2101/2150" },
+      { nome: "COE5 SET COPRIFILI ESTERNO" },
+    ];
+    expect(articoloPrincipale(alias)?.nome).toBe("PORVP5 PORTA BLINDATA VEGAPLUS");
+    const tenda = [
+      { nome: "105-510 MOTORE BT YELLOW FC MEC 65/17" },
+      { nome: "R93 ELEGANCE R93 ELEGANCE" },
+      { nome: "105-553 ANEMOMETRO RADIO BT 230V" },
+    ];
+    expect(articoloPrincipale(tenda)?.nome).toBe("R93 ELEGANCE R93 ELEGANCE");
+    expect(articoloPrincipale([{ nome: "BUSTA ACCESSORI SKAT BIANCO" }])?.nome).toBe("BUSTA ACCESSORI SKAT BIANCO");
+    expect(articoloPrincipale([])).toBeNull();
   });
 });

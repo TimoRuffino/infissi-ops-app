@@ -43,6 +43,7 @@ import {
 } from "../documenti/estrazioneConferma";
 import {
   annotaAreeMerce,
+  articoloPrincipale,
   dataDaSettimanaIso,
   ESTRATTORE_MERCE_VERSIONE,
   estraiRigheMerce,
@@ -63,12 +64,13 @@ import {
   type RiferimentiCommessa,
   type RiscontroCommessa,
 } from "../documenti/riscontroCommessa";
+import { normalizzaFornitore } from "@shared/fornitori";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
 import { getSediStore } from "../routers/sedi";
 import {
-  creaProdottiDaConferma,
+  creaConsegnaDaConferma,
   getMagazzinoStore,
   isCommessaEligibleForMagazzino,
   prodottiDelDocumento,
@@ -146,7 +148,7 @@ export type DipendenzeCostoDaConferma = {
     opzioni: { ocr: boolean; visione: IdentitaLettura | null }
   ) => Promise<EsitoParser>;
   /** Il mittente della mail da cui il documento è stato archiviato: fornitore di ripiego. */
-  nomeMittente: (documento: Documento) => Promise<string | null>;
+  mittente: (documento: Documento) => Promise<{ nome: string | null; email: string | null } | null>;
   adesso: () => Date;
   /**
    * Le pagine rese per le anteprime delle evidenze, scaldate quando i byte
@@ -178,7 +180,7 @@ export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
         Number((getCommessaById(documento.commessaId) as any)?.sedeId ?? 1),
         buffer
       ),
-    nomeMittente: async documento => {
+    mittente: async documento => {
       if (documento.source !== "comunicazione" || !documento.sourceRef) return null;
       const [sede, comunicazione] = documento.sourceRef.split(":");
       const sedeId = Number(sede);
@@ -188,7 +190,8 @@ export function dipendenzeCostoDaConfermaReali(): DipendenzeCostoDaConferma {
       }
       try {
         const c = await getComunicazione(comunicazioneId, sedeId);
-        return c?.mittenteNome?.trim() || null;
+        if (!c) return null;
+        return { nome: c.mittenteNome?.trim() || null, email: c.mittente ?? null };
       } catch {
         return null;
       }
@@ -651,10 +654,13 @@ export async function registraCostoDaConferma(input: {
   const numeroOrdine =
     input.numeroOrdine?.trim() || estrazione.riferimentoOrdine?.valore || null;
   const dataDocumento = estrazione.dataDocumento?.valore ?? null;
+  // Il fornitore con il nome aziendale (shared/fornitori): dal testo, dal
+  // dominio della mail o dal mittente; un referente non è un fornitore.
+  const mittente = await deps.mittente(documento);
   const fornitore =
     input.fornitore?.trim() ||
-    estrazione.fornitoreCitato?.valore ||
-    (await deps.nomeMittente(documento)) ||
+    normalizzaFornitore(estrazione.fornitoreCitato?.valore ?? null, mittente?.email) ||
+    normalizzaFornitore(mittente?.nome ?? null, mittente?.email) ||
     null;
   const riferimenti = riferimentiOrdineDocumento({
     nomeFile: raw.nome,
@@ -973,20 +979,33 @@ function applicaMerceDaConferma(input: {
 }): MerceDaConferma {
   const c = input.commessa;
   const gia = prodottiDelDocumento(input.documento.id);
+  // Il «ricevuto» (e una data) messi da una persona sulle righe vecchie non
+  // si perdono quando la consegna si rigenera nella forma nuova.
+  let ereditato: { arrivato: boolean; dataConsegna: string | null } | null = null;
   if (gia.length > 0) {
+    const estrattoreVecchio =
+      (input.precedente?.versioneEstrattore ?? null) !== ESTRATTORE_MERCE_VERSIONE;
+    // Prima del 05/09 ogni articolo era una riga: quella forma si rigenera.
+    const formaVecchia = gia.length > 1 || gia[0].articoli === undefined;
+    if (!estrattoreVecchio && !formaVecchia) {
+      return {
+        righe: gia.length,
+        articoli: gia[0].articoli?.length ?? 0,
+        dataConsegna: gia[0].dataConsegna,
+        motivo: null,
+        versioneEstrattore: ESTRATTORE_MERCE_VERSIONE,
+        approntamento: input.precedente?.approntamento ?? null,
+      };
+    }
     const toccate = gia.some(
       p =>
         p.arrivato ||
         new Date(p.updatedAt as any).getTime() - new Date(p.createdAt as any).getTime() > 2_000
     );
-    const vecchie = (input.precedente?.versioneEstrattore ?? null) !== ESTRATTORE_MERCE_VERSIONE;
-    if (!vecchie || toccate) {
-      return {
-        righe: gia.length,
-        dataConsegna: gia[0].dataConsegna,
-        motivo: vecchie ? "Righe modificate a mano: non rigenerate." : null,
-        versioneEstrattore: vecchie ? (input.precedente?.versioneEstrattore ?? null) : ESTRATTORE_MERCE_VERSIONE,
-        approntamento: input.precedente?.approntamento ?? null,
+    if (toccate) {
+      ereditato = {
+        arrivato: gia.every(p => p.arrivato),
+        dataConsegna: gia.find(p => p.dataConsegna)?.dataConsegna ?? null,
       };
     }
     rimuoviProdottiDelDocumento(input.documento.id);
@@ -994,6 +1013,7 @@ function applicaMerceDaConferma(input: {
   if (c.archivedAt || !isCommessaEligibleForMagazzino(String(c.stato ?? ""))) {
     return {
       righe: 0,
+      articoli: 0,
       dataConsegna: null,
       motivo: `La commessa è in «${c.stato}»: il magazzino parte da «Da ordinare».`,
       versioneEstrattore: ESTRATTORE_MERCE_VERSIONE,
@@ -1029,42 +1049,48 @@ function applicaMerceDaConferma(input: {
             approntamento.dal ? ` (merce pronta dal fornitore dal ${approntamento.dal})` : ""
           }: la consegna va concordata, la data resta vuota.`
         : "";
+  // UNA conferma = UNA consegna (05/09/2026): la porta dà il nome, kit e
+  // coprifili stanno dentro come articoli, ognuno con la sua evidenza
+  // (anteprime «Dove l'ho letto», 06/09).
   const righe = annotaAreeMerce(estraiRigheMerce(input.pagine), input.geometria);
+  const principale = articoloPrincipale(righe);
+  const nome = principale
+    ? principale.nome
+    : `Merce conferma d'ordine ${input.numeroOrdine ? `n. ${input.numeroOrdine}` : input.documento.nome}`;
   const nota = (
     righe.length > 0
-      ? `Letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}.${notaConsegna}`
-      : `Dalla conferma d'ordine ${input.riferimentoDocumento}: righe di merce non riconosciute nel PDF, descrizione da completare a mano.${notaConsegna}`
+      ? `Consegna letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}: ${righe.length} ${
+          righe.length === 1 ? "articolo" : "articoli"
+        }.${notaConsegna}`
+      : `Dalla conferma d'ordine ${input.riferimentoDocumento}: articoli non riconosciuti nel PDF, descrizione da completare a mano.${notaConsegna}`
   ).slice(0, 300);
-  const creati = creaProdottiDaConferma({
+  const consegna = creaConsegnaDaConferma({
     commessaId: c.id,
     sedeId: Number(c.sedeId ?? 1),
     documentoId: input.documento.id,
-    righe:
-      righe.length > 0
-        ? righe.map(r => ({
-            nome: r.nome,
-            quantita: r.quantita,
-            evidenza: { pagina: r.pagina, frammento: r.evidenza, area: r.area ?? null },
-          }))
-        : [
-            {
-              nome: `Merce conferma d'ordine ${
-                input.numeroOrdine ? `n. ${input.numeroOrdine}` : input.documento.nome
-              }`,
-              quantita: 1,
-            },
-          ],
+    nome,
+    articoli: righe.map(r => ({
+      nome: r.nome,
+      quantita: r.quantita,
+      evidenza: { pagina: r.pagina, frammento: r.evidenza, area: r.area ?? null },
+    })),
+    evidenza: principale
+      ? { pagina: principale.pagina, frammento: principale.evidenza, area: principale.area ?? null }
+      : null,
     fornitore: input.fornitore,
     numeroOrdine: input.numeroOrdine,
     dataOrdine: input.dataOrdine,
-    dataConsegna,
+    dataConsegna: dataConsegna ?? ereditato?.dataConsegna ?? null,
+    prontaDal: approntamento?.dal ?? null,
     note: nota,
+    arrivato: ereditato?.arrivato ?? false,
   });
   return {
-    righe: creati.length,
-    dataConsegna,
+    righe: 1,
+    articoli: consegna.articoli?.length ?? 0,
+    dataConsegna: consegna.dataConsegna,
     motivo:
-      righe.length > 0 ? null : "Righe di merce non riconosciute: una riga sola da completare a mano.",
+      righe.length > 0 ? null : "Articoli non riconosciuti nel PDF: consegna da completare a mano.",
     versioneEstrattore: ESTRATTORE_MERCE_VERSIONE,
     approntamento,
   };

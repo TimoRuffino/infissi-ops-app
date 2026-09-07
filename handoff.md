@@ -205,6 +205,33 @@
 > `[ricerca-commessa]` nei log, e il giro del worker conta i candidati
 > (certe/probabili/non letti). Metodo che ha funzionato: leggere i log del
 > giro dopo ogni deploy e togliere UNA classe di falsi positivi per volta.
+>
+> **05/09/2026 — «La gestione del magazzino è assolutamente un casino».**
+> Diagnosi sui dati veri (155 righe, 52 commesse, sonda in sola lettura):
+> la regola del 03/09 riversava a magazzino le righe articolo dei PDF così
+> come stanno — una porta Alias = otto «consegne» di kit, falso telaio,
+> coprifili, pomolino a quantità 1 senza data; righe spazzatura («giovedì
+> 25 giugno 2026 Commessa» ×808, segnaposto col nome del file); fornitori
+> in dieci forme («ALIAS Srl Porte blindate», «REFERENTE Natascia De Biasi
+> -», l'agente col nome del cliente) che il filtro a lista fissa non
+> trovava; conferme di maggio rilette a settembre = «in ritardo» su
+> commesse già posate; revisioni che raddoppiano. Fatto (§36, §54.7 del
+> PRD): **una conferma = una consegna** (`Prodotto.articoli[]`,
+> `prontaDal`, nome dall'articolo principale via `articoloPrincipale`,
+> `creaConsegnaDaConferma` idempotente per documento); fornitore
+> normalizzato (`shared/fornitori.ts`: testo o dominio mail → nome
+> aziendale, referenti mai); estrattore merce 2.0.0 (righe che iniziano
+> con un giorno o una data non sono merce, pezzi > 500 non sono una
+> quantità); lettura 1.11.0 rigenera le righe vecchie nella forma nuova
+> ereditando il «ricevuto» di chi le aveva toccate (decisione direzione:
+> niente «ricevuto» automatico per le commesse già posate → bottone
+> **«Ricevuto tutto»** per commessa, `magazzino.segnaTuttoRicevuto`);
+> pagina con copy corretta («Da ordinare»), dettaglio «N articoli»,
+> «Pronta dal fornitore dal …»; registro conferme con «1 consegna · N
+> articoli». In produzione il worker rilegge le 40 conferme al primo giro
+> dopo il deploy (OCR/visione per le scansioni: pochi centesimi). La
+> verifica nel browser (1440/390) resta da fare a mano: il server demo
+> chiede il login e l'agente non entra.
 
 ## 1. Contesto
 

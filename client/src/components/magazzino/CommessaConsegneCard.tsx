@@ -1,4 +1,4 @@
-import { CalendarClock, Factory, MapPin, Package, Plus } from "lucide-react";
+import { CalendarClock, Factory, MapPin, Package, PackageCheck, Plus } from "lucide-react";
 
 import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,11 @@ export type ConsegnaCommessa = {
   stato?: string | null;
 };
 
+export type ArticoloConsegna = {
+  nome: string;
+  quantita: number;
+};
+
 /** Riga di magazzino già sede-scoped dal router. */
 export type ConsegnaItem = {
   id: number;
@@ -26,6 +31,10 @@ export type ConsegnaItem = {
   numeroOrdine?: string | null;
   /** `YYYY-MM-DD` oppure null quando la consegna non ha ancora una data. */
   dataConsegna?: string | null;
+  /** Merce pronta dal fornitore da questa data (approntamento): non è la consegna. */
+  prontaDal?: string | null;
+  /** Gli articoli letti nella conferma d'ordine (null = riga a mano). */
+  articoli?: ReadonlyArray<ArticoloConsegna> | null;
   arrivato: boolean;
 };
 
@@ -52,10 +61,14 @@ export type CommessaConsegneCardProps = {
   today: string;
   /** Consegna con una mutation in volo: evita il doppio invio. */
   pendingId?: number | null;
+  /** Commessa con «Ricevuto tutto» in volo. */
+  pendingCommessaId?: number | null;
   onOpenCommessa?(id: number): void;
   /** Ingresso al form di aggiunta già esistente: la scheda non crea nulla. */
   onAddConsegna?(id: number): void;
   onToggleArrivato(id: number, arrivato: boolean): void;
+  /** Tutte le consegne della commessa ricevute in un colpo (direzione 05/09/2026). */
+  onRicevutoTutto?(commessaId: number): void;
 };
 
 // Il colore non è mai l'unico segnale: l'etichetta testuale è sempre presente.
@@ -95,6 +108,34 @@ function conteggio(n: number, singolare: string, plurale: string): string {
 }
 
 /**
+ * Gli articoli di una consegna letta da una conferma: chiusi di default, si
+ * aprono a richiesta. Un elemento nativo, leggibile da tastiera e screen
+ * reader, senza stato React.
+ */
+export function ArticoliConsegna({
+  articoli,
+}: {
+  articoli: ReadonlyArray<ArticoloConsegna>;
+}) {
+  return (
+    <details className="min-w-0 text-xs text-text-2">
+      <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1 text-text-2 hover:text-text-1 [&::-webkit-details-marker]:hidden">
+        <Package className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        {conteggio(articoli.length, "articolo", "articoli")}
+      </summary>
+      <ul className="mt-1 space-y-0.5 pl-5">
+        {articoli.map((a, i) => (
+          <li key={`${a.nome}-${i}`} className="flex min-w-0 gap-2 break-words [overflow-wrap:anywhere]">
+            <span className="tabular-nums text-text-3">{a.quantita}×</span>
+            <span className="min-w-0">{a.nome}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
  * Scheda di una commessa con le sue consegne a magazzino.
  *
  * Non conosce tRPC, filtri o eleggibilità: riceve la commessa già risolta e le
@@ -108,13 +149,17 @@ export default function CommessaConsegneCard({
   sintesi,
   today,
   pendingId = null,
+  pendingCommessaId = null,
   onOpenCommessa,
   onAddConsegna,
   onToggleArrivato,
+  onRicevutoTutto,
 }: CommessaConsegneCardProps) {
   const titoloId = `consegne-commessa-${commessaId}`;
   const etichetta = etichettaCommessa(commessa);
   const nascoste = sintesi.totale - consegne.length;
+  const daRicevere = sintesi.totale - sintesi.ricevute;
+  const tuttoInCorso = pendingCommessaId === commessaId;
 
   return (
     <article
@@ -170,17 +215,33 @@ export default function CommessaConsegneCard({
       {/* Con zero consegne i tre contatori direbbero solo «0 · 0 · 0»: la
           riga sotto lo dice meglio, e in parole. */}
       {sintesi.totale > 0 ? (
-        <p className="min-w-0 text-sm text-text-2">
-          <span className="tabular-nums">
-            {conteggio(sintesi.totale, "consegna", "consegne")}
-          </span>
-          <span className="text-text-3"> · </span>
-          <span className="tabular-nums">
-            {conteggio(sintesi.ricevute, "ricevuta", "ricevute")}
-          </span>
-          <span className="text-text-3"> · </span>
-          <span className="tabular-nums">{sintesi.inRitardo} in ritardo</span>
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <p className="min-w-0 text-sm text-text-2">
+            <span className="tabular-nums">
+              {conteggio(sintesi.totale, "consegna", "consegne")}
+            </span>
+            <span className="text-text-3"> · </span>
+            <span className="tabular-nums">
+              {conteggio(sintesi.ricevute, "ricevuta", "ricevute")}
+            </span>
+            <span className="text-text-3"> · </span>
+            <span className="tabular-nums">{sintesi.inRitardo} in ritardo</span>
+          </p>
+          {onRicevutoTutto && daRicevere > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 shrink-0"
+              disabled={tuttoInCorso}
+              title={`Segna ricevute le ${daRicevere} consegne ancora aperte`}
+              onClick={() => onRicevutoTutto(commessaId)}
+            >
+              <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              Ricevuto tutto
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {nascoste > 0 ? (
@@ -220,7 +281,8 @@ export default function CommessaConsegneCard({
               dataConsegna: item.dataConsegna,
               today,
             });
-            const inCorso = pendingId === item.id;
+            const inCorso = pendingId === item.id || tuttoInCorso;
+            const daConferma = item.articoli != null;
             return (
               <li key={item.id} className="min-w-0 px-3 py-2.5 sm:px-4">
                 <div className="flex min-w-0 items-start justify-between gap-2">
@@ -229,10 +291,15 @@ export default function CommessaConsegneCard({
                       className="mt-0.5 h-4 w-4 shrink-0 text-text-3"
                       aria-hidden="true"
                     />
-                    <span className="min-w-0 break-words">
+                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">
                       {item.nome}
-                      <span className="text-text-3"> · Q.tà </span>
-                      <span className="tabular-nums">{item.quantita}</span>
+                      {/* Una consegna da conferma è una: la quantità sta negli articoli. */}
+                      {!daConferma ? (
+                        <>
+                          <span className="text-text-3"> · Q.tà </span>
+                          <span className="tabular-nums">{item.quantita}</span>
+                        </>
+                      ) : null}
                     </span>
                   </p>
                   <ConsegnaStatoChip stato={stato} />
@@ -241,7 +308,8 @@ export default function CommessaConsegneCard({
                 <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
                   <p className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-2">
                     {/* Senza data non si ripete "Data da definire": lo dice
-                      già lo stato testuale accanto al nome. */}
+                      già lo stato testuale accanto al nome. Se il fornitore
+                      ha detto da quando la merce è pronta, quello sì. */}
                     {item.dataConsegna ? (
                       <span className="inline-flex items-center gap-1.5">
                         <CalendarClock
@@ -250,6 +318,19 @@ export default function CommessaConsegneCard({
                         />
                         <span className="tabular-nums">
                           {etichettaConsegna(item.dataConsegna)}
+                        </span>
+                      </span>
+                    ) : item.prontaDal ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarClock
+                          className="h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          Pronta dal fornitore dal{" "}
+                          <span className="tabular-nums">
+                            {etichettaConsegna(item.prontaDal)}
+                          </span>
                         </span>
                       </span>
                     ) : null}
@@ -282,6 +363,12 @@ export default function CommessaConsegneCard({
                     {item.arrivato ? "Riapri consegna" : "Segna ricevuto"}
                   </Button>
                 </div>
+
+                {item.articoli && item.articoli.length > 0 ? (
+                  <div className="mt-1">
+                    <ArticoliConsegna articoli={item.articoli} />
+                  </div>
+                ) : null}
               </li>
             );
           })}

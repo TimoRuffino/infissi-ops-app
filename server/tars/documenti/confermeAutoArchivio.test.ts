@@ -141,7 +141,9 @@ describe("eseguiGiroAutoArchivio", () => {
     expect(salvata.costi[0]).toMatchObject({ importo: 3500, documentoId: documenti[0].id });
     const merce = getMagazzinoStore().filter(p => p.commessaId === commessa.id);
     expect(merce).toHaveLength(1);
-    expect(merce[0]).toMatchObject({ nome: "Finestra 2 ante PVC 1200x1400", quantita: 2, dataConsegna: "2026-09-14" });
+    expect(merce[0]).toMatchObject({ nome: "Finestra 2 ante PVC 1200x1400", quantita: 1, dataConsegna: "2026-09-14" });
+    expect(merce[0].fornitore).toMatch(/tesconi/i);
+    expect(merce[0].articoli?.map(a => [a.nome, a.quantita])).toEqual([["Finestra 2 ante PVC 1200x1400", 2]]);
 
     // Il registro la elenca come automatica.
     const registro = await direzione().preventiviContratti.registroConferme({ origine: "automatiche" });
