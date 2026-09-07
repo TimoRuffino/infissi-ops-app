@@ -39,6 +39,11 @@ async function startServer() {
   // Load persisted stores before wiring routers / listening.
   await bootstrapAll();
 
+  // Tenant (WS1): schema del control plane, cache, seed del tenant 1 e ciclo
+  // dei comandi. Prima di tutto il resto: il contesto di ogni richiesta lo usa.
+  const { avviaTenants } = await import("../tenants/boot");
+  await avviaTenants();
+
   // Historical timeline rows predate automatic board synchronization. This
   // forward-only reconciliation is idempotent and keeps every existing
   // commessa at least at its most advanced completed milestone.
