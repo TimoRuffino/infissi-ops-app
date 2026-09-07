@@ -287,7 +287,8 @@ chiusa, prima di emettere il cookie. Nessuna sessione inutile.
 
 - `assertTenantScope(record, tenantId)` in `server/_core/permissions.ts`,
   gemello di `assertSedeScope`: `NOT_FOUND` «Risorsa non trovata.», mai
-  `FORBIDDEN`; con `tenantId == null` non fa nulla.
+  `FORBIDDEN`; con `tenantId == null` non fa nulla (le query `byId`
+  rispondono `null`, come per la sede).
 - `utenti.byId/update/delete`, `sedi.update`, `permessi.*` (via
   `findUserInSede`) lo applicano; `utenti.list` con `adminScope` e
   `sedi.listAll` filtrano per `ctx.tenantId`.
@@ -310,7 +311,7 @@ chiusa, prima di emettere il cookie. Nessuna sessione inutile.
 | tenant diverso da 1 (login o procedura) | `PRECONDITION_FAILED` | L'azienda non è ancora attiva su questa installazione. |
 | mutation con tenant sospeso | `PRECONDITION_FAILED` | Azienda sospesa: il gestionale è in sola lettura. |
 | nessuna sede attiva nel tenant | `PRECONDITION_FAILED` | L'azienda non ha una sede attiva. |
-| record di utente o sede di altro tenant | `NOT_FOUND` | Risorsa non trovata. |
+| record di utente o sede di altro tenant (le query `byId` rispondono `null`, come per la sede) | `NOT_FOUND` | Risorsa non trovata. |
 | proprietario senza capability | `FORBIDDEN` | Solo un proprietario può nominare o revocare un proprietario. |
 | ultimo proprietario o direzione del tenant | `PRECONDITION_FAILED` | messaggi di oggi, al plurale dei presìdi |
 | utente cancellato o disattivato con JWT valido | `UNAUTHORIZED` | messaggio standard di sessione |

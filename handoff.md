@@ -8,14 +8,30 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
-> **Novità 07/09/2026 — WS1 fondazione tenant su branch.** I 15 task del
-> piano di implementazione (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`)
-> sono committati su `feature/ws1-fondazione-tenant` (nato da
+> **Novità 07/09/2026 — WS1 fondazione tenant su branch, revisione finale
+> corretta.** I 15 task del piano di implementazione
+> (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`) sono
+> committati su `feature/ws1-fondazione-tenant` (nato da
 > `claude/ruffino-flow-saas-multi-afaecf`, cioè `main` @ `ecb2042` più spec e
 > piano), dal commit `4c3a71b` al `a01a757` (131 file, +3184/−193 fino al
-> client), più il commit di questo task; nessun push, nessun merge su `main`
-> da qui — quella è una decisione della direzione dopo revisione finale del
-> branch e una verifica a schermo dell'utente. Contratto: control plane
+> client), più i commit di documentazione e correzioni finali
+> `07f1b1f`…`e54dba4`; nessun push, nessun merge su `main` da qui
+> — quella è una decisione della direzione dopo una verifica a schermo
+> dell'utente. **Revisione finale del branch (07/09):** nessun Critical;
+> alcuni Important, tutti corretti in un'unica onda — i ruoli vengono dallo
+> store a ogni richiesta e non dal JWT (una revoca vale alla richiesta
+> successiva, non fra sette giorni); guardia sull'ultima sede attiva del
+> tenant; `tenants.servizio.crea` resiliente a un commit fallito (evento
+> `creato` registrato subito dopo l'inserimento del tenant, sede/utente
+> tolti dagli array vivi se il commit di store fallisce); hash della
+> password azzerato dal payload del comando alla sua chiusura; guardia
+> dell'ultimo proprietario applicata solo con `FLAG_MULTI_AZIENDA` acceso.
+> **Aperto per il WS2:** le rotte Express che usano `createContext` (upload
+> documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
+> applicano ancora porta chiusa né sola lettura — non conta nel WS1 (solo
+> tenant 1, sospensione solo dall'operatore); nel WS2 va estratta una
+> guardia pura `motivoRifiutoTenant` in `regole.ts`, riusata da `trpc.ts` e
+> dalle rotte. Contratto: control plane
 > `server/tenants/` (tabelle `tenants`, `tenant_eventi` append-only,
 > `tenant_comandi`), `tenantId` su utenti e sedi con backfill a 1, ruolo
 > `proprietario` (ottavo, capability `tenant.manage_proprietari` che la
@@ -38,7 +54,7 @@
 > `FLAG_MULTI_AZIENDA` assente dall'env = spento, nessuna verifica read-only
 > fatta lì), comportamento con più repliche (cache e ciclo comandi sono
 > in-process, una sola replica come oggi). Runbook:
-> `docs/runbooks/multi-azienda.md`. PRD §60.9 (v5.50). Voce 21 del debito
+> `docs/runbooks/multi-azienda.md`. PRD §60.9 (v5.51). Voce 21 del debito
 > aggiornata.
 
 > **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
@@ -4177,16 +4193,37 @@ a vuoto e dice «57 saltati»).
     (1)–(6) hanno lì la loro risposta, gli altri restano per WS2–WS6.
     **07/09/2026: WS1 codificato, su branch, non su `main`.** I 15 task sono
     committati su `feature/ws1-fondazione-tenant` (`4c3a71b`…`a01a757`, più
-    il commit di documentazione); `pnpm check`/`test`/`build` verdi (a parte
-    i 3 FAIL preesistenti «foto HEIC vera (sips)», indipendenti dal WS1);
-    `FLAG_MULTI_AZIENDA` resta spento e assente dall'env di produzione.
-    Non verificati: `/utenti` a 1440×900/390×844 (serve login demo) e
-    qualunque cosa in produzione Railway (nulla distribuito). Nessun push da
-    qui; il merge su `main` è una decisione della direzione dopo revisione
-    finale del branch e verifica a schermo dell'utente. Runbook:
-    `docs/runbooks/multi-azienda.md`. Il prezzo, il budget Tars incluso, le
-    tolleranze e il provider di pagamento restano da fissare come sopra; i
-    punti (7)–(16) restano per WS2–WS6.
+    i commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`);
+    `pnpm check`/`test`/`build` verdi (a parte i 3 FAIL preesistenti «foto
+    HEIC vera (sips)», indipendenti dal WS1); `FLAG_MULTI_AZIENDA` resta
+    spento e assente dall'env di produzione. Non verificati: `/utenti` a
+    1440×900/390×844 (serve login demo) e qualunque cosa in produzione
+    Railway (nulla distribuito). Nessun push da qui; il merge su `main` è
+    una decisione della direzione dopo verifica a schermo dell'utente.
+    Runbook: `docs/runbooks/multi-azienda.md`. Il prezzo, il budget Tars
+    incluso, le tolleranze e il provider di pagamento restano da fissare
+    come sopra; i punti (7)–(16) restano per WS2–WS6.
+
+    **Stesso giorno: revisione finale dell'intero branch, nessun Critical.**
+    Alcuni Important, tutti corretti in un'unica onda: i ruoli vengono dallo
+    store a ogni richiesta e non dal JWT; guardia sull'ultima sede attiva
+    del tenant; `tenants.servizio.crea` resiliente a un commit fallito
+    (evento `creato` subito dopo l'inserimento del tenant, sede/utente
+    tolti dagli array vivi se il commit fallisce); hash della password
+    azzerato dal payload del comando alla sua chiusura; guardia dell'ultimo
+    proprietario applicata solo con l'interruttore acceso. **Aperto per il
+    WS2:** le rotte Express che usano `createContext` (upload documenti
+    `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non applicano
+    ancora porta chiusa né sola lettura — non conta nel WS1 (solo tenant 1,
+    sospensione solo dall'operatore); nel WS2 va estratta una guardia pura
+    `motivoRifiutoTenant` in `regole.ts`, riusata da `trpc.ts` e dalle
+    rotte. Minor lasciati, nessuno bloccante: riga di
+    `tenant.manage_proprietari` sovrascrivibile in `CapabilityMatrix`;
+    `contestoAutorizzazione` in `tars/strumenti/commesse.ts` costruito a
+    mano senza tenant; lo script `scripts/tenant.ts` esegue
+    `ensureSchema()`; `RUOLO_COLORS` senza `proprietario`; messaggio
+    letterale invece che da `MESSAGGI` in `permissions.ts`; doppio guasto
+    possibile in `registraEvento` del `comando_fallito`.
 
 ## 13. Cosa resta della piattaforma
 

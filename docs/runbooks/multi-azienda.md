@@ -16,6 +16,10 @@ alla «porta chiusa» finché il WS2 non rende tenant-aware gli archivi.
   per i tenant sospesi, sede attiva obbligatoria, proprietario assegnabile
   dai proprietari, comandi eseguiti al boot e ogni 30 s.
 - Rollback: rimetti `off` e riavvia. Nessun dato da toccare.
+- Recupero — un'azienda resta senza sedi attive (dati manipolati fuori
+  dall'app, non dalla guardia sull'ultima sede attiva introdotta col WS1):
+  `FLAG_MULTI_AZIENDA=off`, riavvio, riattiva una sede sul tenant colpito,
+  poi `on`.
 
 ## Boot (log `[tenants]`)
 `avviaTenants()` gira subito dopo `bootstrapAll()`: schema di `tenants`,
@@ -50,15 +54,23 @@ Mai scritture sugli store con l'istanza viva.
 L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
 
 ## Produzione, in ordine
-1. Deploy con interruttore spento; verifica in sola lettura; nessun errore `[tenants]`.
-2. Backup Drive riuscito nelle 24 ore.
-3. `FLAG_MULTI_AZIENDA=on`, riavvio; log `[tenants] tenant 1 … pronto`, evento
-   `proprietario_assegnato` per l'utente 1; `tenants.mio` dal client.
-4. Nessun tenant 2 in produzione finché il WS2 non apre la porta.
+1. Backup Drive riuscito nelle 24 ore precedenti. Viene prima del deploy, non
+   solo prima dell'accensione: il backfill di `tenantId` su `utenti` e
+   `sedi` scatta al primo boot del nuovo codice anche a interruttore spento.
+2. Deploy con interruttore spento; verifica in sola lettura; nessun errore `[tenants]`.
+3. Backup Drive riuscito nelle 24 ore (di nuovo: verificane la freschezza se
+   è passato tempo dal passo 1).
+4. `FLAG_MULTI_AZIENDA=on`, riavvio; log `[tenants] tenant 1 … pronto`, evento
+   `proprietario_assegnato` per l'utente 1; `tenants.mio` dal client, dopo un
+   nuovo login.
+5. Nessun tenant 2 in produzione finché il WS2 non apre la porta.
 
 ## Errori che l'utente può vedere
 - «L'azienda non è ancora attiva su questa installazione.» — porta chiusa (tenant ≠ 1).
 - «Azienda sospesa: il gestionale è in sola lettura.» — mutation con tenant sospeso.
 - «L'azienda non ha una sede attiva.» — tenant senza sedi attive.
+- «Impossibile: è l'ultima sede attiva dell'azienda. Attiva un'altra sede
+  prima di disattivarla.» — `sedi.update` con `attiva: false` sull'unica
+  sede attiva del tenant.
 - «Solo un proprietario può nominare o revocare un proprietario.»
 - «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
