@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { getSediStore } from "../routers/sedi";
 import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 import { createMemoryNotificationRepository } from "./repository";
 import { createNotificationHub, createNotificationSseHandler } from "./sse";
@@ -98,6 +99,68 @@ describe("notification SSE", () => {
       expect(tenantVisto).toBe(42);
     } finally {
       modalitaTenantStretta(false);
+    }
+  });
+
+  // Task 10 / R10 (WS2 «porta aperta»): il callback della sottoscrizione non
+  // gira nel contesto della connessione — lo invoca chi pubblica (il worker
+  // dei promemoria, il ponte Postgres), e la catena `delivery.then(...)`
+  // cattura il contesto di CHI chiama `scheduleFlush`, non quello in cui la
+  // promise è nata. Senza rimetterlo, la lettura della notifica finirebbe
+  // fuori da ogni tenant.
+  it("il flush innescato da un publish esterno gira nel tenant della sede della connessione", async () => {
+    modalitaTenantStretta(true);
+    getSediStore().push({ id: 920, tenantId: 2, nome: "Beta", attiva: true } as any);
+    try {
+      const repository = createMemoryNotificationRepository();
+      const salvata = await repository.upsert({ ...notification, sedeId: 920 });
+      let tenantVisto: number | null | undefined;
+      const spiato = {
+        ...repository,
+        async findById(...args: Parameters<typeof repository.findById>) {
+          tenantVisto = tenantCorrente();
+          return repository.findById(...args);
+        },
+      };
+      const hub = createNotificationHub();
+      const handler = createNotificationSseHandler({
+        repository: spiato,
+        hub,
+        createContext: async () => ({
+          user: { id: 7 },
+          sedeId: 920,
+          tenantId: 2,
+          tenant: {
+            id: 2,
+            slug: "acme",
+            nome: "Acme",
+            stato: "attivo",
+            motivoStato: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        }),
+        heartbeatMs: 60_000,
+      });
+      const req = request({ "last-event-id": String(salvata.id) });
+      const res = response();
+      await handler(req, res);
+
+      // Pubblicazione da fuori: nessun contesto attivo, come nel worker.
+      hub.publish({
+        notificationId: salvata.id + 1,
+        recipientUserId: 7,
+        sedeId: 920,
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      res.emit("close");
+
+      expect(tenantVisto).toBe(2);
+    } finally {
+      modalitaTenantStretta(false);
+      const sedi = getSediStore();
+      const i = sedi.findIndex(s => s.id === 920);
+      if (i >= 0) sedi.splice(i, 1);
     }
   });
 

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createContext as defaultCreateContext } from "../_core/context";
 import { kvSql } from "../_core/persistence";
 import { conTenantDelContesto, rifiutaTenant } from "../tenants/express";
+import { conTenantDellaSede } from "../tenants/giri";
 import {
   getNotificationRepository,
   type NotificationRepository,
@@ -167,14 +168,21 @@ export function createNotificationSseHandler(
           lastSent = item.id;
         }
       };
+      // Cintura (R10): il callback della sottoscrizione lo invoca CHI
+      // pubblica (il worker dei promemoria, il ponte Postgres), fuori dal
+      // contesto di questa connessione — e `delivery.then(...)` cattura il
+      // contesto di chi chiama, non quello in cui la promise è nata. La
+      // consegna va quindi rimessa nel tenant della sede della connessione.
       const scheduleFlush = () => {
-        delivery = delivery.then(flushPending).catch(error => {
-          const code =
-            error && typeof error === "object" && "code" in error
-              ? String((error as any).code)
-              : "SSE_DELIVERY_FAILED";
-          console.warn(`[notifications] sse delivery failed: ${code}`);
-        });
+        delivery = delivery
+          .then(() => conTenantDellaSede(sedeId, flushPending))
+          .catch(error => {
+            const code =
+              error && typeof error === "object" && "code" in error
+                ? String((error as any).code)
+                : "SSE_DELIVERY_FAILED";
+            console.warn(`[notifications] sse delivery failed: ${code}`);
+          });
       };
       const unsubscribe = hub.subscribe({ recipientUserId, sedeId }, signal => {
         if (signal.notificationId <= lastSent) return;
