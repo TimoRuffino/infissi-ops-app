@@ -106,14 +106,9 @@ export function definizioneAzione(
   return def;
 }
 
-let nextPropostaId = 1;
 const _proposteStore = persistedStore<PropostaAzione>(
   "proposte_azioni",
-  items => {
-    nextPropostaId = items.length
-      ? Math.max(...items.map(item => item.id)) + 1
-      : 1;
-  }
+  () => {}
 );
 const proposte = _proposteStore.items;
 
@@ -277,7 +272,7 @@ export function creaProposta(input: {
 
   const now = input.now ?? new Date();
   const proposta: PropostaAzione = {
-    id: nextPropostaId++,
+    id: _proposteStore.prossimoId(),
     sedeId: input.sedeId,
     tipo: input.tipo,
     documentoId: input.documentoId,

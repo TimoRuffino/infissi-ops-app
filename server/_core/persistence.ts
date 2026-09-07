@@ -673,15 +673,19 @@ export async function istanziaStoresPerTenant(tenantId: number): Promise<void> {
 
 /**
  * Chiude il caricamento di un'istanza: backfill additivo di `tenantId`
- * (spec §3.4), massimo degli id per il contatore della famiglia, `onLoad` del
- * modulo, `loaded`. Il backfill esiste solo se qualcuno l'ha chiesto
- * (`bootstrapAll({ backfill: true })`) e tocca solo i record oggetto senza
- * `tenantId` numerico — uno già scritto non si cambia mai, nemmeno se
- * discorda: lo conta `pnpm tenant verifica`. Il risalvataggio si programma
- * DOPO `loaded = true` (altrimenti la guardia di `flushSave` lo rinvierebbe)
- * e subito, non dietro un `setTimeout(0)`: così un `flushAll()` che segue il
- * bootstrap lo trova in coda e lo scrive, invece di lasciarlo a un turno del
- * ciclo che potrebbe arrivare dopo la chiusura del processo.
+ * (spec §3.4), `onLoad` del modulo, massimo degli id per il contatore della
+ * famiglia, `loaded`. `onLoad` viene PRIMA del massimo: un modulo che semina
+ * un record dentro `onLoad` (store vuoto al firstBoot) deve alzare `maxId`,
+ * altrimenti `prossimoId()` chiamato subito dopo il boot ripartirebbe da 1 e
+ * collidirebbe con l'id seminato (Task 4, R5). Il backfill esiste solo se
+ * qualcuno l'ha chiesto (`bootstrapAll({ backfill: true })`) e tocca solo i
+ * record oggetto senza `tenantId` numerico — uno già scritto non si cambia
+ * mai, nemmeno se discorda: lo conta `pnpm tenant verifica`. Il
+ * risalvataggio si programma DOPO `loaded = true` (altrimenti la guardia di
+ * `flushSave` lo rinvierebbe) e subito, non dietro un `setTimeout(0)`: così
+ * un `flushAll()` che segue il bootstrap lo trova in coda e lo scrive,
+ * invece di lasciarlo a un turno del ciclo che potrebbe arrivare dopo la
+ * chiusura del processo.
  */
 function dopoCaricamento(store: StoreEntry, firstBoot: boolean): void {
   let backfill = 0;
@@ -693,11 +697,11 @@ function dopoCaricamento(store: StoreEntry, firstBoot: boolean): void {
       }
     }
   }
+  store.onLoad?.(store.items, { firstBoot, tenantId: store.tenantId });
   for (const r of store.items) {
     const id = (r as any)?.id;
     if (typeof id === "number" && id > store.famiglia.maxId) store.famiglia.maxId = id;
   }
-  store.onLoad?.(store.items, { firstBoot, tenantId: store.tenantId });
   store.loaded = true;
   if (backfill > 0) {
     console.log(`[persistence] backfill tenantId ${store.key}: ${backfill} record`);

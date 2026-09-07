@@ -3,9 +3,7 @@ import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { assertSedeScope } from "../_core/permissions";
 
-let nextId = 1;
 const _garanzieStore = persistedStore<any>("garanzie", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const g of loaded) {
     if ((g as any).sedeId === undefined) (g as any).sedeId = 1;
   }
@@ -55,7 +53,7 @@ export const garanzieRouter = router({
       end.setMonth(end.getMonth() + input.durataMesi);
 
       const garanzia = {
-        id: nextId++,
+        id: _garanzieStore.prossimoId(),
         ...input,
         sedeId: ctx.sedeId ?? 1,
         aperturaId: input.aperturaId ?? null,

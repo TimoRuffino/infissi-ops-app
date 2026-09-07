@@ -4,9 +4,7 @@ import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
 import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
 
-let nextId = 1;
 const _anomalieStore = persistedStore<any>("anomalie", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const a of loaded) {
     if ((a as any).sedeId === undefined) (a as any).sedeId = 1;
   }
@@ -38,7 +36,7 @@ export const anomalieRouter = router({
     .mutation(({ input, ctx }) => {
       const now = new Date();
       const anomalia = {
-        id: nextId++,
+        id: _anomalieStore.prossimoId(),
         ...input,
         sedeId: ctx.sedeId ?? 1,
         aperturaId: input.aperturaId ?? null,

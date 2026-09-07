@@ -3,9 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { assertSedeScope } from "../_core/permissions";
 
-let nextId = 1;
 const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const v of loaded) {
     if ((v as any).sedeId === undefined) (v as any).sedeId = 1;
   }
@@ -45,7 +43,7 @@ export const verbaliRouter = router({
     .mutation(({ input, ctx }) => {
       const now = new Date();
       const verbale = {
-        id: nextId++,
+        id: _verbaliStore.prossimoId(),
         ...input,
         sedeId: ctx.sedeId ?? 1,
         data: now.toISOString().split("T")[0],

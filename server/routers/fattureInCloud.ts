@@ -84,8 +84,6 @@ export type FicConfig = {
   scopeScrittura: boolean;
 };
 
-let nextCfgId = 2;
-
 const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
   for (const c of items as any[]) {
     if (c.sedeId === undefined) c.sedeId = DEFAULT_SEDE_ID;
@@ -111,7 +109,6 @@ const _cfgStore = persistedStore<FicConfig>("fic_config", items => {
     if (c.economicScopesReady === undefined) c.economicScopesReady = false;
     if (c.scopeScrittura === undefined) c.scopeScrittura = false;
   }
-  nextCfgId = items.length ? Math.max(...items.map(c => c.id)) + 1 : 1;
 });
 const cfgRows = _cfgStore.items;
 
@@ -120,7 +117,7 @@ export function getCfg(sedeId: number | null): FicConfig {
   let c = cfgRows.find(x => x.sedeId === sede);
   if (!c) {
     c = {
-      id: nextCfgId++,
+      id: _cfgStore.prossimoId(),
       sedeId: sede,
       accessTokenCifrato: null,
       refreshTokenCifrato: null,

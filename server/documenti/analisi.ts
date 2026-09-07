@@ -91,13 +91,9 @@ export type AnalisiDocumento = {
   createdAt: Date;
 };
 
-let nextAnalisiId = 1;
 const _analisiStore = persistedStore<AnalisiDocumento>(
   "documenti_analisi",
   items => {
-    nextAnalisiId = items.length
-      ? Math.max(...items.map(item => item.id)) + 1
-      : 1;
     // Backfill slice 4: i run precedenti all'OCR non hanno i campi nuovi.
     // Le scansioni ferme senza OCR valgono "assente", così diventano
     // rianalizzabili appena l'OCR è disponibile.
@@ -250,7 +246,7 @@ async function eseguiAnalisiConfermaInterna(input: {
   }
 
   const base = {
-    id: nextAnalisiId++,
+    id: _analisiStore.prossimoId(),
     sedeId: input.sedeId,
     documentoId: input.documento.id,
     documentoNome: input.documento.nome,

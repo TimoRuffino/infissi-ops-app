@@ -2,28 +2,12 @@
 // Guardie STRUTTURALI del tenant (spec WS1 §10.8), sul modello di
 // server/tars/costi/confine.test.ts: leggono il sorgente e falliscono se
 // qualcuno reintroduce un percorso che la spec vieta.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const RADICE = join(__dirname, "..", "..");
-
-function fileSorgente(cartelle: string[]): string[] {
-  const trovati: string[] = [];
-  const visita = (percorso: string) => {
-    for (const voce of readdirSync(percorso)) {
-      if (voce === "node_modules" || voce === "dist" || voce.startsWith(".")) continue;
-      const completo = join(percorso, voce);
-      if (statSync(completo).isDirectory()) visita(completo);
-      else if (/\.(ts|tsx)$/.test(voce)) trovati.push(completo);
-    }
-  };
-  for (const cartella of cartelle) visita(join(RADICE, cartella));
-  return trovati;
-}
+import { fileSorgente, relativo, RADICE } from "../_core/sorgentiDiProva";
 
 const PRODUZIONE = fileSorgente(["server", "shared", "scripts"]).filter(f => !/\.test\.ts$/.test(f));
-const relativo = (percorso: string) => percorso.slice(RADICE.length + 1);
 const testo = (f: string) => readFileSync(f, "utf8");
 
 describe("confine del tenant", () => {

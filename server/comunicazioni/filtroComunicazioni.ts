@@ -47,12 +47,9 @@ export type RegolaFiltroMittente = {
   createdByNome: string | null;
 };
 
-let nextRegolaId = 1;
 const _regoleStore = persistedStore<RegolaFiltroMittente>(
   "comunicazioni_regole_filtro",
-  items => {
-    nextRegolaId = items.length ? Math.max(...items.map(r => r.id)) + 1 : 1;
-  }
+  () => {}
 );
 export const regoleFiltroMittente = _regoleStore.items;
 export const saveRegoleFiltroMittente = () => _regoleStore.save();
@@ -92,7 +89,7 @@ export function salvaRegolaMittente(input: {
     return esistente;
   }
   const regola: RegolaFiltroMittente = {
-    id: nextRegolaId++,
+    id: _regoleStore.prossimoId(),
     sedeId: input.sedeId,
     mittente,
     categoria: input.categoria,

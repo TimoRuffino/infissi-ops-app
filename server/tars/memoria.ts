@@ -37,9 +37,7 @@ export type MemoriaTars = {
   invalidataIl: string | null;
 };
 
-let nextId = 1;
 const _store = persistedStore<MemoriaTars>("tars_memoria", items => {
-  nextId = items.length ? Math.max(...items.map(m => m.id)) + 1 : 1;
   // Backfill dei campi per eventuali voci di versioni precedenti.
   for (const m of items as any[]) {
     if (m.valida === undefined) m.valida = true;
@@ -72,7 +70,7 @@ export function creaMemoria(input: {
   if (esistente) return esistente;
 
   const memoria: MemoriaTars = {
-    id: nextId++,
+    id: _store.prossimoId(),
     sedeId: input.sedeId,
     perimetro: input.perimetro,
     utenteId: input.utenteId,
@@ -160,5 +158,4 @@ export function contestoMemorie(
 /** Solo per i test: azzera il fallback in memoria. */
 export function azzeraMemoriaPerTest(): void {
   memorie.length = 0;
-  nextId = 1;
 }

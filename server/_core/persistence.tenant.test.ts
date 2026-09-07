@@ -146,6 +146,31 @@ describe("persistence per tenant", () => {
     expect(storeDi(1, "preventivi")).toEqual([{ id: 1, sedeId: 3, tenantId: 1 }]);
   });
 
+  it("prossimoId è unico fra i tenant e riparte dal massimo caricato", async () => {
+    const s = persistedStore<any>("aperture");
+    tenant = 1; s.items.push({ id: 10 });
+    tenant = 2; s.items.push({ id: 3 });
+    await bootstrapAll({ tenantIds: [1, 2] }); // senza DB: dopoCaricamento aggiorna maxId
+    expect(s.prossimoId()).toBe(11);
+    tenant = 1;
+    expect(s.prossimoId()).toBe(12);
+    s.riservaIdFinoA(50);
+    expect(s.prossimoId()).toBe(51);
+  });
+
+  it("il seed dentro onLoad alza maxId: prossimoId() dopo non collide con l'id seminato (R5)", async () => {
+    // Come whatsapp_app: onLoad semina un record con un id fisso quando lo
+    // store è vuoto al firstBoot. Se il conteggio di maxId girasse PRIMA di
+    // onLoad (come faceva prima di Task 4), vedrebbe lo store ancora vuoto e
+    // prossimoId() dopo il seed ripartirebbe da 1, collidendo con il seed.
+    const s = persistedStore<any>("seed_onload_test", (items, meta) => {
+      if (items.length === 0 && meta.firstBoot) items.push({ id: 1 });
+    });
+    await bootstrapAll({ tenantIds: [1] });
+    expect(s.items).toEqual([{ id: 1 }]);
+    expect(s.prossimoId()).toBe(2);
+  });
+
   it("senza resolver: nei test ripiega sul tenant 1, fuori dai test è un errore", () => {
     __resetPersistenzaPerTest();
     const s = persistedStore<any>("anomalie");

@@ -109,7 +109,6 @@ export type Documento = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let nextId = 1;
 /**
  * Tipi accorpati: la chiave sparisce dall'elenco, ma i documenti già
  * archiviati sotto quel nome restano leggibili solo se li si riporta al tipo
@@ -136,7 +135,6 @@ export function migraTipiDocumento(caricati: Documento[]): boolean {
 const _documentiStore = persistedStore<Documento>(
   "preventivi_documenti",
   loaded => {
-    nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
     if (migraTipiDocumento(loaded)) {
       setTimeout(() => _documentiStore.save(), 0);
     }
@@ -551,7 +549,7 @@ export async function archiviaAllegatoComunicazione(args: {
       if (duplicato) return duplicato;
     }
 
-    const id = existing?.id ?? nextId++;
+    const id = existing?.id ?? _documentiStore.prossimoId();
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
     const documento: Documento = existing
@@ -627,7 +625,7 @@ export async function upsertDocumentoFic(args: {
 
   const sourceRef = ficSourceRef(args.sedeId, args.ficId);
   const existing = findDocumentoFic(args.sedeId, args.ficId);
-  const id = existing?.id ?? nextId++;
+  const id = existing?.id ?? _documentiStore.prossimoId();
   const numeroSicuro = args.numero
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, " ")
@@ -733,7 +731,7 @@ export async function registraDocumentoFatturaCrm(args: {
   const doc: Documento = existing
     ? { ...existing }
     : {
-        id: nextId++,
+        id: _documentiStore.prossimoId(),
         commessaId: args.commessaId,
         nome,
         tipo: args.tipo,
@@ -1088,7 +1086,7 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
       : buildNomeFromTipo(input.nome, input.tipo, commessa.cliente);
   const nome = dedupeName(baseNome, input.commessaId);
   const doc: Documento = {
-    id: nextId++,
+    id: _documentiStore.prossimoId(),
     commessaId: input.commessaId,
     nome,
     tipo: input.tipo,

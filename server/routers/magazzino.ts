@@ -41,9 +41,7 @@ export type Prodotto = {
   updatedAt: Date;
 };
 
-let nextId = 1;
 const _store = persistedStore<Prodotto>("magazzino_prodotti", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const p of loaded) {
     if ((p as any).numeroOrdine === undefined) (p as any).numeroOrdine = null;
     if ((p as any).dataOrdine === undefined) (p as any).dataOrdine = null;
@@ -96,7 +94,7 @@ export function creaProdottiDaConferma(input: {
     const nome = riga.nome.trim();
     if (!nome) continue;
     const row: Prodotto = {
-      id: nextId++,
+      id: _store.prossimoId(),
       sedeId: input.sedeId,
       commessaId: input.commessaId,
       nome: nome.slice(0, 160),
@@ -209,7 +207,7 @@ export const magazzinoRouter = router({
       requireEligibleCommessa(input.commessaId, ctx.sedeId);
       const now = new Date();
       const row: Prodotto = {
-        id: nextId++,
+        id: _store.prossimoId(),
         sedeId: ctx.sedeId ?? 1,
         commessaId: input.commessaId,
         nome: input.nome.trim(),

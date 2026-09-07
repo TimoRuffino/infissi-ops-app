@@ -28,8 +28,6 @@ type Referente = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let nextId = 1;
-
 /**
  * Backfill dei campi aggiunti dopo il primo salvataggio: un record scritto
  * da una versione precedente non ha la chiave, e `undefined` viaggia
@@ -57,7 +55,6 @@ export function backfillCliente(c: any): void {
 }
 
 const _store = persistedStore<any>("clienti", (items) => {
-  nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
   for (const c of items) backfillCliente(c);
 });
 const clienti = _store.items;
@@ -114,7 +111,7 @@ export function createClienteFromSync(data: {
 }) {
   const now = new Date();
   const cliente = {
-    id: nextId++,
+    id: _store.prossimoId(),
     sedeId: data.sedeId,
     nome: data.nome,
     cognome: data.cognome,
@@ -237,7 +234,7 @@ export async function creaCliente(
     });
   }
   const cliente = {
-    id: nextId++,
+    id: _store.prossimoId(),
     ...rest,
     // Stamp the active sede so the cliente belongs to the current showroom.
     sedeId: ctx.sedeId ?? 1,

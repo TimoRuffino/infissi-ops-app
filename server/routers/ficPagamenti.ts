@@ -90,11 +90,9 @@ export function emptyFicPaymentSyncStats(): FicPaymentSyncStats {
   };
 }
 
-let nextLinkId = 1;
 const _linksStore = persistedStore<RiconciliazioneRataFic>(
   "fic_pagamenti_links",
   items => {
-    nextLinkId = items.length ? Math.max(...items.map(item => item.id)) + 1 : 1;
     for (const item of items) {
       if (item.sedeId === undefined) item.sedeId = DEFAULT_SEDE_ID;
       if (item.stato === undefined) item.stato = "confermata";
@@ -208,7 +206,7 @@ export function confermaRiconciliazioneManuale(input: {
     )
     ?.rate.find(item => item.sourceKey === input.ficSourceKey);
   const link: RiconciliazioneRataFic = {
-    id: nextLinkId++,
+    id: _linksStore.prossimoId(),
     sedeId: input.sedeId,
     ficDocumentoId: input.ficDocumentoId,
     ficRataId: rata?.id ?? null,
@@ -259,7 +257,7 @@ function createLink(input: {
   now: Date;
 }): RiconciliazioneRataFic {
   const link: RiconciliazioneRataFic = {
-    id: nextLinkId++,
+    id: _linksStore.prossimoId(),
     sedeId: input.sedeId,
     ficDocumentoId: input.fattura.id,
     ficRataId: input.rata.id,

@@ -37,9 +37,7 @@ export type Casella = {
   updatedAt: Date;
 };
 
-let nextCasellaId = 1;
 const _store = persistedStore<Casella>("caselle_email", (items) => {
-  nextCasellaId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
   for (const c of items) {
     if (c.cartella === undefined) c.cartella = "INBOX";
     if (c.messaggiImportati === undefined) c.messaggiImportati = 0;
@@ -49,7 +47,7 @@ const _store = persistedStore<Casella>("caselle_email", (items) => {
 
 export const caselle = _store.items;
 export const saveCaselle = () => _store.save();
-export const newCasellaId = () => nextCasellaId++;
+export const newCasellaId = () => _store.prossimoId();
 
 /** Prepara una password per lo store: sempre cifrata, mai in chiaro. */
 export function proteggiPassword(plain: string): string {

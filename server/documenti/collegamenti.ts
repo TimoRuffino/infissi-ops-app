@@ -36,14 +36,9 @@ export type CollegamentoDocumentoOrdine = {
   updatedAt: Date;
 };
 
-let nextCollegamentoId = 1;
 const _store = persistedStore<CollegamentoDocumentoOrdine>(
   "documenti_collegamenti_ordini",
-  items => {
-    nextCollegamentoId = items.length
-      ? Math.max(...items.map(item => item.id)) + 1
-      : 1;
-  }
+  () => {}
 );
 const collegamenti = _store.items;
 
@@ -168,7 +163,7 @@ export function confermaCollegamento(input: {
   }
 
   const collegamento: CollegamentoDocumentoOrdine = {
-    id: nextCollegamentoId++,
+    id: _store.prossimoId(),
     sedeId: input.sedeId,
     documentoId: input.documentoId,
     ordineId: input.ordineId,
@@ -216,7 +211,7 @@ export function rifiutaCandidato(input: {
     return esistente;
   }
   const record: CollegamentoDocumentoOrdine = {
-    id: nextCollegamentoId++,
+    id: _store.prossimoId(),
     sedeId: input.sedeId,
     documentoId: input.documentoId,
     ordineId: input.ordineId,

@@ -105,7 +105,6 @@ function diagnosticaWebhook(c: ConfigWhatsApp): DiagnosticaWebhookWhatsApp {
   return c.diagnosticaWebhook;
 }
 
-let nextId = 1;
 let codaConfigurazione: Promise<void> = Promise.resolve();
 
 async function conBloccoConfigurazione<T>(fn: () => Promise<T>): Promise<T> {
@@ -123,7 +122,6 @@ async function conBloccoConfigurazione<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const _store = persistedStore<ConfigWhatsApp>("whatsapp_config", (items) => {
-  nextId = items.length ? Math.max(...items.map((c) => c.id)) + 1 : 1;
   for (const c of items) {
     if (c.messaggiRicevuti === undefined) c.messaggiRicevuti = 0;
     if (c.storicoSincronizzato === undefined) c.storicoSincronizzato = null;
@@ -170,8 +168,6 @@ export type AppWhatsApp = {
   updatedAt: Date;
 };
 
-let nextAppId = 2;
-
 function appVuota(sedeId: number, id: number): AppWhatsApp {
   return {
     id,
@@ -194,14 +190,13 @@ const _appStore = persistedStore<AppWhatsApp>("whatsapp_app", (items, meta) => {
     // L'unico record di prima era, di fatto, quello della sede principale.
     if (a.sedeId === undefined) a.sedeId = DEFAULT_SEDE_ID;
   }
-  nextAppId = items.length ? Math.max(...items.map((a) => a.id)) + 1 : 1;
 });
 
 export function getAppWhatsApp(sedeId: number | null): AppWhatsApp {
   const sede = sedeId ?? DEFAULT_SEDE_ID;
   let a = _appStore.items.find((x) => x.sedeId === sede);
   if (!a) {
-    a = appVuota(sede, nextAppId++);
+    a = appVuota(sede, _appStore.prossimoId());
     _appStore.items.push(a);
     _appStore.save();
   }
@@ -237,15 +232,15 @@ export const newConfigWhatsAppId = (
   preferito?: number,
   massimoStorico = 0
 ) => {
-  nextId = Math.max(nextId, massimoStorico + 1);
+  _store.riservaIdFinoA(massimoStorico);
   if (preferito != null && Number.isInteger(preferito) && preferito > 0) {
     if (configWhatsApp.some(c => c.id === preferito)) {
       throw new Error("Identificativo configurazione WhatsApp gia in uso.");
     }
-    nextId = Math.max(nextId, preferito + 1);
+    _store.riservaIdFinoA(preferito);
     return preferito;
   }
-  return nextId++;
+  return _store.prossimoId();
 };
 
 export function proteggiSegreto(plain: string): string {

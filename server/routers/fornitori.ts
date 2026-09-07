@@ -70,13 +70,7 @@ type Listino = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-let nextFornitoreId = 1;
-let nextOrdineId = 1;
-let nextRigaId = 1;
-let nextListinoId = 1;
-
 const _fornitoriStore = persistedStore<Fornitore>("fornitori", (loaded) => {
-  nextFornitoreId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const f of loaded) {
     if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
   }
@@ -84,21 +78,13 @@ const _fornitoriStore = persistedStore<Fornitore>("fornitori", (loaded) => {
 const fornitori = _fornitoriStore.items;
 
 const _ordiniStore = persistedStore<OrdineFornitore>("fornitori_ordini", (loaded) => {
-  nextOrdineId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-  // Recompute nextRigaId by scanning child righe[] across all ordini
-  let maxRigaId = 0;
   for (const o of loaded) {
     if ((o as any).sedeId === undefined) (o as any).sedeId = 1;
-    for (const r of (o as any).righe ?? []) {
-      if (r.id > maxRigaId) maxRigaId = r.id;
-    }
   }
-  nextRigaId = maxRigaId + 1;
 });
 const ordini = _ordiniStore.items;
 
 const _listiniStore = persistedStore<Listino>("fornitori_listini", (loaded) => {
-  nextListinoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const l of loaded) {
     if ((l as any).sedeId === undefined) (l as any).sedeId = 1;
   }
@@ -240,7 +226,7 @@ export const fornitoriRouter = router({
     .mutation(({ input, ctx }) => {
       const now = new Date();
       const fornitore: Fornitore = {
-        id: nextFornitoreId++,
+        id: _fornitoriStore.prossimoId(),
         ...input,
         sedeId: ctx.sedeId ?? 1,
         attivo: true,
@@ -358,8 +344,13 @@ export const fornitoriRouter = router({
       .mutation(({ input, ctx }) => {
         const now = new Date();
         const sedeId = ctx.sedeId ?? 1;
-        const righe: RigaOrdine[] = input.righe.map((r) => ({
-          id: nextRigaId++,
+        // Le righe non sono uno store con ambito proprio: sono un array
+        // annidato in un unico ordine, creato una sola volta qui (mai
+        // aggiunte in seguito a un ordine esistente — solo mutate sul posto,
+        // vedi sotto). Un indice locale basta: gli id vanno confrontati solo
+        // dentro le righe dello stesso ordine.
+        const righe: RigaOrdine[] = input.righe.map((r, idx) => ({
+          id: idx + 1,
           ...r,
           quantitaRicevuta: 0,
         }));
@@ -368,7 +359,7 @@ export const fornitoriRouter = router({
           0
         );
         const ordine: OrdineFornitore = {
-          id: nextOrdineId++,
+          id: _ordiniStore.prossimoId(),
           sedeId,
           fornitoreId: input.fornitoreId,
           commessaId: input.commessaId,
@@ -459,7 +450,7 @@ export const fornitoriRouter = router({
       }))
       .mutation(({ input, ctx }) => {
         const listino: Listino = {
-          id: nextListinoId++,
+          id: _listiniStore.prossimoId(),
           sedeId: ctx.sedeId ?? 1,
           ...input,
           createdAt: new Date(),

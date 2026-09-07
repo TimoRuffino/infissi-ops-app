@@ -85,10 +85,7 @@ type BackupLog = {
   error: string | null;
 };
 
-let nextLogId = 1;
-const _logStore = persistedStore<BackupLog>("backup_log", loaded => {
-  nextLogId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
-});
+const _logStore = persistedStore<BackupLog>("backup_log", () => {});
 const logRows = _logStore.items;
 
 // ── Service account / Drive REST ─────────────────────────────────────────────
@@ -1070,7 +1067,7 @@ export async function runBackup(
   running = true;
   const cfg = getConfig();
   const log: BackupLog = {
-    id: nextLogId++,
+    id: _logStore.prossimoId(),
     startedAt: new Date(),
     finishedAt: null,
     ok: null,

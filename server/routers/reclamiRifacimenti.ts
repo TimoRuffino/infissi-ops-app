@@ -6,9 +6,7 @@ import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissio
 
 // --- Reclami (complaints) ---
 
-let nextReclamoId = 1;
 const _reclamiStore = persistedStore<any>("reclami", (loaded) => {
-  nextReclamoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   let changed = false;
   for (const r of loaded) {
     if ((r as any).sedeId === undefined) (r as any).sedeId = 1;
@@ -24,9 +22,7 @@ const reclami = _reclamiStore.items;
 
 // --- Rifacimenti (remakes) ---
 
-let nextRifacimentoId = 1;
 const _rifacimentiStore = persistedStore<any>("rifacimenti", (loaded) => {
-  nextRifacimentoId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const r of loaded) {
     if ((r as any).sedeId === undefined) (r as any).sedeId = 1;
   }
@@ -59,7 +55,7 @@ export const reclamiRifacimentiRouter = router({
       .mutation(({ input, ctx }) => {
         const now = new Date();
         const reclamo = {
-          id: nextReclamoId++,
+          id: _reclamiStore.prossimoId(),
           ...input,
           sedeId: ctx.sedeId ?? 1,
           responsabile: input.responsabile ?? null,
@@ -153,7 +149,7 @@ export const reclamiRifacimentiRouter = router({
       .mutation(({ input, ctx }) => {
         const now = new Date();
         const rifacimento = {
-          id: nextRifacimentoId++,
+          id: _rifacimentiStore.prossimoId(),
           ...input,
           sedeId: ctx.sedeId ?? 1,
           fornitoreCoinvolto: input.fornitoreCoinvolto ?? null,

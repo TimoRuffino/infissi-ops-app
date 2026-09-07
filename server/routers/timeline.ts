@@ -176,10 +176,8 @@ export function migraStepTimeline(caricati: TimelineStep[]): boolean {
 }
 
 // In-memory store (replace with Drizzle queries when DB is available)
-let nextId = 1;
 const _stepsStore = persistedStore<TimelineStep>("timeline_steps", (loaded) => {
   if (migraStepTimeline(loaded)) setTimeout(() => _stepsStore.save(), 0);
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
 });
 const steps = _stepsStore.items;
 
@@ -267,7 +265,7 @@ export function allineaTimelineAlBoard(
 
 function createStepsForCommessa(commessaId: number): TimelineStep[] {
   const newSteps: TimelineStep[] = STEP_LABELS.map((label, idx) => ({
-    id: nextId++,
+    id: _stepsStore.prossimoId(),
     commessaId,
     stepNumber: idx + 1,
     label,

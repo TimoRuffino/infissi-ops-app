@@ -3,9 +3,7 @@ import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { assertSedeScope } from "../_core/permissions";
 
-let nextId = 1;
 const _squadreStore = persistedStore<any>("squadre", (loaded) => {
-  nextId = loaded.length ? Math.max(...loaded.map((x: any) => x.id)) + 1 : 1;
   for (const s of loaded) {
     if ((s as any).sedeId === undefined) (s as any).sedeId = 1;
   }
@@ -39,7 +37,7 @@ export const squadreRouter = router({
     }))
     .mutation(({ input, ctx }) => {
       const now = new Date();
-      const squadra = { id: nextId++, ...input, sedeId: ctx.sedeId ?? 1, attiva: true, createdAt: now, updatedAt: now };
+      const squadra = { id: _squadreStore.prossimoId(), ...input, sedeId: ctx.sedeId ?? 1, attiva: true, createdAt: now, updatedAt: now };
       squadre.push(squadra);
       _squadreStore.save();
       return squadra;
