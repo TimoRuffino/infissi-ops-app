@@ -49,4 +49,13 @@ describe("confine del tenant", () => {
     expect(script).not.toMatch(/from "\.\.\/server\/routers/);
     expect(script).not.toMatch(/bootstrapAll/);
   });
+
+  // Task 13: `pnpm tenant verifica` legge `kv_store` SOLO tramite
+  // `leggiBlobDaDb`/`elencaChiaviDaDb` (persistence.ts, §7.2): uno `SELECT …
+  // FROM kv_store` scritto a mano nello script bypasserebbe quel confine e
+  // duplicherebbe la logica di lettura in un posto che deve restare pura.
+  it("lo script tenant non legge kv_store direttamente: usa leggiBlobDaDb/elencaChiaviDaDb", () => {
+    const script = testo(join(RADICE, "scripts", "tenant.ts"));
+    expect(script).not.toMatch(/kv_store/);
+  });
 });

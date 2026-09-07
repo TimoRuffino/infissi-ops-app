@@ -12,6 +12,12 @@ describe("opzioni della CLI", () => {
     expect(opzioni(["node", "tenant.ts"]).sotto).toBeNull();
   });
 
+  it("verifica --json: nessuna novità nel parser, --json è un flag come gli altri", () => {
+    const o = opzioni(["node", "tenant", "verifica", "--json"]);
+    expect(o.sotto).toBe("verifica");
+    expect(o.flag.has("json")).toBe(true);
+  });
+
   it("l'anteprima non mostra mai l'hash della password", () => {
     const testo = anteprima({
       tipo: "crea",

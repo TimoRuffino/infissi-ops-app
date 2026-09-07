@@ -8,18 +8,27 @@
 //        --email=titolare@acme.it --nome-utente=Mario --cognome=Rossi [--citta=Sarzana] [--scrivi] [--attendi]
 //   pnpm tenant stato --slug=acme --sospendi|--riattiva --motivo="…" [--anche-tenant-1] [--scrivi] [--attendi]
 //   pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna|--revoca [--scrivi] [--attendi]
+//   pnpm tenant verifica [--json]
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
 // nascosto; viene hashata qui e mai scritta in chiaro. Senza --scrivi mostra
 // l'anteprima e non tocca nulla. Lo schema non lo tocca mai, nemmeno per
 // `elenco`: lo crea il server al boot; se manca, lo script si ferma.
+//
+// `verifica` è l'eccezione (Task 13, design WS2 §7.2): sola lettura, gira
+// PRIMA di toccare il control plane del tenant e funziona anche se il WS1
+// non è mai stato distribuito su questo database. Conta gli store per
+// tenant (via `leggiBlobDaDb`/`elencaChiaviDaDb` di persistence.ts: mai un
+// SELECT scritto qui) e le tabelle per sede (`TABELLE_PER_SEDE`, con un JOIN
+// su `tenant_sedi`); stampa un rapporto (`--json` per la versione macchina)
+// ed esce con `1` se trova anomalie, `0` altrimenti. Nessun DDL.
 // Runbook: docs/runbooks/multi-azienda.md.
 
 import "dotenv/config";
 import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
 import { hashPassword } from "../server/_core/password";
-import { kvSql } from "../server/_core/persistence";
+import { elencaChiaviDaDb, kvSql, leggiBlobDaDb } from "../server/_core/persistence";
 import { interruttoreAttivo } from "../server/platform/interruttori";
 import { anteprima, opzioni } from "../server/tenants/cli";
 import {
@@ -33,10 +42,18 @@ import {
   createPostgresTenantRepository,
   type TenantRepository,
 } from "../server/tenants/repository";
+import { TABELLE_PER_SEDE } from "../server/tenants/tabelle";
 import type { TipoComando } from "../server/tenants/tipi";
+import {
+  formattaRapporto,
+  riassumi,
+  verificaStore,
+  type RapportoStore,
+  type RapportoTabella,
+} from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario (vedi docs/runbooks/multi-azienda.md)";
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | verifica [--json] (vedi docs/runbooks/multi-azienda.md)";
 
 function chiediNascosto(domanda: string): Promise<string> {
   return new Promise(resolve => {
@@ -72,6 +89,82 @@ async function attendi(repo: TenantRepository, id: number): Promise<number> {
   return 1;
 }
 
+/**
+ * `verifica`: sola lettura, nessun DDL. Gira PRIMA di `repo.caricaCache()`
+ * (Ruling R1, Task 13) apposta: non deve pretendere che il control plane del
+ * tenant (`tenants`/`tenant_eventi`/`tenant_comandi`) esista già, perché
+ * contare i record degli store non dipende da quello schema.
+ *
+ * Se anche lo specchio `tenant_sedi` manca (database mai passato dal Task
+ * 12), il JOIN sulle tabelle per sede fallisce con `undefined_table`
+ * (`42P01`): lo intercettiamo, stampiamo un avviso una sola volta e per
+ * quella e ogni tabella successiva ripieghiamo su un conteggio delle sole
+ * righe, con `sedeSconosciuta`/`tenantNullo`/`tenantDiscorde` a 0 (non
+ * calcolabili, non anomalie) — l'exit resta `0` se non c'è altro. Qualunque
+ * altro errore Postgres propaga, come gli altri `ensureSchema()`.
+ */
+async function eseguiVerifica(sql: NonNullable<typeof kvSql>, flag: Set<string>): Promise<number> {
+  const sedi = new Map<number, number>();
+  for (const s of (await leggiBlobDaDb("sedi")) ?? []) {
+    sedi.set(Number(s.id), typeof s.tenantId === "number" ? s.tenantId : TENANT_PREDEFINITO_ID);
+  }
+
+  const store: RapportoStore[] = [];
+  for (const chiave of await elencaChiaviDaDb()) {
+    store.push(verificaStore(chiave, (await leggiBlobDaDb(chiave)) ?? [], sedi));
+  }
+
+  const tabelle: RapportoTabella[] = [];
+  let specchioAssente = false;
+  for (const t of TABELLE_PER_SEDE) {
+    const presente = Boolean((await sql`SELECT to_regclass(${t}) AS r`)[0]?.r);
+    if (!presente) {
+      tabelle.push({ tabella: t, presente: false, conColonna: false, righe: 0, sedeSconosciuta: 0, tenantNullo: 0, tenantDiscorde: 0 });
+      continue;
+    }
+    const conColonna =
+      (
+        await sql`SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = ${t} AND column_name = 'tenant_id'`
+      ).length > 0;
+
+    if (specchioAssente) {
+      const [r] = await sql.unsafe(`SELECT COUNT(*)::int AS righe FROM ${t}`);
+      tabelle.push({ tabella: t, presente, conColonna, righe: Number(r.righe), sedeSconosciuta: 0, tenantNullo: 0, tenantDiscorde: 0 });
+      continue;
+    }
+    try {
+      const [r] = await sql.unsafe(`SELECT COUNT(*)::int AS righe,
+        COUNT(*) FILTER (WHERE s.sede_id IS NULL)::int AS sede_sconosciuta,
+        ${conColonna ? "COUNT(*) FILTER (WHERE t.tenant_id IS NULL)::int" : "0"} AS tenant_nullo,
+        ${conColonna ? "COUNT(*) FILTER (WHERE t.tenant_id IS NOT NULL AND s.tenant_id IS NOT NULL AND t.tenant_id <> s.tenant_id)::int" : "0"} AS tenant_discorde
+        FROM ${t} t LEFT JOIN tenant_sedi s ON s.sede_id = t.sede_id`);
+      tabelle.push({
+        tabella: t,
+        presente,
+        conColonna,
+        righe: Number(r.righe),
+        sedeSconosciuta: Number(r.sede_sconosciuta),
+        tenantNullo: Number(r.tenant_nullo),
+        tenantDiscorde: Number(r.tenant_discorde),
+      });
+    } catch (errore) {
+      if ((errore as { code?: string } | null | undefined)?.code !== "42P01") throw errore;
+      specchioAssente = true;
+      console.warn(
+        "[tenant verifica] tenant_sedi assente (control plane del tenant mai creato su questo database): " +
+          "sedeSconosciuta/tenantNullo/tenantDiscorde non calcolabili sulle tabelle per sede, righe contate lo stesso."
+      );
+      const [r] = await sql.unsafe(`SELECT COUNT(*)::int AS righe FROM ${t}`);
+      tabelle.push({ tabella: t, presente, conColonna, righe: Number(r.righe), sedeSconosciuta: 0, tenantNullo: 0, tenantDiscorde: 0 });
+    }
+  }
+
+  const rapporto = riassumi(store, tabelle);
+  console.log(flag.has("json") ? JSON.stringify(rapporto, null, 2) : formattaRapporto(rapporto));
+  return rapporto.anomalie > 0 ? 1 : 0;
+}
+
 async function main(): Promise<number> {
   const sql = kvSql;
   if (!sql) {
@@ -79,6 +172,9 @@ async function main(): Promise<number> {
     return 2;
   }
   const { sotto, valori, flag } = opzioni(process.argv);
+
+  if (sotto === "verifica") return eseguiVerifica(sql, flag);
+
   const obbligatoria = (nome: string): string => {
     const v = valori[nome];
     if (!v) throw new Error(`Manca --${nome}=…\n${USO}`);
