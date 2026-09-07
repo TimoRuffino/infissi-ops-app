@@ -4,6 +4,14 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+// Registra il resolver del tenant (server/tenants/contestoCorrente.ts, Task
+// 6) PRIMA di importare l'albero dei router: alcuni moduli (es.
+// routers/timeline.ts, `seedDemo()`) toccano un persistedStore per-tenant al
+// semplice import, non dentro `startServer()`. Registrare il resolver più
+// tardi — dentro `startServer()`, come farebbe una import dinamica — è
+// troppo tardi: quell'accesso lancerebbe «senza resolver del tenant» ben
+// prima che `startServer()` inizi a girare.
+import "../tenants/contestoCorrente";
 import { appRouter } from "../routers";
 // Lo store `fic_pagamenti_links` vive in un modulo che i router importano
 // solo in modo dinamico (per spezzare un ciclo): senza questa import statica
@@ -36,13 +44,26 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
-  // Load persisted stores before wiring routers / listening.
-  await bootstrapAll();
-
-  // Tenant (WS1): schema del control plane, cache, seed del tenant 1 e ciclo
-  // dei comandi. Prima di tutto il resto: il contesto di ogni richiesta lo usa.
-  const { avviaTenants } = await import("../tenants/boot");
-  await avviaTenants();
+  // Tenant (WS2, spec §3.5): il resolver del tenant corrente si registra da
+  // sé quando il modulo si importa (server/tenants/contestoCorrente.ts); lo
+  // richiamiamo qui esplicitamente solo per leggibilità dell'ordine di boot.
+  // Poi, in tre tempi, prima di wiring dei router e di mettersi in ascolto:
+  //   1. `preparaTenants` — control plane: schema, cache, seed della riga
+  //      `tenants` predefinita. Gli store dei tenant non esistono ancora.
+  //   2. `bootstrapAll({ tenantIds, backfill: true })` — carica gli store di
+  //      ogni tenant noto (anche i sospesi: restano leggibili). SOLO qui
+  //      `backfill: true`: il server timbra `tenantId` sui record che ne
+  //      sono privi e risalva; gli script chiamano `bootstrapAll()` nudo e
+  //      non scrivono mai (Ruling R6).
+  //   3. `completaTenants` — tocca gli store: proprietario di ripiego,
+  //      comandi in attesa, ciclo ogni 30 s.
+  const { impostaResolverTenant } = await import("./persistence");
+  const { tenantCorrente } = await import("../tenants/contestoCorrente");
+  impostaResolverTenant(tenantCorrente);
+  const { preparaTenants, completaTenants } = await import("../tenants/boot");
+  const tenantIds = await preparaTenants();
+  await bootstrapAll({ tenantIds, backfill: true });
+  await completaTenants();
 
   // Historical timeline rows predate automatic board synchronization. This
   // forward-only reconciliation is idempotent and keeps every existing

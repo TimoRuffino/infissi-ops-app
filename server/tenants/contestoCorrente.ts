@@ -2,6 +2,7 @@
 // comando: vive in AsyncLocalStorage e lo leggono solo persistence.ts (via
 // resolver) e le guardie. Nessun altro modulo tocca l'ALS direttamente.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { impostaResolverTenant } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { TENANT_PREDEFINITO_ID } from "./costanti";
 import { tenantIdDellaSede } from "./contesto";
@@ -62,3 +63,11 @@ export function modalitaTenantStretta(attiva: boolean): void {
   if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_MODALITA_TENANT_STRETTA");
   strettoNeiTest = attiva;
 }
+
+// Auto-registrazione (spec §3.5, Task 6): senza questa riga, prima che
+// qualcuno importi questo modulo, ogni accesso a uno store persistito fuori
+// dai test lancerebbe «senza resolver del tenant» (persistence.ts) e il
+// server non potrebbe fare boot fuori da NODE_ENV=test. `index.ts` la
+// richiama esplicitamente anche lui, solo per leggibilità dell'ordine di
+// boot — ma è questa riga a contare, al semplice import del modulo.
+impostaResolverTenant(tenantCorrente);
