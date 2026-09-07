@@ -4344,7 +4344,7 @@ a vuoto e dice «57 saltati»).
     elencati sopra, il WS2 chiude il **(3)** (registro dinamico degli store,
     chiavi per tenant, scelta boot/lazy con la decisione «tutto in memoria»,
     store globali dichiarati) e la parte di **(1)** che restava sulle rotte
-    Express; **(7)–(16)** restano per WS3–WS6. Le diciassette decisioni prese
+    Express; **(7)–(16)** restano per WS3–WS6. Le diciotto decisioni prese
     durante l'esecuzione sono nella spec §2-bis; PRD §60.10 (v5.54); runbook
     `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per tenant».
     `pnpm check`/`test`/`build` verdi (sempre a parte i 3 FAIL HEIC
@@ -4363,8 +4363,9 @@ a vuoto e dice «57 saltati»).
     backup resta globale e il file `Utenti.json` di ogni sede include gli
     utenti senza sedi di tutte le aziende (fino al WS3); il riavvio dei
     watcher IMAP non è atomico con due o più aziende; il backfill delle
-    tabelle rigira a vuoto a ogni boot; gli insiemi di esenzione di
-    `pnpm tenant verifica` sono liste a mano senza guardia strutturale.
+    tabelle rigira a vuoto a ogni boot. Chiuso dopo la revisione: gli
+    insiemi di esenzione di `pnpm tenant verifica` hanno una guardia
+    strutturale (`server/tenants/verifica.confine.test.ts`, decisione R18).
 
 ## 13. Cosa resta della piattaforma
 

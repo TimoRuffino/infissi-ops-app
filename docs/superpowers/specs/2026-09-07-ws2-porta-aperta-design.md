@@ -68,7 +68,7 @@ registrata qui e nel PRD §60.
 
 ## 2-bis. Decisioni in corso d'opera (07/09/2026)
 
-Diciassette scelte prese mentre il piano veniva eseguito, quando il codice
+Diciotto scelte prese mentre il piano veniva eseguito, quando il codice
 vero ha contraddetto la lettera della spec o del piano. Ognuna è un
 emendamento a questo documento: le sezioni sotto sono già corrette di
 conseguenza e portano la nota «(esecuzione, R\<n\>)». Registro completo:
@@ -93,6 +93,7 @@ conseguenza e portano la nota «(esecuzione, R\<n\>)». Registro completo:
 | R15 | la forma documentata per l'automazione è `pnpm --silent tenant verifica --json` (o `npx tsx scripts/tenant.ts verifica --json`) | banner e trailer `ELIFECYCLE` sono di pnpm, non dello script: senza `--silent` lo stdout non è JSON valido | un operatore che dimentica `--silent` deve ritagliare l'output |
 | R16 | un blob di `kv_store` che non è un array conta come anomalia (`blobNonValido`), non come store vuoto | è la peggiore condizione d'integrità che lo strumento possa incontrare, e il piano la faceva passare in silenzio | nessuno |
 | R17 | in `server/routers/clienti.ts` i «non trovato» diventano `TRPCError NOT_FOUND`; l'idioma negli altri router resta un lavoro a parte | il 500 non fa trapelare nulla (stesso messaggio per id assente e altrui) ma non è il contratto della §9, e riscrivere 19 router esula dal WS2 | negli altri router un id altrui risponde 500 invece di 404 fino alla pulizia (§9) |
+| R18 | gli insiemi di esenzione di `pnpm tenant verifica` (§7.2) hanno una guardia strutturale, `server/tenants/verifica.confine.test.ts`: l'ambito delle famiglie si legge dai sorgenti (`dichiarazioniPersistedStore` in `sorgentiDiProva.ts`, condiviso con `storeGlobali.test.ts`), la forma del record (con o senza `sedeId`) è una classificazione a mano che il test confronta con l'inventario delle dichiarazioni, con i tipi dei record e con il comportamento di `verificaStore`, famiglia per famiglia | senza guardia una famiglia nuova senza `sedeId` diretto farebbe segnalare ogni sua riga a ogni giro, e lo si scoprirebbe solo su un database vero (è successo con `timeline_steps`) | una famiglia nuova fa fallire un test finché qualcuno non ne dichiara la forma |
 
 ## 3. Persistenza per tenant (`server/_core/persistence.ts`)
 
@@ -642,8 +643,12 @@ Sottocomando nuovo di `scripts/tenant.ts`, logica in
   `FAMIGLIE_GLOBALI_PER_SEDE` (`platform_feature_flags`,
   `platform_feature_flag_audit`: globali ma con un `sedeId` vero, quindi
   esenti solo dai controlli sul tenant) e `FAMIGLIE_SENZA_SEDE_DIRETTA` (per
-  tenant, ma senza `sedeId` sul record). Sono liste a mano, senza guardia
-  strutturale: chi aggiunge una famiglia globale le aggiorni;
+  tenant, ma senza `sedeId` sul record). **(esecuzione, R18)** Non sono
+  liste a mano senza rete: `server/tenants/verifica.confine.test.ts` le
+  confronta con l'inventario delle dichiarazioni nei sorgenti (l'ambito) e
+  con una classificazione della forma del record, con o senza `sedeId`, che
+  una famiglia nuova deve aggiornare per far passare il test, e prova il
+  comportamento di `verificaStore` famiglia per famiglia;
 - per ogni tabella di `TABELLE_PER_SEDE` presente: righe con `sede_id`
   sconosciuto, con `tenant_id` nullo, con `tenant_id` diverso dal tenant
   della sede (join su `tenant_sedi`); tabelle o colonne assenti segnalate,
@@ -831,8 +836,6 @@ davvero nel branch, non che cosa era previsto.
   Con un tenant solo non si vede.
 - **Il backfill delle tabelle rigira a ogni boot**: quando non c'è più nulla
   da riempire costa una manciata di query a vuoto in sottofondo.
-- **Gli insiemi di esenzione della verifica** (§7.2) sono liste a mano senza
-  guardia strutturale: una famiglia globale nuova va aggiunta anche lì.
 - **`tenant_id` non si aggiorna mai** dopo il primo timbro: se un giorno una
   sede cambiasse tenant, le righe già timbrate resterebbero al tenant
   vecchio. Oggi una sede non si sposta (si disattiva).
