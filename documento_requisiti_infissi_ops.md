@@ -1,7 +1,7 @@
 # Documento Requisiti — Wyndor (PRD)
 
 **Stato:** Documento vivente, riallineato allo stato corrente del checkout (07/09/2026, fatture libere e anagrafica in fattura; fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione).
-**Versione:** 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis). Prima: 5.55 - Rebranding Wyndor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12). Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Versione:** 5.57 - Fornitori e conferme d'ordine sono una pagina sola: elenco unico raggruppato (collegate da Tars, incerte, da collegare a mano, nel fascicolo, scartate), anteprima del file sempre a portata, e la vista «In arrivo» che serve il magazzino (§36-bis, §36). Prima: 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis). Prima: 5.55 - Rebranding Wyndor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12). Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -1412,6 +1412,7 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 ---
 
 ## 33. Cronologia significativa
+- **v5.57 (07/09/2026)** - **Fornitori e conferme d'ordine sono una pagina sola** (§36-bis, §36; mandato della direzione: «la pagina fornitori e conferme d'ordine devono essere insieme… deve essere utile ANCHE al magazzino, ma da lì devo anche vedere le conferme archiviate automaticamente da Tars alle commesse, quelle incerte e quelle da collegare a mano… devo sempre poter aprire il file e avere un'anteprima»). **Elenco unico** (`confermeDiSede`): le voci dell'archivio e le conferme già nel fascicolo in una lista sola, senza doppioni, in cinque gruppi — `collegata_tars`, `nel_fascicolo`, `incerta`, `da_collegare`, `scartata` — con costo (l'imponibile o perché non c'è), merce, origine, chi l'ha archiviata e il motivo detto a parole. **Anteprima sempre**: il file si apre dentro la pagina (PDF nel riquadro, immagine a schermo, «Apri in una scheda» in ogni caso), dal documento del fascicolo o dall'allegato della mail quando non è ancora collegata. **La lettura dice cosa porta** anche prima del collegamento (imponibile, articoli, data di consegna letti nello stesso giro, nessuna lettura in più). **Vista «In arrivo»** (`fornitori.archivio.inArrivo`): il magazzino visto dal fornitore, con i giorni di ritardo, gli articoli della conferma e `magazzino.segnaRicevute({prodottoIds})` per segnare in blocco quello che si ha davanti (id espliciti, fino a 200). `/conferme-ordine` diventa un redirect a `/fornitori`, la pagina `ConfermeOrdine` sparisce e il menu ha una voce sola («Fornitori e conferme»). Riepilogo per fornitore con conferme da decidere e consegne in arrivo/in ritardo. Suite: **2.746 test passati e 53 saltati** (258 file), `pnpm check` e build puliti. **Verifica browser eseguita** su un'istanza locale con dati finti: 1440x900 (tre gruppi, vista In arrivo, dialogo anteprima, «segna ricevute» end-to-end) e 390x844 (nessuno scroll orizzontale, `scrollWidth == clientWidth == 390`).
 - **v5.56 (07/09/2026)** - **Pagina Fornitori: l'archivio delle conferme** (§36-bis; mandato della direzione: «per ogni fornitore vengono archiviate tutte le conf. ordine e le comunicazioni in automatico da Tars; da lì analizza la conf. ordine e capisce di quale commessa è, e se non lo capisce deve dirlo e va collegata a mano»). Nuovo dominio `server/fornitori/archivio.ts` (store `fornitori_archivio`): un INDICE sulle comunicazioni, non una copia dei file. Il worker `archivioFornitoriWorker` (ogni 10 minuti, 8 letture nuove per giro, `ARCHIVIO_FORNITORI=off`) mette in archivio ogni allegato «da conferma» arrivato da un fornitore (riconosciuto dal mittente o dal dominio, `shared/fornitori.ts`), lo legge (testo nativo, OCR, trascrizione del modello) e lo confronta con tutte le commesse vive: **commessa unica** → la conferma entra da sola nel fascicolo e la mail viene collegata, e da lì nascono costo fornitore e consegna a magazzino (§54.7); **altrimenti resta «da collegare» con il motivo** («il testo cita più commesse», «non cita nessuna commessa viva», «il file non si legge»). Pagina `/fornitori` (era un redirect dal 04/09): fornitori a sinistra con il numero di conferme da collegare, conferme a destra con i candidati che il testo nomina, ricerca libera della commessa, «Rileggi», «Non è da collegare», «Rimettila in coda», e le comunicazioni del fornitore. Procedure `fornitori.archivio.*` (lettura sede-scoped; collegare e scartare come «È di questa commessa»: direzione o amministrazione). Nuova origine documento `fornitori` nel registro conferme. Suite: 251 file passati e 9 saltati, **2.703 test passati e 53 saltati**; `pnpm check` e build puliti. Verifica browser 1440/390 non eseguita (login demo).
 - **v5.50 (07/09/2026)** - **Magazzino rifatto** («la gestione del magazzino è assolutamente un casino»; §36, §54.7; piano `docs/superpowers/plans/2026-09-03-costo-da-conferma.md`, nona tranche). Diagnosi sui dati veri (155 righe, 52 commesse): la regola del 03/09 scriveva una riga per ARTICOLO del PDF — una porta Alias erano otto «consegne» di kit, falso telaio, coprifili e pomolino a quantità 1 senza data; righe spazzatura («giovedì 25 giugno 2026 Commessa» con quantità 808, segnaposto col nome del file); fornitori in dieci forme («ALIAS Srl Porte blindate», «REFERENTE Natascia De Biasi -», l'agente col nome del cliente) invisibili al filtro a lista fissa; conferme di maggio rilette a settembre = «in ritardo» su commesse già posate. Fatto: **una conferma = una consegna** (`Prodotto.articoli[]` con l'evidenza di ogni articolo, `prontaDal` dalla settimana di approntamento, nome dall'articolo principale — il serramento, non il kit —, `creaConsegnaDaConferma` idempotente per documento che eredita il «ricevuto» delle righe vecchie); fornitore con il nome aziendale (`shared/fornitori.ts`: dal testo del PDF o dal dominio della mail; referenti e agenti mai; usato dalla regola, dai costi e dai filtri); estrattore merce 2.0.0 (righe che iniziano con un giorno o una data non sono merce, pezzi oltre 500 non sono una quantità, `articoloPrincipale`); lettura 1.11.0 (le righe della forma vecchia si rigenerano). **Decisione della direzione**: le righe esistenti restano come sono (nessun «ricevuto» automatico sulle commesse già posate) e nasce il bottone **«Ricevuto tutto»** per commessa (`magazzino.segnaTuttoRicevuto`, sede verificata, reversibile riga per riga). Pagina: copy «Da ordinare», dettaglio «N articoli» apribile, «Pronta dal fornitore dal …», quantità solo sulle righe a mano; registro conferme «1 consegna · N articoli». Il rebase ha assorbito le anteprime delle evidenze (5.43): la consegna porta l'evidenza dell'articolo principale e ogni articolo la sua. Verifica browser 1440/390 non eseguita (login demo). Suite: 251 file passati e 9 saltati, **2.694 test passati e 53 saltati**; `pnpm check` e build puliti.
 - **v5.49 (07/09/2026)** - **Fatture libere, limiti opzionali, anagrafica in fattura** (richiesta della direzione del 07/09: «i limiti devono essere opzionali e devo poter fare fatture libere; l'anagrafica del cliente devo poterla inserire in fattura e questa deve aggiornarsi nell'anagrafica del cliente»). **Fattura libera** (`fatture.creaBozzaLibera`, `origine: "libera"` sulla fattura, colonna `origine` con default `contratto`): nasce vuota dentro la commessa — mai senza commessa —, senza contratto né computo, con l'anagrafica del cliente della commessa; righe a mano, pattuito che segue le righe e markup sempre zero (la riga «MarkUp» a 0,00 non nasce), storno e riaddebito dei beni significativi come regola fiscale quando ci sono righe al 10 %, detrazione scelta nella bozza (`detrazioneTipo` nella modifica, solo per la libera), una scadenza a vista da ridistribuire; più d'una per commessa (acconti, lavori extra: la regola «una sola fattura» resta per quella dal contratto); non si rigenera; nell'elenco il badge «Libera»; la nota di credito eredita l'origine. **Limiti opzionali**: senza computo l'emissione non si blocca più (`computo_assente`, avviso, prima l'errore `computo_non_valido`); con un computo presente e superato restano gli errori di `verificaLimiti` e lo scavalco registrato. **Anagrafica in fattura**: nella bozza il riquadro «Anagrafica cliente» (nome o ragione sociale, tipo, CF, P.IVA, indirizzo, CAP, città, provincia, email, PEC, codice destinatario) si corregge con la capability `cliente.update_operational` (`puoModificareCliente` da `fatture.perCommessa`; altrimenti sola lettura con il rimando alla scheda); al salvataggio (`modifica.clienteSnapshot`) lo snapshot si aggiorna e la scheda cliente anche (`aggiornaAnagraficaCliente`: recapito, codici, ragione sociale per aziende/condomini/enti — per un privato cognome e nome sono due campi e il nome resta quello della scheda), con la stessa cascata sulle commesse; **mai** il cliente su Fatture in Cloud (decisione della direzione). Verifica browser 1440/390 non eseguita (login demo). Suite: v. gate.
@@ -1596,6 +1597,7 @@ Le **consegne** attese **per commessa**. Eleggibili solo commesse **da `da_ordin
 - **Lead time** = giorni `dataOrdine → dataConsegna`, mostrato per consegna (⏱ N gg) e come **KPI medio** sulle ricevute.
 - Cascade: eliminando una commessa si eliminano le sue consegne.
 - `magazzino.segnaTuttoRicevuto({ commessaId })`: **«Ricevuto tutto»** — ogni consegna aperta della commessa segnata ricevuta in un colpo (sede verificata); reversibile riga per riga. Le righe esistenti NON si segnano ricevute da sole (decisione della direzione 07/09/2026: «le lascio come sono e un bottone per commessa»).
+- `magazzino.segnaRicevute({ prodottoIds })`: le consegne che si hanno davanti segnate ricevute in blocco (fino a 200, sede verificata) — è quello che usa la vista «In arrivo» dei Fornitori (§36-bis.1-ter) quando arriva il camion di un fornitore. Sempre a id espliciti: si segna solo ciò che si è visto.
 
 ### 36.3 UI
 - **Testata**: consegne registrate, ancora da ricevere, in ritardo, lead time medio; «Aggiungi consegna» (scelta della commessa fra quelle da `da_ordinare` in poi: offerta, non permesso — l'eleggibilità la decide il server).
@@ -1629,6 +1631,43 @@ dove è finita. Tre stati soli:
 | `collegata` | la conferma è nel fascicolo della commessa; da lì nascono costo e consegna (§54.7) |
 | `scartata` | non era una conferma da collegare (listino, copia): resta a registro con chi lo ha detto |
 
+### 36-bis.1-bis L'elenco unico: una conferma, una riga
+Dal 07/09/2026 la pagina delle conferme d'ordine **non esiste più a parte**
+(`/conferme-ordine` è un redirect a `/fornitori`, la voce di menu è una
+sola: «Fornitori e conferme»). Una conferma può entrare da due porte —
+l'archivio (mail del fornitore) o il fascicolo (caricata a mano, da FiC,
+dallo smistamento) — e l'elenco la mostra **una volta sola**
+(`confermeDiSede`), raggruppata per quello che serve decidere:
+
+| Gruppo | Che cosa è | Che cosa si fa |
+|---|---|---|
+| `da_collegare` | il testo non nomina nessuna commessa viva | si sceglie la commessa a mano |
+| `incerta` | il testo nomina più commesse, o è nel fascicolo senza citarla | si sceglie fra i candidati, o si conferma «È di questa commessa» |
+| `collegata_tars` | Tars l'ha collegata da sé: commessa unica e certa | si controlla |
+| `nel_fascicolo` | è nella commessa per altra via (a mano, FiC, smistamento) | si controlla |
+| `scartata` | non era da collegare (listino, copia) | si può rimettere in coda |
+
+Ogni riga porta: fornitore, data, numero d'ordine, chi l'ha archiviata e da
+dove, il motivo detto a parole, **il costo** (l'imponibile quando c'è, o
+perché non c'è) e **la merce** (le consegne nate, o quello che la lettura ha
+visto nel PDF prima ancora di collegarla). Il **file è sempre apribile**:
+«Anteprima» apre il documento dentro la pagina (PDF nel riquadro, immagine a
+schermo, e in ogni caso «Apri in una scheda»), e l'indirizzo è quello del
+documento del fascicolo (`/api/documenti/:id/file`) o dell'allegato della
+mail (`/api/comunicazioni/:id/allegati/:indice`) quando la conferma non è
+ancora collegata. Sui valori letti resta il tasto «Dove l'ho letto» (§19.4).
+
+### 36-bis.1-ter «In arrivo»: la pagina serve anche il magazzino
+La seconda vista (`fornitori.archivio.inArrivo`) è il magazzino visto dal
+fornitore: che cosa deve ancora arrivare, per quale commessa, con quale
+data, **e con quanti giorni di ritardo**. Ogni riga apre la conferma da cui
+è nata e mostra i suoi articoli. Si spuntano le consegne arrivate e si
+segnano ricevute in blocco (`magazzino.segnaRicevute`, id espliciti: si
+segna solo quello che si è visto, mai «tutte quelle che esistono»), oppure
+una alla volta. Nell'elenco dei fornitori ogni riga porta due numeri: quante
+conferme aspettano una decisione e quante consegne sono in arrivo (in rosso
+se in ritardo).
+
 ### 36-bis.2 Come ci entrano le conferme
 Il worker `archivioFornitoriWorker` (boot +60 s, ogni 10 minuti,
 `ARCHIVIO_FORNITORI=off` per spegnerlo) per ogni sede:
@@ -1639,11 +1678,15 @@ Il worker `archivioFornitoriWorker` (boot +60 s, ogni 10 minuti,
    (`nomeDaConferma`) entra in archivio una volta sola; se è già nel
    fascicolo per un'altra strada, l'archivio lo registra invece di
    riproporlo.
-2. **lettura** — al massimo 8 file nuovi per giro: testo nativo, OCR o
+2. **lettura** — al massimo 25 file nuovi per giro: testo nativo, OCR o
    trascrizione del modello per le scansioni, poi il riscontro
    deterministico del testo contro tutte le commesse vive della sede
    (`ricercaCommessaNelDocumento`, §54.7). Il modello non decide mai la
-   commessa.
+   commessa. Nello stesso giro, e senza leggere niente in più, la voce
+   registra **che cosa porta** la conferma: imponibile, articoli e data di
+   consegna indicativi, così si decide prima di collegare e il magazzino sa
+   che merce aspetta. I valori autorevoli restano quelli che nascono quando
+   la conferma entra nel fascicolo.
 3. **decisione** — commessa **unica** e viva: la conferma entra da sola nel
    fascicolo (`origine: "automatico"`) e la mail «di nessuno» viene
    collegata alla commessa con il motivo scritto; da lì la regola di dominio
@@ -1663,13 +1706,18 @@ Altre azioni: **Rileggi** (dopo una correzione dell'estrattore), **Non è da
 collegare** (scarta, con motivo) e **Rimettila in coda**.
 
 ### 36-bis.4 UI
-Elenco dei fornitori a sinistra (chi ha conferme da collegare in cima, col
-numero); a destra le conferme filtrabili (Da collegare / Nel fascicolo /
-Scartate / Tutte) con file, data, numero d'ordine, che cosa ha capito la
-lettura, e — quando collegate — la commessa con il suo stato e il link al
-file. Sotto, le **comunicazioni** del fornitore selezionato (cercate per le
-chiavi del suo nome fra i mittenti), ognuna con «Apri». «Aggiorna archivio»
-fa un giro subito invece di aspettare il worker.
+Elenco dei fornitori a sinistra (chi ha da decidere in cima, col numero
+delle conferme che aspettano e di quelle in arrivo); a destra due schede,
+**Conferme d'ordine** e **In arrivo**. Nella prima, i gruppi di §36-bis.1-bis
+come filtri col loro conteggio, la ricerca su file, fornitore, oggetto e
+commessa, e le righe con le azioni al posto giusto: candidati, ricerca
+libera, «Collega», «Rileggi», «Non è da collegare», «È di questa commessa»,
+«Rimettila in coda», «Anteprima», «Apri il file», «Apri la mail». Sotto, le
+**comunicazioni** del fornitore selezionato (cercate per le chiavi del suo
+nome fra i mittenti), ognuna con «Apri». «Aggiorna archivio» fa un giro
+subito invece di aspettare il worker. Su mobile l'elenco dei fornitori
+scorre dentro di sé, così le conferme restano a portata di pollice;
+nessuna vista introduce scroll orizzontale di pagina.
 
 ### 36-bis.5 Fuori taglio
 Anagrafica fornitori, listini e ordini fornitore restano server-side senza
@@ -2882,10 +2930,14 @@ lettura e ogni riscontro lasciano una riga `[ricerca-commessa]` nei log.
   subito» da «va confermato: <motivo>»; la proposta «archivia» è eseguibile
   con un click (whitelist, mai `confermaSenzaRiscontro`); le conferme nel
   fascicolo senza costo leggibile sono un punto, non proposte.
-- **Registro**: `Documento.origine` (mano, Tars, smistamento, automatico),
-  procedura `preventiviContratti.registroConferme`, pagina
-  `/conferme-ordine`; la scheda commessa mostra il costo «da conferma
-  d'ordine» con anteprima del file e gli avvisi delle conferme non lette.
+- **Registro**: `Documento.origine` (mano, Tars, smistamento, automatico,
+  fornitori). Dal 07/09/2026 il registro **è** la pagina Fornitori
+  (`/fornitori`, §36-bis): `fornitori.archivio.conferme` mette in un elenco
+  solo le conferme dell'archivio e quelle già nel fascicolo, raggruppate per
+  quello che serve decidere; `/conferme-ordine` resta come redirect.
+  `preventiviContratti.registroConferme` sopravvive come lettura di servizio.
+  La scheda commessa mostra il costo «da conferma d'ordine» con anteprima
+  del file e gli avvisi delle conferme non lette.
 
 **Costi e limiti.** OCR locale gratuito; visione ≈ 8–14k token in ingresso
 e 2–4k in uscita per documento scansionato (pochi centesimi), contata nel
