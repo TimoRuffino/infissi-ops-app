@@ -19,7 +19,11 @@ const CARTELLA_BACKUP = ["Backup", "CRM", "Ruffino"].join(" ");
 
 describe("marchio e backup su Drive", () => {
   it("non rinomina la cartella dei backup insieme al prodotto", () => {
-    expect(SORGENTE).toContain(`"${CARTELLA_BACKUP}"`);
+    // Ancora l'asserzione alla chiamata funzionale, non solo alla stringa nei
+    // commenti. Se un futuro sviluppatore rinomina solo la riga 308
+    // (driveCreateFolder) lasciando intatto il commento adiacente, il test
+    // deve fallire. Cerchiamo la sequenza: funzione, primo argomento, cartella.
+    expect(SORGENTE).toContain(`driveCreateFolder(token, "${CARTELLA_BACKUP}"`);
   });
 
   it("firma i PDF col nome nuovo del prodotto", () => {
