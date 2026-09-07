@@ -296,6 +296,20 @@
 > 1440x900 e 390x844 — gruppi, In arrivo, dialogo anteprima e «segna
 > ricevute» provati dal vivo; `scrollWidth == clientWidth` su mobile.
 > Resta da fare in produzione: il primo giro dopo il deploy.
+>
+> **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
+> Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
+> unexpected error occurred», React #185 «Maximum update depth exceeded».
+> Causa: nella vista «In arrivo» la selezione delle consegne era tenuta
+> allineata da un `useEffect` con `setSegnate(s => s.filter(...))` e
+> dipendenza `consegne = inArrivo.data ?? []` — un array nuovo a ogni render
+> quando la query è disabilitata, e un filtro che restituisce sempre un array
+> nuovo: render → effetto → stato → render, all'infinito. In sviluppo React
+> lo scrive in console e la pagina resta in piedi; in produzione lancia.
+> Fix: la selezione si **deriva** (`client/src/lib/consegneSelezione.ts`, tre
+> test) e `consegne` è memoizzata. **Lezione operativa**: la verifica nel
+> browser non è finita finché non si è letta la console
+> (`read_console_messages`), gli screenshot da soli non vedono questo bug.
 
 ## 1. Contesto
 
