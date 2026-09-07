@@ -20,6 +20,7 @@ import {
 import { getUtentiStore } from "../routers/utenti";
 import { azzeraMemoriaRicercaPerTest, creaLettoreCommessaNelDocumento } from "../tars/documenti/ricercaCommessaNelDocumento";
 import {
+  FORNITORE_DA_RICONOSCERE,
   azzeraArchivioFornitoriPerTest,
   collegaVoceArchivio,
   confermeArchivio,
@@ -126,6 +127,8 @@ function deps(pdfPerComunicazione: Map<number, Buffer>, comunicazioni: any[]): D
     archivia: archiviaAllegatoComunicazione,
     collegaMail: setMatchComunicazione,
     documento: (id, sede) => getDocumentoCommessaById(id, sede),
+    // Nei test il mittente del fornitore non è mai di casa.
+    dominiInterni: () => new Set(["azienda-test.example"]),
     adesso: () => new Date(),
   };
 }
@@ -161,6 +164,19 @@ describe("fornitoreDiComunicazione", () => {
         allegati: [{ nome: "estratto_conto.pdf", mimeType: "application/pdf" }],
       })
     ).toBeNull();
+  });
+
+  it("un inoltro interno non fa di noi un fornitore: resta «Da riconoscere»", () => {
+    expect(
+      fornitoreDiComunicazione(
+        {
+          mittente: "a.facci@ruffinogroup.example",
+          mittenteNome: "Ufficio",
+          allegati: [{ nome: "conf. ordine Cadimare.pdf", mimeType: "application/pdf" }],
+        },
+        new Set(["ruffinogroup.example"])
+      )
+    ).toBe(FORNITORE_DA_RICONOSCERE);
   });
 
   it("un mittente sconosciuto che manda una conferma entra col suo dominio", () => {

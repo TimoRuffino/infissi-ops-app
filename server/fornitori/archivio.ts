@@ -27,6 +27,8 @@
 import { fornitoreNoto, normalizzaFornitore, FORNITORI_NOTI } from "@shared/fornitori";
 import { persistedStore } from "../_core/persistence";
 import { leggiAllegatoRaw } from "../comunicazioni/allegati";
+import { caselle } from "../comunicazioni/caselle";
+import { getUtentiStore } from "../routers/utenti";
 import {
   getLiveComunicazione,
   listComunicazioniConAllegatiCandidati,
@@ -139,24 +141,53 @@ export function voceArchivioById(id: number, sedeId: number): VoceArchivioFornit
 }
 
 /**
+ * Il fornitore non si sa ancora: la conferma è arrivata da dentro casa (un
+ * inoltro dell'ufficio) o da un mittente che non dice chi è. La voce resta
+ * in archivio sotto questo nome finché la lettura del documento non trova
+ * il fornitore vero (07/09/2026: 129 conferme erano finite sotto
+ * «ruffinogroup.it», che è il NOSTRO dominio).
+ */
+export const FORNITORE_DA_RICONOSCERE = "Da riconoscere";
+
+/** I domini di casa: caselle della sede e indirizzi delle persone. */
+export function dominiInterni(sedeId: number): Set<string> {
+  const domini = new Set<string>();
+  const aggiungi = (email: unknown) => {
+    const valore = String(email ?? "").trim().toLowerCase();
+    const at = valore.lastIndexOf("@");
+    if (at > 0) domini.add(valore.slice(at + 1));
+  };
+  for (const c of caselle as any[]) if (c.sedeId === sedeId) aggiungi(c.indirizzo);
+  for (const u of getUtentiStore() as any[]) if (u.attivo !== false) aggiungi(u.email);
+  return domini;
+}
+
+/**
  * Il fornitore di una comunicazione: il nome aziendale quando lo si
  * riconosce (dal mittente o dal suo dominio), altrimenti — solo se la mail
  * porta davvero una conferma — il nome del mittente ripulito o il suo
- * dominio. Null = non è un fornitore, la mail resta fuori dall'archivio.
+ * dominio. Un mittente INTERNO non è mai un fornitore: la conferma che
+ * inoltra è di qualcun altro, e chi sia lo dirà la lettura del file.
+ * Null = non è un fornitore, la mail resta fuori dall'archivio.
  */
-export function fornitoreDiComunicazione(c: {
-  mittente: string;
-  mittenteNome?: string | null;
-  allegati: ReadonlyArray<{ nome: string; mimeType: string }>;
-}): string | null {
+export function fornitoreDiComunicazione(
+  c: {
+    mittente: string;
+    mittenteNome?: string | null;
+    allegati: ReadonlyArray<{ nome: string; mimeType: string }>;
+  },
+  interni?: ReadonlySet<string>
+): string | null {
   const noto = fornitoreNoto(c.mittenteNome ?? null, c.mittente) ?? fornitoreNoto(c.mittente);
   if (noto) return noto;
   const portaConferma = c.allegati.some(a => nomeDaConferma(a.nome, a.mimeType) != null);
   if (!portaConferma) return null;
+  const at = c.mittente.lastIndexOf("@");
+  const dominio = at > 0 ? c.mittente.slice(at + 1).toLowerCase().replace(/^www\./, "") : "";
+  if (interni?.has(dominio)) return FORNITORE_DA_RICONOSCERE;
   const dalNome = normalizzaFornitore(c.mittenteNome ?? null, c.mittente);
   if (dalNome) return dalNome;
-  const dominio = c.mittente.includes("@") ? c.mittente.split("@")[1] : c.mittente;
-  return dominio ? dominio.replace(/^www\./, "").slice(0, 60) : null;
+  return dominio ? dominio.slice(0, 60) : FORNITORE_DA_RICONOSCERE;
 }
 
 /** Le chiavi con cui cercare le comunicazioni di un fornitore fra i mittenti. */
@@ -180,6 +211,8 @@ export type DipendenzeArchivioFornitori = {
   archivia: typeof archiviaAllegatoComunicazione;
   collegaMail: typeof setMatchComunicazione;
   documento: (documentoId: number, sedeId: number) => Documento | null;
+  /** I domini di casa: un inoltro interno non fa di noi un fornitore. */
+  dominiInterni: (sedeId: number) => ReadonlySet<string>;
   adesso: () => Date;
 };
 
@@ -203,6 +236,7 @@ export function dipendenzeArchivioFornitoriReali(
     archivia: archiviaAllegatoComunicazione,
     collegaMail: setMatchComunicazione,
     documento: (documentoId, sede) => getDocumentoCommessaById(documentoId, sede),
+    dominiInterni,
     adesso: () => new Date(),
   };
 }
@@ -261,13 +295,14 @@ export async function eseguiGiroArchivioFornitori(input: {
   };
   const comunicazioni = await deps.comunicazioni(input.sedeId);
   const commesse = deps.commesse(input.sedeId);
+  const interni = deps.dominiInterni(input.sedeId);
   const adesso = deps.adesso();
 
   // 1. Scansione: ogni allegato «da conferma» di un fornitore entra in
   //    archivio una volta sola.
   const daLeggere: Array<{ voce: VoceArchivioFornitore; comunicazione: Comunicazione }> = [];
   for (const c of comunicazioni) {
-    const fornitore = fornitoreDiComunicazione(c);
+    const fornitore = fornitoreDiComunicazione(c, interni);
     if (!fornitore) continue;
     for (const [indice, allegato] of c.allegati.entries()) {
       if (!nomeDaConferma(allegato.nome, allegato.mimeType)) continue;
@@ -296,8 +331,12 @@ export async function eseguiGiroArchivioFornitori(input: {
         };
         voci.push(voce);
         esito.nuove += 1;
-      } else if (voce.fornitore !== fornitore) {
-        // Il fornitore si riconosce meglio di prima (lista aggiornata).
+      } else if (
+        voce.fornitore !== fornitore &&
+        // Un nome trovato nel documento vale più di quello del mittente: non
+        // si torna a «Da riconoscere» né al dominio di casa.
+        (fornitore !== FORNITORE_DA_RICONOSCERE || voce.lettura == null)
+      ) {
         voce.fornitore = fornitore;
         voce.updatedAt = adesso;
       }
@@ -344,8 +383,9 @@ export async function eseguiGiroArchivioFornitori(input: {
         motivo: ricerca.motivo,
         numeroOrdine: ricerca.riferimentoOrdine,
       };
+      // Il fornitore vero è quello scritto nel documento, non il mittente.
       if (ricerca.fornitore) {
-        const meglio = normalizzaFornitore(ricerca.fornitore, comunicazione.mittente);
+        const meglio = normalizzaFornitore(ricerca.fornitore);
         if (meglio) voce.fornitore = meglio;
       }
       voce.updatedAt = adesso;
