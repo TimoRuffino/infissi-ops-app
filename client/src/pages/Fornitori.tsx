@@ -979,6 +979,14 @@ export default function Fornitori() {
                       );
                     })}
                   </ul>
+                  {/* Onestà sul tetto: la lista si ferma a 300 righe, il
+                      conteggio del gruppo no. */}
+                  {righe.length >= 300 && conteggi && gruppo !== "tutte" ? (
+                    <p className="border-t border-border-soft px-3 py-2 text-xs text-text-3 sm:px-4">
+                      Mostrate le prime {righe.length} di {conteggi[gruppo]}: cerca o scegli un
+                      fornitore per restringere.
+                    </p>
+                  ) : null}
                 </DataSurface>
               </section>
 
