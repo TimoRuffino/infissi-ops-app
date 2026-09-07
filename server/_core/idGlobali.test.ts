@@ -29,17 +29,50 @@ const AMMESSI = new Set([
 const NON_STORE =
   /server\/(actionCenter|authz|computo|contratti|events|notifications|reminders|tars\/proattivita)\//;
 
+// Pattern che rivela contatori di id calcolati inline, con le tre forme
+// di arrow supportate dal repo: `x => x.id`, `(x) => x.id`, `(x: any) => x.id`.
+// Non-greedy e semicolon-bounded per evitare false negative su funzioni tipizzate.
+const PATTERN_VIETATO = /\blet next[A-Za-z]*Id\b|Math\.max\([^;]*?\.map\([^;]*?\.id\)[^;]*\+\s*1/;
+
 describe("id globali", () => {
   it("nessun contatore di id locale nei moduli con store per tenant", () => {
     const colpevoli = fileSorgente(["server"])
       .filter(f => !/\.test\.ts$/.test(f) && !NON_STORE.test(f) && !AMMESSI.has(relativo(f)))
       .filter(f =>
-        /\blet next[A-Za-z]*Id\b|Math\.max\([^)]*\.map\([^)]*\.id\)[^;]*\+\s*1/.test(
+        PATTERN_VIETATO.test(
           readFileSync(f, "utf8")
         )
       )
       .map(relativo)
       .filter(f => f !== "server/_core/persistence.ts");
     expect(colpevoli).toEqual([]);
+  });
+
+  it("la regex riconosce le tre forme di arrow del repo", () => {
+    // Untyped: `x => x.id`
+    expect(
+      PATTERN_VIETATO.test(
+        "nextId = items.length ? Math.max(...items.map(x => x.id)) + 1 : 1"
+      )
+    ).toBe(true);
+
+    // Parenthesized: `(x) => x.id`
+    expect(
+      PATTERN_VIETATO.test(
+        "Math.max(...loaded.map((x) => x.id)) + 1"
+      )
+    ).toBe(true);
+
+    // Typed: `(x: any) => x.id`
+    expect(
+      PATTERN_VIETATO.test(
+        "Math.max(...loaded.map((x: any) => x.id)) + 1"
+      )
+    ).toBe(true);
+
+    // Legitimate use of prossimoId() should not match
+    expect(
+      PATTERN_VIETATO.test("store.prossimoId()")
+    ).toBe(false);
   });
 });
