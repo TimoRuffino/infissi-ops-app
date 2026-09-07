@@ -12,7 +12,9 @@ export type Ruolo =
   | "tecnico_rilievi"
   | "squadra_posa"
   | "post_vendita"
-  | "ordini";
+  | "ordini"
+  // WS1: titolare dell'account azienda; visibile nel modulo solo ai proprietari
+  | "proprietario";
 
 // Accept an unknown user shape — the `/auth/me` endpoint returns the full
 // LocalUser from server/localAuth.ts which includes `ruoli: string[]`, but

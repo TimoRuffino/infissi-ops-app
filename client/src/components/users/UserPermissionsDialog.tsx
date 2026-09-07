@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
   squadra_posa: "Squadra posa",
   post_vendita: "Post-vendita",
   ordini: "Ordini",
+  proprietario: "Proprietario",
 };
 
 function capabilityLabel(value: string) {

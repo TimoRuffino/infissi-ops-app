@@ -54,6 +54,7 @@ const RUOLI = [
   { value: "squadra_posa", label: "Squadra Posa" },
   { value: "post_vendita", label: "Post-Vendita" },
   { value: "ordini", label: "Ordini" },
+  { value: "proprietario", label: "Proprietario" },
 ] as const;
 
 type RuoloValue = (typeof RUOLI)[number]["value"];
@@ -127,6 +128,10 @@ export default function UtentiList() {
     { placeholderData: keepPreviousData }
   );
   const stats = trpc.utenti.stats.useQuery();
+  // Il ruolo proprietario compare solo a chi è già proprietario, con il
+  // multi-azienda acceso: il confine vero resta il server (utenti.create/update).
+  const mio = trpc.tenants.mio.useQuery();
+  const mostraProprietario = mio.data?.proprietario === true && mio.data?.multiAzienda === true;
   // `sedi.listAll` è una procedura admin: non la si chiama per chi non può.
   const sediAll = trpc.sedi.listAll.useQuery(undefined, {
     enabled: puoGestire,
@@ -594,7 +599,12 @@ export default function UtentiList() {
 
           <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 py-4">
             <ProfiloFields form={form} setForm={setForm} prefisso="utente-nuovo" />
-            <RuoliFields form={form} onToggle={toggleRuolo} prefisso="nuovo" />
+            <RuoliFields
+              form={form}
+              onToggle={toggleRuolo}
+              prefisso="nuovo"
+              mostraProprietario={mostraProprietario}
+            />
             <SediFields
               form={form}
               onToggle={toggleSede}
@@ -700,7 +710,12 @@ export default function UtentiList() {
               setForm={setForm}
               prefisso="utente-edit"
             />
-            <RuoliFields form={form} onToggle={toggleRuolo} prefisso="edit" />
+            <RuoliFields
+              form={form}
+              onToggle={toggleRuolo}
+              prefisso="edit"
+              mostraProprietario={mostraProprietario}
+            />
             <SediFields
               form={form}
               onToggle={toggleSede}
@@ -862,10 +877,12 @@ function RuoliFields({
   form,
   onToggle,
   prefisso,
+  mostraProprietario,
 }: {
   form: FormState;
   onToggle: (r: RuoloValue) => void;
   prefisso: string;
+  mostraProprietario: boolean;
 }) {
   return (
     <fieldset className="space-y-1.5">
@@ -873,7 +890,9 @@ function RuoliFields({
         Ruoli — {form.ruoli.length} di {MAX_RUOLI} selezionati
       </legend>
       <div className="grid gap-1.5 sm:grid-cols-2">
-        {RUOLI.map(r => {
+        {RUOLI.filter(
+          r => r.value !== "proprietario" || mostraProprietario || form.ruoli.includes("proprietario")
+        ).map(r => {
           const checked = form.ruoli.includes(r.value);
           const bloccato = !checked && form.ruoli.length >= MAX_RUOLI;
           const id = `${prefisso}-ruolo-${r.value}`;
