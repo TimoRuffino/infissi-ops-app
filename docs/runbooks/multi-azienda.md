@@ -56,6 +56,14 @@ Mai scritture sugli store con l'istanza viva.
 
 - Senza `--scrivi`: anteprima, nessuna scrittura. `--attendi`: aspetta l'esito fino a 90 s.
 - Nessun DDL dallo script, nemmeno per `elenco`: se le tabelle del control plane mancano si ferma con «Tabelle del control plane del tenant assenti…»; le crea il server al primo avvio con questa versione (deploy prima, script poi). Unica eccezione: `verifica`, che gira lo stesso su un database senza control plane e lo dichiara nel rapporto (serve prima del deploy).
+- **Dal WS2 la sonda dello script chiede quattro tabelle, non tre**: a
+  `tenants`, `tenant_eventi` e `tenant_comandi` si è aggiunta `tenant_sedi`
+  (`verificaSchema`, `server/tenants/repository.ts`). Su un database dove
+  gira il WS1 ma il WS2 non ha ancora fatto boot, `elenco`, `crea`, `stato` e
+  `proprietario` dicono quindi «Tabelle del control plane del tenant
+  assenti…» anche se il control plane del WS1 c'è: non è un guasto, manca
+  solo lo specchio, che `completaTenants()` crea al primo boot del WS2.
+  Deploy prima, script poi — anche fra WS1 e WS2.
 - Password del proprietario: `TENANT_PROPRIETARIO_PASSWORD` nell'env o prompt nascosto; hashata prima di accodare.
 - Un comando fallito resta `errore` con il motivo in `esito` e un evento `comando_fallito`: correggi e riaccoda. Nessun retry automatico.
 - Su Railway: `railway run pnpm tenant …`. Sospendere il tenant 1 richiede `--anche-tenant-1`.
@@ -133,17 +141,37 @@ sede confrontabili); `platform_feature_flags` e
 controlli sul tenant).
 
 **Cosa deve dire prima del deploy.** Molti `senzaTenant`: è il rapporto di
-partenza atteso, nessuno ha ancora timbrato niente. Le tabelle possono non
-esistere. Se il database non ha mai visto il control plane del tenant, lo
-strumento lo dichiara e va avanti lo stesso:
+partenza atteso, nessuno ha ancora timbrato niente. Ogni record legacy conta
+come `senzaTenant`, quindi **il comando esce 1**: prima del deploy l'exit 1 è
+il risultato giusto, non un guasto — sotto `set -e` va gestito
+(`|| true` e poi `$?`). Le tabelle possono non esistere. Se il database non ha
+mai visto il control plane del tenant, lo strumento lo dichiara e va avanti lo
+stesso:
 
     [tenant verifica] tenant_sedi assente (control plane del tenant mai creato
     su questo database): sedeSconosciuta/tenantNullo/tenantDiscorde non
     calcolabili sulle tabelle per sede, righe contate lo stesso.
 
 **Cosa deve dire dopo il deploy a interruttore spento** (e dopo la riga di
-log del backfill): `Anomalie totali: 0`. In particolare zero `senzaTenant`
-sugli store e zero `tenantNullo` sulle tabelle esistenti.
+log del backfill). Devono essere **zero**: `tenantDiscorde`, `idDoppi`,
+`blobNonValido` sugli store, `tenantNullo` e `sedeSconosciuta` sulle tabelle
+esistenti. Sono le anomalie vere: un archivio che si contraddice.
+
+`senzaTenant` invece **non è tenuto a essere zero**, ed è la sorpresa da
+mettere in conto. `tenantId` si timbra al CARICAMENTO dello store, non alla
+scrittura (Ruling R3): ogni record creato dall'app **dopo** il boot nasce
+senza timbro e compare nel rapporto. Quindi:
+
+- un conteggio **piccolo** (decine, non migliaia) e **decrescente rispetto al
+  rapporto di partenza**, concentrato negli store che il CRM scrive di
+  continuo (comunicazioni, commesse, documenti), è **atteso**;
+- si azzera **da solo al riavvio successivo**, che li carica e li timbra;
+- un conteggio che resta dell'ordine di grandezza del rapporto di partenza
+  significa che il backfill non è passato: torna ai log del punto 7.
+
+Il modo pulito di leggerlo: fai `verifica` **subito dopo** la riga di log del
+backfill, quando l'istanza ha appena caricato tutto e non ha ancora scritto
+molto.
 
 > **Specchio stantio.** `sedeSconosciuta` lato **tabelle** si misura su
 > `tenant_sedi`, lato **store** sul blob `sedi`. Se lo specchio non è
@@ -153,25 +181,60 @@ sugli store e zero `tenantNullo` sulle tabelle esistenti.
 > (`completaTenants` riallinea lo specchio a ogni boot) e rilancia la
 > verifica.
 
+### Script di manutenzione: `--tenant=<id>`
+
+Gli script che leggono o scrivono uno store per tenant devono dire su quale
+azienda lavorano — il Proxy di `persistedStore` non lo indovina:
+
+    pnpm pattuiti:dry-run --tenant=2
+    pnpm pattuiti:reset --tenant=2 --sede=7
+    npx tsx scripts/importa-clienti.ts clienti.csv --apply --tenant=2
+
+- Default `--tenant=1` (Ruffino Group): il comportamento di sempre, chi non
+  passa nulla non cambia nulla.
+- Deve essere un intero positivo: altrimenti lo script si ferma prima di
+  toccare qualsiasi cosa.
+- Il tenant scelto compare nella riga d'avvio e nell'intestazione del
+  rapporto (`Tenant: 2`). **Leggerlo prima di dare `--apply`**: con il numero
+  sbagliato si azzererebbero i pattuiti — o si importerebbe l'anagrafica — di
+  un'altra azienda.
+- Restano tutti gli avvisi di prima: **mai contro un'istanza in esecuzione**,
+  e `pattuiti:reset` pretende un backup Drive fresco. `--tenant` non cambia
+  nulla di questo. Nessuno di questi script fa il backfill di `tenantId`:
+  chiamano `bootstrapAll()` senza `backfill` (lo timbra solo il server).
+
 ### Produzione, in ordine (WS2)
 
 1. **Backup Drive riuscito nelle 24 ore precedenti.** Prima del deploy, non
    solo prima dell'accensione: al primo boot il codice timbra `tenantId` sui
    record e scrive `tenant_id` sulle tabelle, a interruttore spento.
-2. `pnpm --silent tenant verifica --json` **di partenza**, salvato: è il
-   metro di paragone. `senzaTenant` ovunque è atteso.
-3. **Deploy a interruttore spento.** Guarda i log in quest'ordine: seed del
+2. **Finestra tranquilla, e niente sostituzione a caldo.** Il primo boot del
+   WS2 non aggiunge una colonna: **riscrive ogni blob per tenant** di
+   `kv_store` (il backfill di `tenantId`). Un rolling deploy su Railway tiene
+   viva l'istanza VECCHIA mentre la nuova riscrive: ogni salvataggio della
+   vecchia — e il sync FiC ne fa uno da solo — riparte dalla sua copia in
+   memoria e cancella il timbro appena scritto, sull'intero blob. È lo stesso
+   motivo per cui `pattuiti:reset` non si lancia contro un'istanza viva.
+   Quindi: scegli un momento senza traffico e fai **fermare la vecchia
+   istanza prima che la nuova parta** (riavvio, non scambio a caldo). Se il
+   deploy è comunque avvenuto in rolling, non c'è danno ai dati: rilancia un
+   **riavvio semplice** a traffico fermo e il backfill ripassa.
+3. `pnpm --silent tenant verifica --json` **di partenza**, salvato: è il
+   metro di paragone. `senzaTenant` ovunque è atteso, exit 1 compreso.
+4. **Deploy a interruttore spento.** Guarda i log in quest'ordine: seed del
    tenant 1, `[tenants] tabelle: …` (prima del listen), il servizio che
    risponde, `[tenants] backfill tenant_id: …` (dopo). Nessun errore
    `[tenants]` o `[persistence]`.
-4. `pnpm --silent tenant verifica --json` **dopo**: deve dare
-   `Anomalie totali: 0` ed exit 0. Confronta i conteggi dei record con il
-   rapporto del passo 2: devono coincidere (la migrazione è additiva, non
-   sposta nulla).
-5. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio; già fatta se il WS1
+5. `pnpm --silent tenant verifica --json` **dopo**, appena vista quella riga:
+   zero `tenantDiscorde`, `idDoppi`, `blobNonValido`, `tenantNullo` e
+   `sedeSconosciuta`. Un `senzaTenant` piccolo e in calo è atteso (v. sopra:
+   il timbro si mette al caricamento) e sparisce al riavvio successivo.
+   Confronta i conteggi dei record con il rapporto del passo 3: devono
+   coincidere (la migrazione è additiva, non sposta nulla).
+6. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio; già fatta se il WS1
    era acceso. Poi **un nuovo login**: il contesto del tenant si costruisce
    alla sessione.
-6. **Nessun tenant 2 in produzione** finché il WS3 non separa storage,
+7. **Nessun tenant 2 in produzione** finché il WS3 non separa storage,
    backup e credenziali: è una regola di runbook, non un blocco del codice.
    Il primo tenant 2 nasce **in staging**, con `pnpm tenant crea`.
 
@@ -200,6 +263,15 @@ codice vecchio. Nessuna copia, nessuna rinomina, nessun cutover.
   arriva; il boot successivo lo riempie.
 - `[tenants] backfill tenant_id saltato: tenant_sedi non esiste ancora` —
   stessa causa, sul backfill.
+- `[whatsapp-webhook] …`, `[ics] …`, `[fic-oauth] …` — le quattro rotte
+  anonime (handshake e webhook WhatsApp, feed ICS, callback OAuth Fatture in
+  Cloud) non hanno un utente, quindi cercano il tenant proprietario in tutte
+  le aziende attive. Dal WS2 un errore lì viene **registrato** e la rotta
+  risponde 403/404/500 o rimanda a `?fic=errore`: prima la promise rifiutata
+  di un handler `async` non veniva catturata da Express e **abbatteva il
+  processo** — con Meta e Google che riprovano, un ciclo di riavvii. Se una
+  di queste righe si ripete, il servizio è comunque in piedi: guarda il
+  messaggio, non i riavvii.
 
 ## Verifica in sola lettura (prima e dopo l'accensione)
 

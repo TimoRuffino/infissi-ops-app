@@ -48,13 +48,23 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - Un record di un'altra sede deve produrre `NOT_FOUND`, mai informazioni utili
   a enumerarne l'id.
 - Ogni punto d'ingresso fuori richiesta (worker, scheduler, callback di
-  librerie, riconciliazioni del boot, script) dichiara il tenant con
-  `conTenant`, `conTenantDellaSede` o `perOgniTenantAttivo`
-  (`server/tenants/giri.ts`): gli store per tenant senza contesto falliscono.
+  librerie, riconciliazioni del boot, rotte anonime, script) dichiara il
+  tenant con `conTenant`, `conTenantDellaSede`, `perOgniTenantAttivo` o
+  `trovaNeiTenant` (`server/tenants/giri.ts`): gli store per tenant senza
+  contesto falliscono. `conTenantDellaSede` è fail-closed: a interruttore
+  acceso una sede sconosciuta lancia, non ripiega sul tenant 1.
+- Una rotta Express anonima (webhook, feed pubblico, callback OAuth) ha un URL
+  solo per tutta l'installazione: il proprietario si cerca con
+  `trovaNeiTenant` e il lavoro gira nel suo contesto. Handler `async` sempre
+  con `try/catch`: Express 4 non cattura la promise rifiutata e il processo
+  cadrebbe (v. `server/_core/rotteAnonime.ts`).
 - `storeDi` solo in migrazione, verifica e Platform Admin, mai nei router né
   negli strumenti di Tars. Store globali: solo i sette elencati nella spec
-  WS2 §3.1. Gli script chiamano `bootstrapAll()` senza `backfill` e non
-  scrivono mai.
+  WS2 §3.1. Il backfill di `tenantId` non parte mai da uno script: gli script
+  chiamano `bootstrapAll()` senza `backfill` (scrivere è un'altra cosa —
+  `pattuiti:reset --apply` e `storage:migrate` scrivono). Uno script che
+  legge o scrive uno store per tenant dichiara su quale azienda lavora con
+  `--tenant=<id>` (default: 1): `pattuiti:reset` e `importa-clienti`.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.
