@@ -920,6 +920,28 @@ pnpm add -D sharp
 
 Il PNG generato viene committato, quindi `sharp` non serve né alla build di produzione né a Railway: è uno strumento da banco.
 
+- [ ] **Step 5-bis: Crea `shared/marchio.ts` con la geometria dell'inquadratura**
+
+La matematica non può vivere dentro `scripts/`: `vitest.config.ts` raccoglie solo `server/**`, `shared/**` e `client/src/lib/**`, quindi lì non sarebbe coperta da nulla. Vive in `shared/marchio.ts` come funzione pura, con `shared/marchio.test.ts` che la verifica su più lati d'icona.
+
+```ts
+export const RIQUADRO_SEGNO = { x: 9, y: 5, larghezza: 82, altezza: 90 };
+export const RESPIRO_ICONA = 0.12;
+
+export function inquadraturaIcona(lato: number) {
+  const { x, y, larghezza, altezza } = RIQUADRO_SEGNO;
+  const contenuto = lato * (1 - RESPIRO_ICONA * 2);
+  const scala = contenuto / Math.max(larghezza, altezza);
+  const offsetX = (lato - larghezza * scala) / 2 - x * scala;
+  const offsetY = (lato - altezza * scala) / 2 - y * scala;
+  return { scala, offsetX, offsetY };
+}
+```
+
+La scala nasce dal lato **più lungo** del riquadro, mai dalla sola larghezza: il segno è 82×90, e scalare su 82 farebbe traboccare l'altezza di circa il 10%: con l'offset ancorato all'angolo, tutto l'eccesso si scarica sul margine inferiore e il marchio scende. Conseguenza voluta della formula corretta: il margine è esattamente `RESPIRO_ICONA` sull'asse verticale e maggiore su quello orizzontale, perché il segno è più alto che largo. Forzare lo stesso respiro su entrambi gli assi lo deformerebbe.
+
+Il test deve dimostrare che il segno è centrato su entrambi gli assi, che il lato lungo rispetta esattamente il respiro e che il segno non esce mai dall'icona. Scrivilo prima e guardalo fallire con la formula sbagliata.
+
 - [ ] **Step 6: Crea `scripts/genera-icone.ts`**
 
 ```ts
@@ -931,9 +953,13 @@ Il PNG generato viene committato, quindi `sharp` non serve né alla build di pro
 //
 // Rieseguibile: se il marchio cambia, i PNG si rigenerano invece di restare
 // indietro. Uso: pnpm icone
+//
+// La geometria vive in shared/marchio.ts, dove è testata: qui non si
+// ricalcola, si importa. Lo script resta responsabile della sola I/O.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
+import { inquadraturaIcona } from "../shared/marchio";
 
 const FONDO = "#fffdfd";
 const ANTA_FISSA = "#d92f55";
@@ -943,14 +969,8 @@ const TRACCIATO =
   "A4 4 0 0 1 85.321 78.938 L53.321 90.138 A4 4 0 0 1 48 86.362 " +
   "L48 13.638 A4 4 0 0 1 53.321 9.862 Z";
 
-/** Margine del 12 % per lato: il segno non deve toccare i bordi dell'icona. */
-const RESPIRO = 0.12;
-
 function sorgente(lato: number): Buffer {
-  const contenuto = lato * (1 - RESPIRO * 2);
-  const scala = contenuto / 82;
-  const offsetX = lato * RESPIRO - 9 * scala;
-  const offsetY = lato * RESPIRO - 5 * scala;
+  const { scala, offsetX, offsetY } = inquadraturaIcona(lato);
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${lato}" height="${lato}">` +
       `<rect width="${lato}" height="${lato}" fill="${FONDO}"/>` +
