@@ -242,6 +242,13 @@ data il cambio di nome), `handoff.md`, `CLAUDE.md`, `AGENTS.md`,
 `.github/workflows/ci.yml` (commento), `scripts/build-prd-pdf.sh` (titolo del
 PDF).
 
+E il **gemello generato del PRD**, `PRD_infissi_ops_v4.pdf`, che è tracciato
+in git e va rigenerato con `bash scripts/build-prd-pdf.sh`. È l'artefatto del
+PRD più facile da consegnare a qualcuno fuori dall'azienda, quindi è il posto
+peggiore dove lasciare il nome vecchio. Nessuna scansione testuale lo vede:
+è un binario, e la spazzata di §13 legge solo file di testo. `v2` e `v3`
+restano versioni storiche e non si rigenerano.
+
 **Non si tocca** — verbali datati, descrivono ciò che fu deciso allora:
 
 tutto `docs/superpowers/specs/`, tutto `docs/superpowers/plans/`,
