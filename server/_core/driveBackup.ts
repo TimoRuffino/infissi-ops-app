@@ -10,6 +10,7 @@ import { getFile, sha256Hex } from "./fileStorage";
 const autoTable: (doc: any, opts: any) => void =
   (autoTableImport as any)?.default ?? (autoTableImport as any);
 import { persistedStore, getAllStoreSnapshots } from "./persistence";
+import { PRODOTTO } from "@shared/brand";
 
 // ── Nightly Google Drive backup ──────────────────────────────────────────────
 //
@@ -631,7 +632,7 @@ function buildSchedaPdf(
   doc.setFontSize(9);
   doc.setTextColor(110);
   doc.text(
-    `Backup del ${new Date().toLocaleDateString("it-IT")} — Ruffino Flow`,
+    `Backup del ${new Date().toLocaleDateString("it-IT")} — ${PRODOTTO}`,
     marginX,
     y
   );
