@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { WyndorMark } from "@/components/brand/WyndorMark";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,14 +59,10 @@ export default function LoginPage() {
             transition={{ delay: 0.05, duration: 0.28 }}
             className="mb-5 text-center space-y-3"
           >
-            <img
-              src="/logo.svg"
-              alt="Ruffino Group"
-              className="mx-auto h-11 drop-shadow-sm"
-            />
+            <WyndorMark size={44} className="mx-auto text-brand-mark" />
             <div className="space-y-1">
               <h1 className="font-display text-[30px] font-extrabold leading-tight">
-                Ruffino Flow
+                Wyndor
               </h1>
               <p className="eyebrow !text-text-2">Gestionale commesse infissi</p>
             </div>

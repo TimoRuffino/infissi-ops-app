@@ -1,4 +1,4 @@
-# CI di Ruffino Flow (release hardening 29/08/2026).
+# CI di Wyndor (release hardening 29/08/2026).
 #
 # Job «verifica»: BLOCCANTE — installazione deterministica, typecheck,
 # test mirati Document Intelligence (con Tesseract/Poppler e lingue reali

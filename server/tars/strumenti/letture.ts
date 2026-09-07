@@ -31,8 +31,9 @@ import type {
   EvidenzaTars,
   StrumentoTars,
 } from "./tipi";
+import { PRODOTTO } from "@shared/brand";
 
-const FONTE_CRM = "CRM Ruffino Flow (memoria viva; senza DATABASE_URL i dati locali sono volatili)";
+const FONTE_CRM = `CRM ${PRODOTTO} (memoria viva; senza DATABASE_URL i dati locali sono volatili)`;
 
 function lettura<T>(input: {
   dati: T;

@@ -46,7 +46,7 @@ export default function MobileTopBar({
 
         <div className="min-w-0 flex-1 px-1">
           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-text-3">
-            Ruffino Flow
+            Wyndor
           </p>
           <h1 className="truncate text-[15px] font-semibold leading-5 text-text-1">
             {title}

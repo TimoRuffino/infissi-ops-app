@@ -5,6 +5,7 @@ import { persistedStore } from "../_core/persistence";
 import { getInterventiStore, TIPI_INTERVENTO } from "./interventi";
 import { getCommessaById } from "./commesse";
 import { getClienteById } from "./clienti";
+import { PRODOTTO } from "@shared/brand";
 
 // ── Google Calendar sync via subscribable ICS feeds ──────────────────────────
 //
@@ -170,10 +171,10 @@ export function buildIcs(sedeId: number, feedKey: string): string {
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Ruffino Flow//Calendario//IT",
+    `PRODID:-//${PRODOTTO}//Calendario//IT`,
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:Ruffino Flow — ${feed.label}`,
+    `X-WR-CALNAME:${PRODOTTO} — ${feed.label}`,
     "X-WR-TIMEZONE:Europe/Rome",
     "REFRESH-INTERVAL;VALUE=DURATION:PT30M",
     "X-PUBLISHED-TTL:PT30M",

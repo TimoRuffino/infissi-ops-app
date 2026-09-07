@@ -173,7 +173,7 @@ function esitoCommessa(
       },
     ],
     freschezza: "2026-08-31T10:00:00.000Z",
-    fonteAutorevole: "CRM Ruffino Flow",
+    fonteAutorevole: "CRM Wyndor",
     omissioni: [],
     versioniEntita: { [`commessa:${id}`]: versione },
   };

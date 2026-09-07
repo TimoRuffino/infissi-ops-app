@@ -1,12 +1,25 @@
-# Handoff - Ruffino Flow (`infissi-ops-app`)
+# Handoff - Wyndor (`infissi-ops-app`)
 
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 06/09/2026<br>
+**Aggiornato:** 07/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 07/09/2026 — il CRM si chiama Wyndor** (spec
+> `docs/superpowers/specs/2026-09-07-rebranding-wyndor-design.md`, piano
+> `docs/superpowers/plans/2026-09-07-rebranding-wyndor.md`). Nome e marchio
+> nuovi: due ante in prospettiva, borgogna e ambra, montate come componente
+> React invece che come immagine — via il filtro che appiattiva il logo a
+> silhouette. Ruffino Group resta il tenant 1: firma WhatsApp, intestatario
+> fatture e messaggi ai clienti restano suoi. Non toccati: la cartella Drive
+> `Backup CRM Ruffino` (è la chiave dei backup, non un marchio), i prompt
+> Tars da v1 a v8 e i verbali datati. Fuori perimetro e ancora da fare:
+> nome del repository, il campo `name` di `package.json` (il resto del file
+> è cambiato: script `icone`, devDependency `sharp`), dominio, servizio
+> Railway, callback OAuth.
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
@@ -235,7 +248,7 @@
 
 ## 1. Contesto
 
-Ruffino Flow è il gestionale operativo di Ruffino Group per clienti, commesse,
+Wyndor è il gestionale operativo di Ruffino Group per clienti, commesse,
 rilievi, ordini, produzione, posa, pagamenti e post-vendita. È usato su dati
 reali: compatibilità dei record esistenti, isolamento tra sedi e possibilità di
 rollback hanno priorità sulle riscritture estese.
@@ -1884,6 +1897,10 @@ production) SETTE variabili, con un solo redeploy:
     FLAG_TARS, FLAG_TARS_READ_TOOLS, FLAG_TARS_REMINDERS,
     FLAG_TARS_MEMORY, FLAG_TARS_L2_ACTIONS, FLAG_TARS_PROACTIVE,
     FLAG_TARS_COMMUNICATIONS  = on
+
+(il servizio su Railway porta ancora il vecchio nome: la rinomina è
+un'operazione di piattaforma, fuori dal perimetro del rebranding —
+spec §12)
 
 NON impostate (e da non impostare senza un gate esplicito):
 `TARS_PROVIDER` (farebbe partire chiamate reali sulla chiave residua

@@ -40,8 +40,9 @@ import {
 } from "../../routers/preventiviContratti";
 import type { PosizioneEvidenza } from "@shared/documenti/evidenze";
 import type { ContestoRun, EsitoLettura, EvidenzaTars, StrumentoTars } from "./tipi";
+import { PRODOTTO } from "@shared/brand";
 
-const FONTE_CRM = "CRM Ruffino Flow";
+const FONTE_CRM = `CRM ${PRODOTTO}`;
 
 function lettura<T>(input: {
   dati: T;

@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
+import { WyndorLockup } from "@/components/brand/WyndorLockup";
+import { WyndorMark } from "@/components/brand/WyndorMark";
 import SedeSwitcher from "@/components/SedeSwitcher";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -130,25 +132,20 @@ export default function NavigationSidebar({
 
   return (
     <aside
-      aria-label="Navigazione Ruffino Flow"
+      aria-label="Navigazione Wyndor"
       className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground"
       data-navigation-collapsed={collapsed ? "true" : "false"}
     >
       <div className="flex h-[72px] shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
         <div className="flex min-w-0 flex-1 items-center justify-center px-1 group-data-[drawer=true]:justify-start">
           {collapsed ? (
-            <span
-              className="grid h-9 w-9 place-items-center rounded-[var(--radius-control)] bg-brand-soft text-sm font-extrabold text-accent-text"
-              aria-label="Ruffino Flow"
-            >
-              R
-            </span>
-          ) : (
-            <img
-              src="/logo.svg"
-              alt="Ruffino Group"
-              className="sidebar-logo h-5 w-auto max-w-[132px]"
+            <WyndorMark
+              size={22}
+              title="Wyndor"
+              className="shrink-0 text-brand-mark"
             />
+          ) : (
+            <WyndorLockup className="max-w-[148px]" />
           )}
         </div>
         <button
