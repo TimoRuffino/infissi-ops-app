@@ -137,6 +137,13 @@ export const menuItems: readonly MenuItem[] = [
         requiredCapabilities: ["commessa.read"],
         loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
       },
+      {
+        icon: Store,
+        label: "Fornitori",
+        path: "/fornitori",
+        requiredCapabilities: ["commessa.read"],
+        loadingFallbackRoles: EVERY_AUTHENTICATED_ROLE,
+      },
     ],
   },
   {

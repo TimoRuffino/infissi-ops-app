@@ -27,6 +27,7 @@ const Tars = lazy(() => import("./pages/Tars"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
 const ConfermeOrdine = lazy(() => import("./pages/ConfermeOrdine"));
+const Fornitori = lazy(() => import("./pages/Fornitori"));
 const Pagamenti = lazy(() => import("./pages/Pagamenti"));
 const Marginalita = lazy(() => import("./pages/Marginalita"));
 const ReclamiRifacimenti = lazy(() => import("./pages/ReclamiRifacimenti"));
@@ -134,12 +135,10 @@ function Router() {
             <Route path="/verbale/:interventoId" component={VerbaleChiusura} />
             <Route path="/planning" component={Planning} />
             <Route path="/ticket">{() => <TicketList />}</Route>
-            {/* Garanzie e Fornitori non hanno più una pagina (04/09/2026).
-            Le rotte restano come redirect: notifiche e segnalibri già salvati
+            {/* Le garanzie non hanno più una pagina (04/09/2026): la rotta
+            resta come redirect, perché notifiche e segnalibri già salvati
             devono atterrare dove il lavoro è rimasto, non su un 404 muto.
-            Le garanzie si leggono e si registrano dalla scheda cliente; il
-            dominio ordini fornitore resta server-side (costo dalla conferma,
-            merce in arrivo) ma senza interfaccia propria. */}
+            Si leggono e si registrano dalla scheda cliente. */}
             <Route path="/garanzie">
               {() => <LegacyRedirect redirect={() => "/clienti"} />}
             </Route>
@@ -147,9 +146,10 @@ function Router() {
             è in cantiere); creare/modificare resta direzione, sia lato
             server (adminProcedure) sia nei comandi della pagina. */}
             <Route path="/squadre" component={SquadreList} />
-            <Route path="/fornitori">
-              {() => <LegacyRedirect redirect={() => "/commesse"} />}
-            </Route>
+            {/* Fornitori è tornata una pagina il 07/09/2026: l'archivio
+            delle conferme d'ordine per fornitore, da cui si collegano alle
+            commesse (e da lì nascono costo e consegna). */}
+            <Route path="/fornitori" component={Fornitori} />
             <Route path="/preventivatori" component={Preventivatori} />
             <Route
               path="/preventivatori/fivizzanese/persiane"

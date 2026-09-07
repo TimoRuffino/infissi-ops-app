@@ -38,6 +38,7 @@ const ORIGINE_LABEL: Record<string, string> = {
   automatico: "Automatica",
   smistamento: "Smistamento Tars",
   tars: "Tars su richiesta",
+  fornitori: "Dall'archivio fornitori",
   mail: "Dai Messaggi",
   upload: "Dalla scheda",
   fic: "Fatture in Cloud",
