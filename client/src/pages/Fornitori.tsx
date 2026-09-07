@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Building2,
   CalendarClock,
@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { selezioneValida } from "@/lib/consegneSelezione";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
 
@@ -392,7 +393,9 @@ export default function Fornitori() {
   const fornitori = elenco.data?.fornitori ?? [];
   const totali = elenco.data?.totali;
   const righe = (conferme.data ?? []) as unknown as Conferma[];
-  const consegne = inArrivo.data ?? [];
+  // Riferimento stabile: un array nuovo a ogni render farebbe ripartire
+  // tutto ciò che dipende dall'elenco.
+  const consegne = useMemo(() => inArrivo.data ?? [], [inArrivo.data]);
 
   // I conteggi delle schede: del fornitore scelto, o di tutta la sede.
   const conteggi = useMemo(() => {
@@ -428,10 +431,9 @@ export default function Fornitori() {
     );
   }, [consegne, search]);
 
-  // Una consegna che sparisce dall'elenco non resta spuntata.
-  useEffect(() => {
-    setSegnate(s => s.filter(id => consegne.some(c => c.prodottoId === id && !c.arrivato)));
-  }, [consegne]);
+  // Una consegna che sparisce dall'elenco non resta spuntata: la selezione
+  // si DERIVA dall'elenco, non si sincronizza con un effetto (React #185).
+  const selezione = useMemo(() => selezioneValida(segnate, consegne), [segnate, consegne]);
 
   const opzioniCommesse = useMemo(
     () =>
@@ -1056,11 +1058,11 @@ export default function Fornitori() {
                 <Button
                   type="button"
                   className="min-h-11"
-                  disabled={segnate.length === 0 || segnaRicevute.isPending}
-                  onClick={() => segnaRicevute.mutate({ prodottoIds: segnate })}
+                  disabled={selezione.length === 0 || segnaRicevute.isPending}
+                  onClick={() => segnaRicevute.mutate({ prodottoIds: selezione })}
                 >
                   <PackageCheck className="h-4 w-4" aria-hidden="true" />
-                  Segna ricevute{segnate.length > 0 ? ` (${segnate.length})` : ""}
+                  Segna ricevute{selezione.length > 0 ? ` (${selezione.length})` : ""}
                 </Button>
                 <Button
                   type="button"
@@ -1070,13 +1072,13 @@ export default function Fornitori() {
                   disabled={consegneFiltrate.filter(c => !c.arrivato).length === 0}
                   onClick={() =>
                     setSegnate(
-                      segnate.length > 0
+                      selezione.length > 0
                         ? []
                         : consegneFiltrate.filter(c => !c.arrivato).map(c => c.prodottoId)
                     )
                   }
                 >
-                  {segnate.length > 0 ? "Togli la selezione" : "Seleziona tutte"}
+                  {selezione.length > 0 ? "Togli la selezione" : "Seleziona tutte"}
                 </Button>
                 <Button
                   type="button"
@@ -1094,7 +1096,7 @@ export default function Fornitori() {
                 <DataSurface density="compact" tone="sunken" state={statoArrivo}>
                   <ul className="min-w-0 divide-y divide-border-soft">
                     {consegneFiltrate.map(c => {
-                      const spuntata = segnate.includes(c.prodottoId);
+                      const spuntata = selezione.includes(c.prodottoId);
                       return (
                         <li key={c.prodottoId} className="min-w-0 px-3 py-3 sm:px-4">
                           <div className="flex min-w-0 items-start gap-3">
