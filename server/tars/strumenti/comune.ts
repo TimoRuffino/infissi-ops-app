@@ -12,7 +12,7 @@ import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./tipi";
 
 export function contestoServer(
   contesto: ContestoRun
-): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> {
+): Pick<TrpcContext, "user" | "sedeId" | "sediIds" | "tenantId" | "tenant"> {
   return {
     user: {
       id: contesto.utenteId,
@@ -23,6 +23,13 @@ export function contestoServer(
     } as any,
     sedeId: contesto.sedeId,
     sediIds: [contesto.sedeId],
+    // WS1 (Task 7): `ContestoRun` non porta ancora un tenant (Tars opera solo
+    // sul tenant predefinito, come tutto il resto prima del WS2), ma la
+    // guardia tRPC (`guardiaTenant`) ora rifiuta un `tenantId` assente. Senza
+    // questo campo la porta chiusa scatterebbe su OGNI strumento di
+    // scrittura di Tars. Da rivedere quando Tars diventerà tenant-aware.
+    tenantId: 1,
+    tenant: null,
   };
 }
 
