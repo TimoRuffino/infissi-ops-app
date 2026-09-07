@@ -25,6 +25,8 @@ import {
   pulisciWhatsappOutboundSenzaControparte,
   _resetComunicazioniInMemoria,
 } from "./comunicazioni";
+import { __registraTenantNotoPerTest, bootstrapAll, storeDi } from "../_core/persistence";
+import { getSediStore } from "../routers/sedi";
 
 const APP_SECRET = "app-secret-di-test";
 
@@ -959,5 +961,19 @@ describe("handshake del webhook", () => {
   it("un token sbagliato o vuoto non passa", () => {
     expect(verifyTokenValido("sbagliato")).toBe(false);
     expect(verifyTokenValido("")).toBe(false);
+  });
+});
+
+describe("seed dell'app WhatsApp col tenant", () => {
+  it("il seed dell'app WhatsApp usa la sede predefinita del tenant, non la sede 1", async () => {
+    // Un tenant 2 con una sede propria nello store globale `sedi`.
+    __registraTenantNotoPerTest(2);
+    const sedi = getSediStore();
+    sedi.push({ id: 777, tenantId: 2, nome: "Acme", citta: null, indirizzo: null, attiva: true, createdAt: new Date(), updatedAt: new Date() } as any);
+    await bootstrapAll({ tenantIds: [1, 2] });
+    const app2 = storeDi<any>(2, "whatsapp_app");
+    expect(app2).toHaveLength(1);
+    expect(app2[0].sedeId).toBe(777);
+    expect(storeDi<any>(1, "whatsapp_app").some(a => a.id === app2[0].id)).toBe(false); // id globali
   });
 });

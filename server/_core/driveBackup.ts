@@ -51,7 +51,7 @@ type BackupConfig = {
   enabled: boolean;
 };
 
-const _configStore = persistedStore<BackupConfig>("backup_config", () => {});
+const _configStore = persistedStore<BackupConfig>("backup_config", () => {}, { ambito: "globale" });
 const configRows = _configStore.items;
 
 function getConfig(): BackupConfig {
@@ -85,7 +85,7 @@ type BackupLog = {
   error: string | null;
 };
 
-const _logStore = persistedStore<BackupLog>("backup_log", () => {});
+const _logStore = persistedStore<BackupLog>("backup_log", () => {}, { ambito: "globale" });
 const logRows = _logStore.items;
 
 // ── Service account / Drive REST ─────────────────────────────────────────────
@@ -106,7 +106,7 @@ type OAuthRow = {
   connectedAt: Date;
 };
 
-const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {});
+const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {}, { ambito: "globale" });
 const oauthRows = _oauthStore.items;
 
 // ── File fallback for OAuth credentials ─────────────────────────────────────

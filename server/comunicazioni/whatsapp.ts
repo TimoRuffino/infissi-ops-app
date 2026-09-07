@@ -28,7 +28,7 @@ import {
 import { matchComunicazione } from "./match";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
-import { DEFAULT_SEDE_ID } from "../routers/sedi";
+import { DEFAULT_SEDE_ID, sedePredefinita } from "../routers/sedi";
 
 const GRAPH_VERSION = "v21.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -182,7 +182,9 @@ function appVuota(sedeId: number, id: number): AppWhatsApp {
 
 const _appStore = persistedStore<AppWhatsApp>("whatsapp_app", (items, meta) => {
   if (items.length === 0 && meta.firstBoot) {
-    items.push(appVuota(DEFAULT_SEDE_ID, 1));
+    // Il tenant nuovo semina sulla sua sede predefinita; il tenant 1 sulla sede storica.
+    const sedeId = meta.tenantId == null ? DEFAULT_SEDE_ID : sedePredefinita(meta.tenantId);
+    if (sedeId != null) items.push(appVuota(sedeId, _appStore.prossimoId()));
   }
   for (const a of items) {
     // Installazioni salvate prima che il token esistesse.

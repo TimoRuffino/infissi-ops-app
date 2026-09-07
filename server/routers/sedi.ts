@@ -64,7 +64,7 @@ const _store = persistedStore<Sede>("sedi", (items, { firstBoot }) => {
   }
   if (migrate) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x) => x.id)) + 1 : 2;
-});
+}, { ambito: "globale" });
 const sedi = _store.items;
 
 // ── Exports used by context + scoped routers ────────────────────────────────

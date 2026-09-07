@@ -147,7 +147,7 @@ const _store = persistedStore<any>("utenti", (items, { firstBoot }) => {
   }
   if (migrated) setTimeout(() => _store.save(), 0);
   nextId = items.length ? Math.max(...items.map((x: any) => x.id)) + 1 : 1;
-});
+}, { ambito: "globale" });
 const utenti = _store.items;
 
 // Export for local auth access
