@@ -926,14 +926,6 @@
   box-shadow: inset 3px 0 0 var(--sidebar-primary);
 }
 
-.sidebar-logo {
-  filter: brightness(0) invert(1);
-}
-
-[data-ui-system="modular-control"]:not(.dark) .sidebar-logo {
-  filter: brightness(0) opacity(0.86);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;

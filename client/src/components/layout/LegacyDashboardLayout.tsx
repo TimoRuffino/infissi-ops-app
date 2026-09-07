@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { WyndorLockup } from "@/components/brand/WyndorLockup";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -232,11 +233,7 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <img
-                    src="/logo.svg"
-                    alt="Ruffino Group"
-                    className="sidebar-logo h-5 w-auto max-w-[116px] shrink-0"
-                  />
+                  <WyndorLockup className="max-w-[132px] shrink-0" />
                   <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />
                   </div>

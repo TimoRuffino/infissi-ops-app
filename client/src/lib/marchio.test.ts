@@ -15,6 +15,19 @@ const MARK = readFileSync(
   join("client", "src", "components", "brand", "WyndorMark.tsx"),
   "utf8"
 );
+const LOCKUP = readFileSync(
+  join("client", "src", "components", "brand", "WyndorLockup.tsx"),
+  "utf8"
+);
+const SIDEBAR = readFileSync(
+  join("client", "src", "components", "layout", "NavigationSidebar.tsx"),
+  "utf8"
+);
+const LEGACY = readFileSync(
+  join("client", "src", "components", "layout", "LegacyDashboardLayout.tsx"),
+  "utf8"
+);
+const LOGIN = readFileSync(join("client", "src", "pages", "LoginPage.tsx"), "utf8");
 
 /** Anta in apertura, spec 07/09/2026 Appendice A. Normativo. */
 const ANTA_IN_APERTURA =
@@ -51,5 +64,37 @@ describe("marchio Wyndor", () => {
 
   it("usa il viewBox stretto sull'ingombro", () => {
     expect(MARK).toContain('viewBox="9 5 82 90"');
+  });
+});
+
+describe("il marchio nella chrome", () => {
+  it("non lascia in vita il filtro che appiattiva il logo", () => {
+    expect(CSS).not.toContain("sidebar-logo");
+    expect(CSS).not.toMatch(/filter:\s*brightness\(0\)/);
+  });
+
+  it("monta il marchio come componente, non come immagine fissa", () => {
+    for (const [nome, sorgente] of [
+      ["NavigationSidebar", SIDEBAR],
+      ["LegacyDashboardLayout", LEGACY],
+      ["LoginPage", LOGIN],
+    ] as const) {
+      expect(sorgente, nome).not.toContain('src="/logo.svg"');
+    }
+    expect(SIDEBAR).toContain("<WyndorLockup");
+    expect(LEGACY).toContain("<WyndorLockup");
+    expect(LOGIN).toContain("<WyndorMark");
+  });
+
+  it("mostra il segno anche a barra compressa, non un'iniziale", () => {
+    expect(SIDEBAR).toContain("<WyndorMark");
+  });
+
+  it("scrive la parola come testo, non come tracciato", () => {
+    // Un lockup con la parola in curve non è selezionabile, non scala con le
+    // preferenze dell'utente e non arriva agli screen reader.
+    // Il confronto tollera a capo e indentazione: in JSX la parola sta su una
+    // riga sua fra i due tag.
+    expect(LOCKUP).toMatch(/>\s*Wyndor\s*</);
   });
 });
