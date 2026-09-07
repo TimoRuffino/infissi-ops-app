@@ -66,6 +66,7 @@ punto di verità; i router business restano intatti. Scartati: tenant nel JWT
 |---|---|
 | `server/tenants/costanti.ts` | `TENANT_PREDEFINITO_ID = 1`, slug e nome del tenant 1 |
 | `server/tenants/tipi.ts` | `TenantRecord`, `Attore`, tipi dei comandi e degli eventi |
+| `server/tenants/regole.ts` | regole pure, senza store né dipendenze: `portaChiusaPerTenant`, `presidioDi`/`tenantDelContesto`, `motivoRifiutoPresidio` (guardie dell'ultimo presidio), `ruoliDi`, `slugValido` (deviazione dal design: qui, non in `servizio.ts` — vedi §5.2, §6.1) |
 | `server/tenants/comandi.ts` | schemi zod dei payload dei comandi, condivisi da script e server |
 | `server/tenants/repository.ts` | `ensureSchema()` (tabelle, indici, trigger), variante Postgres e in memoria, cache dei tenant; **unico file con `INSERT INTO tenant*`** |
 | `server/tenants/servizio.ts` | servizio di dominio: `assicuraTenantPredefinito`, `crea`, `sospendi`, `riattiva`, `assegnaProprietario`, `revocaProprietario`, `eseguiComandiInAttesa` |
@@ -267,7 +268,8 @@ procedureConInterruttore(nome) = protectedProcedure + assicuraInterruttore(nome)
 - **porta chiusa**: `ctx.tenantId !== TENANT_PREDEFINITO_ID` →
   `PRECONDITION_FAILED` «L'azienda non è ancora attiva su questa
   installazione.» Implementata da `portaChiusaPerTenant(tenantId)` in
-  `server/tenants/servizio.ts`, con il commento «da togliere nel WS2».
+  `server/tenants/regole.ts` (pura, come le altre regole del §4.5; non in
+  `servizio.ts`), con il commento «da togliere nel WS2».
 - **sola lettura**: `type === "mutation"` e `ctx.tenant?.stato === "sospeso"`
   → `PRECONDITION_FAILED` «Azienda sospesa: il gestionale è in sola
   lettura.» Esente `sedi.switch` (scrive solo un cookie), per `path`.
@@ -330,8 +332,12 @@ riattiva(tenantId: number, motivo: string, attore: Attore): Promise<TenantRecord
 assegnaProprietario(tenantId: number, utenteId: number, attore: Attore): Promise<void>;
 revocaProprietario(tenantId: number, utenteId: number, attore: Attore): Promise<void>;
 eseguiComandiInAttesa(): Promise<{ eseguiti: number; falliti: number }>;
-portaChiusaPerTenant(tenantId: number): boolean;                  // WS1 soltanto
 ```
+
+`portaChiusaPerTenant(tenantId: number): boolean` (WS1 soltanto) **non** è
+del servizio: è una regola pura in `server/tenants/regole.ts` (§3.1),
+importata direttamente dalla guardia e dal login — deviazione dal design
+originale, che la elencava qui.
 
 `CreaTenantInput` = `{ slug, nome, sede: { nome, citta? }, proprietario: { nome, cognome, email, telefono?, passwordHash } }`.
 `crea` è **idempotente per slug**: se il tenant esiste, completa ciò che manca

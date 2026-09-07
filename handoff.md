@@ -3,10 +3,42 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 06/09/2026<br>
+**Aggiornato:** 07/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 07/09/2026 — WS1 fondazione tenant su branch.** I 15 task del
+> piano di implementazione (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`)
+> sono committati su `feature/ws1-fondazione-tenant` (nato da `main` @
+> `ecb2042`), dal commit `4c3a71b` al `a01a757` (131 file, +3184/−193 fino al
+> client), più il commit di questo task; nessun push, nessun merge su `main`
+> da qui — quella è una decisione della direzione dopo revisione finale del
+> branch e una verifica a schermo dell'utente. Contratto: control plane
+> `server/tenants/` (tabelle `tenants`, `tenant_eventi` append-only,
+> `tenant_comandi`), `tenantId` su utenti e sedi con backfill a 1, ruolo
+> `proprietario` (ottavo, capability `tenant.manage_proprietari` che la
+> direzione non ha per costruzione), porta chiusa a chiave e sola lettura
+> del tenant sospeso in `protectedProcedure`, `tenants.mio`, servizio di
+> dominio con comandi accodati da `pnpm tenant` ed eseguiti solo dal server,
+> Tars con `tenantId` obbligatorio e senza fallback di sede, tutto dietro
+> `FLAG_MULTI_AZIENDA` fail-closed. Deviazione dalla spec, corretta nel
+> documento: `portaChiusaPerTenant` vive in `server/tenants/regole.ts`
+> (pura), non in `servizio.ts`. **Verificato:** `pnpm check`/`test`/`build`
+> verdi (suite piena a parte i 3 FAIL preesistenti e indipendenti «foto HEIC
+> vera (sips)»), repository provato su Postgres vero (Docker, usa-e-getta:
+> schema idempotente, trigger append-only, seed con `setval`, `FOR UPDATE
+> SKIP LOCKED`, slug duplicato a cache fredda), script `pnpm tenant` con i 4
+> sottocomandi, boot locale in memoria col log `[tenants] tenant 1
+> (ruffino-group) pronto: … utenti, … sedi`, login caricato senza errori
+> console/rete. **Non verificato:** `/utenti` a 1440×900 e 390×844 (voce
+> «Proprietario», serve login demo che l'agente non digita — da fare
+> dall'utente nell'anteprima), produzione Railway (nulla distribuito,
+> `FLAG_MULTI_AZIENDA` assente dall'env = spento, nessuna verifica read-only
+> fatta lì), comportamento con più repliche (cache e ciclo comandi sono
+> in-process, una sola replica come oggi). Runbook:
+> `docs/runbooks/multi-azienda.md`. PRD §60.9 (v5.50). Voce 21 del debito
+> aggiornata.
 
 > **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
 > registrato, nessun codice.** La direzione ha approvato in chat il modello
@@ -332,6 +364,7 @@ server/comunicazioni/        (era server/tars/, ma non era l'agente)
 server/events/              registro eventi, consumer e recovery lease
 server/notifications/       repository, proiettore, SSE e Web Push
 server/observability/       metriche aggregate privacy-safe
+server/tenants/             control plane multi-azienda: contesto, guardie, servizio, comandi (WS1 su branch, PRD §60.9; FLAG_MULTI_AZIENDA spento)
 
 server/actionCenter/
   signals.ts                regole pure, priorità e deduplica
@@ -1568,6 +1601,13 @@ Poi verificare nel browser, desktop e mobile:
   nome originale, poi rinominarlo e cambiargli tipo dalla scheda;
 - Timeline e board: spostare una commessa sul Kanban e verificare che le
   milestone corrispondenti risultino completate.
+
+Se e quando il branch `feature/ws1-fondazione-tenant` va in produzione
+(decisione della direzione, non automatica col merge): deploy con
+`FLAG_MULTI_AZIENDA` spento, verifica in sola lettura
+(`docs/runbooks/multi-azienda.md`), backup Drive riuscito nelle 24 ore, solo
+allora accendere l'interruttore e controllare la riga di log `[tenants]
+tenant 1 … pronto` e l'evento `proprietario_assegnato`.
 
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
@@ -4134,6 +4174,18 @@ a vuoto e dice «57 saltati»).
     PRD §60.9) e piano in 15 task
     (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`); i punti
     (1)–(6) hanno lì la loro risposta, gli altri restano per WS2–WS6.
+    **07/09/2026: WS1 codificato, su branch, non su `main`.** I 15 task sono
+    committati su `feature/ws1-fondazione-tenant` (`4c3a71b`…`a01a757`, più
+    il commit di documentazione); `pnpm check`/`test`/`build` verdi (a parte
+    i 3 FAIL preesistenti «foto HEIC vera (sips)», indipendenti dal WS1);
+    `FLAG_MULTI_AZIENDA` resta spento e assente dall'env di produzione.
+    Non verificati: `/utenti` a 1440×900/390×844 (serve login demo) e
+    qualunque cosa in produzione Railway (nulla distribuito). Nessun push da
+    qui; il merge su `main` è una decisione della direzione dopo revisione
+    finale del branch e verifica a schermo dell'utente. Runbook:
+    `docs/runbooks/multi-azienda.md`. Il prezzo, il budget Tars incluso, le
+    tolleranze e il provider di pagamento restano da fissare come sopra; i
+    punti (7)–(16) restano per WS2–WS6.
 
 ## 13. Cosa resta della piattaforma
 
