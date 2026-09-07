@@ -6,9 +6,15 @@
 //
 // Rieseguibile: se il marchio cambia, i PNG si rigenerano invece di restare
 // indietro. Uso: pnpm icone
+//
+// La geometria (scala e offset del riquadro del segno dentro l'icona
+// quadrata) vive in shared/marchio.ts, dove è testata: qui non si
+// ricalcola, si importa. Questo script resta responsabile della sola I/O —
+// comporre l'SVG sorgente, chiamare sharp, scrivere i file.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
+import { inquadraturaIcona } from "../shared/marchio";
 
 const FONDO = "#fffdfd";
 const ANTA_FISSA = "#d92f55";
@@ -18,14 +24,8 @@ const TRACCIATO =
   "A4 4 0 0 1 85.321 78.938 L53.321 90.138 A4 4 0 0 1 48 86.362 " +
   "L48 13.638 A4 4 0 0 1 53.321 9.862 Z";
 
-/** Margine del 12 % per lato: il segno non deve toccare i bordi dell'icona. */
-const RESPIRO = 0.12;
-
 function sorgente(lato: number): Buffer {
-  const contenuto = lato * (1 - RESPIRO * 2);
-  const scala = contenuto / 82;
-  const offsetX = lato * RESPIRO - 9 * scala;
-  const offsetY = lato * RESPIRO - 5 * scala;
+  const { scala, offsetX, offsetY } = inquadraturaIcona(lato);
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${lato}" height="${lato}">` +
       `<rect width="${lato}" height="${lato}" fill="${FONDO}"/>` +
