@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as persistenza from "../_core/persistence";
 import { getSediStore } from "../routers/sedi";
-import { avviaTenants, completaTenants, fermaTenants, preparaTenants } from "./boot";
+import {
+  avviaBackfillTabelleTenant,
+  avviaTenants,
+  completaTenants,
+  fermaTenants,
+  preparaTenants,
+} from "./boot";
 import { INTERVALLO_COMANDI_MS } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import * as servizioModulo from "./servizio";
+import * as tabelleModulo from "./tabelle";
 
 const SEDE_A = 91201;
 const SEDE_B = 91202;
@@ -159,5 +167,51 @@ describe("completaTenants", () => {
     } finally {
       ripristina();
     }
+  });
+});
+
+// Ruling R14: il backfill gira DOPO il listen, in sottofondo. Da lì un errore
+// non ha nessuno che lo raccolga: deve fermarsi qui dentro, loggato, senza
+// diventare un unhandled rejection che uccide il processo appena avviato.
+describe("avviaBackfillTabelleTenant", () => {
+  it("senza database non fa nulla e non logga", async () => {
+    expect(persistenza.kvSql).toBeFalsy(); // la suite in memoria gira senza DATABASE_URL
+    const spiaLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const spiaBackfill = vi.spyOn(tabelleModulo, "backfillTenantIdSulleTabelle");
+    await expect(avviaBackfillTabelleTenant()).resolves.toBeUndefined();
+    expect(spiaBackfill).not.toHaveBeenCalled();
+    expect(spiaLog).not.toHaveBeenCalled();
+    spiaBackfill.mockRestore();
+    spiaLog.mockRestore();
+  });
+
+  it("con il database riassume righe e millisecondi per tabella", async () => {
+    const spiaSql = vi.spyOn(persistenza, "kvSql", "get").mockReturnValue({} as never);
+    const spiaBackfill = vi
+      .spyOn(tabelleModulo, "backfillTenantIdSulleTabelle")
+      .mockResolvedValue({ righe: { promemoria: 3, fatture: 0 }, ms: { promemoria: 12, fatture: 1 }, totale: 3 });
+    const spiaLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(avviaBackfillTabelleTenant()).resolves.toBeUndefined();
+    const riga = String(spiaLog.mock.calls.at(-1)?.[0] ?? "");
+    expect(riga).toContain("[tenants] backfill tenant_id: 3 righe");
+    expect(riga).toContain("promemoria: 3/12 ms");
+    expect(riga).not.toContain("fatture"); // le tabelle a zero non si stampano
+    spiaLog.mockRestore();
+    spiaBackfill.mockRestore();
+    spiaSql.mockRestore();
+  });
+
+  it("con il database, un errore del backfill si logga e non propaga", async () => {
+    const spiaSql = vi.spyOn(persistenza, "kvSql", "get").mockReturnValue({} as never);
+    const spiaBackfill = vi
+      .spyOn(tabelleModulo, "backfillTenantIdSulleTabelle")
+      .mockRejectedValue(new Error("lotto esploso"));
+    const spiaErrore = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(avviaBackfillTabelleTenant()).resolves.toBeUndefined();
+    expect(spiaBackfill).toHaveBeenCalledTimes(1);
+    expect(spiaErrore).toHaveBeenCalledWith("[tenants] backfill tenant_id:", expect.any(Error));
+    spiaErrore.mockRestore();
+    spiaBackfill.mockRestore();
+    spiaSql.mockRestore();
   });
 });

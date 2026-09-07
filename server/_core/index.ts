@@ -158,12 +158,15 @@ async function startServer() {
   startEventWorkers();
 
   // Colonna `tenant_id` sulle tabelle relazionali per sede (Task 12):
-  // additiva, riempita da un trigger che legge lo specchio `tenant_sedi` e da
-  // un backfill una tantum. Va QUI, in coda agli `ensureSchema()` qui sopra
-  // (che creano quelle tabelle) e dopo `completaTenants` (che ha allineato lo
-  // specchio). Le tabelle ancora assenti vengono saltate e segnalate: le
-  // creerà il loro modulo, e il boot successivo le prenderà.
-  const { applicaSchemaTabelleTenant } = await import("../tenants/boot");
+  // additiva, riempita da un trigger che legge lo specchio `tenant_sedi`. Va
+  // QUI, in coda agli `ensureSchema()` qui sopra (che creano quelle tabelle)
+  // e dopo `completaTenants` (che ha allineato lo specchio). Solo DDL, con
+  // `lock_timeout`: le tabelle assenti o occupate vengono saltate e
+  // segnalate, e le prende il boot successivo. Il backfill delle righe già a
+  // terra è più giù, dopo il `listen`.
+  const { applicaSchemaTabelleTenant, avviaBackfillTabelleTenant } = await import(
+    "../tenants/boot"
+  );
   await applicaSchemaTabelleTenant();
 
   // Il processo serve le richieste e fa girare i lavori di fondo — riconcilia
@@ -420,6 +423,10 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // Il backfill di `tenant_id` gira dopo il listen, a lotti, così il primo
+    // deploy spento non tiene il server fuori dalla porta (Ruling R14);
+    // `pnpm tenant verifica` dice se restano righe a NULL.
+    void avviaBackfillTabelleTenant();
   });
 }
 

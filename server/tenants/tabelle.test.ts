@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { fileSorgente, RADICE, relativo } from "../_core/sorgentiDiProva";
-import { TABELLE_PER_SEDE } from "./tabelle";
+import { errorePerLock, TABELLE_PER_SEDE } from "./tabelle";
 
 // Il control plane del tenant (`tenants`, `tenant_eventi`, `tenant_comandi`,
 // `tenant_sedi`) NON è materiale per sede, anche se lo specchio `tenant_sedi`
@@ -42,5 +42,30 @@ describe("inventario delle tabelle per sede", () => {
   it("nessun nome duplicato e nessun carattere fuori da [a-z_]", () => {
     expect(new Set(TABELLE_PER_SEDE).size).toBe(TABELLE_PER_SEDE.length);
     expect(TABELLE_PER_SEDE.filter(t => !/^[a-z_]+$/.test(t))).toEqual([]);
+  });
+});
+
+// Ruling R14: l'`ALTER TABLE` del DDL prende un lock ACCESS EXCLUSIVE. Con
+// `lock_timeout` una tabella occupata risponde `55P03` (o `57014`, se
+// l'attesa viene annullata da fuori): quella tabella si rinvia al boot
+// successivo, il boot continua. Qualunque altro errore è uno schema rotto e
+// deve fermare l'avvio come gli altri `ensureSchema()`. Un test a parte
+// perché un lock_timeout vero non si provoca in modo deterministico.
+describe("classificazione degli errori del DDL", () => {
+  const conCodice = (code: string) => Object.assign(new Error("dal driver"), { code });
+
+  it("lock_not_available e query_canceled si rinviano", () => {
+    expect(errorePerLock(conCodice("55P03"))).toBe(true);
+    expect(errorePerLock(conCodice("57014"))).toBe(true);
+  });
+
+  it("tutto il resto è fatale", () => {
+    expect(errorePerLock(conCodice("42501"))).toBe(false); // permesso negato
+    expect(errorePerLock(conCodice("42P01"))).toBe(false); // tabella inesistente
+    expect(errorePerLock(conCodice("53300"))).toBe(false); // troppe connessioni
+    expect(errorePerLock(new Error("senza codice"))).toBe(false);
+    expect(errorePerLock({ code: 55103 })).toBe(false); // codice non stringa
+    expect(errorePerLock(null)).toBe(false);
+    expect(errorePerLock(undefined)).toBe(false);
   });
 });

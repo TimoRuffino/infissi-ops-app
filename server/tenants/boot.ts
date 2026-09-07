@@ -20,7 +20,11 @@ import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
 import { allineaTenantPredefinito, eseguiComandiInAttesa } from "./servizio";
-import { applicaTenantIdAlleTabelle, type EsitoTabelle } from "./tabelle";
+import {
+  applicaTenantIdAlleTabelle,
+  backfillTenantIdSulleTabelle,
+  type EsitoTabelle,
+} from "./tabelle";
 
 let intervallo: NodeJS.Timeout | null = null;
 
@@ -40,6 +44,12 @@ function riferisci(esito: { eseguiti: number; falliti: number }) {
  * a interruttore spento solo il tenant 1; acceso, tutti i tenant in cache —
  * anche i sospesi, che restano leggibili (sola lettura, mai nei cicli dei
  * worker).
+ *
+ * «Inerte» non vuol dire invisibile: anche a interruttore spento quella riga
+ * è ciò che leggono `tenants.mio` (via `perId(1)` in cache) e il `ctx.tenant`
+ * di Tars, con gli stessi valori. Cambiare a mano `nome`, `slug` o `stato`
+ * del tenant 1 nel database ha quindi effetto sul prodotto anche a flag
+ * spento — in particolare `stato = 'sospeso'`, che `mio` riporta al client.
  */
 export async function preparaTenants(): Promise<number[]> {
   const repo = getTenantRepository();
@@ -87,24 +97,57 @@ export async function completaTenants(): Promise<void> {
 }
 
 /**
- * Colonna `tenant_id`, indice, trigger e backfill sulle tabelle relazionali
- * per sede (Task 12). Gira nel boot del server dopo gli altri `ensureSchema()`
- * espliciti — quelli creano le tabelle su cui questa lavora — e DOPO
- * `completaTenants`, che ha già allineato lo specchio `tenant_sedi` da cui il
- * backfill legge. Senza database (sviluppo in memoria) non c'è nulla da fare
- * e ritorna `null`. In produzione un errore qui ferma l'avvio come gli altri
- * schemi: si lascia propagare.
+ * Colonna `tenant_id`, indice e trigger sulle tabelle relazionali per sede
+ * (Task 12). Solo DDL: il backfill delle righe già a terra è
+ * `avviaBackfillTabelleTenant`, che gira dopo il `listen` (Ruling R14). Va
+ * nel boot del server dopo gli altri `ensureSchema()` espliciti — quelli
+ * creano le tabelle su cui questa lavora — e DOPO `completaTenants`, che ha
+ * già allineato lo specchio `tenant_sedi` da cui il trigger legge. Senza
+ * database (sviluppo in memoria) non c'è nulla da fare e ritorna `null`. In
+ * produzione un errore qui ferma l'avvio come gli altri schemi: si lascia
+ * propagare — tranne il lock non ottenuto, che rinvia la singola tabella al
+ * boot successivo invece di far morire l'avvio.
  */
 export async function applicaSchemaTabelleTenant(): Promise<EsitoTabelle | null> {
   if (!kvSql) return null;
   const esito = await applicaTenantIdAlleTabelle(kvSql);
-  const backfill = Object.fromEntries(Object.entries(esito.backfill).filter(([, n]) => n > 0));
   console.log(
     `[tenants] tabelle: ${esito.applicate.length} applicate, ${esito.assenti.length} assenti` +
       (esito.assenti.length ? ` (${esito.assenti.join(", ")})` : "") +
-      `, backfill: ${JSON.stringify(backfill)}`
+      `, ${esito.rinviate.length} rinviate` +
+      (esito.rinviate.length ? ` (${esito.rinviate.join(", ")})` : "") +
+      `, specchio ${esito.specchio} sedi`
   );
   return esito;
+}
+
+/**
+ * Il backfill di `tenant_id`, a lotti, DOPO che il server ha aperto la porta
+ * (Ruling R14): sul primo deploy a interruttore spento riscrive ogni riga
+ * delle tabelle per sede, e farlo prima del `listen` terrebbe il servizio
+ * giù per tutto quel tempo. Gira in sottofondo, quindi un errore si logga e
+ * basta: il boot successivo ci riprova, e nel frattempo `tenant_id` NULL non
+ * rompe niente (nessuna query di dominio lo legge). Senza database non fa
+ * nulla.
+ */
+export async function avviaBackfillTabelleTenant(): Promise<void> {
+  if (!kvSql) return;
+  const inizio = Date.now();
+  try {
+    const esito = await backfillTenantIdSulleTabelle(kvSql);
+    // Nel dettaglio solo le tabelle con almeno una riga toccata: con 30
+    // tabelle a zero la riga di log sarebbe illeggibile.
+    const dettaglio = Object.entries(esito.righe)
+      .filter(([, n]) => n > 0)
+      .map(([tabella, n]) => `${tabella}: ${n}/${esito.ms[tabella]} ms`)
+      .join(", ");
+    console.log(
+      `[tenants] backfill tenant_id: ${esito.totale} righe in ${Date.now() - inizio} ms` +
+        (dettaglio ? ` (${dettaglio})` : "")
+    );
+  } catch (errore) {
+    console.error("[tenants] backfill tenant_id:", errore);
+  }
 }
 
 /**
