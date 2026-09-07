@@ -61,4 +61,34 @@ describe("repository tenant in memoria", () => {
     expect(await repo.prendiEdEsegui(async () => ({}))).toBe("nessuno");
     expect(await repo.comandiInAttesa()).toEqual([]);
   });
+
+  it("azzera passwordHash nel payload alla chiusura del comando crea (Minor 1)", async () => {
+    const repo = getTenantRepository();
+    const payload = {
+      slug: "acme",
+      nome: "Acme Infissi",
+      sede: { nome: "Acme Infissi" },
+      proprietario: {
+        nome: "Mario",
+        cognome: "Rossi",
+        email: "mario@acme.test",
+        passwordHash: "scrypt$deadbeef$…",
+      },
+    };
+    const comando = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload,
+      richiestoDa: "script:tenant@test",
+    });
+    expect((await repo.comando(comando.id))?.payload.proprietario).toMatchObject({
+      passwordHash: payload.proprietario.passwordHash,
+    });
+    await repo.prendiEdEsegui(async () => ({ tenantId: 1 }));
+    const chiuso = await repo.comando(comando.id);
+    expect(chiuso?.stato).toBe("eseguito");
+    expect((chiuso?.payload as any)?.proprietario?.passwordHash).toBeUndefined();
+    // Il resto del payload resta leggibile (non è un redact totale).
+    expect((chiuso?.payload as any)?.proprietario?.email).toBe("mario@acme.test");
+  });
 });

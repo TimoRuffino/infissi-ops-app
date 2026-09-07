@@ -95,6 +95,18 @@ describe("ruolo proprietario", () => {
     });
   });
 
+  it("con l'interruttore spento, disattivare l'unico proprietario del tenant è consentito (Minor 2)", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    // Stessa chiamata del test "l'ultimo proprietario ... non si tolgono"
+    // sopra (PROPRIETARIO_T1 è l'unico proprietario del tenant 1), ma con
+    // l'interruttore spento: la guardia dell'ultimo proprietario non si
+    // applica (spec §8.3, comportamento di prima del WS1) — solo quella
+    // dell'ultima direzione, che qui non scatta perché DIREZIONE_T1 resta.
+    await expect(
+      come(DIREZIONE_T1, ["direzione"]).utenti.update({ id: PROPRIETARIO_T1, ruoli: ["direzione"] })
+    ).resolves.toMatchObject({ ruoli: ["direzione"] });
+  });
+
   it("cancellare un secondo proprietario registra proprietario_revocato nel ledger", async () => {
     const now = new Date();
     utenti.push({

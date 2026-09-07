@@ -72,6 +72,18 @@ describe("presìdi per tenant", () => {
     expect(motivoRifiutoPresidio(utenti[0], { ...utenti[0], attivo: false }, utenti)).not.toBeNull();
   });
 
+  it("con opzioni.proprietari = false non blocca la perdita dell'ultimo proprietario (Minor 2, interruttore spento)", () => {
+    // Stesso caso di sopra (utenti[0] è l'unico proprietario del tenant 1),
+    // ma con la guardia dei proprietari disattivata: nessun blocco.
+    expect(
+      motivoRifiutoPresidio(utenti[0], { ...utenti[0], ruoli: ["direzione"] }, utenti, { proprietari: false })
+    ).toBeNull();
+    // La guardia dell'ultima direzione resta attiva a prescindere dall'opzione.
+    expect(
+      motivoRifiutoPresidio(utenti[0], { ...utenti[0], ruoli: ["proprietario"] }, utenti, { proprietari: false })
+    ).toMatch(/ultimo utente direzione/);
+  });
+
   it("non guarda oltre il tenant e lascia passare le modifiche innocue", () => {
     expect(motivoRifiutoPresidio(utenti[2], null, utenti)).toMatch(/ultimo utente direzione/);
     expect(motivoRifiutoPresidio(utenti[1], null, utenti)).toBeNull();

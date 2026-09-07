@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appRouter } from "../routers";
 import { contestoDiProva } from "../_core/contestoDiProva";
-import { getSediStore } from "./sedi";
+import { creaSedeInterna, getSediStore, sediAttiveDelTenant } from "./sedi";
 import { getUtentiStore } from "./utenti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import type { TenantRecord } from "../tenants/tipi";
@@ -63,5 +63,43 @@ describe("sedi per tenant", () => {
     await expect(io.sedi.update({ id: SEDE_T2, nome: "Rubata" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(io.sedi.switch({ sedeId: SEDE_T2 })).rejects.toThrow(/Non sei assegnato/);
     await expect(come(COMMERCIALE_T1, ["commerciale"]).sedi.switch({ sedeId: SEDE_T1 })).resolves.toMatchObject({ id: SEDE_T1 });
+  });
+
+  it("update rifiuta di disattivare l'ultima sede attiva del tenant; con due sedi attive è consentito (Important 2)", async () => {
+    const io = come(DIREZIONE_T1, ["direzione"]);
+
+    // Il fixture di questo file non dà al tenant 1 altre sedi attive oltre a
+    // SEDE_T1 (SEDE_T2 è del tenant 2), ma non lo diamo per scontato:
+    // leggiamo sediAttiveDelTenant(1) e disattiviamo (in modo reversibile)
+    // ogni altra sede attiva del tenant, per costruire il caso «ultima sede
+    // attiva» a prescindere da quante il fixture ne avesse già.
+    const altre = sediAttiveDelTenant(1).filter(s => s.id !== SEDE_T1);
+    const ripristina = altre.map(({ id }) => {
+      const row = sedi.find(s => s.id === id)!;
+      row.attiva = false;
+      return () => {
+        row.attiva = true;
+      };
+    });
+
+    try {
+      expect(sediAttiveDelTenant(1).map(s => s.id)).toEqual([SEDE_T1]);
+
+      await expect(io.sedi.update({ id: SEDE_T1, attiva: false })).rejects.toMatchObject({
+        code: "PRECONDITION_FAILED",
+      });
+      // Rifiutata: la sede resta attiva.
+      expect(sedi.find(s => s.id === SEDE_T1)?.attiva).toBe(true);
+
+      // Con una seconda sede attiva del tenant, la disattivazione è consentita.
+      const seconda = creaSedeInterna({ tenantId: 1, nome: "Seconda sede T1" });
+      await expect(io.sedi.update({ id: SEDE_T1, attiva: false })).resolves.toMatchObject({
+        id: SEDE_T1,
+        attiva: false,
+      });
+      expect(seconda.tenantId).toBe(1);
+    } finally {
+      ripristina.forEach(fn => fn());
+    }
   });
 });

@@ -12,6 +12,7 @@ const SEDE_T1 = 97302;
 const COMMERCIALE_T2 = 97311;
 const SPENTO_T2 = 97312;
 const SENZA_SEDE_T3 = 97313;
+const PROPRIETARIO_T2 = 97314;
 
 const sedi = getSediStore();
 const utenti = getUtentiStore();
@@ -61,7 +62,8 @@ beforeEach(async () => {
   utenti.push(
     { ...base, id: COMMERCIALE_T2, email: "c@acme.test", ruoli: ["commerciale"], tenantId: 2 },
     { ...base, id: SPENTO_T2, email: "s@acme.test", ruoli: ["commerciale"], tenantId: 2, attivo: false },
-    { ...base, id: SENZA_SEDE_T3, email: "v@vuota.test", ruoli: ["direzione"], tenantId: 3, sediIds: [] }
+    { ...base, id: SENZA_SEDE_T3, email: "v@vuota.test", ruoli: ["direzione"], tenantId: 3, sediIds: [] },
+    { ...base, id: PROPRIETARIO_T2, email: "p@acme.test", ruoli: ["proprietario", "direzione"], tenantId: 2 }
   );
 });
 
@@ -94,6 +96,21 @@ describe("createContext con FLAG_MULTI_AZIENDA acceso", () => {
     expect(ctx.tenantId).toBe(3);
     expect(ctx.sediIds).toEqual([]);
     expect(ctx.sedeId).toBeNull();
+  });
+
+  it("i ruoli vengono dallo store: un JWT con 'direzione' non basta se lo store dice 'commerciale' (Important 1)", async () => {
+    // Il token porta ruoli più ampi di quelli reali nello store (revoca non
+    // ancora scaduta lato JWT): ctx.user deve riflettere lo store, non il token.
+    const ctx = await contestoCon(COMMERCIALE_T2, ["direzione"]);
+    expect((ctx.user as any)?.ruoli).toEqual(["commerciale"]);
+    expect((ctx.user as any)?.role).toBe("user");
+  });
+
+  it("i ruoli vengono dallo store: un JWT con 'commerciale' diventa admin se lo store dice proprietario+direzione", async () => {
+    // Caso inverso: il token è rimasto indietro rispetto a una promozione.
+    const ctx = await contestoCon(PROPRIETARIO_T2, ["commerciale"]);
+    expect((ctx.user as any)?.ruoli).toEqual(["proprietario", "direzione"]);
+    expect((ctx.user as any)?.role).toBe("admin");
   });
 });
 

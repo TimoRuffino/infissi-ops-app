@@ -1,6 +1,7 @@
 // server/tenants/servizio.test.ts
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword } from "../_core/password";
+import * as persistenceModulo from "../_core/persistence";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
@@ -30,6 +31,7 @@ afterEach(() => {
   sedi.splice(nS);
   utenti.splice(nU);
   delete process.env.FLAG_MULTI_AZIENDA;
+  vi.restoreAllMocks();
 });
 
 const inputAcme = () => ({
@@ -65,6 +67,41 @@ describe("crea", () => {
     await expect(crea({ ...inputAcme(), slug: "Acme" }, script)).rejects.toThrow(/Slug/);
     await expect(crea({ ...inputAcme(), slug: "altra" }, script)).rejects.toThrow(/altra azienda/);
     expect(getTenantRepository().perSlug("altra")).toBeNull();
+  });
+
+  it("tenant esistente senza sedi: completa sede e proprietario, senza un secondo evento creato (Important 4)", async () => {
+    const repo = getTenantRepository();
+    const preesistente = await repo.inserisci({ slug: "acme", nome: "Acme Infissi" });
+    const esito = await crea(inputAcme(), script);
+    expect(esito.creatoOra).toBe(false);
+    expect(esito.tenant.id).toBe(preesistente.id);
+    const sede = sedi.find(s => s.id === esito.sedeId)!;
+    expect(sede.tenantId).toBe(preesistente.id);
+    const utente = utenti.find(u => u.id === esito.utenteId)!;
+    expect(utente.tenantId).toBe(preesistente.id);
+    const eventi = await repo.eventi(preesistente.id);
+    // Nessun evento "creato": la riga tenant non è nata in questa chiamata.
+    expect(eventi.map(e => e.tipo)).toEqual(["proprietario_assegnato"]);
+  });
+
+  it("un commit fallito ripristina sedi e utenti spinti in questo giro; l'evento creato resta (Important 4)", async () => {
+    // conTransazioneStoreAtomica reale non fallisce mai in test (niente
+    // DATABASE_URL: `commit()` interno è un no-op) — la sostituiamo con una
+    // versione che esegue comunque il callback di `crea` (così sede e utente
+    // vengono davvero spinti negli array vivi) ma il cui `commit` rilancia.
+    vi.spyOn(persistenceModulo, "conTransazioneStoreAtomica").mockImplementationOnce(
+      (async (_stores: unknown, operazione: (commit: () => Promise<void>) => Promise<unknown>) =>
+        operazione(async () => {
+          throw new Error("commit fallito (prova)");
+        })) as typeof persistenceModulo.conTransazioneStoreAtomica
+    );
+    await expect(crea(inputAcme(), script)).rejects.toThrow(/commit fallito/);
+    const tenant = getTenantRepository().perSlug("acme");
+    expect(tenant).not.toBeNull();
+    expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
+    expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
+    const eventi = await getTenantRepository().eventi(tenant!.id);
+    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
   });
 });
 
@@ -132,5 +169,29 @@ describe("eseguiComandiInAttesa", () => {
     await repo.accodaComando({ tipo: "crea", tenantId: null, payload: inputAcme(), richiestoDa: "script:tenant@test" });
     expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 0 });
     expect((await repo.comandiInAttesa()).length).toBe(1);
+  });
+
+  it("un payload crea non valido finisce in errore con un messaggio zod, senza bloccare i comandi successivi (Important 4)", async () => {
+    const repo = getTenantRepository();
+    const invalido = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: { slug: "x" },
+      richiestoDa: "script:tenant@test",
+    });
+    const valido = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: inputAcme(),
+      richiestoDa: "script:tenant@test",
+    });
+    const esito = await eseguiComandiInAttesa();
+    expect(esito).toEqual({ eseguiti: 1, falliti: 1 });
+    const comandoInvalido = await repo.comando(invalido.id);
+    expect(comandoInvalido?.stato).toBe("errore");
+    expect(typeof (comandoInvalido?.esito as any)?.errore).toBe("string");
+    expect((comandoInvalido?.esito as any)?.errore.length).toBeGreaterThan(0);
+    expect((await repo.comando(valido.id))?.stato).toBe("eseguito");
+    expect(getTenantRepository().perSlug("acme")).not.toBeNull();
   });
 });
