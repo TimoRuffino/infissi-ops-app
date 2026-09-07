@@ -181,6 +181,11 @@ const SAVE_DEBOUNCE_MS = 200;
 // in modo dinamico) si carica da solo, altrimenti resterebbe «non caricato»
 // e i suoi salvataggi sarebbero rinviati per sempre.
 let bootstrapEseguito = false;
+// Il backfill di `tenantId` timbra i record e RISCRIVE i blob: parte solo se
+// il chiamante lo chiede (`bootstrapAll({ backfill: true })`). Vale per tutto
+// il processo, così anche le istanze nate dopo il boot (istanziaStoresPerTenant,
+// caricaTardivo, backgroundRecover) seguono la stessa politica.
+let backfillAttivo = false;
 // Chi sa qual è il tenant della richiesta in corso. Lo inietta chi conosce
 // il contesto (server/tenants/contestoCorrente.ts): qui non si importa.
 let resolverTenant: (() => number | null) | null = null;
@@ -337,6 +342,7 @@ export function __resetPersistenzaPerTest(): void {
   noti.add(TENANT_PREDEFINITO);
   resolverTenant = null;
   bootstrapEseguito = false;
+  backfillAttivo = false;
 }
 export function __registraTenantNotoPerTest(tenantId: number): void {
   if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_TENANT_NOTO");
@@ -575,8 +581,18 @@ async function flushSaveBloccato(key: string) {
  * istanziare — la prepara chi conosce il control plane (server/tenants/boot.ts)
  * e la passa qui: `persistence.ts` non importa server/tenants. Con un tenant
  * solo il carico è identico a quello di sempre, chiave per chiave.
+ *
+ * `backfill: true` autorizza il timbro di `tenantId` sui record che ne sono
+ * privi, e quindi la riscrittura dei blob: lo passa il boot del server, che è
+ * l'unico titolato a scrivere. Gli script chiamano `bootstrapAll()` nudo anche
+ * nelle loro modalità di prova; se il timbro partisse da solo, un dry-run
+ * dichiarato «nessuna scrittura» riscriverebbe mezzo `kv_store` mentre il
+ * server vero è in funzione.
  */
-export async function bootstrapAll(opzioni: { tenantIds?: number[] } = {}) {
+export async function bootstrapAll(opzioni: { tenantIds?: number[]; backfill?: boolean } = {}) {
+  // Prima di ogni caricamento: la politica vale anche per le istanze che
+  // nasceranno più tardi nello stesso processo.
+  backfillAttivo = opzioni.backfill === true;
   for (const id of opzioni.tenantIds ?? []) registraTenantNoto(id);
   for (const f of famiglie.values()) {
     if (f.ambito !== "tenant") continue;
@@ -658,17 +674,18 @@ export async function istanziaStoresPerTenant(tenantId: number): Promise<void> {
 /**
  * Chiude il caricamento di un'istanza: backfill additivo di `tenantId`
  * (spec §3.4), massimo degli id per il contatore della famiglia, `onLoad` del
- * modulo, `loaded`. Il backfill tocca solo i record oggetto senza `tenantId`
- * numerico — uno già scritto non si cambia mai, nemmeno se discorda: lo conta
- * `pnpm tenant verifica`. Il risalvataggio si programma DOPO `loaded = true`
- * (altrimenti la guardia di `flushSave` lo rinvierebbe) e subito, non dietro
- * un `setTimeout(0)`: così un `flushAll()` che segue il bootstrap lo trova in
- * coda e lo scrive, invece di lasciarlo a un turno del ciclo che potrebbe
- * arrivare dopo la chiusura del processo.
+ * modulo, `loaded`. Il backfill esiste solo se qualcuno l'ha chiesto
+ * (`bootstrapAll({ backfill: true })`) e tocca solo i record oggetto senza
+ * `tenantId` numerico — uno già scritto non si cambia mai, nemmeno se
+ * discorda: lo conta `pnpm tenant verifica`. Il risalvataggio si programma
+ * DOPO `loaded = true` (altrimenti la guardia di `flushSave` lo rinvierebbe)
+ * e subito, non dietro un `setTimeout(0)`: così un `flushAll()` che segue il
+ * bootstrap lo trova in coda e lo scrive, invece di lasciarlo a un turno del
+ * ciclo che potrebbe arrivare dopo la chiusura del processo.
  */
 function dopoCaricamento(store: StoreEntry, firstBoot: boolean): void {
   let backfill = 0;
-  if (store.tenantId != null) {
+  if (backfillAttivo && store.tenantId != null) {
     for (const r of store.items) {
       if (r && typeof r === "object" && typeof (r as any).tenantId !== "number") {
         (r as any).tenantId = store.tenantId;

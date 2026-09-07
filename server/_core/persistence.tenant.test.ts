@@ -131,6 +131,21 @@ describe("persistence per tenant", () => {
     expect(tenantsNoti()).toEqual([1, 2, 4]); // il 2 viene dal beforeEach
   });
 
+  it("senza `backfill: true` i record restano senza tenantId; col flag il boot li timbra", async () => {
+    const s = persistedStore<any>("preventivi");
+    // Il record c'è già quando il boot arriva, come la riga legacy letta dal DB.
+    s.items.push({ id: 1, sedeId: 3 });
+    // Il boot nudo è quello degli script (anche in modalità di prova): guarda
+    // e non tocca. Che non scriva nulla lo prova persistence.tenant.pg.test.ts,
+    // dove il DB c'è davvero; qui il DB non esiste e nessun timer nasce.
+    await bootstrapAll({ tenantIds: [1, 2] });
+    expect(storeDi(1, "preventivi")).toEqual([{ id: 1, sedeId: 3 }]);
+    expect(Object.keys(storeDi(1, "preventivi")[0])).toEqual(["id", "sedeId"]);
+    // Col flag — cioè al boot del server — il timbro arriva.
+    await bootstrapAll({ tenantIds: [1, 2], backfill: true });
+    expect(storeDi(1, "preventivi")).toEqual([{ id: 1, sedeId: 3, tenantId: 1 }]);
+  });
+
   it("senza resolver: nei test ripiega sul tenant 1, fuori dai test è un errore", () => {
     __resetPersistenzaPerTest();
     const s = persistedStore<any>("anomalie");
