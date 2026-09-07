@@ -11,6 +11,7 @@ const ROUTE_PRESENTATION: Record<string, RoutePresentation> = {
   "/conferme-ordine": { section: "Ordini e cantiere", title: "Fornitori e conferme" },
   "/fornitori": { section: "Ordini e cantiere", title: "Fornitori e conferme" },
   "/fatture/:id/stampa": { section: "Economia", title: "Stampa fattura" },
+  "/commesse/:id/limiti/stampa": { section: "Economia", title: "Stampa limiti" },
   "/fatturazione": { section: "Economia", title: "Fatturazione" },
   "/fatturazione/:id": { section: "Economia", title: "Fatturazione" },
   "/pagamenti": { section: "Economia", title: "Pagamenti" },

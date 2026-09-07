@@ -228,6 +228,25 @@
 > azienda (spec madre §18-bis): tocca WS4 e WS5, non il WS1; aperti carta
 > alla registrazione, soglie in prova, una prova per partita IVA, avvisi.
 
+> **Novità 07/09/2026 — decisione prodotto, non ancora implementata (PRD
+> 5.62, §61; nessun codice CRM modificato).** Dopo che una persona ha rivisto
+> e applicato i dati letti dal contratto, Wyndor dovrà preparare
+> automaticamente nella commessa una bozza di fattura rivedibile. Il trigger
+> non è l'upload né la sola estrazione; l'emissione, la numerazione su Fatture
+> in Cloud e l'invio SdI restano dietro «Emetti» e conferma autorizzata. I
+> limiti di spesa sono facoltativi: se mancano si mostra «Limiti non
+> verificati» e si offre il calcolo, senza bloccare; se sono noti e superati
+> restano controllo e scavalco motivato. Requisiti aperti: idempotenza e riuso
+> della bozza esistente, nessun duplicato se la fattura è già in emissione,
+> retry esplicito se il contratto viene salvato ma la bozza fallisce, audit e
+> separazione del gate tecnico `FLAG_LIMITI`; vanno coperti anche applicazioni
+> concorrenti, contratto cambiato senza sovrascrivere la bozza e convivenza
+> con fatture libere. La landing può illustrare contratto scansionato → campi
+> → **«Dati da verificare» → «Applica al contratto» → «BOZZA · DA
+> VERIFICARE»** solo dopo il rilascio o dentro un blocco esplicitamente **«In
+> arrivo»**. Altrimenti deve usare la variante pre-rilascio, fermarsi sul
+> contratto salvato e non promettere la preparazione automatica.
+
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
 > `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
@@ -4210,6 +4229,13 @@ righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
 fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
 `embeddedfolderview`, download con `drive.usercontent.google.com/download`;
 gdown non funziona più).
+
+**Stampa dei limiti (07/09/2026, direzione).** «Stampa» nel tab Limiti
+apre `/commesse/:id/limiti/stampa` (`pages/LimitiStampa.tsx`,
+`lib/limitiStampaView.ts` provata): parametri, righe del contratto, CHECK 1
+e CHECK 2 voce per voce, totali, avvertenze; filigrana se il computo non è
+aggiornato. Rotta nel contratto delle rotte e nel manifesto. Verifica
+browser non eseguita (login demo). PRD 5.51.
 
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la

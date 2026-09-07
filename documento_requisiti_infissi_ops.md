@@ -1,7 +1,7 @@
 # Documento Requisiti — Wyndoor (PRD)
 
-**Stato:** Documento vivente, riallineato allo stato corrente del checkout (08/09/2026: grafia definitiva Wyndoor e dominio wyndoor.com; rebranding e pagina Fornitori su `main`; fatture libere e anagrafica in fattura; magazzino rifatto; fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione; design SaaS multi-azienda registrato in §60; WS1 fondazione tenant e WS2 archivi per tenant implementati sui branch `feature/ws1-fondazione-tenant` e `feature/ws2-porta-aperta`, non su `main`, interruttore `FLAG_MULTI_AZIENDA` spento).
-**Versione:** 5.64 - Tars legge davvero gli allegati (non solo quelli col nome da conferma) e un documento fotografato entra nel fascicolo, da mail e da WhatsApp. Prima: 5.63 - Grafia definitiva del marchio: il prodotto si scrive **Wyndoor**, con due o, e il dominio è `wyndoor.com`. Rinominati testo, componenti e file statici; la spazzata di `shared/brand.test.ts` insegue ora entrambe le forme lasciate indietro. Prima: 5.62 - Gli allegati dei messaggi diventano documenti: media WhatsApp conservati nello storage, anteprima ovunque, archiviazione con commessa e tipo da mail e WhatsApp, dodici tipi nuovi e rinomina «{Tipo} {cliente} {AAAA-MM-GG}» (§8, §51.9). Prima: 5.61 - `main` ha fuso la PR #3 (WS1 fondazione tenant, con le sue fusioni 5.56→5.60) e il branch `feature/ws2-porta-aperta` lo rifonde il 08/09/2026 sopra la sua 5.58: qui sotto le voci arrivate da `main`, poi la catena del branch WS2. Prima (main): 5.60 - Quarta fusione di `main` (5.58: selezione delle consegne derivata nella pagina Fornitori) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026 in serata, sopra la 5.59; ogni push su `main` che alza questa riga rimette in conflitto la PR #3 finché non è fusa. Prima (main): 5.58 - La pagina Fornitori non si spegne più: la selezione delle consegne si deriva dall'elenco (React #185).. Prima (branch WS1): 5.59 - Terza fusione di `main` (5.57: pagina Fornitori unica con conferme e merce in arrivo) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.57; la 5.58 è la fusione analoga sul branch WS2. Prima (main): 5.57 - Fornitori e conferme d'ordine sono una pagina sola: elenco unico raggruppato (collegate da Tars, incerte, da collegare a mano, nel fascicolo, scartate), anteprima del file sempre a portata, e la vista «In arrivo» che serve il magazzino (§36-bis, §36).. Prima (branch WS1): 5.57 - Seconda fusione di `main` (pagina Fornitori 5.56) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.56 di fusione del branch: la catena qui sotto è quella del branch, che contiene già `main` fino alla 5.55. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis).. Prima (branch WS1): 5.56 - Fusione di `main` (rebranding Wyndoor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws1-fondazione-tenant` (5.50–5.52 della fondazione tenant) il 07/09/2026: le due numerazioni erano divergenti dalla 5.48, qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.55 - Rebranding Wyndoor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12).. Prima (branch WS1, numerazione parallela): 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9).. Prima (branch WS2): 5.58 - Fusione di `main` (pagina Fornitori 5.56, rebranding Wyndoor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws2-porta-aperta` (5.53–5.54 del WS2 sopra 5.50–5.52 del WS1) il 07/09/2026; la 5.57 è la fusione analoga sul branch WS1. Le due numerazioni erano divergenti dalla 5.48: qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis). Prima: 5.55 - Rebranding Wyndoor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12). Prima (branch WS2/WS1, numerazione parallela): 5.54 - WS2 «porta aperta» implementato sul branch `feature/ws2-porta-aperta` in 15 task (§60.10): un archivio JSONB per azienda con le chiavi di oggi per il tenant 1, contesto implicito, id globali, guardia unica tRPC/Express, worker per azienda, `tenant_id` sulle 33 tabelle via trigger, `pnpm tenant verifica`, via la porta chiusa; diciotto decisioni d'esecuzione nella spec §2-bis; non su `main`, non in produzione; aperto il ripasso dei 96 «non trovato» che rispondono 500 invece di 404. Prima: 5.53 - WS2 «porta aperta» progettato: spec tecnica approvata a sezioni e piano in 15 task sul branch `feature/ws2-porta-aperta` (§60.10), codice non partito; alias delle chiavi per il tenant 1 (deviazione registrata dalla §14.2 del design), contesto implicito con AsyncLocalStorage, id globali, `tenant_id` via trigger. Prima: 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9). Prima: 5.51 - WS1 fondazione tenant: revisione finale del branch il 07/09 (§60.9), nessun Critical; corretti ruoli dallo store a ogni richiesta (non più dal JWT), guardia sull'ultima sede attiva del tenant, `crea` resiliente a un commit fallito, hash della password azzerato dal payload alla chiusura del comando, guardia dell'ultimo proprietario applicata solo con l'interruttore acceso (commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`); aperto per il WS2: le rotte Express (upload documenti, allegati mail, anteprime, SSE) non applicano ancora porta chiusa né sola lettura. Prima: 5.50 - WS1 fondazione tenant (§60.9): contratto implementato sul branch `feature/ws1-fondazione-tenant` in 15 task (codice `4c3a71b`…`a01a757`, documentazione `07f1b1f`) — porta chiusa a chiave, tabelle `tenants`/`tenant_eventi`/`tenant_comandi`, `tenantId` su utenti e sedi, ruolo `proprietario` (ottavo, §4.1), servizio `tenants` con comandi da `pnpm tenant`, Tars con `tenantId` obbligatorio; `pnpm check`/`test`/`build` verdi e repository provato su Postgres vero; non verificati a schermo `/utenti` (serve login demo) né la produzione Railway; `FLAG_MULTI_AZIENDA` spento e branch non ancora su `main`. Prima: 5.49 - SaaS multi-azienda: design approvato dalla direzione e registrato in §60 (tenant sopra sede, un solo prodotto a canone fisso per azienda, storage e Tars come sole risorse misurate, Platform Admin separato, abbonamenti omaggio, Ruffino Group come tenant 1) con il riscontro sul codice del checkout; nessuna implementazione autorizzata. Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
+**Stato:** Documento vivente, riallineato allo stato corrente del checkout (08/09/2026: stampa dei limiti; decisione «dal contratto verificato alla bozza automatica» registrata come obiettivo (§61); grafia definitiva Wyndoor e dominio wyndoor.com; rebranding e pagina Fornitori su `main`; fatture libere e anagrafica in fattura; magazzino rifatto; fasi 1-5 dello studio sui dati reali; anteprime delle evidenze «Dove l'ho letto» su `main` con il flag acceso in produzione; design SaaS multi-azienda registrato in §60; WS1 fondazione tenant e WS2 archivi per tenant implementati sui branch `feature/ws1-fondazione-tenant` e `feature/ws2-porta-aperta`, non su `main`, interruttore `FLAG_MULTI_AZIENDA` spento).
+**Versione:** 5.66 - Stampa dei limiti di spesa (pagina senza shell dal tab Limiti, §55.4). Prima: 5.65 - Dopo la verifica umana dei dati letti dal contratto, il sistema deve preparare automaticamente una bozza di fattura rivedibile; il calcolo dei limiti resta facoltativo e l'emissione su Fatture in Cloud/SdI resta sempre esplicita (§61; requisito approvato, non implementato). Prima: 5.64 - Tars legge davvero gli allegati (non solo quelli col nome da conferma) e un documento fotografato entra nel fascicolo, da mail e da WhatsApp. Prima: 5.63 - Grafia definitiva del marchio: il prodotto si scrive **Wyndoor**, con due o, e il dominio è `wyndoor.com`. Rinominati testo, componenti e file statici; la spazzata di `shared/brand.test.ts` insegue ora entrambe le forme lasciate indietro. Prima: 5.62 - Gli allegati dei messaggi diventano documenti: media WhatsApp conservati nello storage, anteprima ovunque, archiviazione con commessa e tipo da mail e WhatsApp, dodici tipi nuovi e rinomina «{Tipo} {cliente} {AAAA-MM-GG}» (§8, §51.9). Prima: 5.61 - `main` ha fuso la PR #3 (WS1 fondazione tenant, con le sue fusioni 5.56→5.60) e il branch `feature/ws2-porta-aperta` lo rifonde il 08/09/2026 sopra la sua 5.58: qui sotto le voci arrivate da `main`, poi la catena del branch WS2. Prima (main): 5.60 - Quarta fusione di `main` (5.58: selezione delle consegne derivata nella pagina Fornitori) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026 in serata, sopra la 5.59; ogni push su `main` che alza questa riga rimette in conflitto la PR #3 finché non è fusa. Prima (main): 5.58 - La pagina Fornitori non si spegne più: la selezione delle consegne si deriva dall'elenco (React #185).. Prima (branch WS1): 5.59 - Terza fusione di `main` (5.57: pagina Fornitori unica con conferme e merce in arrivo) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.57; la 5.58 è la fusione analoga sul branch WS2. Prima (main): 5.57 - Fornitori e conferme d'ordine sono una pagina sola: elenco unico raggruppato (collegate da Tars, incerte, da collegare a mano, nel fascicolo, scartate), anteprima del file sempre a portata, e la vista «In arrivo» che serve il magazzino (§36-bis, §36).. Prima (branch WS1): 5.57 - Seconda fusione di `main` (pagina Fornitori 5.56) nel branch `feature/ws1-fondazione-tenant`, il 07/09/2026, sopra la 5.56 di fusione del branch: la catena qui sotto è quella del branch, che contiene già `main` fino alla 5.55. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis).. Prima (branch WS1): 5.56 - Fusione di `main` (rebranding Wyndoor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws1-fondazione-tenant` (5.50–5.52 della fondazione tenant) il 07/09/2026: le due numerazioni erano divergenti dalla 5.48, qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.55 - Rebranding Wyndoor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12).. Prima (branch WS1, numerazione parallela): 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9).. Prima (branch WS2): 5.58 - Fusione di `main` (pagina Fornitori 5.56, rebranding Wyndoor 5.55, magazzino 5.50, fatture libere 5.49) nel branch `feature/ws2-porta-aperta` (5.53–5.54 del WS2 sopra 5.50–5.52 del WS1) il 07/09/2026; la 5.57 è la fusione analoga sul branch WS1. Le due numerazioni erano divergenti dalla 5.48: qui sotto prima la catena di `main`, poi quella del branch, poi la parte comune. Prima (main): 5.56 - Pagina Fornitori: l'archivio delle conferme d'ordine per fornitore, letto da Tars, collegato alle commesse a mano quando non è certo (§36-bis). Prima: 5.55 - Rebranding Wyndoor: il gestionale cambia nome e marchio, l'accento del marchio entra nei token, le icone raster mancanti vengono generate (spec `2026-09-07-rebranding-wyndor-design.md`). Numero scelto sopra la 5.50 di `main`, la 5.51 di `feature/ws1-fondazione-tenant` e la 5.53 di `feature/ws2-porta-aperta` per non collidere. Prima: 5.50 - Magazzino rifatto: una conferma d'ordine è UNA consegna con gli articoli dentro, fornitori con il nome aziendale, «Ricevuto tutto» per commessa (§36, §54.7). Prima: 5.49 - Fatture libere dentro la commessa, limiti opzionali all'emissione, anagrafica del cliente corretta dalla fattura e riportata nella scheda (§56.3, §56.4, §56.8, §56.12). Prima (branch WS2/WS1, numerazione parallela): 5.54 - WS2 «porta aperta» implementato sul branch `feature/ws2-porta-aperta` in 15 task (§60.10): un archivio JSONB per azienda con le chiavi di oggi per il tenant 1, contesto implicito, id globali, guardia unica tRPC/Express, worker per azienda, `tenant_id` sulle 33 tabelle via trigger, `pnpm tenant verifica`, via la porta chiusa; diciotto decisioni d'esecuzione nella spec §2-bis; non su `main`, non in produzione; aperto il ripasso dei 96 «non trovato» che rispondono 500 invece di 404. Prima: 5.53 - WS2 «porta aperta» progettato: spec tecnica approvata a sezioni e piano in 15 task sul branch `feature/ws2-porta-aperta` (§60.10), codice non partito; alias delle chiavi per il tenant 1 (deviazione registrata dalla §14.2 del design), contesto implicito con AsyncLocalStorage, id globali, `tenant_id` via trigger. Prima: 5.52 - WS1: lo script `pnpm tenant` non tocca più lo schema (sonda in sola lettura, DDL solo dal server al boot) e §60.6 allineato alla prova gratuita, dopo la revisione automatica della PR #3 (§60.9). Prima: 5.51 - WS1 fondazione tenant: revisione finale del branch il 07/09 (§60.9), nessun Critical; corretti ruoli dallo store a ogni richiesta (non più dal JWT), guardia sull'ultima sede attiva del tenant, `crea` resiliente a un commit fallito, hash della password azzerato dal payload alla chiusura del comando, guardia dell'ultimo proprietario applicata solo con l'interruttore acceso (commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`); aperto per il WS2: le rotte Express (upload documenti, allegati mail, anteprime, SSE) non applicano ancora porta chiusa né sola lettura. Prima: 5.50 - WS1 fondazione tenant (§60.9): contratto implementato sul branch `feature/ws1-fondazione-tenant` in 15 task (codice `4c3a71b`…`a01a757`, documentazione `07f1b1f`) — porta chiusa a chiave, tabelle `tenants`/`tenant_eventi`/`tenant_comandi`, `tenantId` su utenti e sedi, ruolo `proprietario` (ottavo, §4.1), servizio `tenants` con comandi da `pnpm tenant`, Tars con `tenantId` obbligatorio; `pnpm check`/`test`/`build` verdi e repository provato su Postgres vero; non verificati a schermo `/utenti` (serve login demo) né la produzione Railway; `FLAG_MULTI_AZIENDA` spento e branch non ancora su `main`. Prima: 5.49 - SaaS multi-azienda: design approvato dalla direzione e registrato in §60 (tenant sopra sede, un solo prodotto a canone fisso per azienda, storage e Tars come sole risorse misurate, Platform Admin separato, abbonamenti omaggio, Ruffino Group come tenant 1) con il riscontro sul codice del checkout; nessuna implementazione autorizzata. Prima: 5.48 - Studio dell'OCR e decisione sul VLM registrati (§54.6: tesseract resta, il modello estrae i campi delle conferme solo dopo la decisione A/B/C, mai risposta), regole della vignetta «Dove l'ho letto» e stato in produzione (§19.4). Prima: 5.47 - Studio sui dati reali, fase 5: il corpus del Drive NAS — fixture del motore a 148 fogli reali, misure decimali dichiarate dal raccoglitore, 34 contratti 2023-24 letti col modello (§55.7, §57.4). Prima: 5.46 - Studio sui dati reali, fase 4: 30 contratti a campione letti col modello, PDF misti trascritti nelle pagine vuote, evidenze ritrovate anche con i puntini o ricomposte a colonne, corpus del Drive NAS (§57.1, §57.4). Prima: 5.45 - Le foto HEIC/HEIF (iPhone) si convertono in JPEG in testa alla lettura e nelle anteprime: conferme fotografate leggibili, riquadri e vignetta come per ogni foto, lettura costo 1.10.0 (§19.4). Prima: 5.44 - Anteprime delle evidenze «Dove l'ho letto»: ogni valore letto da un documento porta un tasto che apre il ritaglio della pagina, con coordinate dal parser nativo e dall'OCR, localizzatore puro, pagine rese in JPEG dietro `FLAG_ANTEPRIME_EVIDENZE` (§19.4, §54.7). Prima: 5.43 - Studio sui dati reali, fase 3: la lettura del contratto su 21 scansioni vere — lettura visiva prima dell'OCR, layout del preventivo 2025, valori fuori intervallo che non fermano più la lettura (§57.1, §57.4). Prima: 5.42 - Studio sui dati reali, fasi 1 e 2: il motore riproduce 67 fogli su 77 con tre edizioni del listino; la bozza nasce come la fa la commercialista (beni a contratto divisi in riga e markup, servizi al residuo) (§55.7, §56.2, §56.3). Prima: 5.41 - Fatturazione guidata su `main` (piano 4) e il passo Fattura che si spiega da solo: percorso interno, controlli azionabili, «Da fare oggi» dal percorso (§58, §59). Prima: 5.40 - Fixture d'oro del motore limiti dai fogli reali, correzioni H1/H2, piano 4 pianificato. Prima: 5.39 - Lettura del contratto PDF (piano 3). Prima: 5.38 - Fatturazione dal contratto (piano 2). Prima: 5.37 - Contratto strutturato e computo dei limiti (piano 1). Prima: 5.36 - Calendario riprogettato (griglia oraria, ricerca su tutte le date, chi esegue secondo il tipo), prestazioni misurate in produzione (pool, briefing, JSONB; ~147 ms per round trip verso il database, §30.3), lettore email e allegati apribili. Prima: 5.35 - Semplificazioni chieste dalla direzione. Prima: 5.34 - Le conferme d'ordine si leggono davvero: testo per geometria, OCR, lettura visiva col modello, più conferme in un file; la commessa si cerca DENTRO il documento e la conferma trovata entra nel fascicolo da sola (costo, merce, mail collegata); analisi con proposte eseguibili, follow-up preventivi riparato, prompt v12 «non ti arrendi» (§54.7, §54.8). Prima: 5.33 - Tars operativo T1–T6 e il costo fornitore che nasce dalla conferma d'ordine. Prima: 5.32 - Analisi azienda giornaliera di Tars (fotografia deterministica + sintesi del modello, proposte «Chiedi a Tars»). Prima: 5.31 - Tars libero (il modello decide, il dominio verifica; schede Proposte e Registro su /tars; smistamento D7/D8). Prima: 5.30 - Tars v2 è operativo e proattivo in produzione col
 provider reale, senza tetti di spesa (gate OpenAI §8) e con lo
 smistamento automatico delle comunicazioni (`server/tars/smistamento/`).
 La verità T0 su azioni disponibili, gap e accettazione è in
@@ -13,7 +13,7 @@ del 3-5 settembre 2026 (contratto strutturato e computo dei limiti,
 fatturazione dal contratto, lettura del contratto PDF), tutti dietro
 interruttori fail-closed; §58 il piano 4 (fatturazione guidata), su `main`
 dal 05/09; §59 la UX del passo Fattura e i rimandi del processo (05-06/09).
-**Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato; ogni divergenza riscontrata nel codice va trattata come bug.
+**Riferimento implementativo:** repository `infissi-ops-app`. Il presente PRD descrive il comportamento atteso del software così come è implementato, salvo i requisiti esplicitamente marcati come **obiettivo approvato, non ancora implementato**; ogni altra divergenza riscontrata nel codice va trattata come bug.
 
 ---
 
@@ -1455,6 +1455,8 @@ Conseguenza operativa: con 147 ms a query il lavoro utile è togliere *round tri
 ---
 
 ## 33. Cronologia significativa
+- **v5.66 (07/09/2026)** - **Stampa dei limiti** («devo poter stampare i limiti»). Pulsante «Stampa» nel tab Limiti (anche nel passo Limiti del percorso guidato) che apre `/commesse/:id/limiti/stampa`: pagina senza shell come la stampa fattura, con intestazione della sede, commessa e cliente, parametri del computo (cantiere, zona, piano, distanza, detrazione, pattuito, listino, data del calcolo, esito), le righe del contratto come nel foglio (quantità, L × H, mq, prezzo), le sezioni del computo — CHECK 1 Allegato A, CHECK 2 DEI per riga, controtelai, opere, eventuali — voce per voce con codice DEI, calcolo e limite (le voci non incluse in grigio e fuori dai totali), i totali (CHECK 1, CHECK 2, limite, detraibile, detrazione stimata) e le avvertenze; filigrana «COMPUTO NON AGGIORNATO» quando il computo non segue le righe correnti. Presentazione pura in `client/src/lib/limitiStampaView.ts` (provata); rotta nel contratto delle rotte e nel manifesto; capability `contratto.read`. Verifica browser 1440/390 non eseguita (login demo). Suite: 250 file passati e 9 saltati, 2.688 test passati e 53 saltati; `pnpm check` e build puliti.
+- **v5.65 (07/09/2026)** - **Dal contratto verificato alla bozza automatica; limiti facoltativi** (decisione della direzione, requisito approvato e non ancora implementato). Dopo che una persona ha rivisto e applicato la proposta estratta dal contratto, il sistema deve preparare automaticamente nella commessa una bozza di fattura senza numero fiscale e senza invio esterno. La bozza riprende anagrafica, righe, importi e scadenze, resta modificabile e non può essere confusa con una fattura emessa. Se un computo valido esiste può arricchire la proposta e controllare i limiti; se manca o va ricalcolato si mostra «Limiti non verificati» e si offre «Calcola i limiti di spesa», senza rendere quel calcolo un passaggio obbligatorio. Creazione/numerazione su Fatture in Cloud e invio SdI richiedono sempre «Emetti» e la conferma di un operatore autorizzato. Il §61 definisce idempotenza, recupero dagli errori, criteri di accettazione e rappresentazione pubblica/animata del flusso Wyndor.
 - **v5.64 (08/09/2026)** - **Tars legge gli allegati, non solo quelli che si chiamano «conferma»** (§51.9, §54.7; caso reale della direzione: «ho scansionato i doc identità di Sica, nell'oggetto ho scritto doc identita sica, com'è possibile che Tars non abbia collegato il file… per essere sicuro che erano effettivamente i documenti Tars deve leggere e capire il file»). Diagnosi sui dati veri: il file (`Scanned_from_a_Lexmark_Multifunction_Product…pdf`, 240 KB, scansione senza testo) **non è mai stato aperto**, perché lo smistamento leggeva soltanto gli allegati il cui NOME sembrava una conferma d'ordine (`nomeDaConferma`); senza contenuto il modello aveva solo l'oggetto, ha dato «documento_identita» con confidenza media e nessun candidato («Nessun candidato sostenuto dal contenuto»), e senza commessa non si archivia niente. Correzioni: **si legge tutto ciò che può contenere qualcosa** (`allegatoDaLeggere`: PDF, documenti d'ufficio, immagini sopra 30 KB — sotto è un logo o una firma; al massimo tre letture per messaggio, con OCR e trascrizione del modello come per le conferme); **si legge anche quando la commessa è già nota**, perché lì la lettura serve a capire CHE COSA è il file; **il testo letto è quello che vede anche l'analisi** (prima l'estrazione per il modello girava con `ocr: false` e su una scansione tornava vuota); **un documento fotografato è un documento**: un'immagine letta e riconosciuta entra nel fascicolo, da email come da WhatsApp, mentre un'immagine non letta o piccola no. Il tasto **«Riguarda questo messaggio»** (banner Tars, `tars.smistamentoRiesamina`, direzione) rimanda in lettura un messaggio già smistato: la coda prende solo quelli mai visti. Suite: **3.082 test passati e 67 saltati**.
 - **v5.62 (08/09/2026)** - **Gli allegati dei messaggi diventano documenti** (§8.1, §8.4, §8.5, §51.7, §51.9; mandato della direzione: «devo poter vedere l'anteprima dei file inviati su whatsapp», «devo poterli collegare alle commesse, sia su whatsapp che sulle mail», «vanno aggiunti altri tipi di doc caricabili sulle commesse e in base al tipo di doc deve essere rinominato automaticamente»). Quattro cose. **I media WhatsApp si conservano**: `conservaMediaWhatsApp` li scarica appena il messaggio entra e li mette nello storage — prima esisteva solo il `mediaId` e Meta scarta i media dopo circa trenta giorni, quindi di una foto restava il nome. **Anteprima ovunque**: un componente solo (`AnteprimaFile`) per documenti di commessa e allegati dei messaggi — PDF nel riquadro, immagini a schermo, video e vocali con i comandi, «Apri in una scheda» sempre, e quando il file non c'è più lo dice con le parole del server. Le foto WhatsApp si vedono nella bolla. **Archiviare da qualsiasi canale**: `mail.comunicazioni.archiviaAllegato` sostituisce la vecchia procedura solo-email che archiviava sempre come «altro» e pretendeva la mail già collegata; ora si scelgono commessa e tipo, e il messaggio libero segue il suo allegato. **Dodici tipi nuovi** (pratiche fiscali ed edilizie, asseverazione, scheda tecnica, disegno, dichiarazione di conformità, garanzia, verbale di posa, assistenza, contabile di pagamento, polizza, delibera condominiale) e **rinomina `{Tipo} {cliente} {AAAA-MM-GG}`** per tutti i tipi tranne «altro», con la data del documento e non del caricamento; il nome d'origine resta registrato (`nomeOriginale`) perché il numero d'ordine si legge anche da lì. Corretti quattro test con date fisse che scadevano da soli. Suite: **2.752 test passati e 53 saltati**. Verifica browser 1440x900 e 390x844 con la console sotto controllo (zero errori): foto nella bolla, anteprima PDF, archiviazione end-to-end da WhatsApp con collegamento del messaggio.
 - **v5.58 (07/09/2026)** - **La pagina Fornitori non si spegne più** (§36-bis). La vista «In arrivo» teneva la selezione delle consegne allineata con un `useEffect` che riscriveva lo stato a ogni render: in sviluppo React lo segnalava soltanto, in produzione l'error boundary spegneva la pagina («An unexpected error occurred», React #185 «Maximum update depth exceeded»), anche solo aprendo una conferma. La selezione ora si **deriva** dall'elenco (`client/src/lib/consegneSelezione.ts`, con test) e l'elenco ha un riferimento stabile: niente effetto, niente ciclo. Regola che resta: una selezione non si sincronizza, si deriva; e la verifica nel browser include SEMPRE la lettura della console, non solo lo sguardo ai pixel.
@@ -3194,7 +3196,11 @@ accettati (cambiarle è una decisione di direzione, non un fix):
   filtrato per zona, accessori ed eventuale oscurante abbinato.
 - Tab **«Limiti»** (`client/src/components/computo/LimitiTab.tsx`): «Calcola i
   limiti» (richiede `computo.run`), esito voce per voce con CHECK1, CHECK2 e
-  limite vincolante.
+  limite vincolante; **«Stampa»** (dal 07/09/2026) apre
+  `/commesse/:id/limiti/stampa` (`pages/LimitiStampa.tsx`,
+  `lib/limitiStampaView.ts`), la copia su carta del computo nella forma del
+  foglio «CALCOLO NUOVI LIMITI»: parametri, righe del contratto, sezioni con
+  codice DEI, calcolo e limite, totali e avvertenze.
 - `ContrattoStatoBanner.tsx`: riga di stato che porta l'operatore sulla tab
   giusta senza fargli cercare la linguetta.
 - Badge «da contratto · {pattuitoTipo}» accanto al pattuito nella card
@@ -3300,19 +3306,24 @@ Ver.9 del 2022 hanno un altro layout e restano fuori per decisione.
 ## 56. Fatturazione dal contratto (piano 2, 04/09/2026)
 
 Secondo piano (`docs/superpowers/plans/2026-09-04-fatturazione-dal-contratto.md`,
-18 task). Dal contratto strutturato e dal computo dei limiti (§55) nasce la
+18 task). Dal contratto strutturato nasce la
 **bozza di fattura**, che il CRM emette su Fatture in Cloud con invio allo SdI
 (in prova finché la direzione non lo spegne), archivia in PDF e XML e segue
 nei suoi stati; la nota di credito, totale o parziale, passa dalla stessa
-pipeline. Tutto dietro l'interruttore `fatturazione`, che richiede anche
-`limiti` sullo stesso ambiente.
+pipeline. Dal v5.49 il computo dei limiti (§55), quando disponibile, arricchisce
+e controlla la proposta ma non è richiesto dal servizio né dall'emissione. La
+UI corrente conserva però la CTA «Genera bozza dai limiti» e la disabilita se
+il computo non è valido (§59.1); inoltre resta il collegamento tecnico fra gli
+interruttori `fatturazione` e `limiti` (§56.10). Il nuovo automatismo §61 deve
+rimuovere entrambe le dipendenze dal percorso utente e non è ancora
+implementato.
 
 ### 56.1 Modello dati (6 tabelle)
 
 | Tabella | Contenuto |
 |---|---|
 | `fatturazione_config` | per sede: IBAN, banca, intestatario, metodo di pagamento (default MP05), numerazione FiC, conto e id delle aliquote IVA letti da FiC, dicitura di piè di pagina, spese di documentazione, esito dell'ultima verifica dello scope di scrittura |
-| `fatture` | sede, commessa, computo, hash righe, tipo (`fattura`/`nota_credito`), stato, id/numero/data FiC, snapshot cliente congelato all'emissione, imponibile/IVA/totale e scarto sul pattuito, diciture, chiavi di storage di PDF e XML con sha256, ultimo `ei_status` ed `ei_errore`, scavalco dei limiti e motivo, `revisione` |
+| `fatture` | sede, commessa, computo opzionale, hash righe, tipo (`fattura`/`nota_credito`), stato, id/numero/data FiC, snapshot cliente congelato all'emissione, imponibile/IVA/totale e scarto sul pattuito, diciture, chiavi di storage di PDF e XML con sha256, ultimo `ei_status` ed `ei_errore`, scavalco dei limiti e motivo, `revisione` |
 | `fattura_righe` | `intestazione`, `bene`, `servizio`, `markup`, `storno_bs`, `riaddebito_bs`, `nota`: descrizione, quantità, prezzo, aliquota 22/10, collegamento alla voce di computo o alla riga di contratto, limite della voce |
 | `fattura_riepilogo_iva` | imponibile e imposta per aliquota |
 | `fattura_scadenze` | numero, quota %, data, importo, `ficPaymentId`, stato |
@@ -3345,7 +3356,7 @@ servizi, **M** markup, **P = N + S + M** (prestazione).
   scarto dichiarato che l'operatore accetta.
 
 ### 56.3 Generatore (`server/fatture/generatore.ts`)
-Dalla commessa con computo valido, funzione pura:
+Dalla commessa con contratto strutturato, con computo facoltativo, funzione pura:
 - riga `intestazione` («Fattura per la prossima fornitura e posa di:» +
   categorie dal contratto);
 - una riga **bene** per riga di contratto: al 22 % se significativa, al
@@ -3418,9 +3429,11 @@ Passi, idempotenti uno per uno — se `ficDocumentId` esiste non si ricrea
 nulla, e **mai** una cancellazione automatica su FiC:
 
 1. validazione (cliente completo, CF con checksum per i privati, P.IVA per le
-   aziende, codice destinatario o PEC, requisiti della detrazione, computo
-   valido o scavalco registrato, scadenze che sommano al totale,
-   configurazione di sede completa);
+   aziende, codice destinatario o PEC, requisiti della detrazione, scadenze
+   che sommano al totale e configurazione di sede completa); l'assenza del
+   computo produce l'avviso `computo_assente` ma non blocca, mentre un computo
+   presente e oltre soglia mantiene i controlli e l'eventuale scavalco
+   registrato;
 2. cliente su FiC (ricerca per CF/P.IVA, altrimenti creazione con fattura
    elettronica attiva; un privato con un nome di una sola parola nasce come
    `company`, perché FiC rifiuta una `person` senza nome proprio);
@@ -3512,11 +3525,14 @@ scrittura sulla fattura e a ogni cambio del flag a runtime.
   `fattura.draft`, `fattura.emit`, `fattura.credit_note`: amministrazione e
   direzione (§4.4).
 - Interruttore `fatturazione` (`FLAG_FATTURAZIONE`) in middleware sui due
-  router (`fatture`, `fatturazioneConfig`) **e** `limiti` verificato per
-  handler: la fatturazione non esiste senza il contratto strutturato. Con
-  `limiti` spento ogni mutation risponde `PRECONDITION_FAILED`. Entrambi
-  fail‑closed; questo documento non attesta lo stato dei flag in un ambiente
-  esterno.
+  router (`fatture`, `fatturazioneConfig`) **e** `limiti` ancora verificato
+  per handler. Questa è una dipendenza tecnica residua dell'implementazione,
+  non significa che l'utente debba calcolare i limiti: con `limiti` spento
+  ogni mutation risponde ancora `PRECONDITION_FAILED`, mentre con il flag
+  acceso il computo può mancare. Entrambi i flag sono fail‑closed; questo
+  documento non attesta il loro stato in un ambiente esterno. L'implementazione
+  di §61 deve separare il gate tecnico dalla scelta funzionale, senza indebolire
+  sede, capability o audit.
 
 ### 56.11 Runbook della prima fattura reale
 Procedura completa in `handoff.md` §11‑vicies quaterdecies. In sintesi:
@@ -3540,7 +3556,7 @@ totale: il CRM manda righe positive speculari all'origine, le note reali in
 mano alla commercialista stampano il totale in negativo.
 
 ### 56.12 Fuori taglio
-- ~~Fatture libere e acconti~~ — dal 07/09/2026 la **fattura libera** esiste (v5.48): vuota, dentro la commessa, righe a mano, limiti non richiesti; resta fuori la fattura senza commessa.
+- ~~Fatture libere e acconti~~ — dal 07/09/2026 la **fattura libera** esiste (v5.49): vuota, dentro la commessa, righe a mano, limiti non richiesti; resta fuori la fattura senza commessa.
 - IVA al 4 % e clienti B2B senza contratto.
 - PEC e codice destinatario si correggono dalla bozza di fattura (v5.48) e da
   `clienti.update`; `ficEntityId` resta un campo server senza UI.
@@ -3555,7 +3571,10 @@ mano alla commercialista stampano il totale in negativo.
 Terzo piano (`docs/superpowers/plans/2026-09-04-lettura-contratto.md`, 9
 task). Il modello legge il PDF del contratto firmato e **propone** righe,
 pattuito, posa, rate e cantiere; la proposta si rivede campo per campo e solo
-allora tocca il contratto strutturato del §55. Non salva mai da sola.
+allora tocca il contratto strutturato del §55. L'estrazione non applica mai i
+dati da sola. Nel comportamento corrente l'operatore deve poi generare la
+bozza con un'azione separata; l'obiettivo approvato §61 elimina soltanto
+questo secondo comando e prepara la bozza dopo l'applicazione umana riuscita.
 
 ### 57.1 Flusso
 1. Si parte da un documento di tipo `contratto` già nel fascicolo della
@@ -3652,6 +3671,11 @@ spacciata per letta.
   contratto **salvato** solo se il comune proposto coincide con quello
   salvato; altrimenti lo dichiarano.
 
+La catena termina oggi con il contratto salvato. L'estensione §61 dovrà
+chiamare il servizio di dominio della bozza soltanto dopo il successo di
+`applicaEstrazione`, senza spostare nel modello alcuna regola fiscale o di
+fatturazione.
+
 ### 57.4 Valutazione
 `pnpm eval:contratti` (`server/contratti/eval/`) gira sulle tre fixture
 sintetiche — layout WnD, documento Word, scansione — usando lo stesso
@@ -3682,7 +3706,10 @@ giudicate finché non si trova il PDF giusto.
 più le condizioni del provider governato di Tars (provider reale configurato,
 modello con tariffa attiva, budget, ledger PostgreSQL autorevole) — le stesse
 verificate da `statoProvider`. Entrambi i flag sono fail‑closed; questo
-documento non attesta lo stato di flag o provider in un ambiente esterno.
+documento non attesta lo stato di flag o provider in un ambiente esterno. Il
+flag `limiti` è qui una dipendenza tecnica del checkout, non l'obbligo per
+l'operatore di eseguire il computo; §61 richiede di rendere esplicita questa
+separazione anche nell'architettura del flusso futuro.
 
 Runbook della prima lettura reale (dettagli in `handoff.md` §11‑vicies
 quindecies): sede di prova → una chiamata di prova con
@@ -3726,7 +3753,9 @@ istruzione della direzione; la verifica browser resta in sospeso, v.
 direzione il 05/09/2026. Prima, contratto, limiti e fattura vivevano in tre
 tab dense della pagina commessa, senza un ordine evidente e senza un posto
 dove vedere «cosa manca»: il piano 4 dà un ingresso unico. Il §59 descrive
-la UX del passo Fattura costruita sopra questo percorso.
+la UX del passo Fattura costruita sopra questo percorso. Le decisioni sotto
+descrivono l'interfaccia corrente; per il comportamento obiettivo, il passo
+Limiti diventa una diramazione facoltativa e non una tappa necessaria (§61).
 
 Decisioni registrate:
 - **Elenco** `/fatturazione` (gruppo Economia): tutte le commesse della sede
@@ -3737,7 +3766,8 @@ Decisioni registrate:
   Documenti, Contratto, Limiti, Fattura — con avanzamento visibile,
   interrompibile e riprendibile; «Avanti» attivo solo a passo fatto, indietro
   sempre possibile; chi non ha la capability di un passo lo vede in sola
-  lettura.
+  lettura. È la forma oggi implementata: §61 richiede che Contratto → Fattura
+  funzioni anche senza completare Limiti.
 - **Tab della pagina commessa** (Contratto, Limiti, Fattura): restano ma in
   **sola lettura**, con riassunto e pulsante «Apri fatturazione». Si lavora in
   un posto solo.
@@ -3761,7 +3791,9 @@ rimandi che il processo lascia in giro per il CRM. Nessun contratto nuovo
 sul server: tutto è client, sopra le procedure esistenti (`fatture.*`,
 `contratti.get`, `computo.ultimo`, `fatturazioneGuidata.daFare`). Regola
 seguita: la logica nasce pura e provata in `client/src/lib/fatturaView.ts`
-(44 test), i componenti disegnano.
+(44 test), i componenti disegnano. Questa sezione registra la UX già
+implementata; il testo e la gerarchia futuri sono sostituiti da §61 dove
+entrano in conflitto con limiti facoltativi e bozza automatica.
 
 ### 59.1 Il percorso interno della fattura
 
@@ -3788,6 +3820,9 @@ conferma), e il pulsante «Genera bozza dai limiti» che dice a parole perché
 è spento — permesso mancante, contratto assente, computo non valido — con
 il link «Apri il contratto» / «Apri i limiti» al passo mancante. Finché
 contratto e computo sono in lettura il pulsante aspetta senza accusare.
+Questa è la UI corrente: nell'obiettivo §61 la bozza nasce dopo l'applicazione
+verificata del contratto e «Calcola i limiti di spesa» resta un'azione
+secondaria, mai una condizione per proseguire.
 
 ### 59.2 Controlli azionabili
 
@@ -4282,3 +4317,198 @@ trovato» a 500 nei 19 router (sopra, invariato) e il gemello PDF del PRD
 **Prossimo passo:** decisione della direzione sul merge (prima la PR #3 del
 WS1, poi questo branch), poi il **WS3** — prefissi e byte dello storage,
 backup ed export per azienda, `state` OAuth persistito, retry e dead-letter.
+
+---
+
+## 61. Dal contratto verificato alla bozza automatica (decisione 07/09/2026)
+
+> **Stato:** obiettivo di prodotto approvato dalla direzione, **non ancora
+> implementato** nel checkout descritto da questo PRD. Questa sezione è il
+> contratto per una modifica futura; non autorizza a presentare l'automatismo
+> come già disponibile nel CRM o in produzione.
+
+### 61.1 Regola di prodotto
+
+Dopo che l'operatore ha verificato e applicato i dati estratti dal contratto,
+il sistema **DEVE** preparare automaticamente nella stessa commessa una
+**bozza di fattura**. La bozza:
+
+- riprende dal contratto e dall'anagrafica disponibili cliente, righe,
+  importi, descrizioni e scadenze;
+- non ha numero fiscale, non crea ancora un documento su Fatture in Cloud e
+  non avvia alcun invio allo SdI;
+- è sempre rivedibile da un utente con `fattura.draft` prima dell'emissione;
+- mostra in modo persistente lo stato **«Bozza · da verificare»**;
+- resta distinta dalle fatture libere di §56.12, che continuano a nascere da
+  un comando esplicito dell'operatore.
+
+Il trigger non è il semplice upload né la fine dell'OCR/VLM: è il successo
+dell'azione umana che applica la proposta al contratto strutturato. Il modello
+estrae dati ed evidenze; generazione, IVA, beni significativi, markup,
+scadenze, permessi e controlli restano nei servizi deterministici già previsti
+da §55-§57.
+
+### 61.2 Flusso funzionale obiettivo
+
+1. L'operatore carica o seleziona nel fascicolo un contratto, anche
+   scansionato, e avvia «Leggi il contratto».
+2. Wyndor estrae i campi e mostra proposta, evidenze e valori da verificare;
+   nessun dato viene applicato in questa fase.
+3. L'operatore corregge se necessario e conferma «Applica al contratto».
+4. Salvato con successo il contratto, il sistema prepara la bozza nella
+   commessa e porta l'operatore al suo riepilogo. Se la crea, il feedback è:
+   **«Contratto salvato. Bozza di fattura preparata.»**; se ne trova già una,
+   la apre e dichiara che non l'ha sovrascritta.
+5. L'operatore controlla anagrafica, righe, aliquote, totali, diciture e
+   scadenze; può modificare e salvare la bozza.
+6. Solo il comando esplicito **«Emetti»**, seguito dalla conferma di un utente
+   autorizzato, può avviare creazione/numerazione su Fatture in Cloud e la
+   pipeline SdI di §56.5.
+
+Il percorso principale diventa quindi **Documento → Contratto verificato →
+Bozza → Controlli → Emissione → SdI**. I limiti non occupano un passaggio
+obbligatorio fra contratto e fattura.
+
+L'applicazione richiede `contratto.manage`; la preparazione automatica verifica
+anche `fattura.draft` sull'attore. Se quest'ultima capability manca, il
+contratto resta salvato, non nasce alcuna bozza e il feedback indica che deve
+prepararla un utente autorizzato. L'automatismo non eleva mai i permessi.
+
+### 61.3 Limiti di spesa: ramo facoltativo
+
+Il calcolo dei limiti **PUÒ** essere eseguito quando serve, ma non è richiesto
+per preparare, modificare o emettere la fattura:
+
+- senza computo, la bozza mostra l'avviso non bloccante **«Limiti non
+  verificati»** e l'azione secondaria **«Calcola i limiti di spesa»**;
+- con computo non aggiornato o incompleto, la bozza mostra **«Limiti da
+  ricalcolare»** e propone **«Ricalcola»**, senza cancellare né bloccare la
+  bozza;
+- con computo valido, il generatore **PUÒ** usarne le voci per arricchire la
+  proposta e il sistema applica i confronti di §56.4;
+- se un computo valido rileva un superamento, restano i controlli e lo
+  scavalco motivato già previsti; «facoltativo» significa che il calcolo può
+  non essere richiesto, non che un esito noto possa essere nascosto.
+
+L'indipendenza deve essere anche tecnica: con `FLAG_CONTRATTO_ESTRAZIONE` e
+`FLAG_FATTURAZIONE` accesi ma `FLAG_LIMITI` spento, lettura, applicazione e
+bozza devono continuare a funzionare. In tale configurazione la CTA dei limiti
+è nascosta o dichiarata non disponibile; non può disabilitare il flusso
+principale. Questo sostituisce per l'obiettivo §61 le dipendenze residue
+descritte in §56.10 e §57.5.
+
+Nella comunicazione commerciale i limiti sono una capacità disponibile —
+**«Quando servono, puoi anche calcolare i limiti di spesa»** — non il centro
+del beneficio né un prerequisito implicito.
+
+### 61.4 Idempotenza, errori e sicurezza
+
+- **Una sola bozza da contratto.** Ripetere l'applicazione della stessa
+  estrazione o ritentare dopo una risposta incerta non deve creare duplicati.
+  Se esiste già una bozza aperta con origine `contratto`, il sistema la riusa
+  e restituisce il suo id, senza rigenerarla né sovrascrivere eventuali
+  modifiche manuali. Un'eventuale rigenerazione resta un comando distinto con
+  anteprima e conferma. La garanzia deve essere atomica: anche due applicazioni
+  concorrenti ottengono lo stesso id e non possono inserire due bozze.
+- **Contratto cambiato.** La bozza conserva hash o revisione del contratto da
+  cui è nata. Se l'operatore riapplica dati diversi e la bozza esistente non è
+  più allineata, la UI mostra **«Bozza precedente al contratto aggiornato»**:
+  non usa il toast «Bozza preparata» e non sovrascrive nulla. L'operatore può
+  confrontare e confermare una rigenerazione esplicita.
+- **Fatture libere indipendenti.** Nessuna fattura `libera`, qualunque sia il
+  suo stato, viene riusata o impedisce di creare la bozza `contratto`.
+- **Documento già emesso.** Se per quel contratto esiste già una fattura da
+  contratto in stato `in_emissione` o successivo e non annullata, nessuna
+  nuova bozza viene creata automaticamente; la UI apre il documento esistente
+  e ne dichiara lo stato.
+- **Errore dopo il salvataggio.** Se il contratto viene applicato ma la bozza
+  non può essere preparata, il contratto resta salvato. La UI mostra
+  **«Contratto salvato; bozza non preparata»**, il motivo utilizzabile e
+  l'azione idempotente **«Prepara la bozza»**. Nessuna mezza fattura resta
+  invisibile.
+- **Audit.** La creazione automatica registra un evento append-only con sede,
+  commessa, estrazione, contratto, fattura, attore che ha applicato la
+  proposta e risultato; non registra il contenuto integrale del cliente.
+- **Confini invariati.** `sedeId`, capability, revisione ottimistica, lease di
+  emissione e policy fail-closed restano obbligatori. Nessun percorso può
+  chiamare direttamente FiC o SdI durante lettura o applicazione.
+
+### 61.5 Rappresentazione pubblica e animazione della landing Wyndor
+
+Copy principale autorizzato **dopo il rilascio e la chiusura di §61.6**:
+
+> **Carica il contratto, anche scansionato. Wyndor ne estrae i dati. Tu li
+> verifichi e li applichi al contratto; a quel punto Wyndor
+> prepara automaticamente la bozza di fattura. La controlli e decidi quando
+> emetterla. Quando servono, puoi anche calcolare i limiti di spesa.**
+
+Fino ad allora, la variante pubblicabile è:
+
+> **Carica il contratto, anche scansionato. Wyndor ne estrae i dati e te li
+> mostra con le evidenze: tu li verifichi e li applichi senza ricopiare tutto.
+> Da lì prosegui nel percorso guidato fino alla bozza e decidi tu quando
+> emetterla.**
+
+Il visual dedicato **DEVE** raccontare lo stesso confine, non un'automazione
+più ampia:
+
+1. un foglio o PDF credibile entra nell'area di lavoro;
+2. una linea di scansione lo attraversa una sola volta;
+3. emergono pochi campi concreti — cliente, prodotti, importi, scadenze —
+   collegati al documento;
+4. la proposta si ferma nello stato **«Dati da verificare»** e un gesto umano
+   attiva **«Applica al contratto»**; la transizione non parte da sola;
+5. solo dopo quel gesto il foglio si ricompone nell'interfaccia reale di una
+   fattura;
+6. il fotogramma finale mostra chiaramente **«BOZZA · DA VERIFICARE»** e, in
+   secondo piano, **«Calcola i limiti di spesa»**.
+
+Durata consigliata 1,4-1,8 secondi, con trasformazioni e opacità sobrie, senza
+laser, particelle, bagliori gratuiti o loop continuo. Con
+`prefers-reduced-motion` il risultato è statico e affianca i tre stati
+contratto, dati verificati e bozza. L'animazione non deve mai mostrare
+automaticamente un numero fattura, gli stati «Emessa»/«Inviata», il logo SdI
+o un esito fiscale concluso.
+
+La sequenza automatica si pubblica solo dopo il rilascio. Prima: o il blocco è
+marcato **«In arrivo»**, oppure il visual si ferma al contratto salvato e
+mostra separatamente la CTA corrente. Mai mostrare la bozza come esito già
+operativo di «Applica al contratto».
+
+### 61.6 Criteri di accettazione e gap dichiarato
+
+Il requisito sarà considerato implementato soltanto quando test automatici e
+verifica UI dimostreranno almeno che:
+
+1. applicare una proposta verificata crea o riusa esattamente una bozza da
+   contratto e restituisce il suo id;
+2. upload, estrazione e proposta non verificata non creano alcuna bozza;
+3. due applicazioni concorrenti restituiscono lo stesso id e nel repository
+   resta una sola bozza da contratto;
+4. se il contratto cambia, la bozza precedente viene segnalata come non
+   allineata e non viene sovrascritta senza anteprima e conferma;
+5. fatture con origine `libera` non vengono riusate e non impediscono la bozza
+   con origine `contratto`;
+6. l'assenza o la non attualità del computo produce un avviso e non un blocco;
+7. con `FLAG_LIMITI` spento e gli altri flag necessari accesi, lettura,
+   applicazione e bozza funzionano; soltanto il calcolo limiti è indisponibile;
+8. un computo valido viene usato per i controlli, compreso lo scavalco
+   motivato quando necessario;
+9. un errore di generazione non annulla il contratto applicato ed espone un
+   retry idempotente;
+10. nessuna chiamata a Fatture in Cloud o SdI avviene prima di «Emetti» più
+   conferma autorizzata;
+11. un attore senza `fattura.draft` salva il contratto ma non crea né modifica
+   alcuna bozza;
+12. il flusso mantiene isolamento per sede, capability e audit ed è verificato
+   a 1440×900 e 390×844, inclusa la modalità `prefers-reduced-motion`;
+13. la landing mostra il gesto «Applica al contratto» prima della bozza,
+   termina su «BOZZA · DA VERIFICARE», non mostra numerazione/FiC/SdI come
+   automatici e usa la variante pre-rilascio o l'etichetta «In arrivo» finché
+   gli altri criteri non sono chiusi.
+
+**Gap al 07/09/2026:** il checkout sa leggere e applicare il contratto e sa
+generare una bozza dal contratto con un comando separato; non concatena ancora
+le due operazioni. Fino alla chiusura dei criteri sopra, prodotto, landing,
+demo e materiali commerciali devono presentare questa capacità come obiettivo
+in arrivo e non come funzione già disponibile.

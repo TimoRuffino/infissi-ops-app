@@ -18,6 +18,7 @@ const MANIFEST_SOURCE = readFileSync(
 
 const EXPECTED_PATHS = [
   "/fatture/:id/stampa",
+  "/commesse/:id/limiti/stampa",
   "/",
   "/clienti",
   "/clienti/:id",

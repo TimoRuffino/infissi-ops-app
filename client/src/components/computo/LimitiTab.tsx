@@ -14,7 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Calculator, Info, ReceiptText } from "lucide-react";
+import { AlertTriangle, Calculator, Info, Printer, ReceiptText } from "lucide-react";
+import { hrefStampaLimiti } from "@/lib/limitiStampaView";
 
 const TONO: Record<"success" | "warning" | "muted", string> = {
   success: "text-success",
@@ -115,12 +116,24 @@ export default function LimitiTab({
           {badge.testo}
         </Badge>
         {motivo && <span className="text-xs text-muted-foreground">{motivo}</span>}
+        {c && (
+          <Button
+            size="sm"
+            variant="outline"
+            className={guidata ? "ml-auto min-h-11" : "ml-auto h-7"}
+            aria-label="Stampa i limiti"
+            title="Stampa il computo dei limiti (si apre in una scheda nuova)"
+            onClick={() => window.open(hrefStampaLimiti(commessaId), "_blank", "noopener")}
+          >
+            <Printer className="h-3.5 w-3.5 mr-1" /> Stampa
+          </Button>
+        )}
         {stato.puoEseguire && (
           <Button
             size="sm"
             // Nel percorso guidato è il gesto principale del passo: target
             // touch pieno, non il pulsantino di una barra di tab.
-            className={guidata ? "ml-auto min-h-11" : "ml-auto h-7"}
+            className={`${c ? "" : "ml-auto "}${guidata ? "min-h-11" : "h-7"}`}
             disabled={esegui.isPending}
             onClick={() => esegui.mutate({ commessaId })}
           >
