@@ -1,5 +1,7 @@
 // Regole pure del tenant: niente store, niente database, niente tRPC.
-import { RUOLO_PROPRIETARIO, SLUG_RE, TENANT_PREDEFINITO_ID } from "./costanti";
+import { interruttoreAttivo } from "../platform/interruttori";
+import { MESSAGGI, RUOLO_PROPRIETARIO, SLUG_RE, TENANT_PREDEFINITO_ID } from "./costanti";
+import type { TenantRecord } from "./tipi";
 
 export type UtentePresidio = {
   id: number;
@@ -12,13 +14,20 @@ export function slugValido(slug: string): boolean {
   return SLUG_RE.test(slug);
 }
 
-/**
- * WS1 soltanto: la «porta chiusa». Gli archivi business non sono ancora
- * tenant-aware, quindi ogni tenant diverso dal predefinito viene rifiutato.
- * Il WS2 toglie questa funzione insieme ai suoi due chiamanti (guardia e login).
- */
-export function portaChiusaPerTenant(tenantId: number): boolean {
-  return tenantId !== TENANT_PREDEFINITO_ID;
+export type Rifiuto = { codice: "PRECONDITION_FAILED"; messaggio: string };
+
+/** Guardia unica di tRPC ed Express (spec WS2 §5.2). Pura: legge solo l'interruttore. */
+export function motivoRifiutoTenant(
+  ctx: { tenantId: number | null; tenant: TenantRecord | null; sedeId: number | null },
+  op: { scrittura: boolean; esente?: boolean }
+): Rifiuto | null {
+  if (!interruttoreAttivo("multiAzienda")) return null;
+  if (!ctx.tenant) return null; // contesto senza record (test a mano): nessuna guardia, come nel WS1
+  if (op.scrittura && !op.esente && ctx.tenant.stato === "sospeso") {
+    return { codice: "PRECONDITION_FAILED", messaggio: MESSAGGI.solaLettura };
+  }
+  if (ctx.sedeId == null) return { codice: "PRECONDITION_FAILED", messaggio: MESSAGGI.senzaSede };
+  return null;
 }
 
 export function ruoliDi(

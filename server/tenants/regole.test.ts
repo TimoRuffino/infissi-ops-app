@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MESSAGGI } from "./costanti";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
-  portaChiusaPerTenant,
+  motivoRifiutoTenant,
   presidioDi,
   proprietarioAggiunto,
   proprietarioTolto,
@@ -11,6 +12,7 @@ import {
   tenantDelContesto,
   type UtentePresidio,
 } from "./regole";
+import type { TenantRecord } from "./tipi";
 
 const u = (
   id: number,
@@ -33,10 +35,28 @@ describe("slugValido", () => {
   });
 });
 
-describe("portaChiusaPerTenant (WS1)", () => {
-  it("apre solo il tenant 1", () => {
-    expect(portaChiusaPerTenant(1)).toBe(false);
-    expect(portaChiusaPerTenant(2)).toBe(true);
+describe("motivoRifiutoTenant", () => {
+  const attivo = { id: 2, slug: "acme", nome: "Acme", stato: "attivo", motivoStato: null, createdAt: new Date(), updatedAt: new Date() } as TenantRecord;
+  const sospeso = { ...attivo, stato: "sospeso" } as TenantRecord;
+  beforeEach(() => { delete process.env.FLAG_MULTI_AZIENDA; });
+  afterEach(() => { delete process.env.FLAG_MULTI_AZIENDA; });
+  it("interruttore spento: mai un rifiuto", () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: sospeso, sedeId: null }, { scrittura: true })).toBeNull();
+  });
+  it("tenant 2 attivo con sede: passa in lettura e scrittura (la porta chiusa non esiste più)", () => {
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: attivo, sedeId: 5 }, { scrittura: true })).toBeNull();
+  });
+  it("sospeso: scrittura rifiutata, lettura e sedi.switch (esente) ammesse", () => {
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: sospeso, sedeId: 5 }, { scrittura: true })?.messaggio).toBe(MESSAGGI.solaLettura);
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: sospeso, sedeId: 5 }, { scrittura: false })).toBeNull();
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: sospeso, sedeId: 5 }, { scrittura: true, esente: true })).toBeNull();
+  });
+  it("senza sede attiva: rifiuto, anche in lettura", () => {
+    expect(motivoRifiutoTenant({ tenantId: 2, tenant: attivo, sedeId: null }, { scrittura: false })?.messaggio).toBe(MESSAGGI.senzaSede);
+  });
+  it("tenant nullo nel contesto (test a mano) senza record: nessun rifiuto, come nel WS1", () => {
+    expect(motivoRifiutoTenant({ tenantId: 1, tenant: null, sedeId: 1 }, { scrittura: true })).toBeNull();
   });
 });
 

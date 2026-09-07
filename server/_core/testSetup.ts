@@ -16,6 +16,20 @@
 
 import http from "node:http";
 import https from "node:https";
+// WS2 (Task 7): `_core/trpc.ts` importa `conTenant` da qui, che a sua volta
+// (tramite `./contesto`) importa `routers/sedi` e `routers/utenti`, che
+// importano `_core/trpc` — un ciclo. In produzione `_core/index.ts` importa
+// questo modulo PRIMA della router tree (Task 6) e il ciclo si chiude senza
+// problemi: `trpc.ts`, essendo l'ultimo anello raggiunto, finisce di
+// valutarsi (definendo `protectedProcedure`/`adminProcedure`) prima che
+// qualcuno ne abbia bisogno. Un test che importa un router SENZA questa
+// garanzia (`../routers` è quasi sempre il primo import di un test)
+// capovolge l'ordine: `trpc.ts` parte per primo, il ciclo lo rimanda dentro
+// se stesso, e `routers/sedi.ts`/`routers/utenti.ts` (caricati nel mezzo)
+// trovano `protectedProcedure` ancora `undefined` — "Cannot read properties
+// of undefined (reading 'input')". Questa riga replica l'ordine di boot per
+// l'intera suite, una volta sola, qui.
+import "../tenants/contestoCorrente";
 
 const HOST_AMMESSI = [/^(127\.0\.0\.1|localhost|::1)$/i];
 

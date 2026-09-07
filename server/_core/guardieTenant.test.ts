@@ -5,8 +5,11 @@ import { contestoDiProva } from "./contestoDiProva";
 import { hashPassword } from "./password";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import type { TenantRecord } from "../tenants/tipi";
+import { istanziaStoresPerTenant } from "./persistence";
+import { protectedProcedure, router } from "./trpc";
 
 const SEDE = 97401; // sede reale del tenant 1, spinta nello store: serve a sedi.switch
 let acme: TenantRecord;
@@ -18,6 +21,10 @@ beforeEach(async () => {
   const repo = getTenantRepository();
   await repo.assicuraTenantPredefinito();
   acme = await repo.inserisci({ slug: "acme", nome: "Acme" });
+  // Come per un tenant nato a caldo (tenants.servizio.crea): senza questa
+  // riga i suoi store non esistono e le procedure business (ora raggiungibili
+  // senza la porta chiusa) troverebbero «store non istanziato».
+  await istanziaStoresPerTenant(acme.id);
   nSedi = sedi.length;
   const now = new Date();
   sedi.push({ id: SEDE, tenantId: 1, nome: "Guardie", citta: null, indirizzo: null, attiva: true, createdAt: now, updatedAt: now });
@@ -28,15 +35,12 @@ afterEach(() => {
   delete process.env.FLAG_MULTI_AZIENDA;
 });
 
-describe("porta chiusa (WS1)", () => {
-  it("un tenant diverso da 1 non entra nelle procedure business, ma tenants.mio risponde", async () => {
+describe("tenant 2 (WS2: la porta chiusa non esiste più)", () => {
+  it("un tenant diverso da 1 entra nelle procedure business; tenants.mio risponde", async () => {
     const caller = appRouter.createCaller(
       contestoDiProva({ utenteId: 97411, sedeId: SEDE, tenantId: acme.id, tenant: acme })
     );
-    await expect(caller.clienti.list({})).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-      message: "L'azienda non è ancora attiva su questa installazione.",
-    });
+    await expect(caller.clienti.list({})).resolves.toBeInstanceOf(Array);
     await expect(caller.tenants.mio()).resolves.toMatchObject({
       id: acme.id,
       slug: "acme",
@@ -46,13 +50,30 @@ describe("porta chiusa (WS1)", () => {
     });
   });
 
-  it("con l'interruttore spento la porta non esiste e tenants.mio risponde col tenant 1", async () => {
+  it("con l'interruttore spento tenants.mio risponde col tenant 1", async () => {
     process.env.FLAG_MULTI_AZIENDA = "off";
     const caller = appRouter.createCaller(
       contestoDiProva({ utenteId: 97411, sedeId: SEDE, tenantId: acme.id, tenant: acme })
     );
     await expect(caller.clienti.list({})).resolves.toBeInstanceOf(Array);
     await expect(caller.tenants.mio()).resolves.toMatchObject({ multiAzienda: false });
+  });
+});
+
+describe("il tenant nel contesto della procedura protetta", () => {
+  it("dentro una procedura protetta tenantCorrente() è il tenant del contesto", async () => {
+    const provaRouter = router({
+      tenant: protectedProcedure.query(() => tenantCorrente()),
+    });
+    modalitaTenantStretta(true);
+    try {
+      const caller = provaRouter.createCaller(
+        contestoDiProva({ utenteId: 97416, sedeId: SEDE, tenantId: acme.id, tenant: acme })
+      );
+      await expect(caller.tenant()).resolves.toBe(acme.id);
+    } finally {
+      modalitaTenantStretta(false);
+    }
   });
 });
 
@@ -86,7 +107,7 @@ describe("sede attiva obbligatoria", () => {
 });
 
 describe("login", () => {
-  it("rifiuta gli utenti di un tenant diverso da 1 prima di emettere il cookie", async () => {
+  it("un utente di un tenant diverso da 1 entra: riceve il cookie di sessione", async () => {
     const utenti = getUtentiStore();
     const n = utenti.length;
     utenti.push({
@@ -99,7 +120,7 @@ describe("login", () => {
       const caller = appRouter.createCaller(anonimo);
       await expect(
         caller.auth.login({ email: "porta@acme.test", password: "Password-lunga-12" })
-      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+      ).resolves.toMatchObject({ id: 97414, email: "porta@acme.test" });
     } finally {
       utenti.splice(n);
     }

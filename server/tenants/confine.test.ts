@@ -21,13 +21,9 @@ describe("confine del tenant", () => {
     expect(scrittori).toEqual([join("server", "tenants", "repository.ts")]);
   });
 
-  it("portaChiusaPerTenant ha esattamente due chiamanti: la guardia e il login", () => {
-    const chiamanti = PRODUZIONE.filter(
-      f => testo(f).includes("portaChiusaPerTenant(") && !f.endsWith(join("tenants", "regole.ts"))
-    )
-      .map(relativo)
-      .sort();
-    expect(chiamanti).toEqual([join("server", "_core", "trpc.ts"), join("server", "routers.ts")]);
+  it("portaChiusaPerTenant non compare più in server/", () => {
+    const superstiti = PRODUZIONE.filter(f => testo(f).includes("portaChiusaPerTenant")).map(relativo);
+    expect(superstiti).toEqual([]);
   });
 
   it("lo script tenant non importa router né store", () => {
