@@ -48,10 +48,9 @@ function chiediNascosto(domanda: string): Promise<string> {
 
 async function passwordProprietario(): Promise<string> {
   const env = process.env.TENANT_PROPRIETARIO_PASSWORD?.trim();
-  if (env) return env;
-  const digitata = (await chiediNascosto("Password del proprietario (almeno 12 caratteri): ")).trim();
-  if (digitata.length < 12) throw new Error("La password deve avere almeno 12 caratteri");
-  return digitata;
+  const scelta = env || (await chiediNascosto("Password del proprietario (almeno 12 caratteri): ")).trim();
+  if (scelta.length < 12) throw new Error("La password deve avere almeno 12 caratteri");
+  return scelta;
 }
 
 async function attendi(id: number): Promise<number> {
