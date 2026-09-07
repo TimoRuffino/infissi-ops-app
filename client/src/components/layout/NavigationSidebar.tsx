@@ -132,7 +132,7 @@ export default function NavigationSidebar({
 
   return (
     <aside
-      aria-label="Navigazione Ruffino Flow"
+      aria-label="Navigazione Wyndor"
       className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground"
       data-navigation-collapsed={collapsed ? "true" : "false"}
     >

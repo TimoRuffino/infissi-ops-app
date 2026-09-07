@@ -400,7 +400,7 @@ export default function ClienteDetail() {
     doc.setFontSize(9);
     doc.setTextColor(110);
     doc.text(
-      `Generata il ${new Date().toLocaleDateString("it-IT")} alle ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} — Ruffino Flow`,
+      `Generata il ${new Date().toLocaleDateString("it-IT")} alle ${new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} — Wyndor`,
       marginX,
       y
     );

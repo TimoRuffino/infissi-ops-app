@@ -18,7 +18,7 @@ describe("shell presentation", () => {
   });
 
   // Regressione: senza una entry dedicata, /fatturazione ricadeva sul
-  // fallback generico ("Ruffino Flow" sia in sezione sia in titolo).
+  // fallback generico ("Wyndor" sia in sezione sia in titolo).
   it("mette Fatturazione sotto Economia, come Contabilità e Marginalità", () => {
     expect(
       routePresentation(routeContractForLocation("/fatturazione"))
