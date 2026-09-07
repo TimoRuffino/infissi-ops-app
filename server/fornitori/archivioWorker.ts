@@ -9,11 +9,14 @@
 // testo letto resta in memoria dodici ore.
 
 import { getSediStore } from "../routers/sedi";
-import { eseguiGiroArchivioFornitori } from "./archivio";
+import { dipendenzeArchivioFornitoriReali, eseguiGiroArchivioFornitori } from "./archivio";
 
 const RITARDO_BOOT_MS = 60_000;
 const INTERVALLO_MS = 10 * 60_000;
-export const LETTURE_PER_GIRO = 8;
+// 25 per giro (07/09/2026): al primo avvio l'archivio ha trovato 351
+// conferme arretrate e a otto per giro ci avrebbe messo sette ore. I PDF
+// con testo non costano niente; le scansioni passano dal governor.
+export const LETTURE_PER_GIRO = 25;
 
 export function archivioFornitoriAttivo(): boolean {
   return (process.env.ARCHIVIO_FORNITORI ?? "on").trim().toLowerCase() !== "off";
@@ -29,6 +32,9 @@ async function giroTutteLeSedi(): Promise<void> {
       const esito = await eseguiGiroArchivioFornitori({
         sedeId: sede.id,
         limite: LETTURE_PER_GIRO,
+        deps: dipendenzeArchivioFornitoriReali(sede.id, {
+          massimoLetture: LETTURE_PER_GIRO,
+        }),
       });
       // Anche un giro senza effetti dice cosa ha visto: l'archivio deve
       // essere leggibile dai log come dalla pagina.

@@ -26,7 +26,6 @@ const Integrazioni = lazy(() => import("./pages/Integrazioni"));
 const Tars = lazy(() => import("./pages/Tars"));
 const KanbanBoard = lazy(() => import("./pages/KanbanBoard"));
 const Magazzino = lazy(() => import("./pages/Magazzino"));
-const ConfermeOrdine = lazy(() => import("./pages/ConfermeOrdine"));
 const Fornitori = lazy(() => import("./pages/Fornitori"));
 const Pagamenti = lazy(() => import("./pages/Pagamenti"));
 const Marginalita = lazy(() => import("./pages/Marginalita"));
@@ -114,7 +113,13 @@ function Router() {
             <Route path="/clienti/:id" component={ClienteDetail} />
             <Route path="/kanban" component={KanbanBoard} />
             <Route path="/magazzino" component={Magazzino} />
-            <Route path="/conferme-ordine" component={ConfermeOrdine} />
+            {/* Le conferme d'ordine non hanno più una pagina a parte
+            (07/09/2026, direzione: «la pagina fornitori e conferme d'ordine
+            devono essere insieme»): vivono in Fornitori, dove si vedono
+            insieme al fornitore che le manda e alla merce che portano. */}
+            <Route path="/conferme-ordine">
+              {() => <LegacyRedirect redirect={() => "/fornitori"} />}
+            </Route>
             <Route path="/pagamenti" component={Pagamenti} />
             <Route path="/economia" component={Economia} />
             <Route path="/fatturazione" component={Fatturazione} />

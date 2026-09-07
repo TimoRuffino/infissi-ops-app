@@ -10,7 +10,8 @@ import {
 import {
   chiaviRicercaFornitore,
   collegaVoceArchivio,
-  confermeArchivio,
+  confermeDiSede,
+  consegneInArrivo,
   eseguiGiroArchivioFornitori,
   riapriVoceArchivio,
   riepilogoFornitori,
@@ -505,34 +506,68 @@ export const fornitoriRouter = router({
     fornitori: protectedProcedure.query(({ ctx }) => {
       const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
       const righe = riepilogoFornitori(sedeId);
+      const somma = (prendi: (r: (typeof righe)[number]) => number) =>
+        righe.reduce((n, r) => n + prendi(r), 0);
       return {
         fornitori: righe,
         totali: {
           fornitori: righe.length,
-          daCollegare: righe.reduce((n, r) => n + r.daCollegare, 0),
-          collegate: righe.reduce((n, r) => n + r.collegate, 0),
-          scartate: righe.reduce((n, r) => n + r.scartate, 0),
+          daCollegare: somma(r => r.daCollegare),
+          incerte: somma(r => r.incerte),
+          collegateTars: somma(r => r.collegateTars),
+          nelFascicolo: somma(r => r.nelFascicolo),
+          scartate: somma(r => r.scartate),
+          inArrivo: somma(r => r.inArrivo),
+          inRitardo: somma(r => r.inRitardo),
         },
       };
     }),
 
-    /** Le conferme di un fornitore (o di tutti), da collegare per prime. */
+    /**
+     * L'elenco unico delle conferme d'ordine: quelle che Tars ha archiviato
+     * da sé, quelle incerte, quelle da collegare a mano e quelle già nel
+     * fascicolo per altra via. Chi chiede una decisione sta in cima.
+     */
     conferme: protectedProcedure
       .input(
         z
           .object({
             fornitore: z.string().trim().min(1).max(80).optional(),
-            stato: z.enum(["da_collegare", "collegata", "scartata"]).optional(),
+            gruppo: z
+              .enum(["collegata_tars", "nel_fascicolo", "incerta", "da_collegare", "scartata"])
+              .optional(),
             limite: z.number().int().min(1).max(300).optional(),
           })
           .optional()
       )
       .query(({ input, ctx }) =>
-        confermeArchivio({
+        confermeDiSede({
           sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
           fornitore: input?.fornitore ?? null,
-          stato: input?.stato ?? null,
+          gruppo: input?.gruppo ?? null,
           limite: input?.limite,
+        })
+      ),
+
+    /**
+     * Il magazzino visto dal fornitore: cosa deve ancora arrivare, per quale
+     * commessa, con quanto ritardo. Da qui si segna ricevuto senza aprire
+     * commessa per commessa (`magazzino.segnaRicevute`).
+     */
+    inArrivo: protectedProcedure
+      .input(
+        z
+          .object({
+            fornitore: z.string().trim().min(1).max(80).optional(),
+            includiRicevute: z.boolean().optional(),
+          })
+          .optional()
+      )
+      .query(({ input, ctx }) =>
+        consegneInArrivo({
+          sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          fornitore: input?.fornitore ?? null,
+          includiRicevute: input?.includiRicevute ?? false,
         })
       ),
 

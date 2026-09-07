@@ -308,6 +308,29 @@ export const magazzinoRouter = router({
     }),
 
   /**
+   * Le consegne segnate ricevute a lotti, quelle che si hanno davanti
+   * (pagina Fornitori, 07/09/2026): il magazzino ricevendo un camion segna
+   * tutto quello che è arrivato da quel fornitore senza girare commessa per
+   * commessa. Sempre a id espliciti — mai «tutte quelle che esistono» — così
+   * si segna solo ciò che si è visto. Reversibile riga per riga.
+   */
+  segnaRicevute: protectedProcedure
+    .input(z.object({ prodottoIds: z.array(z.number().int().positive()).min(1).max(200) }))
+    .mutation(({ input, ctx }) => {
+      const now = new Date();
+      const richiesti = new Set(input.prodottoIds);
+      let segnate = 0;
+      for (const p of prodotti) {
+        if (!richiesti.has(p.id) || p.sedeId !== ctx.sedeId || p.arrivato) continue;
+        p.arrivato = true;
+        p.updatedAt = now;
+        segnate += 1;
+      }
+      if (segnate > 0) _store.save();
+      return { segnate };
+    }),
+
+  /**
    * «Ricevuto tutto»: ogni consegna della commessa non ancora ricevuta viene
    * segnata ricevuta in un colpo (direzione 07/09/2026). Reversibile riga
    * per riga con «Riapri consegna».
