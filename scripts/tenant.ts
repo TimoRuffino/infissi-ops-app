@@ -22,6 +22,21 @@
 // SELECT scritto qui) e le tabelle per sede (`TABELLE_PER_SEDE`, con un JOIN
 // su `tenant_sedi`); stampa un rapporto (`--json` per la versione macchina)
 // ed esce con `1` se trova anomalie, `0` altrimenti. Nessun DDL.
+//
+// `verifica --json` per l'automazione (Fix round 1, Task 13, R15): un
+// semplice `pnpm tenant verifica --json` NON è JSON valido su stdout — pnpm
+// scrive il proprio banner PRIMA del `{` e, quando l'exit è 1 (anomalie
+// trovate), appende ` ELIFECYCLE  Command failed with exit code 1.` DOPO il
+// `}`. Le forme documentate per una pipeline sono:
+//   pnpm --silent tenant verifica --json        # --silent di pnpm toglie banner e trailer
+//   npx tsx scripts/tenant.ts verifica --json    # bypassa pnpm del tutto
+// In entrambi i casi lo script stesso stampa SOLO il JSON su stdout (un
+// avviso come "tenant_sedi assente" va sempre su stderr via console.warn,
+// mai su stdout) — è pnpm/npm ad aggiungere rumore attorno, non lo script.
+// L'exit resta `1` con anomalie anche con `--silent`/`npx`: una pipeline
+// sotto `set -e` deve gestirlo esplicitamente (es. catturare l'output prima
+// di controllare `$?`, o accettare l'exit 1 come "anomalie trovate" invece
+// di un errore dello script).
 // Runbook: docs/runbooks/multi-azienda.md.
 
 import "dotenv/config";
@@ -46,6 +61,7 @@ import { TABELLE_PER_SEDE } from "../server/tenants/tabelle";
 import type { TipoComando } from "../server/tenants/tipi";
 import {
   formattaRapporto,
+  rapportoBlobNonValido,
   riassumi,
   verificaStore,
   type RapportoStore,
@@ -53,7 +69,10 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | verifica [--json] (vedi docs/runbooks/multi-azienda.md)";
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
+  "Automazione: `pnpm --silent tenant verifica --json` oppure `npx tsx scripts/tenant.ts verifica --json` " +
+  "(un `pnpm tenant verifica --json` semplice non è JSON valido su stdout: pnpm ci scrive intorno il banner " +
+  "e, con anomalie, il trailer ELIFECYCLE). L'exit è 1 con anomalie in ogni forma: gestirlo sotto `set -e`.";
 
 function chiediNascosto(domanda: string): Promise<string> {
   return new Promise(resolve => {
@@ -102,16 +121,33 @@ async function attendi(repo: TenantRepository, id: number): Promise<number> {
  * righe, con `sedeSconosciuta`/`tenantNullo`/`tenantDiscorde` a 0 (non
  * calcolabili, non anomalie) — l'exit resta `0` se non c'è altro. Qualunque
  * altro errore Postgres propaga, come gli altri `ensureSchema()`.
+ *
+ * `leggiBlobDaDb` torna `null` quando la chiave esiste ma la sua colonna
+ * `data` non è un array JSON valido: un `?? []` la tratterebbe come zero
+ * record e un blob corrotto sparirebbe dal rapporto (Fix round 1, Task 13,
+ * R16). Ogni chiave elencata da `elencaChiaviDaDb` che torna `null` diventa
+ * una riga `rapportoBlobNonValido` invece di essere scartata silenziosamente
+ * — la chiave `sedi` compresa: se il SUO blob è invalido la mappa sedeId→
+ * tenantId resta vuota (ogni sedeId altrove risulterà sconosciuto, il
+ * rapporto lo mostra da solo riga per riga) e la riga "sedi" del rapporto lo
+ * dichiara esplicitamente invece di far finta che ci siano zero sedi.
  */
 async function eseguiVerifica(sql: NonNullable<typeof kvSql>, flag: Set<string>): Promise<number> {
+  const CHIAVE_SEDI = "sedi";
+  const blobSedi = await leggiBlobDaDb(CHIAVE_SEDI);
   const sedi = new Map<number, number>();
-  for (const s of (await leggiBlobDaDb("sedi")) ?? []) {
+  for (const s of blobSedi ?? []) {
     sedi.set(Number(s.id), typeof s.tenantId === "number" ? s.tenantId : TENANT_PREDEFINITO_ID);
   }
 
   const store: RapportoStore[] = [];
   for (const chiave of await elencaChiaviDaDb()) {
-    store.push(verificaStore(chiave, (await leggiBlobDaDb(chiave)) ?? [], sedi));
+    if (chiave === CHIAVE_SEDI) {
+      store.push(blobSedi === null ? rapportoBlobNonValido(chiave) : verificaStore(chiave, blobSedi, sedi));
+      continue;
+    }
+    const record = await leggiBlobDaDb(chiave);
+    store.push(record === null ? rapportoBlobNonValido(chiave) : verificaStore(chiave, record, sedi));
   }
 
   const tabelle: RapportoTabella[] = [];

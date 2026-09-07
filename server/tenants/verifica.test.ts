@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formattaRapporto,
+  rapportoBlobNonValido,
   riassumi,
   tenantDellaChiave,
   verificaStore,
@@ -54,6 +55,7 @@ describe("verificaStore su una famiglia per tenant", () => {
       tenantDiscorde: 1,
       sedeSconosciuta: 2,
       idDoppi: 1,
+      blobNonValido: false,
     });
   });
 
@@ -81,6 +83,7 @@ describe("verificaStore su una famiglia per tenant", () => {
       tenantDiscorde: 0,
       sedeSconosciuta: 0,
       idDoppi: 0,
+      blobNonValido: false,
     });
   });
 
@@ -100,42 +103,75 @@ describe("verificaStore su una famiglia per tenant", () => {
 });
 
 describe("verificaStore sulle famiglie globali", () => {
-  // Le famiglie `{ ambito: "globale" }` (sedi, utenti, platform_feature_flags,
-  // platform_feature_flag_audit, backup_config, backup_log, backup_oauth)
-  // sono UNA sola istanza per tutta l'installazione: la stessa chiave "sedi"
-  // contiene per costruzione righe di tenant diversi (ogni sede porta il
-  // proprio tenantId), quindi confrontarle con il (finto) tenant della
-  // chiave non ha senso. `utenti`/`backup_*`/le due `platform_feature_flag*`
-  // in più non hanno mai avuto un campo `sedeId` singolare (utenti usa
-  // `sediIds`, i backup_* nessuno dei due) o mai un `tenantId` (i flag di
-  // piattaforma sono per sede, non per tenant): un conteggio "grezzo"
-  // segnalerebbe un'anomalia su OGNI riga a OGNI giro, sempre.
+  // Le famiglie `{ ambito: "globale" }` SENZA un sedeId utilizzabile (sedi,
+  // utenti, backup_config, backup_log, backup_oauth) sono UNA sola istanza
+  // per tutta l'installazione: la stessa chiave "sedi" contiene per
+  // costruzione righe di tenant diversi (ogni sede porta il proprio
+  // tenantId), quindi confrontarle con il (finto) tenant della chiave non ha
+  // senso. `utenti`/`backup_*` in più non hanno mai avuto un campo `sedeId`
+  // singolare (utenti usa `sediIds`, i backup_* nessuno dei due): un
+  // conteggio "grezzo" segnalerebbe un'anomalia su OGNI riga a OGNI giro,
+  // sempre. `platform_feature_flags`/`platform_feature_flag_audit` sono
+  // globali ma hanno un `sedeId` vero: v. il describe dedicato sotto, la
+  // loro `sedeSconosciuta` resta attiva (Fix round 1, Task 13).
   const sedi = new Map<number, number>([[1, 1]]);
 
-  it.each([
-    "sedi",
-    "utenti",
-    "platform_feature_flags",
-    "platform_feature_flag_audit",
-    "backup_config",
-    "backup_log",
-    "backup_oauth",
-  ])("%s non conta senzaTenant, tenantDiscorde né sedeSconosciuta", nome => {
-    const record = [
-      { id: 1, tenantId: 2 }, // "discorde" solo se la famiglia non fosse globale
-      { id: 2 }, // "senzaTenant" solo se la famiglia non fosse globale
-      { id: 3, tenantId: 1, sedeId: 999 }, // "sedeSconosciuta" solo se non globale
-    ];
-    const r = verificaStore(nome, record, sedi);
-    expect(r.senzaTenant).toBe(0);
-    expect(r.tenantDiscorde).toBe(0);
-    expect(r.sedeSconosciuta).toBe(0);
-    expect(r.record).toBe(3);
-  });
+  it.each(["sedi", "utenti", "backup_config", "backup_log", "backup_oauth"])(
+    "%s non conta senzaTenant, tenantDiscorde né sedeSconosciuta",
+    nome => {
+      const record = [
+        { id: 1, tenantId: 2 }, // "discorde" solo se la famiglia non fosse globale
+        { id: 2 }, // "senzaTenant" solo se la famiglia non fosse globale
+        { id: 3, tenantId: 1, sedeId: 999 }, // "sedeSconosciuta" solo se non globale
+      ];
+      const r = verificaStore(nome, record, sedi);
+      expect(r.senzaTenant).toBe(0);
+      expect(r.tenantDiscorde).toBe(0);
+      expect(r.sedeSconosciuta).toBe(0);
+      expect(r.record).toBe(3);
+    }
+  );
 
   it("una famiglia globale continua a contare gli id doppi", () => {
     const record = [{ id: 4 }, { id: 4 }];
     expect(verificaStore("sedi", record, sedi).idDoppi).toBe(1);
+  });
+});
+
+describe("verificaStore sulle famiglie globali per sede (flag di piattaforma)", () => {
+  // Trovato in revisione (Fix round 1, Task 13): `platform_feature_flags` e
+  // `platform_feature_flag_audit` sono `{ ambito: "globale" }` ma, a
+  // differenza delle altre cinque, ogni record porta un `sedeId` VERO
+  // (server/platform/featureFlags.ts: FeatureFlagRecord/FeatureFlagAudit
+  // hanno entrambi `sedeId: number`, una riga per sede). `FAMIGLIE_GLOBALI`
+  // le esentava anche da sedeSconosciuta: un sedeId che punta a una sede
+  // sparita è un'anomalia vera, non rumore strutturale. senzaTenant e
+  // tenantDiscorde restano invece esenti: queste famiglie non hanno mai
+  // avuto un campo tenantId (sono per sede, non per tenant).
+  const sedi = new Map<number, number>([[1, 1]]);
+
+  it.each(["platform_feature_flags", "platform_feature_flag_audit"])(
+    "%s: un sedeId sconosciuto conta come sedeSconosciuta",
+    nome => {
+      const record = [{ id: 1, sedeId: 999 }];
+      expect(verificaStore(nome, record, sedi).sedeSconosciuta).toBe(1);
+    }
+  );
+
+  it.each(["platform_feature_flags", "platform_feature_flag_audit"])(
+    "%s: un record senza tenantId non conta come senzaTenant (il campo non è mai esistito)",
+    nome => {
+      const record = [{ id: 1, sedeId: 1 }];
+      const r = verificaStore(nome, record, sedi);
+      expect(r.senzaTenant).toBe(0);
+      expect(r.tenantDiscorde).toBe(0);
+      expect(r.sedeSconosciuta).toBe(0);
+    }
+  );
+
+  it("un sedeId noto non conta come sedeSconosciuta", () => {
+    const record = [{ id: 1, sedeId: 1 }];
+    expect(verificaStore("platform_feature_flags", record, sedi).sedeSconosciuta).toBe(0);
   });
 });
 
@@ -168,15 +204,46 @@ describe("verificaStore sulle famiglie senza sedeId diretto", () => {
   );
 });
 
+describe("rapportoBlobNonValido", () => {
+  // Fix round 1 (Task 13, R16): quando `elencaChiaviDaDb` elenca una chiave
+  // ma `leggiBlobDaDb` torna `null` (la colonna `data` non è un array), lo
+  // script chiama questa invece di trattare la chiave come zero record.
+  it("conteggi tutti a zero, ma blobNonValido true", () => {
+    expect(rapportoBlobNonValido("clienti")).toEqual<RapportoStore>({
+      chiave: "clienti",
+      tenantId: 1,
+      nome: "clienti",
+      record: 0,
+      senzaTenant: 0,
+      tenantDiscorde: 0,
+      sedeSconosciuta: 0,
+      idDoppi: 0,
+      blobNonValido: true,
+    });
+  });
+
+  it("una chiave tenant:n: risolve comunque tenantId e nome come tenantDellaChiave", () => {
+    const r = rapportoBlobNonValido("tenant:2:clienti");
+    expect(r.tenantId).toBe(2);
+    expect(r.nome).toBe("clienti");
+    expect(r.blobNonValido).toBe(true);
+  });
+});
+
 describe("riassumi", () => {
   it("somma le quattro anomalie di ogni store", () => {
     const store: RapportoStore[] = [
-      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 10, senzaTenant: 1, tenantDiscorde: 2, sedeSconosciuta: 3, idDoppi: 4 },
-      { chiave: "tenant:2:clienti", tenantId: 2, nome: "clienti", record: 5, senzaTenant: 0, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0 },
+      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 10, senzaTenant: 1, tenantDiscorde: 2, sedeSconosciuta: 3, idDoppi: 4, blobNonValido: false },
+      { chiave: "tenant:2:clienti", tenantId: 2, nome: "clienti", record: 5, senzaTenant: 0, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0, blobNonValido: false },
     ];
     const r = riassumi(store, []);
     expect(r.anomalie).toBe(10); // 1+2+3+4
     expect(r.store).toBe(store);
+  });
+
+  it("un blob non valido conta come 1 anomalia in più", () => {
+    const store: RapportoStore[] = [rapportoBlobNonValido("qualcosa")];
+    expect(riassumi(store, []).anomalie).toBe(1);
   });
 
   it("conta le anomalie di una tabella solo se è presente E ha la colonna", () => {
@@ -196,7 +263,7 @@ describe("riassumi", () => {
 
   it("somma store e tabelle insieme", () => {
     const store: RapportoStore[] = [
-      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 1, senzaTenant: 1, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0 },
+      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 1, senzaTenant: 1, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0, blobNonValido: false },
     ];
     const tabelle: RapportoTabella[] = [
       { tabella: "fatture", presente: true, conColonna: true, righe: 1, sedeSconosciuta: 0, tenantNullo: 1, tenantDiscorde: 0 },
@@ -208,7 +275,7 @@ describe("riassumi", () => {
 describe("formattaRapporto", () => {
   it("produce una tabella leggibile con i totali e le anomalie", () => {
     const store: RapportoStore[] = [
-      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 10, senzaTenant: 1, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0 },
+      { chiave: "clienti", tenantId: 1, nome: "clienti", record: 10, senzaTenant: 1, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0, blobNonValido: false },
     ];
     const tabelle: RapportoTabella[] = [
       { tabella: "fatture", presente: true, conColonna: true, righe: 5, sedeSconosciuta: 0, tenantNullo: 0, tenantDiscorde: 0 },
@@ -225,9 +292,17 @@ describe("formattaRapporto", () => {
 
   it("un rapporto pulito dice zero anomalie", () => {
     const rapporto = riassumi(
-      [{ chiave: "clienti", tenantId: 1, nome: "clienti", record: 3, senzaTenant: 0, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0 }],
+      [{ chiave: "clienti", tenantId: 1, nome: "clienti", record: 3, senzaTenant: 0, tenantDiscorde: 0, sedeSconosciuta: 0, idDoppi: 0, blobNonValido: false }],
       []
     );
     expect(formattaRapporto(rapporto)).toContain("Anomalie totali: 0");
+  });
+
+  it("un blob non valido compare col marcatore BLOB NON VALIDO ed entra nel totale anomalie", () => {
+    const rapporto = riassumi([rapportoBlobNonValido("qualcosa")], []);
+    const testo = formattaRapporto(rapporto);
+    expect(testo).toContain("qualcosa");
+    expect(testo).toContain("BLOB NON VALIDO");
+    expect(testo).toContain("Anomalie totali: 1");
   });
 });

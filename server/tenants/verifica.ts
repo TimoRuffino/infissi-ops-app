@@ -15,6 +15,8 @@ export type RapportoStore = {
   tenantDiscorde: number;
   sedeSconosciuta: number;
   idDoppi: number;
+  /** true se lo script ha trovato la chiave ma il blob non è un array valido (`leggiBlobDaDb` → null). Conta come 1 anomalia. */
+  blobNonValido: boolean;
 };
 
 export type RapportoTabella = {
@@ -43,15 +45,15 @@ export function tenantDellaChiave(key: string): { tenantId: number; nome: string
 }
 
 /**
- * Famiglie con `ambito: "globale"` (design WS2 §3.1): UNA sola istanza per
- * tutta l'installazione, sempre sotto la chiave nuda (mai `tenant:n:*`).
- * I loro record non seguono le regole delle famiglie per tenant:
+ * Famiglie con `ambito: "globale"` (design WS2 §3.1) SENZA alcun riferimento
+ * di sede utilizzabile: UNA sola istanza per tutta l'installazione, sempre
+ * sotto la chiave nuda (mai `tenant:n:*`). Esenti da senzaTenant,
+ * tenantDiscorde E sedeSconosciuta:
  *  - `sedi`/`utenti` portano già un `tenantId` proprio (backfill WS1), ma la
  *    STESSA chiave contiene per costruzione righe di tenant diversi: non ha
- *    senso confrontarle con il tenant (di comodo) della chiave;
- *  - `utenti` referenzia le sedi con `sediIds` (array), mai `sedeId`;
- *  - `platform_feature_flags`/`platform_feature_flag_audit` sono per sede
- *    (hanno `sedeId`) ma non hanno mai avuto un campo `tenantId`;
+ *    senso confrontarle con il tenant (di comodo) della chiave; `utenti`
+ *    referenzia le sedi con `sediIds` (array), mai `sedeId`, quindi neppure
+ *    sedeSconosciuta è calcolabile su di essa;
  *  - `backup_config`/`backup_log`/`backup_oauth` sono globali fino al WS3:
  *    niente `tenantId`, niente `sedeId`.
  * Applicare i conteggi "grezzi" qui segnalerebbe un'anomalia su ogni riga a
@@ -59,15 +61,21 @@ export function tenantDellaChiave(key: string): { tenantId: number; nome: string
  * (un id ripetuto è un problema indipendentemente dall'ambito) e continua a
  * contarsi anche per queste famiglie.
  */
-const FAMIGLIE_GLOBALI = new Set<string>([
-  "sedi",
-  "utenti",
-  "platform_feature_flags",
-  "platform_feature_flag_audit",
-  "backup_config",
-  "backup_log",
-  "backup_oauth",
-]);
+const FAMIGLIE_GLOBALI = new Set<string>(["sedi", "utenti", "backup_config", "backup_log", "backup_oauth"]);
+
+/**
+ * Famiglie `ambito: "globale"` che PERÒ portano un `sedeId` vero e proprio
+ * su ogni record (`server/platform/featureFlags.ts`: `FeatureFlagRecord` e
+ * `FeatureFlagAudit` hanno entrambi `sedeId: number`, una riga per sede).
+ * Non hanno mai avuto un campo `tenantId` (sono per sede, non per tenant):
+ * senzaTenant/tenantDiscorde restano esenti come le famiglie totalmente
+ * globali. Ma `sedeSconosciuta` qui è un controllo reale e va tenuto attivo
+ * — un `sedeId` che non esiste più in `sedi` è un'anomalia vera, non rumore
+ * strutturale (Fix round 1, Task 13: la revisione aveva trovato che
+ * `FAMIGLIE_GLOBALI` esentava anche queste due famiglie da sedeSconosciuta,
+ * un'esenzione non giustificata dal loro schema).
+ */
+const FAMIGLIE_GLOBALI_PER_SEDE = new Set<string>(["platform_feature_flags", "platform_feature_flag_audit"]);
 
 /**
  * Famiglie PER TENANT (`tenantId` arriva col backfill come per tutte le
@@ -98,8 +106,14 @@ type RecordGrezzo = { id?: unknown; tenantId?: unknown; sedeId?: unknown };
 /** `sedi`: sedeId → tenantId (dal blob `sedi`, § script). */
 export function verificaStore(chiave: string, record: unknown[], sedi: Map<number, number>): RapportoStore {
   const { tenantId, nome } = tenantDellaChiave(chiave);
-  const globale = FAMIGLIE_GLOBALI.has(nome);
-  const senzaSedeDiretta = FAMIGLIE_SENZA_SEDE_DIRETTA.has(nome);
+  // Esenti da senzaTenant/tenantDiscorde: sia le famiglie totalmente globali
+  // (niente tenantId significativo) sia quelle globali-per-sede (hanno
+  // sedeId ma non hanno mai avuto tenantId — v. FAMIGLIE_GLOBALI_PER_SEDE).
+  const esenteDaControlliTenant = FAMIGLIE_GLOBALI.has(nome) || FAMIGLIE_GLOBALI_PER_SEDE.has(nome);
+  // Esenti da sedeSconosciuta: solo le famiglie totalmente globali (nessun
+  // sedeId significativo) e quelle per tenant senza sedeId diretto. Le
+  // globali-per-sede hanno un sedeId vero e restano soggette al controllo.
+  const esenteDaSedeSconosciuta = FAMIGLIE_GLOBALI.has(nome) || FAMIGLIE_SENZA_SEDE_DIRETTA.has(nome);
 
   let senzaTenant = 0;
   let tenantDiscorde = 0;
@@ -109,26 +123,66 @@ export function verificaStore(chiave: string, record: unknown[], sedi: Map<numbe
 
   for (const grezzo of record) {
     const r = (grezzo ?? {}) as RecordGrezzo;
-    if (!globale) {
+    if (!esenteDaControlliTenant) {
       if (typeof r.tenantId !== "number") senzaTenant++;
       else if (r.tenantId !== tenantId) tenantDiscorde++;
-      if (!senzaSedeDiretta && (typeof r.sedeId !== "number" || !sedi.has(r.sedeId))) sedeSconosciuta++;
     }
+    if (!esenteDaSedeSconosciuta && (typeof r.sedeId !== "number" || !sedi.has(r.sedeId))) sedeSconosciuta++;
     if (r.id !== undefined) {
       if (idVisti.has(r.id)) idDoppi++;
       else idVisti.add(r.id);
     }
   }
 
-  return { chiave, tenantId, nome, record: record.length, senzaTenant, tenantDiscorde, sedeSconosciuta, idDoppi };
+  return {
+    chiave,
+    tenantId,
+    nome,
+    record: record.length,
+    senzaTenant,
+    tenantDiscorde,
+    sedeSconosciuta,
+    idDoppi,
+    blobNonValido: false,
+  };
+}
+
+/**
+ * Lo script chiama questa quando `elencaChiaviDaDb` elenca `chiave` ma
+ * `leggiBlobDaDb(chiave)` torna `null`: la riga esiste in `kv_store` ma la
+ * colonna `data` non è un array JSON valido (Fix round 1, Task 13, R16). Un
+ * `?? []` silenzioso la tratterebbe come zero record — un blob corrotto
+ * sparirebbe dal rapporto invece di comparirci come l'anomalia che è.
+ * Conteggi tutti a zero (non c'è nulla da contare) ma `blobNonValido: true`
+ * vale 1 anomalia in `riassumi`.
+ */
+export function rapportoBlobNonValido(chiave: string): RapportoStore {
+  const { tenantId, nome } = tenantDellaChiave(chiave);
+  return {
+    chiave,
+    tenantId,
+    nome,
+    record: 0,
+    senzaTenant: 0,
+    tenantDiscorde: 0,
+    sedeSconosciuta: 0,
+    idDoppi: 0,
+    blobNonValido: true,
+  };
+}
+
+/**
+ * Anomalie di una singola riga di store: le 4 già esistenti + 1 se il blob
+ * non era un array valido (`blobNonValido`, Fix round 1, R16). Condivisa fra
+ * `riassumi` e `formattaRapporto` così le due formule non possono divergere.
+ */
+function anomalieDiStore(s: RapportoStore): number {
+  return s.senzaTenant + s.tenantDiscorde + s.sedeSconosciuta + s.idDoppi + (s.blobNonValido ? 1 : 0);
 }
 
 /** Le anomalie: v. design WS2 §7.2. Le tabelle senza colonna non contano ancora. */
 export function riassumi(store: RapportoStore[], tabelle: RapportoTabella[]): Rapporto {
-  const anomalieStore = store.reduce(
-    (tot, s) => tot + s.senzaTenant + s.tenantDiscorde + s.sedeSconosciuta + s.idDoppi,
-    0
-  );
+  const anomalieStore = store.reduce((tot, s) => tot + anomalieDiStore(s), 0);
   const anomalieTabelle = tabelle
     .filter(t => t.presente && t.conColonna)
     .reduce((tot, t) => tot + t.sedeSconosciuta + t.tenantNullo + t.tenantDiscorde, 0);
@@ -154,7 +208,7 @@ function intestazioneStore(): string {
 }
 
 function rigaStore(s: RapportoStore): string {
-  return (
+  const base =
     colonna(s.chiave, 26) +
     colonna(String(s.tenantId), 7) +
     colonna(s.nome, 22) +
@@ -162,8 +216,10 @@ function rigaStore(s: RapportoStore): string {
     colonna(String(s.senzaTenant), 12) +
     colonna(String(s.tenantDiscorde), 9) +
     colonna(String(s.sedeSconosciuta), 11) +
-    String(s.idDoppi)
-  );
+    String(s.idDoppi);
+  // Blob non valido: i conteggi sono tutti a zero (non c'è nulla da leggere),
+  // quindi senza un marcatore esplicito la riga sparirebbe fra quelle pulite.
+  return s.blobNonValido ? `${base}  ← BLOB NON VALIDO (data non è un array)` : base;
 }
 
 function intestazioneTabelle(): string {
@@ -197,10 +253,7 @@ export function formattaRapporto(r: Rapporto): string {
   righe.push("", "Store per tenant (kv_store):", intestazioneStore());
   for (const s of r.store) righe.push(rigaStore(s));
   const recordTotali = r.store.reduce((tot, s) => tot + s.record, 0);
-  const anomalieStore = r.store.reduce(
-    (tot, s) => tot + s.senzaTenant + s.tenantDiscorde + s.sedeSconosciuta + s.idDoppi,
-    0
-  );
+  const anomalieStore = r.store.reduce((tot, s) => tot + anomalieDiStore(s), 0);
   righe.push(`Totale: ${r.store.length} chiavi, ${recordTotali} record, ${anomalieStore} anomalie`);
 
   righe.push("", "Tabelle per sede (Postgres):", intestazioneTabelle());
