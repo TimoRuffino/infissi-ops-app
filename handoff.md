@@ -32,6 +32,14 @@
 > corretti (PRD §60.6 e prova gratuita; `pnpm tenant` non esegue più DDL:
 > sonda `to_regclass`, si ferma se le tabelle mancano). Il merge resta alla
 > direzione.
+> **WS2 «porta aperta» progettato (07/09, sera):** spec
+> `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` approvata a
+> sezioni e piano `docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md` (15
+> task) sul branch `feature/ws2-porta-aperta`, nato dal WS1; codice non
+> partito. Alias delle chiavi per il tenant 1, contesto implicito con
+> AsyncLocalStorage e Proxy sugli store, id globali, `tenant_id` via trigger,
+> guardia unica tRPC/Express, worker per tenant, `pnpm tenant verifica`; via
+> la porta chiusa. PRD §60.10.
 > **Aperto per il WS2:** le rotte Express che usano `createContext` (upload
 > documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
 > applicano ancora porta chiusa né sola lettura — non conta nel WS1 (solo

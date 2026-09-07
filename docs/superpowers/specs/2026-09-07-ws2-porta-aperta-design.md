@@ -128,6 +128,11 @@ Risoluzione dell'istanza corrente, in quest'ordine:
 3. interruttore acceso → `tenantCorrente()` da `AsyncLocalStorage` (§5.1);
    se assente → `Error("[persistence] accesso allo store <nome> senza tenant nel contesto")`;
    se il tenant non ha l'istanza → `Error("[persistence] store <nome> non istanziato per il tenant <id>")`.
+   Eccezione dichiarata: con `NODE_ENV === "test"` (e senza
+   `modalitaTenantStretta(true)`) il resolver ripiega sul tenant 1, perché
+   quasi ogni test chiama i moduli fuori da una richiesta; lo stesso vale
+   quando nessun resolver è stato registrato. In sviluppo e in produzione
+   non c'è ripiego.
 
 Fail-closed per costruzione: nessun percorso restituisce l'array di un altro
 tenant o un array vuoto «di comodo».
@@ -183,15 +188,18 @@ Ordine in `server/_core/index.ts` (`startServer`):
    per ogni tenant, le famiglie `tenant`. `persistence.ts` non importa
    `server/tenants/*` (la lista arriva come parametro: nessun ciclo di
    import). Lo stesso ordine di caricamento di oggi, chiave per chiave.
-3. Gli `ensureSchema()` espliciti dei repository SQL già presenti nel boot.
+3. (vedi il passo 5 per gli `ensureSchema()` espliciti: `completaTenants()` viene prima, perché il contesto di ogni richiesta e dei worker usa il backfill di utenti e sedi).
 4. `completaTenants()` (rinomina dell'attuale `avviaTenants()` senza la
    parte di schema/cache): backfill di `tenantId` su utenti e sedi
    (WS1), proprietario di ripiego, `sincronizzaTenantSedi()` (§6.1),
-   `applicaTenantIdAlleTabelle()` (§6.2), comandi in attesa e ciclo ogni 30 s.
+   comandi in attesa e ciclo ogni 30 s.
+5. Gli `ensureSchema()` espliciti dei repository SQL già presenti nel boot
+   (`index.ts`), poi `applicaSchemaTabelleTenant()` → `applicaTenantIdAlleTabelle()`
+   (§6.2): dopo, così più tabelle esistono già al primo boot.
    Specchio, colonne e backfill girano anche a interruttore spento
    (additivi, come il backfill di WS1): così il deploy spento li verifica
    prima dell'accensione.
-5. Worker e `server.listen` come oggi.
+6. Worker e `server.listen` come oggi.
 
 **Tenant a caldo** (`tenants.servizio.crea`, comando `crea` del WS1): dopo
 l'inserimento del tenant e della sede, prima dell'utente proprietario, il
@@ -244,11 +252,18 @@ l'installazione per natura e continuano a farlo, includendo le chiavi
 - Ogni famiglia tiene `maxId`: al caricamento di ogni istanza
   `maxId = max(maxId, max degli id numerici dei record)`; `prossimoId()`
   restituisce `++maxId`. Gli store senza id numerici non lo usano.
-- I 26 moduli con `let nextId = 1` + riga in `onLoad`
+- I 23 moduli con store per tenant che generano id localmente — 15 con
+  `let nextId = 1` + riga in `onLoad`
   (`nextId = items.length ? Math.max(...items.map(x => x.id)) + 1 : 1`) +
-  `nextId++` passano a `_store.prossimoId()`: codemod con revisione, la
-  riga in `onLoad` sparisce, `let nextId` sparisce. Le 18 occorrenze
-  standard e le 8 varianti sono elencate nel piano.
+  `nextId++`, e 8 con il massimo calcolato inline all'inserimento
+  (`ficPagamenti`, `fattureInCloud`, `conoscenza`, `transizioni`,
+  `filtroComunicazioni`, `proposte/gateway`, `documenti/analisi`,
+  `documenti/collegamenti`) — passano a `_store.prossimoId()` (e
+  `riservaIdFinoA(n)` dove un modulo alza il contatore da uno storico):
+  codemod con revisione, elencati nel piano. Restano invariati `sedi.ts` e
+  `utenti.ts` (globali) e i contatori dei repository in memoria delle
+  tabelle SQL, che non sono `persistedStore`. Un test strutturale vieta
+  nuovi contatori locali.
 - Un id di un altro tenant risponde `NOT_FOUND` come oggi per la sede
   (`assertSedeScope`); nessun `assertTenantScope` in più nei router:
   l'istanza del tenant non contiene record altrui.
@@ -261,12 +276,20 @@ l'installazione per natura e continuano a farlo, includendo le chiavi
 export function conTenant<T>(tenantId: number, fn: () => T): T;        // als.run
 export function tenantCorrente(): number | null;   // spento → 1; acceso → dal contesto
 export function conTenantDellaSede<T>(sedeId: number, fn: () => T): T; // tenantIdDellaSede (WS1)
+export function tenantsAttivi(): number[];         // spento o control plane vuoto → [1]; acceso → i tenant `attivo`
+export function perOgniTenantAttivo(etichetta: string, fn: (tenantId: number) => Promise<void>): Promise<void>;
+export function modalitaTenantStretta(attiva: boolean): void; // solo test: toglie il ripiego sul tenant 1
 ```
 
-`persistence.ts` non importa questo file (ciclo): riceve il resolver una
-volta al boot con `impostaResolverTenant(tenantCorrente)`; senza resolver
-e con interruttore acceso, ogni accesso a uno store `tenant` è un errore
-(fail-closed anche qui).
+`persistence.ts` non importa questo file (ciclo): riceve il resolver con
+`impostaResolverTenant(tenantCorrente)`, che `contestoCorrente.ts` chiama
+da sé quando viene importato e `index.ts` ripete al boot; senza resolver e
+con interruttore acceso, ogni accesso a uno store `tenant` è un errore
+(fail-closed anche qui), salvo il ripiego dei test (§3.2).
+
+I worker che scrivono saltano i tenant sospesi (sola lettura, e Tars costa):
+`perOgniTenantAttivo` itera solo gli `attivo`, ognuno nel suo contesto, e un
+errore di un tenant non ferma gli altri.
 
 ### 5.2 Guardia unica: `motivoRifiutoTenant` (`server/tenants/regole.ts`)
 
@@ -300,8 +323,13 @@ porta chiusa non esiste più: `portaChiusaPerTenant` sparisce da
 
 ### 5.3 Worker: ogni giro per sede dichiara il tenant
 
-Ogni corpo «per sede» viene avvolto in `conTenantDellaSede(sede.id, …)`; il
-comportamento «un errore per sede non ferma le altre» resta quello di oggi.
+Forma comune: prima per tenant, poi per sede —
+`perOgniTenantAttivo(etichetta, async t => { for (const sede of sediAttiveDelTenant(t)) … })`
+per i giri che scorrono le sedi; `conTenantDellaSede(x.sedeId, …)` per le
+unità di lavoro che arrivano già con la sede (eventi, promemoria, righe SQL,
+callback di una casella). Il comportamento «un errore per sede non ferma le
+altre» resta quello di oggi; in più un errore di un tenant non ferma gli
+altri tenant.
 Punti d'ingresso (checklist del piano, ognuno con un test che il giro passa
 dal contesto):
 
@@ -334,10 +362,15 @@ il contesto c'è già). Strumenti, catalogo e governor non cambiano.
 
 ### 5.5 Test e contesto di prova
 
-Nei test l'interruttore è spento per default: `tenantCorrente()` è 1 e nulla
-cambia per i 262 file esistenti. I test con interruttore acceso usano
-`conTenant(n, …)` esplicito (o `conTenantDiProva(n)` in
-`contestoDiProva.ts`, zucchero su `conTenant`). `contestoDiProva` resta.
+Nei test l'interruttore è **acceso** per default (`interruttoreAttivo`:
+con la variabile assente vale acceso in `development` e `test`, spento in
+produzione). Per non riscrivere i 262 file esistenti, che chiamano i moduli
+fuori da una richiesta, `tenantCorrente()` senza contesto ripiega sul tenant
+1 solo con `NODE_ENV === "test"` (§3.2); i test che verificano che un worker
+o una rotta dichiari il tenant chiamano `modalitaTenantStretta(true)` e
+usano `conTenant(n, …)` esplicito. I test dei router passano da
+`guardiaTenant`, che imposta il contesto da `ctx.tenantId`. `contestoDiProva`
+resta com'è.
 
 ## 6. Tabelle SQL
 
