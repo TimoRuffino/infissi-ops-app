@@ -170,7 +170,7 @@ export async function startCostoDaConfermaWorker(): Promise<void> {
   // `reconcileTimelineBoardStates` in server/_core/index.ts (Ruling R8),
   // qui usato solo per il conteggio della riga di log di avvio: una volta
   // per tenant attivo, nel suo contesto.
-  const { perOgniTenantAttivo } = await import("../tenants/contestoCorrente");
+  const { perOgniTenantAttivo } = await import("../tenants/giri");
   let daLeggereTotale = 0;
   await perOgniTenantAttivo("costo-da-conferma", async () => {
     daLeggereTotale += documentiConfermaOrdine().filter(daLeggere).length;

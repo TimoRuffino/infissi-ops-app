@@ -1,12 +1,20 @@
 // Il tenant «corrente» di una richiesta, di un giro di worker o di un
 // comando: vive in AsyncLocalStorage e lo leggono solo persistence.ts (via
 // resolver) e le guardie. Nessun altro modulo tocca l'ALS direttamente.
+//
+// Fix round 1 (Task 7): questo modulo è una FOGLIA del grafo — importa SOLO
+// interruttori, costanti e _core/persistence (guardia strutturale in
+// server/tenants/confine.test.ts). I giri per tenant e per sede
+// (conTenantDellaSede, tenantsAttivi, perOgniTenantAttivo) vivono in
+// server/tenants/giri.ts perché hanno bisogno di ./contesto e ./repository,
+// che risalgono fino a routers/sedi e routers/utenti: importarli da qui
+// chiuderebbe un ciclo con _core/trpc.ts (che importa `conTenant` da questo
+// modulo) e farebbe crashare al semplice import qualunque entry point che
+// importi un router prima di questo modulo (v. _core/ordineImport.test.ts).
 import { AsyncLocalStorage } from "node:async_hooks";
 import { impostaResolverTenant } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { TENANT_PREDEFINITO_ID } from "./costanti";
-import { tenantIdDellaSede } from "./contesto";
-import { getTenantRepository } from "./repository";
 
 type Contesto = { tenantId: number };
 
@@ -31,32 +39,6 @@ export function tenantCorrente(): number | null {
   if (contesto) return contesto.tenantId;
   if (process.env.NODE_ENV === "test" && !strettoNeiTest) return TENANT_PREDEFINITO_ID;
   return null;
-}
-
-export function conTenantDellaSede<T>(sedeId: number, fn: () => T): T {
-  return conTenant(tenantIdDellaSede(sedeId), fn);
-}
-
-/** I tenant per cui girano i worker: attivi (mai i sospesi: sola lettura), 1 se il control plane è vuoto o l'interruttore spento. */
-export function tenantsAttivi(): number[] {
-  if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
-  const tutti = getTenantRepository().tutti();
-  if (tutti.length === 0) return [TENANT_PREDEFINITO_ID];
-  return tutti.filter(t => t.stato === "attivo").map(t => t.id);
-}
-
-/** Un giro per tenant, ognuno nel suo contesto; un errore di un tenant non ferma gli altri. */
-export async function perOgniTenantAttivo(
-  etichetta: string,
-  fn: (tenantId: number) => Promise<void>
-): Promise<void> {
-  for (const tenantId of tenantsAttivi()) {
-    try {
-      await conTenant(tenantId, () => fn(tenantId));
-    } catch (errore) {
-      console.error(`[${etichetta}] tenant ${tenantId}:`, errore instanceof Error ? errore.message : errore);
-    }
-  }
 }
 
 export function modalitaTenantStretta(attiva: boolean): void {

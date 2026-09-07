@@ -10,7 +10,11 @@ import { registerOAuthRoutes } from "./oauth";
 // semplice import, non dentro `startServer()`. Registrare il resolver più
 // tardi — dentro `startServer()`, come farebbe una import dinamica — è
 // troppo tardi: quell'accesso lancerebbe «senza resolver del tenant» ben
-// prima che `startServer()` inizi a girare.
+// prima che `startServer()` inizi a girare. Da Fix round 1 (Task 7)
+// `contestoCorrente.ts` è una foglia del grafo dei moduli: la registrazione
+// avviene comunque al primo import del modulo, da qualunque punto arrivi
+// (es. `_core/trpc.ts`, che importa `conTenant` da lì) — questa riga resta
+// solo per garantirne l'ordine PRIMA dell'albero dei router, in questo file.
 import "../tenants/contestoCorrente";
 import { appRouter } from "../routers";
 // Lo store `fic_pagamenti_links` vive in un modulo che i router importano
@@ -75,7 +79,7 @@ async function startServer() {
   // l'interruttore spento, o un control plane vuoto, `perOgniTenantAttivo`
   // gira una sola volta per il tenant 1: comportamento di oggi invariato.
   const { reconcileTimelineBoardStates } = await import("../routers/timeline");
-  const { perOgniTenantAttivo } = await import("../tenants/contestoCorrente");
+  const { perOgniTenantAttivo } = await import("../tenants/giri");
   await perOgniTenantAttivo("timeline", async tenantId => {
     const timelineSync = reconcileTimelineBoardStates();
     if (timelineSync.aggiornate > 0) {

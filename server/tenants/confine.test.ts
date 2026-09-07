@@ -26,6 +26,24 @@ describe("confine del tenant", () => {
     expect(superstiti).toEqual([]);
   });
 
+  // Fix round 1 (Task 7): contestoCorrente.ts deve restare una FOGLIA del
+  // grafo dei moduli — niente ./contesto, ./repository o router — altrimenti
+  // si riapre il ciclo con _core/trpc.ts (che importa `conTenant` da lì) che
+  // faceva crashare al semplice import un router caricato prima di questo
+  // modulo (v. _core/ordineImport.test.ts).
+  it("server/tenants/contestoCorrente.ts importa solo interruttori, costanti e _core/persistence", () => {
+    const testoModulo = testo(join(RADICE, "server", "tenants", "contestoCorrente.ts"));
+    const specifiers = [...testoModulo.matchAll(/^import\s+(?:.+?\s+from\s+)?["']([^"']+)["'];?\s*$/gm)]
+      .map(m => m[1])
+      .filter(s => !s.startsWith("node:"));
+    expect(new Set(specifiers)).toEqual(new Set(["../platform/interruttori", "./costanti", "../_core/persistence"]));
+  });
+
+  it("AsyncLocalStorage compare solo in server/tenants/contestoCorrente.ts", () => {
+    const usi = PRODUZIONE.filter(f => /AsyncLocalStorage/.test(testo(f))).map(relativo);
+    expect(usi).toEqual([join("server", "tenants", "contestoCorrente.ts")]);
+  });
+
   it("lo script tenant non importa router né store", () => {
     const script = testo(join(RADICE, "scripts", "tenant.ts"));
     expect(script).not.toMatch(/from "\.\.\/server\/routers/);
