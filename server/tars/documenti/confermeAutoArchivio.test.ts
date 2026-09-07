@@ -2,7 +2,7 @@
 // e file che si dichiara conferma. Da lì nascono costo e merce, e il
 // registro dice «automatico». Le dubbie non si toccano.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../../_core/context";
 import { getLiveComunicazione, insertComunicazione } from "../../comunicazioni/comunicazioni";
 import { pdfConTesto } from "../../documenti/pdfMinimo";
@@ -10,10 +10,14 @@ import { appRouter } from "../../routers";
 import { getCommessaById } from "../../routers/commesse";
 import { getMagazzinoStore } from "../../routers/magazzino";
 import { getDocumentiDiCommessa } from "../../routers/preventiviContratti";
+import * as sediRouter from "../../routers/sedi";
 import { getUtentiStore } from "../../routers/utenti";
+import { modalitaTenantStretta, tenantCorrente } from "../../tenants/contestoCorrente";
+import { getTenantRepository, resetTenantRepositoryForTesting } from "../../tenants/repository";
 import {
   dipendenzeAutoArchivioReali,
   eseguiGiroAutoArchivio,
+  giroTutteLeSedi,
   NOTA_AUTO_ARCHIVIO,
 } from "./confermeAutoArchivio";
 import { confermeOrdineMancanti } from "./confermeMancanti";
@@ -219,5 +223,43 @@ describe("eseguiGiroAutoArchivio", () => {
     const collegata = await getLiveComunicazione(orfana.id, SEDE);
     expect(collegata?.commessaId).toBe(commessa.id);
     expect(String(collegata?.matchMotivo)).toContain("Conferma d'ordine archiviata da Tars");
+  });
+});
+
+// Task 9 (WS2 «porta aperta»): il giro periodico gira per tenant, ognuno nel
+// suo contesto — `confermeOrdineMancanti` legge `getCommesseStore()` (per
+// tenant) al primo passo, quindi senza contesto lancerebbe «senza tenant nel
+// contesto». `sediAttiveDelTenant` viene dal router delle sedi (import
+// diverso dal file sotto test): si può spiare senza toccare
+// `eseguiGiroAutoArchivio`, che vive nello stesso modulo di `giroTutteLeSedi`
+// e non è quindi intercettabile da qui.
+describe("giroTutteLeSedi gira per tenant (Task 9)", () => {
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    modalitaTenantStretta(true);
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+    await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+  });
+  afterEach(() => {
+    modalitaTenantStretta(false);
+    vi.restoreAllMocks();
+  });
+
+  it("ogni tenant attivo gira nel proprio contesto; un tenant in errore non ferma gli altri", async () => {
+    const visti: Array<{ tenantId: number; tenantNelContesto: number | null }> = [];
+    vi.spyOn(sediRouter, "sediAttiveDelTenant").mockImplementation((tenantId: number) => {
+      visti.push({ tenantId, tenantNelContesto: tenantCorrente() });
+      if (tenantId === 2) throw new Error("boom");
+      return [];
+    });
+
+    await giroTutteLeSedi();
+
+    expect(visti).toEqual([
+      { tenantId: 1, tenantNelContesto: 1 },
+      { tenantId: 2, tenantNelContesto: 2 },
+    ]);
   });
 });

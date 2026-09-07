@@ -4,10 +4,11 @@
 // Fail-closed: flag, storage autorevole, provider governato. Un errore
 // su una comunicazione viene registrato e non ferma le altre.
 
-import { getSediStore } from "../../routers/sedi";
+import { sediAttiveDelTenant } from "../../routers/sedi";
 import { getClientiStore } from "../../routers/clienti";
 import { getCommesseStore } from "../../routers/commesse";
 import { getUtentiStore } from "../../routers/utenti";
+import { perOgniTenantAttivo } from "../../tenants/giri";
 import { caselle } from "../../comunicazioni/caselle";
 import {
   cercaFiloCollegato,
@@ -548,23 +549,26 @@ export async function eseguiGiroSmistamento(input: {
 
 const inCorso = new Set<number>();
 
-async function giroTutteLeSedi(): Promise<void> {
+/** Un giro: per ogni tenant attivo, nel suo contesto, ogni sede attiva del tenant. */
+export async function giroTutteLeSedi(): Promise<void> {
   if (!smistamentoAttivo()) return;
-  for (const sede of getSediStore()) {
-    if (!sede.attiva || inCorso.has(sede.id)) continue;
-    inCorso.add(sede.id);
-    try {
-      const esito = await eseguiGiroSmistamento({ sedeId: sede.id });
-      if (esito.esaminate > 0) console.info("[tars-smistamento]", esito);
-    } catch (errore) {
-      console.error("[tars-smistamento] giro fallito", {
-        sedeId: sede.id,
-        message: errore instanceof Error ? errore.message : "unknown",
-      });
-    } finally {
-      inCorso.delete(sede.id);
+  await perOgniTenantAttivo("tars-smistamento", async tenantId => {
+    for (const sede of sediAttiveDelTenant(tenantId)) {
+      if (inCorso.has(sede.id)) continue;
+      inCorso.add(sede.id);
+      try {
+        const esito = await eseguiGiroSmistamento({ sedeId: sede.id });
+        if (esito.esaminate > 0) console.info("[tars-smistamento]", esito);
+      } catch (errore) {
+        console.error("[tars-smistamento] giro fallito", {
+          sedeId: sede.id,
+          message: errore instanceof Error ? errore.message : "unknown",
+        });
+      } finally {
+        inCorso.delete(sede.id);
+      }
     }
-  }
+  });
 }
 
 export function startSmistamentoWorker(): void {
