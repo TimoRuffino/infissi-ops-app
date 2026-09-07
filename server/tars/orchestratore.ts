@@ -48,6 +48,7 @@ import {
 } from "./conversazione/context";
 import { risolviCommessa } from "./conversazione/resolver";
 import { risolviRispostaChiarificazione } from "./conversazione/chiarimento";
+import { conTenant } from "../tenants/contestoCorrente";
 
 /** Proiezione di un'azione eseguita nel run, per risposta/archivio/UI. */
 export type AzioneRun = {
@@ -357,7 +358,7 @@ export function sanifica(errore: unknown): string {
   return "Errore interno durante l'esecuzione dello strumento.";
 }
 
-export async function eseguiRun(input: {
+async function eseguiRunNelContesto(input: {
   contesto: ContestoRun;
   provider: TarsProvider;
   messaggio: string;
@@ -1165,4 +1166,21 @@ export async function eseguiRun(input: {
     errore: null,
   });
   return finale;
+}
+
+/**
+ * Cintura di sicurezza (spec WS2 §5.4): un run gira SEMPRE nel contesto del
+ * proprio tenant (`input.contesto.tenantId`), chiunque chiami `eseguiRun` —
+ * dentro una richiesta tRPC (già in `conTenant` via `guardiaTenant`, dove
+ * questo è un no-op semantico), da un worker (`perOgniTenantAttivo`, stesso
+ * discorso) o da FUORI qualunque contesto (script, coda, un chiamante che
+ * non lo imposta). Ogni store per-tenant che il run tocca — commesse per la
+ * risoluzione deittica, memorie, e altri — legge `tenantCorrente()`: senza
+ * questa cintura, un run partito fuori contesto fallirebbe fail-closed
+ * anziché portare con sé il tenant che gli è stato dato in input.
+ */
+export async function eseguiRun(
+  input: Parameters<typeof eseguiRunNelContesto>[0]
+): Promise<RispostaRun> {
+  return conTenant(input.contesto.tenantId, () => eseguiRunNelContesto(input));
 }
