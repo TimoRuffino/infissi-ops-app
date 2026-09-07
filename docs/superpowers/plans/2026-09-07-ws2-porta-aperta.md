@@ -577,7 +577,7 @@ git commit -m "feat(persistence): famiglie di store per tenant, chiavi con alias
 **Interfaces:**
 - Produces:
   ```ts
-  export async function bootstrapAll(opzioni?: { tenantIds?: number[] }): Promise<void>;
+  export async function bootstrapAll(opzioni?: { tenantIds?: number[]; backfill?: boolean }): Promise<void>; // backfill: solo il boot del server (Ruling R6)
   export async function istanziaStoresPerTenant(tenantId: number): Promise<void>;
   export async function leggiBlobDaDb(key: string): Promise<any[] | null>;   // sola lettura, null se la riga manca
   export async function elencaChiaviDaDb(): Promise<string[]>;
@@ -938,7 +938,9 @@ Attenzione: `assicuraTenantPredefinito()` oggi fa anche il backfill di utenti/se
   impostaResolverTenant(tenantCorrente);
   const { preparaTenants, completaTenants } = await import("../tenants/boot");
   const tenantIds = await preparaTenants();
-  await bootstrapAll({ tenantIds });
+  // `backfill: true` solo qui: il server timbra `tenantId` sui record e risalva;
+  // gli script chiamano bootstrapAll() senza opzioni e non scrivono mai (Ruling R6).
+  await bootstrapAll({ tenantIds, backfill: true });
   await completaTenants();
 ```
 
