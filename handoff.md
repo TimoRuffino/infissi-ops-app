@@ -10,8 +10,9 @@
 
 > **Novità 07/09/2026 — WS1 fondazione tenant su branch.** I 15 task del
 > piano di implementazione (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`)
-> sono committati su `feature/ws1-fondazione-tenant` (nato da `main` @
-> `ecb2042`), dal commit `4c3a71b` al `a01a757` (131 file, +3184/−193 fino al
+> sono committati su `feature/ws1-fondazione-tenant` (nato da
+> `claude/ruffino-flow-saas-multi-afaecf`, cioè `main` @ `ecb2042` più spec e
+> piano), dal commit `4c3a71b` al `a01a757` (131 file, +3184/−193 fino al
 > client), più il commit di questo task; nessun push, nessun merge su `main`
 > da qui — quella è una decisione della direzione dopo revisione finale del
 > branch e una verifica a schermo dell'utente. Contratto: control plane
@@ -1631,7 +1632,7 @@ pnpm storage:dry-run
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
 | `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` | design approvato del SaaS multi-azienda (tenant sopra sede, canone fisso, soglie d'uso, Platform Admin, omaggi, migrazione di Ruffino Group) con il riscontro sul codice in Appendice A — nessun codice autorizzato |
-| `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` | spec tecnica del workstream 1 (fondazione tenant): control plane, contesto, guardie, ruolo proprietario, comandi e script, interruttore, test — approvata a sezioni, piano da scrivere, nessun codice |
+| `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` | spec tecnica del workstream 1 (fondazione tenant): control plane, contesto, guardie, ruolo proprietario, comandi e script, interruttore, test — approvata a sezioni; piano `docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md` eseguito il 07/09/2026 sul branch `feature/ws1-fondazione-tenant` (voce 21), non su `main` |
 | `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
 | `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
