@@ -12,6 +12,8 @@
 // alle prove dell'altro.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { kvSql } from "../_core/persistence";
+import { preparaTenants } from "./boot";
+import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import { applicaTenantIdAlleTabelle, TABELLE_PER_SEDE } from "./tabelle";
 
@@ -25,6 +27,10 @@ const LOCK_TENANT_PG = 20260907;
 // da tabella assente.
 const CAVIA = "chat_messaggi";
 const ASSENTE = "chat_letture";
+// Sede di prova del test "interruttore spento" (Task 12 fix round 1): un id
+// che nessun altro test di questo file usa, per non interferire con le righe
+// che gli altri `it` lasciano nello specchio.
+const SEDE_PROVA_SPENTO = 9006;
 
 describe.skipIf(!conDatabase)("tenant_id sulle tabelle per sede", () => {
   const sql = kvSql!;
@@ -110,5 +116,49 @@ describe.skipIf(!conDatabase)("tenant_id sulle tabelle per sede", () => {
     resetTenantRepositoryForTesting();
     await getTenantRepository().ensureSchema();
     expect((await sql`SELECT to_regclass('tenant_sedi') AS r`)[0]?.r).not.toBeNull();
+  });
+
+  // Task 12 fix round 1 (Ruling R13): a interruttore spento, `preparaTenants()`
+  // semina comunque la riga del tenant 1 nel control plane, così lo specchio
+  // e il backfill del deploy spento (spec §7.1, §8) hanno qualcosa da
+  // riempire PRIMA che l'interruttore si accenda mai. Tolgo qui la riga del
+  // tenant 1 che `beforeAll` ha già seminato (con una chiamata diretta al
+  // repository, non con `preparaTenants`): così è DAVVERO `preparaTenants`,
+  // a interruttore spento, a doverla riseminare, non un residuo del setup —
+  // se la guardia del flag tornasse a precedere `assicuraTenantPredefinito`
+  // (la regressione da cui nasce questo round), `repo.perId(1)` qui
+  // sotto resterebbe `null`. Uso lo stesso `sql`/lock/CAVIA del describe.
+  it("interruttore spento: preparaTenants risemina il tenant 1, lo specchio registra una sede nuova e il backfill chiude il NULL", async () => {
+    await sql`DELETE FROM tenants WHERE id = 1`;
+    try {
+      process.env.FLAG_MULTI_AZIENDA = "off";
+      const ids = await preparaTenants();
+      expect(ids).toEqual([1]);
+      const repo = getTenantRepository();
+      expect(repo.perId(1)?.slug).toBe("ruffino-group");
+
+      // Come farebbe completaTenants con lo store `sedi` vero: una sede
+      // senza tenantId esplicito ricade sul tenant 1 (righeTenantSedi).
+      await repo.sincronizzaTenantSedi(righeTenantSedi([{ id: SEDE_PROVA_SPENTO }]));
+      expect(await repo.tenantSedi()).toContainEqual({ sedeId: SEDE_PROVA_SPENTO, tenantId: 1 });
+
+      // La riga nasce PRIMA del trigger (la tabella non ha ancora
+      // tenant_id): solo il backfill, non il trigger, può chiuderla.
+      await sql`CREATE TABLE chat_messaggi (id BIGSERIAL PRIMARY KEY, sede_id BIGINT NOT NULL, testo TEXT)`;
+      await sql`INSERT INTO chat_messaggi (sede_id, testo)
+        VALUES (${SEDE_PROVA_SPENTO}, 'scritta prima del backfill, a interruttore spento')`;
+
+      const esito = await applicaTenantIdAlleTabelle(sql);
+      expect(esito.applicate).toContain(CAVIA);
+      expect(esito.backfill[CAVIA]).toBe(1);
+
+      const righe = await sql`SELECT sede_id, tenant_id FROM chat_messaggi ORDER BY id`;
+      expect(righe.map(r => [Number(r.sede_id), Number(r.tenant_id)])).toEqual([
+        [SEDE_PROVA_SPENTO, 1],
+      ]);
+      await sql`DROP TABLE chat_messaggi`;
+    } finally {
+      delete process.env.FLAG_MULTI_AZIENDA;
+    }
   });
 });

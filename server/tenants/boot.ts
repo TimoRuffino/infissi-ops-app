@@ -1,12 +1,18 @@
 // server/tenants/boot.ts
-// Avvio del modulo tenant in due tempi (Task 6, spec §3.5): `preparaTenants()`
-// gira PRIMA di `bootstrapAll` — schema del control plane, cache e, con
-// l'interruttore acceso, il seed della SOLA riga `tenants` predefinita: gli
-// store dei tenant (`utenti`, `sedi`, …) non sono ancora caricati a questo
-// punto, quindi qui non si tocca il proprietario di ripiego. `completaTenants()`
-// gira DOPO — backfill/allineamento sugli store, comandi in attesa e il ciclo
-// ogni 30 s. In produzione un fallimento dello schema ferma l'avvio (come
-// policy ed eventi).
+// Avvio del modulo tenant in due tempi (Task 6, spec §3.5; Task 12 fix round 1,
+// Ruling R13): `preparaTenants()` gira PRIMA di `bootstrapAll` — schema del
+// control plane, cache e il seed della riga `tenants` del tenant 1
+// (`repo.assicuraTenantPredefinito()`), SEMPRE, anche a interruttore spento.
+// Quella riga è control plane, additiva e inerte a interruttore spento
+// (nessuna lettura di dominio la consulta), ma serve allo specchio
+// `tenant_sedi` e al backfill di `tenant_id` del deploy spento (spec §7.1,
+// §8: specchio, colonne, trigger e backfill vanno verificati PRIMA di
+// accendere il flag). Gli store dei tenant (`utenti`, `sedi`, …) non sono
+// ancora caricati a questo punto, quindi qui non si tocca il proprietario di
+// ripiego. `completaTenants()` gira DOPO — backfill/allineamento sugli
+// store, comandi in attesa e il ciclo ogni 30 s, questi sì condizionati
+// all'interruttore. In produzione un fallimento dello schema ferma l'avvio
+// (come policy ed eventi).
 import { kvSql } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getSediStore } from "../routers/sedi";
@@ -25,32 +31,41 @@ function riferisci(esito: { eseguiti: number; falliti: number }) {
 }
 
 /**
- * Control plane soltanto, PRIMA di `bootstrapAll`: schema + cache e, con
- * l'interruttore acceso, `repo.assicuraTenantPredefinito()` — la sola riga
- * `tenants`. Ritorna gli id da istanziare in `bootstrapAll`: anche i tenant
- * sospesi, che restano leggibili (sola lettura, mai nei cicli dei worker).
+ * Control plane soltanto, PRIMA di `bootstrapAll`: schema, cache e
+ * `repo.assicuraTenantPredefinito()` — la riga `tenants` del tenant 1 — SEMPRE,
+ * subito dopo `caricaCache()`, a prescindere dall'interruttore (Task 12 fix
+ * round 1, Ruling R13): è control plane, additiva (`ON CONFLICT DO NOTHING`)
+ * e inerte a interruttore spento, ma serve allo specchio `tenant_sedi` e al
+ * backfill del deploy spento. Ritorna gli id da istanziare in `bootstrapAll`:
+ * a interruttore spento solo il tenant 1; acceso, tutti i tenant in cache —
+ * anche i sospesi, che restano leggibili (sola lettura, mai nei cicli dei
+ * worker).
  */
 export async function preparaTenants(): Promise<number[]> {
   const repo = getTenantRepository();
   await repo.ensureSchema();
   await repo.caricaCache();
-  if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   await repo.assicuraTenantPredefinito();
+  if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   return repo.tutti().map(t => t.id);
 }
 
 /**
  * DOPO `bootstrapAll`: gli store dei tenant sono già caricati, quindi si può
  * allineare il proprietario di ripiego, eseguire i comandi in attesa e
- * avviare il ciclo ogni 30 s. Non tocca mai lo schema: quello è compito, una
- * volta sola, di `preparaTenants`.
+ * avviare il ciclo ogni 30 s — questi TRE restano condizionati
+ * all'interruttore. Non tocca mai lo schema: quello è compito, una volta
+ * sola, di `preparaTenants`, che ha già seminato la riga del tenant 1 anche
+ * a interruttore spento (Ruling R13).
  */
 export async function completaTenants(): Promise<void> {
   const repo = getTenantRepository();
   // Lo specchio sede → tenant si allinea SEMPRE, anche a interruttore spento:
   // è additivo (nessuna lettura di dominio lo consulta) e serve al trigger
-  // `tenant_id`, che gira comunque. Con l'interruttore spento le sedi sono
-  // tutte del tenant 1 e lo specchio lo dice.
+  // `tenant_id`, che gira comunque. La riga del tenant 1 esiste già (la
+  // semina `preparaTenants`, sempre): con l'interruttore spento tutte le
+  // sedi sono sue e questa sincronizzazione le scrive davvero nello
+  // specchio, non resta un no-op silenzioso.
   await repo.sincronizzaTenantSedi(righeTenantSedi(getSediStore()));
   if (!interruttoreAttivo("multiAzienda")) {
     const attesa = await repo.comandiInAttesa();

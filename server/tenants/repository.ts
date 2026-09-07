@@ -48,6 +48,15 @@ export type TenantRepository = {
   prendiEdEsegui(
     esegui: (comando: TenantComando) => Promise<EsitoComando>
   ): Promise<"eseguito" | "errore" | "nessuno">;
+  /**
+   * `INSERT … ON CONFLICT (id) DO NOTHING` sulla riga `tenants` del tenant 1
+   * (+ allineamento sequenza): additiva e idempotente. `preparaTenants()` la
+   * chiama SEMPRE, anche a interruttore spento (Task 12 fix round 1, Ruling
+   * R13): la riga è control plane e inerte finché il flag resta spento
+   * (nessuna lettura di dominio la consulta), ma senza di essa lo specchio
+   * `tenant_sedi` e il backfill di `tenant_id` non potrebbero avvenire nel
+   * deploy spento (spec §7.1, §8).
+   */
   assicuraTenantPredefinito(): Promise<TenantRecord>;
   /**
    * Specchio sede → tenant (Task 12): lo legge il trigger `tenant_id` delle
@@ -55,9 +64,10 @@ export type TenantRepository = {
    * restano come sono (nessuna cancellazione: una sede non sparisce).
    *
    * Una sede il cui tenant non esiste nel control plane viene SALTATA, non è
-   * un errore: con l'interruttore spento `tenants` è vuota (il seed della
-   * riga 1 è compito di `preparaTenants` a interruttore acceso) e lo specchio
-   * resta vuoto invece di far fallire il boot sulla chiave esterna. Appena
+   * un errore: la riga del tenant 1 è sempre seminata da `preparaTenants`
+   * (Ruling R13), ma un tenant ≥ 2 non lo è finché l'interruttore non si
+   * accende e qualcuno lo crea. Fino ad allora una sua sede resta fuori dallo
+   * specchio invece di far fallire il boot sulla chiave esterna. Appena
    * l'interruttore si accende, il boot semina il tenant e il giro successivo
    * riempie lo specchio; il backfill delle tabelle chiude i `tenant_id` NULL.
    */

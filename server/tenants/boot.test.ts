@@ -4,6 +4,7 @@ import { avviaTenants, completaTenants, fermaTenants, preparaTenants } from "./b
 import { INTERVALLO_COMANDI_MS } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+import * as servizioModulo from "./servizio";
 
 const SEDE_A = 91201;
 const SEDE_B = 91202;
@@ -47,7 +48,7 @@ describe("avviaTenants", () => {
     expect(repo.perId(1)?.stato).toBe("sospeso");
   });
 
-  it("spento: schema e cache, nessun seed, comandi lasciati in attesa", async () => {
+  it("spento: schema, cache e la sola riga del tenant 1 nel control plane; nessun altro store toccato, comandi lasciati in attesa", async () => {
     process.env.FLAG_MULTI_AZIENDA = "off";
     const repo = getTenantRepository();
     await repo.accodaComando({
@@ -57,18 +58,24 @@ describe("avviaTenants", () => {
       richiestoDa: "script:tenant@test",
     });
     await avviaTenants();
-    expect(repo.perId(1)).toBeNull();
+    // Task 12 fix round 1 (Ruling R13): la riga control plane del tenant 1 si
+    // semina anche a interruttore spento — è additiva e inerte finché il
+    // flag resta spento, ma serve allo specchio e al backfill del deploy
+    // spento. Nessun altro tenant, nessun comando eseguito.
+    expect(repo.perId(1)?.slug).toBe("ruffino-group");
+    expect(repo.tutti().map(t => t.id)).toEqual([1]);
     expect((await repo.comandiInAttesa()).length).toBe(1);
   });
 });
 
 describe("preparaTenants", () => {
-  it("spento: restituisce [1] e non semina nulla nel control plane", async () => {
+  it("spento: restituisce [1] e semina SOLO la riga del tenant 1 nel control plane (Ruling R13)", async () => {
     process.env.FLAG_MULTI_AZIENDA = "off";
     const repo = getTenantRepository();
     const ids = await preparaTenants();
     expect(ids).toEqual([1]);
-    expect(repo.perId(1)).toBeNull();
+    expect(repo.perId(1)?.slug).toBe("ruffino-group");
+    expect(repo.tutti().map(t => t.id)).toEqual([1]);
   });
 
   it("acceso: semina il tenant 1 e restituisce tutti i tenant in cache, anche i sospesi", async () => {
@@ -92,9 +99,10 @@ describe("completaTenants", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("spento: non semina nulla, lascia i comandi in attesa", async () => {
+  it("spento: la riga del tenant 1 è già seminata da preparaTenants; completaTenants non allinea il proprietario né esegue i comandi in attesa", async () => {
     process.env.FLAG_MULTI_AZIENDA = "off";
     const repo = getTenantRepository();
+    const spiaAllinea = vi.spyOn(servizioModulo, "allineaTenantPredefinito");
     await repo.accodaComando({
       tipo: "sospendi",
       tenantId: 1,
@@ -102,8 +110,13 @@ describe("completaTenants", () => {
       richiestoDa: "script:tenant@test",
     });
     await preparaTenants();
+    // Ruling R13: la riga del tenant 1 esiste già dopo `preparaTenants`, a
+    // interruttore spento. Ciò che resta condizionato all'interruttore, in
+    // `completaTenants`, è solo la parte che tocca gli store: l'allineamento
+    // del proprietario di ripiego e i comandi in attesa.
+    expect(repo.perId(1)?.slug).toBe("ruffino-group");
     await completaTenants();
-    expect(repo.perId(1)).toBeNull();
+    expect(spiaAllinea).not.toHaveBeenCalled();
     expect((await repo.comandiInAttesa()).length).toBe(1);
   });
 
@@ -121,10 +134,12 @@ describe("completaTenants", () => {
       await preparaTenants();
       await completaTenants();
       expect(spia).toHaveBeenCalledWith(attese);
-      // A interruttore spento il control plane non è seminato: lo specchio
-      // resta vuoto invece di puntare a tenant che non esistono (su Postgres
-      // sarebbe la chiave esterna a rifiutarli, e il boot morirebbe lì).
-      expect(await repo.tenantSedi()).toEqual([]);
+      // A interruttore spento il control plane ha SOLO la riga del tenant 1
+      // (seminata da `preparaTenants`, Ruling R13): lo specchio registra la
+      // sede del tenant 1 e SALTA SEDE_B, il cui tenant 2 non esiste ancora
+      // nel control plane — non un errore (su Postgres sarebbe la chiave
+      // esterna a rifiutarla, e il boot morirebbe lì se non saltassimo).
+      expect(await repo.tenantSedi()).toEqual([{ sedeId: SEDE_A, tenantId: 1 }]);
     } finally {
       ripristina();
     }
