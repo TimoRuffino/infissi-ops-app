@@ -25,8 +25,13 @@ import { PRODOTTO, PRODOTTO_PAYOFF } from "./brand";
 const VECCHIO_NOME = ["Ruffino", "Flow"].join(" ");
 
 /**
- * Cartelle che non contengono sorgenti del progetto. `.github` NON è qui:
- * `ci.yml` va controllato come ogni altro documento vivo.
+ * Cartelle che non contengono sorgenti del progetto, confrontate per
+ * percorso dalla radice — non per solo nome, altrimenti una futura
+ * `client/src/data/` uscirebbe dalla scansione in silenzio insieme
+ * all'omonima `data/` di raccolta alla radice. Oggi coincidono perché ogni
+ * voce vive solo alla radice (un segmento solo), ma il confronto è per
+ * percorso completo di proposito. `.github` NON è qui: `ci.yml` va
+ * controllato come ogni altro documento vivo.
  */
 const IGNORATE = new Set([
   ".git",
@@ -86,6 +91,8 @@ const ESTENSIONI = new Set([
   ".ts",
   ".tsx",
   ".js",
+  ".mjs",
+  ".py",
   ".css",
   ".html",
   ".md",
@@ -93,6 +100,7 @@ const ESTENSIONI = new Set([
   ".yml",
   ".yaml",
   ".json",
+  ".toml",
 ]);
 
 function archiviato(percorso: string): boolean {
@@ -112,8 +120,10 @@ function senzaDeroghe(percorso: string, contenuto: string): string {
 function percorsi(dir: string): string[] {
   const out: string[] = [];
   for (const nome of readdirSync(dir)) {
-    if (IGNORATE.has(nome)) continue;
     const percorso = dir === "." ? nome : join(dir, nome);
+    // Per percorso dalla radice, non per nome: una cartella "data" innestata
+    // altrove (fuori dai binari) resta dentro la scansione.
+    if (IGNORATE.has(percorso)) continue;
     if (statSync(percorso).isDirectory()) {
       out.push(...percorsi(percorso));
       continue;

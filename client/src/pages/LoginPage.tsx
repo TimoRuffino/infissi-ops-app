@@ -59,7 +59,7 @@ export default function LoginPage() {
             transition={{ delay: 0.05, duration: 0.28 }}
             className="mb-5 text-center space-y-3"
           >
-            <WyndorMark size={44} className="mx-auto text-primary" />
+            <WyndorMark size={44} className="mx-auto text-brand-mark" />
             <div className="space-y-1">
               <h1 className="font-display text-[30px] font-extrabold leading-tight">
                 Wyndor

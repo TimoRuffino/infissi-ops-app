@@ -49,6 +49,10 @@
   --color-on-mora: var(--on-mora);
   /* Accento del solo marchio: non è un colore semantico e non indica stati. */
   --color-brand-accent: var(--brand-accent);
+  /* Colore dell'anta fissa: il marchio, non `--primary`. In Modular Control
+     `--primary` è `--primitive-brand` (un altro borgogna): senza questo
+     token il segno uscirebbe in due colori diversi fra i due sistemi. */
+  --color-brand-mark: var(--brand-mark);
   /* La firma deve restare leggibile anche se acquisita in dark mode e poi
      stampata su carta bianca. */
   --color-signature-paper: #ffffff;
@@ -171,6 +175,12 @@
   --primary: #d92f55;
   --primary-foreground: #ffffff;
   --brand-accent: #e8a33d;
+  /* Colore normativo dell'anta fissa (spec §3.3): dichiarato qui e in
+     `.dark`, mai nei blocchi `[data-ui-system="modular-control"]`, esattamente
+     come `--brand-accent`. `--primary` in Modular Control è un borgogna
+     diverso (`--primitive-brand`): il marchio deve restare quello approvato
+     in ogni sistema visivo, non seguire `--primary`. */
+  --brand-mark: #d92f55;
   --secondary: #f5e9ed;
   --secondary-foreground: #4d303a;
   --muted: #f4eff1;
@@ -237,6 +247,10 @@
   --primary: #ff6b79;
   --primary-foreground: #2d1419;
   --brand-accent: #f0b657;
+  /* V. commento in :root: stesso colore di --primary scuro solo perché la
+     spec normativa (§3.3) li fa coincidere, non perché siano lo stesso
+     token — Modular Control ridefinisce --primary ma non questo. */
+  --brand-mark: #ff6b79;
   --secondary: #342a2e;
   --secondary-foreground: #fbf7f8;
   --muted: #2b292b;

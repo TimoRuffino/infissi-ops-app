@@ -63,8 +63,19 @@ una misurazione a occhio di un file esportato.
 
 | Ruolo | Chiaro | Scuro |
 | --- | --- | --- |
-| Anta fissa | `#d92f55` (borgogna, `--primary`) | `#ff6b79` (`--primary` scuro) |
-| Anta in apertura | `#e8a33d` (ambra) | `#f0b657` (ambra schiarita) |
+| Anta fissa | `#d92f55` (borgogna, `--brand-mark`) | `#ff6b79` (`--brand-mark` scuro) |
+| Anta in apertura | `#e8a33d` (ambra, `--brand-accent`) | `#f0b657` (ambra schiarita) |
+
+Il colore dell'anta fissa viene da un token dedicato, `--brand-mark`, **non**
+da `--primary`. Nel sistema visivo legacy i due coincidono nel valore, ma non
+sono lo stesso token: Modular Control ridefinisce `--primary` come
+`--primitive-brand` (un altro borgogna, `#8b1e3f` chiaro / `#f09ab2` scuro),
+mentre `--brand-mark` resta quello di questa tabella in ogni sistema visivo.
+Montare il marchio con `--primary` lo fa uscire in un colore diverso a
+seconda del sistema — il difetto misurato e corretto in revisione il
+07/09/2026 — mentre `--brand-mark`, come `--brand-accent`, è dichiarato solo
+in `:root` e `.dark` e non è mai ridefinito nei blocchi
+`[data-ui-system="modular-control"]`.
 
 L'ambra è un token nuovo, `--brand-accent`, e appartiene **al solo marchio**.
 Non entra nella scala semantica: non indica stati, non colora componenti, non
@@ -94,6 +105,18 @@ la maiuscola iniziale. Non si scrive mai tutto maiuscolo né tutto minuscolo.
 - Non si applicano filtri CSS. Oggi `.sidebar-logo` fa
   `filter: brightness(0) invert(1)`: appiattisce il logo a silhouette e
   distrugge il colore. Sul marchio Wyndor cancellerebbe l'ambra.
+
+  Quel filtro non era solo un difetto: sulla barra laterale legacy, verde
+  scuro, forzava anche il logo a bianco pieno, tenendolo leggibile — senza,
+  il borgogna del segno sparisce contro quel verde (misurato: 2,60:1 in
+  chiaro, sotto ogni soglia utile). Rimuovere il filtro senza sostituirne la
+  funzione avrebbe scambiato un difetto (silhouette sempre bianca, niente
+  ambra) con un altro (segno leggibile ovunque tranne che dove serviva di
+  più). La variante «una tinta sola» (§3.4) è quella sostituzione, applicata
+  dove il marchio sta sulla barra verde: entrambe le ante nel colore del
+  testo della barra invece che nel borgogna normativo, esattamente come il
+  filtro rimosso, ma come proprietà del componente e non come regola CSS
+  globale che appiattisce il marchio ovunque lo trovi.
 - Non si ruota, non si inclina, non si allunga su un asse solo.
 - Non si separano le due ante né si cambia l'ampiezza del varco.
 - Sotto i 16 px non si usa il lockup: solo il segno.
@@ -175,8 +198,19 @@ sicurezza: quelle stringhe sono già sotto test o sotto gli occhi.
 | `client/src/lib/preventivatori.ts` | due messaggi all'utente |
 | `client/src/pages/Preventivatori.tsx` | tre stringhe |
 | `client/src/pages/ClienteDetail.tsx` | piè di pagina del PDF |
-| `client/public/notification-sw.js` | titolo di ripiego della notifica |
-| `client/src/index.css` | rimozione `.sidebar-logo`, token `--brand-accent` |
+| `client/public/notification-sw.js` | titolo di ripiego della notifica; prefisso del `tag` (da `ruffino-notification-` a `wyndor-notification-`) |
+| `client/src/index.css` | rimozione `.sidebar-logo`, token `--brand-accent`, `--brand-mark` |
+
+Il `tag` della notifica push ha una conseguenza reale, non solo estetica: il
+service worker usa `renotify: false`, quindi un ripush con lo stesso `tag`
+aggiorna silenziosamente la notifica già a schermo invece di allertare di
+nuovo. Una notifica mostrata prima del rilascio porta ancora il vecchio
+prefisso; un ripush arrivato dopo il rilascio porta il prefisso nuovo, quindi
+i due `tag` non coincidono più e il ripush non sostituisce la notifica
+vecchia: per quell'unica notifica se ne vedono due, non una aggiornata. Non
+si perde nulla e non si ripete oltre il primo ripush dopo il rilascio: da
+quel momento ogni notifica per lo stesso evento usa il prefisso nuovo e torna
+a sostituire correttamente quella precedente.
 
 Test da allineare: `client/src/lib/shellPresentation.test.ts`,
 `client/src/lib/modularRoutePresentation.test.ts`.
@@ -187,6 +221,7 @@ Test da allineare: `client/src/lib/shellPresentation.test.ts`,
 | --- | --- |
 | `server/routers/calendarSync.ts` — `PRODID` | `-//Wyndor//Calendario//IT`. Nessun effetto per chi è iscritto. |
 | `server/routers/calendarSync.ts` — `X-WR-CALNAME` | «Wyndor — <label>». Chi è già iscritto vedrà il calendario cambiare nome nel proprio client. Visibile, innocuo, da dichiarare. |
+| `server/routers/calendarSync.ts` — **`UID:intervento-<id>@ruffino-flow`** | **Non si tocca.** |
 | `server/notifications/deliveryWorker.ts` | Titolo della notifica push. |
 | `server/_core/driveBackup.ts` — descrizione del backup | Aggiornata. |
 | `server/_core/driveBackup.ts` — **cartella `Backup CRM Ruffino`** | **Non si tocca.** |
@@ -198,6 +233,20 @@ Cambiandolo, l'applicazione creerebbe una cartella nuova e i backup esistenti
 resterebbero in quella vecchia, invisibili al codice. Rinominarla richiede una
 migrazione dedicata — leggere la cartella esistente, rinominarla via API,
 verificare — e non appartiene a questo lavoro. Resta come debito dichiarato.
+
+L'UID degli eventi ICS è il gemello esatto del caso Drive: non è un marchio,
+è la chiave d'identità con cui i calendari già iscritti (Google Calendar,
+Apple Calendar, Outlook, ...) riconoscono un evento come «lo stesso di
+prima, aggiornato» invece che nuovo. Cambiare il suffisso `@ruffino-flow`
+farebbe apparire ogni intervento come un evento mai visto: doppioni per chi
+è già iscritto, e gli eventi col vecchio UID orfani, mai più aggiornati. A
+differenza della cartella Drive non c'è nulla da migrare — l'UID non
+identifica una risorsa esterna da rinominare, semplicemente non cambia —
+ma il rischio di uno sviluppatore che lo «sistema» per uniformità è lo
+stesso, ed è per questo che ha una guardia dedicata
+(`server/routers/calendarSync.brand.test.ts`), non solo questa riga di
+spec: la spazzata di §13 cerca «Ruffino Flow» con lo spazio e non vede
+questo suffisso.
 
 Test da allineare: `server/notifications/deliveryWorker.test.ts`.
 
@@ -248,6 +297,18 @@ PRD più facile da consegnare a qualcuno fuori dall'azienda, quindi è il posto
 peggiore dove lasciare il nome vecchio. Nessuna scansione testuale lo vede:
 è un binario, e la spazzata di §13 legge solo file di testo. `v2` e `v3`
 restano versioni storiche e non si rigenerano.
+
+Nello stesso buco cade `output/presentations/Lancio_Ruffino_Flow.pptx`
+(523 KB, tracciato in git dal 03/09/2026): materiale di lancio destinato a
+uscire dall'azienda, col vecchio nome nel nome del file stesso. Come il PDF
+del PRD, è un binario che la spazzata di §13 non legge e nessun'altra sezione
+di questa spec nomina — a differenza del PDF, però, **non si rigenera e non
+si rinomina qui**: questo lavoro non sa con quale strumento sia stato
+prodotto, e rinominarlo alla cieca rischia di consegnare un file che non
+corrisponde più al proprio contenuto (titoli, note, riferimenti interni alla
+presentazione stessa). Registrato come debito dichiarato, sullo stesso
+principio della cartella Drive (§7): la direzione decide se e come
+sostituirlo.
 
 **Non si tocca** — verbali datati, descrivono ciò che fu deciso allora:
 

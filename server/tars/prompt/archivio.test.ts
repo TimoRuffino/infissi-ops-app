@@ -4,7 +4,7 @@
 // Riscriverli durante un rebranding falsificherebbe un archivio: portano il
 // nome che il prodotto aveva quando furono scritti, ed è giusto così.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const CARTELLA = join("server", "tars", "prompt");
@@ -31,6 +31,19 @@ describe("archivio dei prompt di Tars", () => {
       "utf8"
     );
     expect(orchestratore).toContain('from "./prompt/v9"');
+    // Non basta che importi v9: deve fallire anche se ne importa un'altra
+    // insieme (l'asserzione sopra da sola passerebbe comunque). Enumerata
+    // dal disco, non elencata a mano, così un domani v10 non richiede di
+    // ricordarsi di aggiornare anche questo test.
+    const altreVersioni = readdirSync(CARTELLA)
+      .filter(nome => /^v\d+\.ts$/.test(nome) && nome !== "v9.ts")
+      .map(nome => nome.replace(/\.ts$/, ""));
+    expect(altreVersioni.length).toBeGreaterThan(0);
+    for (const versione of altreVersioni) {
+      expect(orchestratore, versione).not.toContain(
+        `from "./prompt/${versione}"`
+      );
+    }
   });
 
   it("fa dire a Tars il nome nuovo", () => {

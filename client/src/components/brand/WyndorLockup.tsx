@@ -24,7 +24,7 @@ export function WyndorLockup({
       className={cn("inline-flex min-w-0 items-center gap-2", className)}
       title={title}
     >
-      <WyndorMark size={markSize} className="shrink-0 text-primary" />
+      <WyndorMark size={markSize} className="shrink-0 text-brand-mark" />
       <span className="font-display truncate text-[15px] font-semibold tracking-[-0.03em]">
         Wyndor
       </span>

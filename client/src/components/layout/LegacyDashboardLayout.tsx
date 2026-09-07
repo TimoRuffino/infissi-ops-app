@@ -233,7 +233,37 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <WyndorLockup className="max-w-[132px] shrink-0" />
+                  {/* Variante a una tinta (spec §3.4): sulla barra verde
+                      legacy il borgogna normativo del marchio (--brand-mark)
+                      dà 2,60:1 contro #123c35, illeggibile. `text-brand-mark`
+                      genera `color: var(--brand-mark)` — Tailwind inlinea il
+                      riferimento dichiarato in `@theme inline` invece di
+                      passare per `--color-brand-mark` (verificato sul CSS
+                      compilato, non solo letto: senza @theme inline
+                      sarebbe stato un livello di indirezione in più, non
+                      raggiungibile da qui) — quindi ridefinire --brand-mark
+                      su questo elemento ospite è sufficiente ed è risolto
+                      dal vivo nel punto d'uso, non dove --brand-mark è
+                      dichiarato. --brand-accent segue la stessa via, diretta
+                      via var() sul `fill`. Risultato: entrambe le ante
+                      prendono il colore del testo della barra
+                      (--sidebar-foreground, già ereditato da <Sidebar>) —
+                      stessa funzione del filtro `brightness(0)` rimosso da
+                      .sidebar-logo, senza appiattire il marchio a
+                      silhouette. `display: contents` tiene il wrapper fuori
+                      dal layout flex. Nessuna nuova prop su
+                      WyndorLockup/WyndorMark: solo token CSS. */}
+                  <span
+                    className="contents"
+                    style={
+                      {
+                        "--brand-mark": "currentColor",
+                        "--brand-accent": "currentColor",
+                      } as CSSProperties
+                    }
+                  >
+                    <WyndorLockup className="max-w-[132px] shrink-0" />
+                  </span>
                   <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />
                   </div>

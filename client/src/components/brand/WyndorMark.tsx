@@ -13,19 +13,44 @@ type WyndorMarkProps = {
  * Il segno Wyndor: l'anta fissa e l'anta in apertura, viste in prospettiva.
  * Geometria canonica nella spec del 07/09/2026, Appendice A.
  *
- * L'anta fissa prende `currentColor`, così il colore lo decide chi lo ospita;
- * quella in apertura prende `--brand-accent`, che cambia da sé fra chiaro e
- * scuro. Nessun filtro CSS deve toccare questo elemento: il vecchio
- * `.sidebar-logo` faceva `filter: brightness(0)` e appiattiva il marchio a
- * silhouette, cancellando il colore.
+ * L'anta fissa prende `currentColor`: chi lo ospita decide il colore passando
+ * un `className`, normalmente `text-brand-mark` (il colore normativo
+ * dell'anta fissa, spec §3.3 — mai `text-primary`: in Modular Control
+ * `--primary` è un altro borgogna, `--primitive-brand`, e monterebbe il
+ * marchio in un colore diverso da sistema a sistema). L'anta in apertura
+ * prende `--brand-accent` direttamente, che cambia da sé fra chiaro e scuro
+ * e non dipende dal `className` dell'elemento. Nessun filtro CSS deve
+ * toccare questo elemento: il vecchio `.sidebar-logo` faceva
+ * `filter: brightness(0)` e appiattiva il marchio a silhouette, cancellando
+ * il colore — ma teneva anche il logo leggibile sopra la barra laterale
+ * verde, forzandolo a bianco pieno.
  *
  * La variante a una tinta sola — timbri, stampa in bianco e nero, fondi
- * pieni — non ha bisogno di una prop: basta ridefinire il token
- * sull'elemento che lo ospita, e le due ante restano separate dal solo varco.
+ * pieni, o un fondo (come la barra legacy) dove il borgogna normativo non
+ * regge il contrasto — non ha bisogno di una prop: basta ridefinire
+ * `--brand-accent` a `currentColor` sull'elemento che ospita il segno. Se
+ * quell'elemento (o `WyndorLockup`) ha già applicato `text-brand-mark`
+ * all'anta fissa, va ridefinito anche `--brand-mark` allo stesso modo.
+ * `text-brand-mark` compila come `color: var(--brand-mark)`: `@theme inline`
+ * fa sì che Tailwind inserisca il riferimento dichiarato in `:root`/`.dark`
+ * direttamente nell'utility generata, invece di indirizzare a un token
+ * `--color-brand-mark` intermedio — verificato sul CSS compilato, non solo
+ * letto sulla carta. Per questo ridefinire `--brand-mark` qui è sufficiente
+ * ed è risolto dal vivo nel punto d'uso, non dove `--brand-mark` è
+ * dichiarato:
  *
- *     <span style={{ "--brand-accent": "currentColor" } as CSSProperties}>
- *       <WyndorMark size={32} />
+ *     <span
+ *       style={{
+ *         "--brand-mark": "currentColor",
+ *         "--brand-accent": "currentColor",
+ *       } as CSSProperties}
+ *     >
+ *       <WyndorLockup />
  *     </span>
+ *
+ * Le due ante restano separate dal solo varco: è la stessa funzione che
+ * svolgeva il filtro rimosso, non un ripiego. Esempio reale:
+ * `LegacyDashboardLayout.tsx`, dove il marchio sta sulla barra verde.
  */
 export function WyndorMark({ size = 24, className, title }: WyndorMarkProps) {
   return (

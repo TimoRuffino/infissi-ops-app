@@ -17,8 +17,9 @@
 > fatture e messaggi ai clienti restano suoi. Non toccati: la cartella Drive
 > `Backup CRM Ruffino` (è la chiave dei backup, non un marchio), i prompt
 > Tars da v1 a v8 e i verbali datati. Fuori perimetro e ancora da fare:
-> nome del repository, `package.json`, dominio, servizio Railway, callback
-> OAuth.
+> nome del repository, il campo `name` di `package.json` (il resto del file
+> è cambiato: script `icone`, devDependency `sharp`), dominio, servizio
+> Railway, callback OAuth.
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec

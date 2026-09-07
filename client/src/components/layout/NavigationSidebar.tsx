@@ -142,7 +142,7 @@ export default function NavigationSidebar({
             <WyndorMark
               size={22}
               title="Wyndor"
-              className="shrink-0 text-primary"
+              className="shrink-0 text-brand-mark"
             />
           ) : (
             <WyndorLockup className="max-w-[148px]" />
