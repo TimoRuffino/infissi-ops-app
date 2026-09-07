@@ -140,6 +140,17 @@ describe("estraiRigheMerce — 2.0.0 (07/09/2026: il magazzino era un casino)", 
     ]);
   });
 
+  it("un giorno con la «ì» e una stanza non sono articoli nemmeno a quantità 1 (07/09/2026, primo giro in produzione)", () => {
+    const pagina = [
+      "giovedì 25 giugno 2026 Commessa N. 1012779 SALVETTI 1 pz",
+      "mercoledì 02 settembre 2026 Commessa N. 1013576 TESCONI 1 pz",
+      "Bagni «Bagno padronale» 1 pz",
+      "Piano terra - Cucina 1 pz",
+      "1 pz Porta a battente Decorato Bianco 800x2100",
+    ].join("\n");
+    expect(estraiRigheMerce([pagina]).map(r => r.nome)).toEqual(["Porta a battente Decorato Bianco 800x2100"]);
+  });
+
   it("l'articolo principale è il serramento, non il kit o i coprifili; se sono tutti accessori, il primo", () => {
     const alias = [
       { nome: "KPO50 KIT PORTA" },
@@ -155,6 +166,9 @@ describe("estraiRigheMerce — 2.0.0 (07/09/2026: il magazzino era un casino)", 
     ];
     expect(articoloPrincipale(tenda)?.nome).toBe("R93 ELEGANCE R93 ELEGANCE");
     expect(articoloPrincipale([{ nome: "BUSTA ACCESSORI SKAT BIANCO" }])?.nome).toBe("BUSTA ACCESSORI SKAT BIANCO");
+    // Fra un codice e un serramento vince il serramento, anche se viene dopo.
+    const pail = [{ nome: "21001C10000 022796 Profilo LINEA" }, { nome: "Porta LINEA Cieca Anta 800x2100" }];
+    expect(articoloPrincipale(pail)?.nome).toBe("Porta LINEA Cieca Anta 800x2100");
     expect(articoloPrincipale([])).toBeNull();
   });
 });

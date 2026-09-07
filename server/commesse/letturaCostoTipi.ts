@@ -33,7 +33,9 @@ import type { EvidenzeLetturaCosto } from "@shared/documenti/evidenze";
 // 2.0.0), fornitore ricondotto al nome aziendale, «pronta dal» dalla
 // settimana di approntamento; le righe vecchie si rigenerano nella forma
 // nuova ereditando il «ricevuto». Valori del costo invariati.
-export const VERSIONE_LETTURA_COSTO = "1.11.0";
+// 1.12.0 (07/09/2026): estrattore merce 2.1.0 (giorni con la «ì», stanze,
+// serramento come articolo principale) e segnaposto con fornitore e numero.
+export const VERSIONE_LETTURA_COSTO = "1.12.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;

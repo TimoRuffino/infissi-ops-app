@@ -37,7 +37,11 @@ export type RigaMerce = {
 // 808); una quantità a pezzi sopra 500 è un codice, non un conteggio; e si
 // riconosce l'ARTICOLO PRINCIPALE della conferma (la porta, non il kit) —
 // a magazzino la conferma è una consegna sola con gli articoli dentro.
-export const ESTRATTORE_MERCE_VERSIONE = "2.0.0";
+// 2.1.0 (07/09/2026, primo giro in produzione): «giovedì» non finisce su un
+// confine di parola JS (la «ì» non è \w) e passava; le etichette di stanza
+// dei PDF Pail («Bagni», «Cucina») non sono articoli; l'articolo principale
+// preferisce un serramento (porta, finestra, tapparella…) a un codice.
+export const ESTRATTORE_MERCE_VERSIONE = "2.1.0";
 
 /** Dove comincia ogni riga nel testo della pagina, separatori compresi. */
 function iniziRighe(testo: string): number[] {
@@ -67,8 +71,21 @@ const MASSIMO_RIGHE = 40;
 const PEZZI_MASSIMI = 500;
 
 /** «giovedì 25 giugno 2026», «25/06/2026 …»: una data, non un articolo. */
+// Niente \b dopo i giorni: in JS «ì» non è un carattere di parola e
+// «giovedì\b» non combacia mai. Il confine è esplicito.
 const INIZIA_CON_DATA =
-  /^(?:lun(?:ed[iì])?|mar(?:ted[iì])?|mer(?:coled[iì])?|gio(?:ved[iì])?|ven(?:erd[iì])?|sab(?:ato)?|dom(?:enica)?)\b|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/i;
+  /^(?:lun(?:ed[iì])?|mar(?:ted[iì])?|mer(?:coled[iì])?|gio(?:ved[iì])?|ven(?:erd[iì])?|sab(?:ato)?|dom(?:enica)?)(?![a-zà-ù])|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}(?!\d)/i;
+
+/**
+ * Le stanze con cui i fornitori raggruppano le posizioni («Bagni», «Cucina»,
+ * «Piano terra»): intestazioni, non articoli.
+ */
+const INIZIA_CON_STANZA =
+  /^(?:bagn[oi]|cucina|camer[ae](?:tta)?|soggiorno|salone|salotto|studio|ingresso|corridoio|disimpegno|garage|cantina|lavanderia|ripostiglio|terrazz[oa]|balcone|mansarda|taverna|scala|scale|piano\s+(?:terra|primo|secondo|terzo|rialzato|interrato|seminterrato))(?![a-zà-ù])/i;
+
+/** Un serramento: quando c'è, è lui che dà il nome alla consegna. */
+const SERRAMENTO =
+  /\b(?:port[ae]|portoncin[oi]|blindat[aeoi]|finestr[ae]|portafinestr[ae]|persian[ae]|tapparell[ae]|avvolgibil[ei]|zanzarier[ae]|vetrat[ae]|scorrevol[ei]|tend[ae]|cassonett[oi]|ant[ae]|infiss[oi]|serrament[oi]|griglia|inferriat[ae]|basculant[ei]|sezional[ei]|pergol[ae]|veranda|lucernari[oi]|monoblocc[oi])\b/i;
 
 /**
  * Accessori e complementi che accompagnano il serramento nella stessa
@@ -84,7 +101,13 @@ const ACCESSORIO =
  */
 export function articoloPrincipale<T extends { nome: string }>(righe: readonly T[]): T | null {
   if (righe.length === 0) return null;
-  return righe.find(r => !ACCESSORIO.test(r.nome)) ?? righe[0];
+  const nonAccessori = righe.filter(r => !ACCESSORIO.test(r.nome));
+  return (
+    nonAccessori.find(r => SERRAMENTO.test(r.nome)) ??
+    righe.find(r => SERRAMENTO.test(r.nome)) ??
+    nonAccessori[0] ??
+    righe[0]
+  );
 }
 
 /** Righe che non sono merce anche se contengono un numero. */
@@ -323,7 +346,7 @@ export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
     for (let i = 0; i < linee.length; i += 1) {
       const riga = linee[i];
       if (riga.length < 8) continue;
-      if (INIZIA_CON_DATA.test(riga)) continue;
+      if (INIZIA_CON_DATA.test(riga) || INIZIA_CON_STANZA.test(riga)) continue;
       const indiceRiga = i;
       const aCelle = leggiRigaCelle(riga, linee[i + 1] ?? null);
       if (aCelle?.usaRigaSotto) i += 1;

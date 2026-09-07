@@ -1056,7 +1056,9 @@ function applicaMerceDaConferma(input: {
   const principale = articoloPrincipale(righe);
   const nome = principale
     ? principale.nome
-    : `Merce conferma d'ordine ${input.numeroOrdine ? `n. ${input.numeroOrdine}` : input.documento.nome}`;
+    : `Merce conferma ${input.fornitore ?? "d'ordine"}${
+        input.numeroOrdine ? ` n. ${input.numeroOrdine}` : input.fornitore ? "" : ` ${input.documento.nome}`
+      }`;
   const nota = (
     righe.length > 0
       ? `Consegna letta dalla conferma d'ordine ${input.riferimentoDocumento}${input.avvisoOcr}: ${righe.length} ${
