@@ -35,12 +35,20 @@ const ATTESI = [
 // verrebbe letto come un'ottava famiglia globale inesistente.
 const PERSISTENCE_TS = "server/_core/persistence.ts";
 
+// File sorgenti da controllare: sclude test e persistence.ts (vedi sopra)
+function getFilesToCheck() {
+  return fileSorgente(["server"]).filter(
+    f => !/\.test\.ts$/.test(f) && relativo(f) !== PERSISTENCE_TS
+  );
+}
+
 describe("store globali", () => {
-  it("esattamente sette store dichiarano ambito globale", () => {
+  it("esattamente sette store dichiarano ambito globale (nomi)", () => {
+    // Primo assertion: la regex assocía ogni nome di store alla sua dichiarazione globale,
+    // finché la callback onLoad è ≤ 2000 caratteri. Un secondo assertion (sotto) conta
+    // le dichiarazioni grezze, catturando eventuali store con callback più lunga.
     const trovati: string[] = [];
-    for (const f of fileSorgente(["server"]).filter(
-      f => !/\.test\.ts$/.test(f) && relativo(f) !== PERSISTENCE_TS
-    )) {
+    for (const f of getFilesToCheck()) {
       const s = readFileSync(f, "utf8");
       for (const m of s.matchAll(
         /persistedStore(?:<[^>]*>)?\(\s*"([a-z_]+)"[\s\S]{0,2000}?\{\s*ambito:\s*"globale"\s*\}/g
@@ -49,5 +57,19 @@ describe("store globali", () => {
       }
     }
     expect(trovati.sort()).toEqual(ATTESI);
+  });
+
+  it("il conteggio grezzo delle dichiarazioni globali non dipende dalla finestra della regex", () => {
+    // Secondo assertion: indipendente dalla regex di name-matching, conta ogni
+    // occorrenza di `{ ambito: "globale" }` nei file. Cattura i negati per callback
+    // più lunghe di 2000 caratteri che il primo test non vedrebbe.
+    let conteggio = 0;
+    for (const f of getFilesToCheck()) {
+      const s = readFileSync(f, "utf8");
+      for (const _ of s.matchAll(/\{\s*ambito:\s*"globale"\s*\}/g)) {
+        conteggio++;
+      }
+    }
+    expect(conteggio).toBe(ATTESI.length);
   });
 });
