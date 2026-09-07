@@ -28,7 +28,15 @@ import type { EvidenzeLetturaCosto } from "@shared/documenti/evidenze";
 // 1.10.0 (06/09/2026): le foto HEIC/HEIF (iPhone) si convertono in JPEG
 // prima della lettura: quelle finite «non leggibili» si rileggono. Valori
 // invariati per tutto il resto.
-export const VERSIONE_LETTURA_COSTO = "1.10.0";
+// 1.11.0 (07/09/2026, «la gestione del magazzino è un casino»): a magazzino
+// UNA conferma = UNA consegna con gli articoli dentro (estrattore merce
+// 2.0.0), fornitore ricondotto al nome aziendale, «pronta dal» dalla
+// settimana di approntamento; le righe vecchie si rigenerano nella forma
+// nuova ereditando il «ricevuto». Valori del costo invariati.
+// 1.12.0 (07/09/2026): estrattore merce 2.1.0 (giorni con la «ì», stanze,
+// serramento come articolo principale) e segnaposto con fornitore e numero.
+// 1.13.0: fornitore «Door Design» = Alias, segnaposto con il numero della conferma.
+export const VERSIONE_LETTURA_COSTO = "1.13.0";
 
 /** Oltre questi tentativi un errore di lettura resta com'è. */
 export const TENTATIVI_MASSIMI_LETTURA = 3;
@@ -92,8 +100,10 @@ export type LetturaCostoDocumento = {
 };
 
 export type MerceDaConferma = {
-  /** Righe scritte a magazzino (0 = commessa non ancora eleggibile, o già presenti). */
+  /** Consegne scritte a magazzino (0 = commessa non ancora eleggibile; 1 dalla lettura 1.9.0). */
   righe: number;
+  /** Articoli letti nella conferma, dentro la consegna (dalla lettura 1.9.0). */
+  articoli?: number;
   dataConsegna: string | null;
   motivo: string | null;
   /** L'estrattore che ha letto le righe: se cambia, le righe non toccate a mano si rigenerano. */

@@ -260,23 +260,28 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
   const merceDi = (commessaId: number) =>
     getMagazzinoStore().filter(p => p.commessaId === commessaId);
 
-  it("una riga per articolo, con fornitore, numero d'ordine e data dalla settimana; più conferme = più righe", async () => {
+  it("UNA consegna per conferma con gli articoli dentro, fornitore, numero d'ordine e data dalla settimana; più conferme = più consegne", async () => {
     const commessa = await inOrdine("Tesconi Merce");
     const prima = await carica(commessa.id, RIGHE_CON_MERCE);
     const righe = merceDi(commessa.id);
-    expect(righe.map(r => [r.nome, r.quantita])).toEqual([
-      ["Finestra 2 ante PVC bianco 1200x1400", 2],
-      ["Portafinestra 1 anta PVC 800x2200", 1],
-    ]);
+    expect(righe).toHaveLength(1);
     expect(righe[0]).toMatchObject({
+      nome: "Finestra 2 ante PVC bianco 1200x1400",
+      quantita: 1,
       documentoId: prima.id,
       dataConsegna: "2026-09-14",
       dataOrdine: "2026-09-01",
       arrivato: false,
     });
+    expect(righe[0].articoli?.map(a => [a.nome, a.quantita])).toEqual([
+      ["Finestra 2 ante PVC bianco 1200x1400", 2],
+      ["Portafinestra 1 anta PVC 800x2200", 1],
+    ]);
+    expect(righe[0].note).toContain("2 articoli");
     expect(righe[0].note).toContain("settimana 38");
     expect(getDocumentoRecordById(prima.id)?.letturaCosto?.merce).toMatchObject({
-      righe: 2,
+      righe: 1,
+      articoli: 2,
       dataConsegna: "2026-09-14",
       motivo: null,
     });
@@ -288,33 +293,40 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
       { nome: "Conferma_zanzariere.pdf" }
     );
     const tutte = merceDi(commessa.id);
-    expect(tutte).toHaveLength(3);
-    expect(tutte.filter(r => r.documentoId === seconda.id)).toHaveLength(1);
-    expect(tutte.find(r => r.documentoId === seconda.id)?.dataConsegna).toBe("2026-09-20");
+    expect(tutte).toHaveLength(2);
+    const zanzariere = tutte.find(r => r.documentoId === seconda.id);
+    expect(zanzariere?.dataConsegna).toBe("2026-09-20");
+    expect(zanzariere?.nome).toBe("Zanzariera a rullo 1200x1400");
+    expect(zanzariere?.articoli?.map(a => [a.nome, a.quantita])).toEqual([["Zanzariera a rullo 1200x1400", 3]]);
     // Due costi, uno per conferma.
     expect(costiDi(commessa.id)).toHaveLength(2);
 
     // Rileggere non raddoppia la merce.
     await registraCostoDaConferma({ documentoId: prima.id, forza: true });
-    expect(merceDi(commessa.id)).toHaveLength(3);
+    expect(merceDi(commessa.id)).toHaveLength(2);
   });
 
   it("la lettura ricorda dove ha letto imponibile e righe, con l'area sulla pagina (anteprime delle evidenze)", async () => {
     const commessa = await inOrdine("Tesconi Evidenze");
     const documento = await carica(commessa.id, RIGHE_CON_MERCE);
     const lettura = getDocumentoRecordById(documento.id)?.letturaCosto!;
-    expect(lettura.versione).toBe("1.10.0");
+    expect(lettura.versione).toBe("1.13.0");
     expect(lettura.evidenze?.imponibile).toMatchObject({ pagina: 1 });
     expect(lettura.evidenze?.imponibile?.frammento.toLowerCase()).toContain("imponibile");
     expect(lettura.evidenze?.imponibile?.area?.grado).toBe("riquadro");
     expect(lettura.evidenze?.numeroConferma?.area?.grado).toBe("riquadro");
     expect(lettura.evidenze?.riscontro).toEqual([]);
     const righe = merceDi(commessa.id);
+    // La consegna porta l'evidenza dell'articolo principale; ogni articolo la sua.
+    expect(righe).toHaveLength(1);
     expect(righe[0].evidenza).toMatchObject({ pagina: 1 });
     expect(righe[0].evidenza?.frammento).toContain("Finestra 2 ante");
     expect(righe[0].evidenza?.area?.grado).toBe("riquadro");
-    // Le due righe di merce stanno su righe diverse della pagina.
-    expect(righe[0].evidenza?.area?.riga?.y).not.toBe(righe[1].evidenza?.area?.riga?.y);
+    const articoli = righe[0].articoli ?? [];
+    expect(articoli).toHaveLength(2);
+    expect(articoli[1].evidenza?.frammento).toContain("Portafinestra");
+    // I due articoli stanno su righe diverse della pagina.
+    expect(articoli[0].evidenza?.area?.riga?.y).not.toBe(articoli[1].evidenza?.area?.riga?.y);
   });
 
   it("senza righe riconoscibili entra una riga sola da completare, e la merce segue il documento", async () => {
@@ -327,7 +339,7 @@ describe("la merce in arrivo nasce a magazzino dalla stessa conferma", () => {
     ]);
     const righe = merceDi(origine.id);
     expect(righe).toHaveLength(1);
-    expect(righe[0]).toMatchObject({ quantita: 1, dataConsegna: "2026-09-25", documentoId: documento.id });
+    expect(righe[0]).toMatchObject({ quantita: 1, dataConsegna: "2026-09-25", documentoId: documento.id, articoli: null });
     expect(righe[0].nome).toContain("Merce conferma d'ordine");
     expect(righe[0].note).toContain("completare a mano");
 
@@ -428,7 +440,9 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     expect(conferma.esito).toBe("registrato");
     expect(costiDi(commessa.id)).toHaveLength(1);
     expect(costiDi(commessa.id)[0].importo).toBe(948.73);
-    expect(merceDi(commessa.id).map(p => p.nome)).toEqual(["KPO44 KIT PORTA", "PORST-C013 PORTA BLIND.STEEL/C < 1900"]);
+    const consegne = merceDi(commessa.id);
+    expect(consegne.map(p => p.nome)).toEqual(["PORST-C013 PORTA BLIND.STEEL/C < 1900"]);
+    expect(consegne[0].articoli?.map(a => a.nome)).toEqual(["KPO44 KIT PORTA", "PORST-C013 PORTA BLIND.STEEL/C < 1900"]);
   });
 
   it("con il cognome del cliente nel testo la stessa archiviazione automatica produce costo e merce; la settimana di approntamento non è una consegna", async () => {
@@ -437,9 +451,11 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     expect(costiDi(commessa.id)).toHaveLength(1);
     const lettura = getDocumentoRecordById(documento.id)?.letturaCosto;
     expect(lettura?.riscontro).toEqual({ ok: true, prove: ["cliente giacomazzi"] });
-    expect(lettura?.merce).toMatchObject({ righe: 2, dataConsegna: null, approntamento: { settimana: 21, anno: 2026, dal: "2026-05-18" } });
+    expect(lettura?.merce).toMatchObject({ righe: 1, articoli: 2, dataConsegna: null, approntamento: { settimana: 21, anno: 2026, dal: "2026-05-18" } });
     const righe = merceDi(commessa.id);
-    expect(righe.every(p => p.dataConsegna === null)).toBe(true);
+    expect(righe).toHaveLength(1);
+    expect(righe[0].dataConsegna).toBeNull();
+    expect(righe[0].prontaDal).toBe("2026-05-18");
     expect(righe[0].note).toContain("Approntamento: settimana 21/2026");
     expect(righe[0].note).toContain("la consegna va concordata");
   });
@@ -468,27 +484,30 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     expect(margine.confermeSenzaCosto.map(r => r.esito)).toEqual(["duplicato", "duplicato"]);
   });
 
-  it("il magazzino si ricontrolla: righe di un estrattore vecchio si rigenerano se nessuno le ha toccate", async () => {
+  it("il magazzino si ricontrolla: la consegna di un estrattore vecchio si rigenera, e il «ricevuto» messo da una persona si eredita", async () => {
     const commessa = await inOrdine("Rigenera Merce");
     const documento = await carica(commessa.id, ALIAS("RIGENERA MERCE"));
     const record = getDocumentoRecordById(documento.id)!;
-    const primeRighe = merceDi(commessa.id);
-    expect(primeRighe).toHaveLength(2);
+    const prime = merceDi(commessa.id);
+    expect(prime).toHaveLength(1);
 
     // Lettura di ieri: estrattore vecchio, versione vecchia.
     record.letturaCosto = { ...record.letturaCosto!, versione: "1.1.0", merce: { ...record.letturaCosto!.merce!, versioneEstrattore: "0.9.0" } };
     const riletta = await registraCostoDaConferma({ documentoId: documento.id });
     expect(riletta.esito).toBe("gia_registrato");
-    const nuoveRighe = merceDi(commessa.id);
-    expect(nuoveRighe).toHaveLength(2);
-    expect(nuoveRighe.map(p => p.id)).not.toEqual(primeRighe.map(p => p.id));
+    const nuove = merceDi(commessa.id);
+    expect(nuove).toHaveLength(1);
+    expect(nuove[0].id).not.toBe(prime[0].id);
+    expect(nuove[0].arrivato).toBe(false);
 
-    // Una riga segnata arrivata: si rispetta, niente rigenerazione.
-    nuoveRighe[0].arrivato = true;
+    // La consegna segnata ricevuta: si rigenera nella forma corrente ma resta ricevuta.
+    nuove[0].arrivato = true;
     record.letturaCosto = { ...record.letturaCosto!, versione: "1.1.0", merce: { ...record.letturaCosto!.merce!, versioneEstrattore: "0.9.0" } };
     await registraCostoDaConferma({ documentoId: documento.id });
-    expect(merceDi(commessa.id).map(p => p.id)).toEqual(nuoveRighe.map(p => p.id));
-    expect(record.letturaCosto?.merce?.motivo).toContain("modificate a mano");
+    const ereditate = merceDi(commessa.id);
+    expect(ereditate).toHaveLength(1);
+    expect(ereditate[0].arrivato).toBe(true);
+    expect(ereditate[0].articoli?.length).toBe(2);
   });
 });
 
