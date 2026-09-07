@@ -7,6 +7,7 @@ import {
   type NotificationSignal,
 } from "../notifications/sse";
 import { getUtentiStore } from "../routers/utenti";
+import { conTenantDellaSede } from "../tenants/giri";
 import {
   getReminderRepository,
   type ReminderRepository,
@@ -27,54 +28,60 @@ export async function runReminderWorkerOnce(input: {
   const pending = await input.reminders.listPendingNotification(limit);
   let projected = 0;
 
+  // Il worker gira su un timer, fuori da ogni richiesta: ogni promemoria si
+  // proietta nel contesto del tenant della SUA sede — destinatari e
+  // notifiche sono dati di quell'azienda. Il try/catch resta per
+  // promemoria: uno che fallisce non ferma gli altri.
   for (const reminder of pending) {
-    try {
-      if (
-        !(await input.isRecipientActive(
-          reminder.sedeId,
-          reminder.recipientUserId,
-        ))
-      ) {
-        continue;
+    await conTenantDellaSede(reminder.sedeId, async () => {
+      try {
+        if (
+          !(await input.isRecipientActive(
+            reminder.sedeId,
+            reminder.recipientUserId,
+          ))
+        ) {
+          return;
+        }
+
+        const result = await input.notifications.upsert({
+          sedeId: reminder.sedeId,
+          recipientUserId: reminder.recipientUserId,
+          canonicalKey: `reminder:${reminder.id}:${reminder.revision}`,
+          type: "reminder",
+          priority: "normal",
+          title: "Promemoria",
+          body: reminder.text,
+          link: reminder.commessaId
+            ? `/commesse/${reminder.commessaId}`
+            : "/tars?tab=chat",
+          groupKey: `reminder:${reminder.id}`,
+          sourceEventId: null,
+          entityRefs: reminder.commessaId
+            ? [{ type: "commessa", id: String(reminder.commessaId) }]
+            : [],
+          createdAt: reminder.remindAt,
+          expiresAt: null,
+        });
+        const marked = await input.reminders.markNotificationProjected({
+          id: reminder.id,
+          revision: reminder.revision,
+          now: input.now,
+        });
+        if (!marked) return;
+
+        await input.publish({
+          notificationId: result.id,
+          recipientUserId: reminder.recipientUserId,
+          sedeId: reminder.sedeId,
+        });
+        projected += 1;
+      } catch (error) {
+        console.warn("[reminders] notification projection failed", {
+          code: error instanceof Error ? error.name : "UNKNOWN",
+        });
       }
-
-      const result = await input.notifications.upsert({
-        sedeId: reminder.sedeId,
-        recipientUserId: reminder.recipientUserId,
-        canonicalKey: `reminder:${reminder.id}:${reminder.revision}`,
-        type: "reminder",
-        priority: "normal",
-        title: "Promemoria",
-        body: reminder.text,
-        link: reminder.commessaId
-          ? `/commesse/${reminder.commessaId}`
-          : "/tars?tab=chat",
-        groupKey: `reminder:${reminder.id}`,
-        sourceEventId: null,
-        entityRefs: reminder.commessaId
-          ? [{ type: "commessa", id: String(reminder.commessaId) }]
-          : [],
-        createdAt: reminder.remindAt,
-        expiresAt: null,
-      });
-      const marked = await input.reminders.markNotificationProjected({
-        id: reminder.id,
-        revision: reminder.revision,
-        now: input.now,
-      });
-      if (!marked) continue;
-
-      await input.publish({
-        notificationId: result.id,
-        recipientUserId: reminder.recipientUserId,
-        sedeId: reminder.sedeId,
-      });
-      projected += 1;
-    } catch (error) {
-      console.warn("[reminders] notification projection failed", {
-        code: error instanceof Error ? error.name : "UNKNOWN",
-      });
-    }
+    });
   }
 
   return { projected };

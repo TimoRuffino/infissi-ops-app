@@ -11,7 +11,8 @@ import {
   encryptSecret,
   secretBoxConfigured,
 } from "../_core/secretBox";
-import { DEFAULT_SEDE_ID, allSedeIds } from "./sedi";
+import { DEFAULT_SEDE_ID, sediAttiveDelTenant } from "./sedi";
+import { perOgniTenantAttivo } from "../tenants/giri";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   collegaFattureAutomatiche,
@@ -1100,29 +1101,44 @@ export async function runFicSync(sedeId: number): Promise<FicSyncResult> {
 const INTERVALLO_SYNC_MS = 60 * 60 * 1000;
 
 let ficTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Il giro orario: un tenant alla volta, ognuno nel suo contesto, e dentro
+ * il contesto le sue sedi attive. Prima scorreva `allSedeIds()` — le sedi
+ * attive di TUTTE le aziende — fuori da qualunque contesto, e `getCfg`
+ * (store per tenant `fic_config`) non sapeva di chi fossero.
+ * `sediAttiveDelTenant` è la stessa selezione di `allSedeIds()`, ristretta
+ * al tenant: nessuna sede in più, nessuna in meno.
+ *
+ * `dip.sync` (default `runFicSync`) è iniettabile solo per i test.
+ */
+export async function giroFic(dip?: {
+  sync?: (sedeId: number) => Promise<unknown>;
+}): Promise<void> {
+  const sync = dip?.sync ?? runFicSync;
+  await perOgniTenantAttivo("fic", async tenantId => {
+    // Ogni sede col suo giro: se una ha il token scaduto, le altre
+    // continuano. Un errore per sede non ferma la fila.
+    for (const sedeId of sediAttiveDelTenant(tenantId).map(s => s.id)) {
+      try {
+        const cfg = getCfg(sedeId);
+        const hasCredential =
+          !!cfg.accessTokenCifrato ||
+          !!cfg.refreshTokenCifrato ||
+          !!(cfg as any).accessToken;
+        if (cfg.enabled && hasCredential && cfg.companyId) {
+          await sync(sedeId);
+        }
+      } catch (e) {
+        console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
+      }
+    }
+  });
+}
+
 export function startFicScheduler(): void {
   if (ficTimer) return;
-  ficTimer = setInterval(
-    async () => {
-      // Ogni sede col suo giro: se una ha il token scaduto, le altre
-      // continuano. Un errore per sede non ferma la fila.
-      for (const sedeId of allSedeIds()) {
-        try {
-          const cfg = getCfg(sedeId);
-          const hasCredential =
-            !!cfg.accessTokenCifrato ||
-            !!cfg.refreshTokenCifrato ||
-            !!(cfg as any).accessToken;
-          if (cfg.enabled && hasCredential && cfg.companyId) {
-            await runFicSync(sedeId);
-          }
-        } catch (e) {
-          console.error(`[fic] sync automatico sede ${sedeId} fallito:`, e);
-        }
-      }
-    },
-    INTERVALLO_SYNC_MS
-  );
+  ficTimer = setInterval(() => void giroFic(), INTERVALLO_SYNC_MS);
   ficTimer.unref?.();
 }
 

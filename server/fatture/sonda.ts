@@ -13,6 +13,7 @@
 import type { Fattura, StatoFattura } from "@shared/fatturazione/tipi";
 import { creaClientFicEmissione, type ContestoFic } from "../fic/emissione";
 import { interruttoreAttivo } from "../platform/interruttori";
+import { conTenantDellaSede } from "../tenants/giri";
 import {
   archiviaFattura,
   contestoFicPerSede,
@@ -183,37 +184,44 @@ export async function giroSonda(
   let errori = 0;
 
   for (const [sedeId, righeSede] of perSede) {
-    let ctx: ContestoFic | null = null;
-    let erroreContesto = "";
-    try {
-      ctx = await risolviContesto(sedeId);
-    } catch (errore) {
-      erroreContesto = messaggio(errore);
-    }
-
-    for (const riga of righeSede) {
-      controllate++;
-      if (!ctx) {
-        errori++;
-        console.error(`[fatture] sonda fattura #${riga.id}: ${erroreContesto}`);
-        continue;
-      }
+    // Il giro parte da un timer, fuori da ogni richiesta: il contesto del
+    // tenant della sede lo rimettiamo qui, prima di toccare gli store
+    // (`contestoFicPerSede` legge `fic_config`, per tenant).
+    await conTenantDellaSede(sedeId, async () => {
+      let ctx: ContestoFic | null = null;
+      let erroreContesto = "";
       try {
-        const esito = await aggiornaStatoFattura({
-          ...dip,
-          sedeId,
-          id: riga.id,
-          actorUserId: null,
-          contesto: async () => ctx!,
-        });
-        if (esito.cambiato) cambiate++;
+        ctx = await risolviContesto(sedeId);
       } catch (errore) {
-        errori++;
-        console.error(
-          `[fatture] sonda fattura #${riga.id}: ${messaggio(errore)}`
-        );
+        erroreContesto = messaggio(errore);
       }
-    }
+
+      for (const riga of righeSede) {
+        controllate++;
+        if (!ctx) {
+          errori++;
+          console.error(
+            `[fatture] sonda fattura #${riga.id}: ${erroreContesto}`
+          );
+          continue;
+        }
+        try {
+          const esito = await aggiornaStatoFattura({
+            ...dip,
+            sedeId,
+            id: riga.id,
+            actorUserId: null,
+            contesto: async () => ctx!,
+          });
+          if (esito.cambiato) cambiate++;
+        } catch (errore) {
+          errori++;
+          console.error(
+            `[fatture] sonda fattura #${riga.id}: ${messaggio(errore)}`
+          );
+        }
+      }
+    });
   }
 
   return { controllate, cambiate, errori };
