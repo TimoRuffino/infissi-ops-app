@@ -356,7 +356,12 @@ export const utentiRouter = router({
       if (aggiunto || (tolto && multi)) await assertPuoNominareProprietari(ctx, multi);
 
       const after = { ...before, ...updates };
-      const motivo = motivoRifiutoPresidio(presidioDi(before), presidioDi(after), utenti.map(presidioDi));
+      // Con l'interruttore spento il ruolo proprietario non è assegnabile
+      // (spec §8.3): la sua guardia dell'ultimo presidio non deve scattare,
+      // solo quella dell'ultima direzione (comportamento di prima del WS1).
+      const motivo = motivoRifiutoPresidio(presidioDi(before), presidioDi(after), utenti.map(presidioDi), {
+        proprietari: multi,
+      });
       if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
 
       utenti[idx] = { ...after, updatedAt: new Date() };
@@ -378,7 +383,11 @@ export const utentiRouter = router({
     const before = idx === -1 ? null : utenti[idx];
     if (multi) assertTenantScope(before, ctx.tenantId);
     if (!before) throw new Error("Utente non trovato");
-    const motivo = motivoRifiutoPresidio(presidioDi(before), null, utenti.map(presidioDi));
+    // Idem update: senza l'interruttore la guardia dell'ultimo proprietario
+    // non si applica, solo quella dell'ultima direzione.
+    const motivo = motivoRifiutoPresidio(presidioDi(before), null, utenti.map(presidioDi), {
+      proprietari: multi,
+    });
     if (motivo) throw new TRPCError({ code: "PRECONDITION_FAILED", message: motivo });
     utenti.splice(idx, 1);
     _store.save();

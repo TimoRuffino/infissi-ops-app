@@ -49,11 +49,18 @@ export function contaPresidi(
  * Messaggio di rifiuto se la modifica (`dopo`) o la cancellazione (`dopo = null`)
  * lascerebbe il tenant di `prima` senza direzione attiva o senza proprietario
  * attivo. Il conteggio non attraversa mai i tenant.
+ *
+ * `opzioni.proprietari` (default `true`) governa solo la guardia
+ * dell'ultimo proprietario: con `FLAG_MULTI_AZIENDA` spento il ruolo non è
+ * assegnabile (spec §8.3, comportamento di prima del WS1) e la guardia non
+ * deve scattare — `utenti.ts` passa `{ proprietari: multi }`. La guardia
+ * dell'ultima direzione resta sempre attiva.
  */
 export function motivoRifiutoPresidio(
   prima: UtentePresidio,
   dopo: UtentePresidio | null,
-  utenti: readonly UtentePresidio[]
+  utenti: readonly UtentePresidio[],
+  opzioni: { proprietari: boolean } = { proprietari: true }
 ): string | null {
   const altri = utenti.filter(u => u.id !== prima.id);
   const futuro = dopo ? [...altri, dopo] : altri;
@@ -62,7 +69,7 @@ export function motivoRifiutoPresidio(
   if (ora.direzione > 0 && poi.direzione === 0) {
     return "Impossibile: questo è l'ultimo utente direzione attivo dell'azienda. Promuovi un altro utente prima di disattivarlo, eliminarlo o togliergli il ruolo.";
   }
-  if (ora.proprietari > 0 && poi.proprietari === 0) {
+  if (opzioni.proprietari && ora.proprietari > 0 && poi.proprietari === 0) {
     return "Impossibile: questo è l'ultimo proprietario attivo dell'azienda. Nomina un altro proprietario prima di disattivarlo, eliminarlo o togliergli il ruolo.";
   }
   return null;

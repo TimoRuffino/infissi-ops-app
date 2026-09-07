@@ -56,6 +56,20 @@ function messaggioErrore(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * Il payload di un comando `crea` porta `proprietario.passwordHash` (un hash
+ * scrypt, non la password in chiaro, ma pur sempre un segreto): lo togliamo
+ * alla chiusura del comando — eseguito o in errore — così `tenant_comandi`
+ * non lo conserva a tempo indeterminato dopo che è servito.
+ */
+function payloadSenzaSegreti(p: Record<string, unknown>): Record<string, unknown> {
+  const copia = structuredClone(p);
+  if (copia.proprietario && typeof copia.proprietario === "object") {
+    delete (copia.proprietario as any).passwordHash;
+  }
+  return copia;
+}
+
 // ── Memoria (sviluppo e test senza DATABASE_URL) ────────────────────────────
 
 function createMemoryTenantRepository(): TenantRepository {
@@ -148,6 +162,7 @@ function createMemoryTenantRepository(): TenantRepository {
         c.stato = "errore";
       }
       c.eseguitoAt = new Date();
+      c.payload = payloadSenzaSegreti(c.payload);
       return c.stato;
     },
     async assicuraTenantPredefinito() {
@@ -347,7 +362,8 @@ function createPostgresTenantRepository(
           esito = { errore: messaggioErrore(e) };
           stato = "errore";
         }
-        await tx`UPDATE tenant_comandi SET stato = ${stato}, esito = ${tx.json(esito as any)}, eseguito_at = NOW()
+        await tx`UPDATE tenant_comandi SET stato = ${stato}, esito = ${tx.json(esito as any)}, eseguito_at = NOW(),
+          payload = ${tx.json(payloadSenzaSegreti(comando.payload) as any)}
           WHERE id = ${comando.id}`;
         return stato;
       });
