@@ -122,14 +122,19 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS storage_quota_bytes BIGINT NOT NULL
   avvisata (50, 80, 100 % di `storage_quota_bytes`), registra
   `tenant_eventi` tipo `storage_soglia` con `{ percentuale, bytes, quota }` e
   aggiorna `soglia_avvisata`; scendendo sotto il 50 % `soglia_avvisata` torna a 0.
-- `ricalcolaStorage(tenantId)`: somma i `size` dei record con `storageKey`
-  negli store dell'azienda (documenti, allegati ticket, allegati mail
-  durevoli, fatture XML/PDF) e per le chiavi senza dimensione (anteprime)
-  usa `statFile`; scrive `bytes`, `file`, `ricalcolato_il`. Gira come comando
-  del control plane `ricalcola_storage` (`pnpm tenant storage --slug=acme
-  --ricalcola --scrivi`) e, al primo boot del WS3, per ogni azienda senza
-  riga in `tenant_storage`, dopo `server.listen` in background (come il
-  backfill di `tenant_id` del WS2).
+- `ricalcolaStorage(tenantId)`: dentro `conTenant`, somma i `size` dei record
+  con `storageKey` negli store dell'azienda (`preventivi_documenti`,
+  `ticket_allegati`) e nella tabella `comunicazioni` (colonna JSONB
+  `allegati[]`, `size` per allegato, `WHERE COALESCE(tenant_id, 1) = <id>`),
+  e per le chiavi senza dimensione registrata — le anteprime
+  (`doc.anteprime.chiavi[]`) e le fatture (`fatture.pdf_storage_key`,
+  `xml_storage_key`) — usa `statFile`; scrive `bytes`, `file`,
+  `ricalcolato_il` e registra `tenant_eventi` `storage_ricalcolato`. Gira
+  come comando del control plane `ricalcola_storage`
+  (`pnpm tenant storage --slug=acme --ricalcola --scrivi`; senza
+  `--ricalcola` lo script stampa il ledger in sola lettura) e, al primo boot
+  del WS3, per ogni azienda senza riga in `tenant_storage`, dopo
+  `server.listen` in background (come il backfill di `tenant_id` del WS2).
 - Query `tenants.storage` (`protectedProcedure`, azienda del contesto):
   `{ bytes, file, quotaBytes, percentuale, ricalcolatoIl, sogliaAvvisata }`.
   Nessun blocco degli upload (decisione 5).
@@ -206,28 +211,41 @@ sempre da `resolveBackupFileData` (checksum SHA-256, `:811-833`).
 ### 4.4 Ripristino degli archivi
 
 Comando del control plane `ripristina_archivi`, accodato da
-`pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=clienti,commesse] [--scrivi] [--attendi]`
-ed eseguito dal server (unico scrittore, come nel WS1):
+`pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=clienti,commesse] --prova|--scrivi [--anche-tenant-1] [--attendi]`
+ed eseguito dal server (unico scrittore, come nel WS1). Senza `--prova` né
+`--scrivi` lo script stampa l'anteprima del comando e non accoda nulla;
+`--prova` accoda la prova (il server legge Drive e riferisce, non scrive),
+`--scrivi` accoda il ripristino vero. In entrambi i casi `--attendi` stampa
+l'esito. Il server:
 
-1. con l'OAuth dell'azienda elenca la cartella del backup indicato sul suo
-   Drive (`drive.file` legge ciò che l'app ha creato) e scarica i
-   `database/<nome>.json` richiesti;
-2. valida ogni dump (array, id numerici unici, `sedeId` appartenenti
-   all'azienda, `tenantId` uguale all'azienda o assente) e confronta i
-   conteggi con gli archivi vivi;
-3. senza `--scrivi` si ferma qui e scrive l'esito (`dryRun: true`, conteggi
+1. con l'OAuth dell'azienda trova sul suo Drive la cartella del backup
+   indicato (`Backup CRM <data>` sotto la radice dell'azienda, oppure l'id
+   della cartella), la sua sottocartella `database/` e scarica i
+   `<nome>.json` richiesti (`drive.file` legge ciò che l'app ha creato);
+2. valida ogni dump (array, `id` numerici unici, `sedeId` — quando c'è —
+   fra le sedi dell'azienda, `tenantId` — quando c'è — uguale all'azienda),
+   scarta i nomi che non sono famiglie per tenant istanziate e gli store
+   operativi del backup stesso (`backup_config`, `backup_oauth`,
+   `backup_log`), e confronta i conteggi con gli archivi vivi;
+3. in prova si ferma qui e scrive l'esito (`dryRun: true`, conteggi
    prima/dopo, anomalie) in `tenant_comandi.esito`;
-4. con `--scrivi`: mette l'azienda in `sospeso` (motivo «ripristino in
-   corso»), sostituisce gli archivi uno per uno (`storeDi(tenantId, nome)`:
-   svuota e riempie, `save()`), riallinea i contatori degli id
-   (`riservaIdFinoA`), riattiva l'azienda, registra `tenant_eventi`
+4. con `scrivi`: mette l'azienda in `sospeso` (motivo «ripristino archivi in
+   corso»), sostituisce gli archivi uno per uno con
+   `sostituisciStore(tenantId, nome, items)` (nuova funzione di
+   `persistence.ts`: rimpiazza gli item dell'istanza, alza il contatore
+   degli id della famiglia e scrive subito il blob su `kv_store`, fuori dal
+   debounce), riattiva l'azienda, registra `tenant_eventi`
    `archivi_ripristinati` con backup, store e conteggi; un errore a metà
-   lascia l'azienda sospesa e l'esito dice quali store sono stati sostituiti.
+   lascia l'azienda sospesa (l'esito e l'evento `comando_fallito` dicono
+   quali store sono stati sostituiti; riattivazione con
+   `pnpm tenant stato --riattiva` dopo verifica).
 5. I file non vengono ricaricati: le `storageKey` restano valide nello
    storage; il Drive è la seconda copia. Il tenant 1 non è ripristinabile
-   da questo comando senza `--anche-tenant-1` (come `sospendi`).
+   senza `--anche-tenant-1` (come `sospendi`). Le `onLoad` dei moduli non
+   vengono rieseguite: un dump di una versione più vecchia del codice va
+   ripristinato con un riavvio subito dopo.
 
-Provato su Postgres vero con un Drive finto (`driveFetch` iniettabile).
+Provato su Postgres vero con un Drive finto (accesso a Drive iniettabile).
 
 ## 5. `state` OAuth e credenziali per azienda
 
@@ -262,14 +280,18 @@ salvataggio. L'Embedded Signup WhatsApp non usa uno `state` nostro
 
 Oggi `POST /api/webhook/whatsapp` (`rotteAnonime.ts`) trova «la prima
 azienda il cui segreto valida la firma» e ingerisce lì; con Embedded Signup
-il segreto dell'app è uno per tutte le aziende. Nel WS3 il mittente si
-trova per numero: `trovaNeiTenant` cerca il `phone_number_id` del payload in
-`configWhatsApp` (`configPerPhoneNumberId`, `whatsapp.ts:310-312`) di ogni
-azienda attiva; trovata l'azienda, la firma si verifica col suo segreto
-(`appSecretPer`) e l'ingestione gira in `conTenantDellaSede(config.sedeId)`.
-Numero sconosciuto → `200` a Meta (nessun retry) e log
-`[whatsapp-webhook] numero sconosciuto`. Il `GET` di verifica resta per
-`verify_token` fra le aziende.
+il segreto dell'app è uno per tutte le aziende, quindi la firma valida sempre
+nella prima azienda provata e i messaggi della seconda finiscono in un
+archivio dove il loro numero non esiste (scartati in silenzio). Nel WS3 la
+firma resta il primo passo, com'è (`mittenteWebhookWhatsApp`: si prova con
+ogni segreto, senza leggere il payload); il destinatario però si decide DOPO,
+per numero: `numeriDelPayload` estrae i `phone_number_id` distinti, per
+ognuno `trovaNeiTenant` cerca il numero in `configWhatsApp`
+(`configPerPhoneNumberId`, `whatsapp.ts:310-312`) di ogni azienda attiva e
+l'ingestione della sola porzione del payload di quel numero gira in
+`conTenantDellaSede(config.sedeId)`. Numero sconosciuto → `200` a Meta
+(nessun retry) e log `[whatsapp-webhook] numero sconosciuto: <id>`. Il `GET`
+di verifica resta per `verify_token` fra le aziende.
 
 ## 7. Guasti per azienda
 
@@ -377,9 +399,9 @@ poi in produzione.
 | `server/tenants/router.ts` | `tenants.storage` |
 | `server/tenants/giri.ts` | interruttore per (worker, azienda) |
 | `server/_core/driveBackup.ts`, `server/routers/backup.ts`, `server/_core/index.ts` | backup per azienda, OAuth con `oauth_state`, token cifrato, cartella per azienda, albero filtrato, callback nel contesto |
-| `server/tenants/ripristino.ts` (nuovo) | validazione dei dump e sostituzione degli archivi |
+| `server/tenants/ripristino.ts` (nuovo), `server/_core/persistence.ts` (`sostituisciStore`) | validazione dei dump e sostituzione degli archivi |
 | `server/routers/fattureInCloud.ts` | `state` persistito |
-| `server/_core/rotteAnonime.ts` | instradamento per numero |
+| `server/_core/rotteAnonime.ts`, `server/_core/index.ts` | instradamento per numero dopo la firma |
 | `server/_core/permissions.ts` + 19 router | `recordOppureNotFound` |
 | `server/routers/fileStorageAdmin.ts`, `server/_core/fileStorageMigrate.ts`, `scripts/migrate-documents-to-storage.ts` | per azienda |
 | `server/_core/storeGlobali.test.ts`, `server/tenants/verifica.ts` + `verifica.confine.test.ts` | quattro globali; `backup_*` classificati per tenant |
