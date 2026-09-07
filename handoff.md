@@ -460,6 +460,46 @@
 > documento `fornitori`. Suite 251 file / 2.703 test. Da fare a mano: la
 > verifica nel browser (1440/390) e il primo giro in produzione, dove le
 > conferme già nei fascicoli entrano in archivio come «collegate».
+>
+> **07/09/2026 (sera) — Fornitori e conferme sono una pagina sola.** Mandato:
+> «la pagina fornitori e conferme d'ordine devono essere insieme… deve
+> essere utile ANCHE al magazzino, ma da lì devo anche vedere le conferme
+> archiviate automaticamente da Tars alle commesse, quelle incerte e quelle
+> da collegare a mano… devo sempre poter aprire il file e avere
+> un'anteprima». Fatto (§36-bis del PRD): **elenco unico** `confermeDiSede`
+> — voci d'archivio e conferme già nel fascicolo in una lista sola, senza
+> doppioni, in cinque gruppi (`collegata_tars`, `nel_fascicolo`, `incerta`,
+> `da_collegare`, `scartata`), ognuna con costo, merce, origine, chi l'ha
+> archiviata e il motivo. **Anteprima sempre**: dialogo con il PDF nel
+> riquadro (o l'immagine) e «Apri in una scheda»; l'indirizzo è il documento
+> del fascicolo o l'allegato della mail quando non è ancora collegata.
+> **La lettura registra cosa porta** (imponibile, articoli, data) nello
+> stesso giro, senza letture in più: si decide prima di collegare.
+> **Vista «In arrivo»** (`fornitori.archivio.inArrivo`): il magazzino visto
+> dal fornitore, giorni di ritardo, articoli della conferma, e
+> `magazzino.segnaRicevute({prodottoIds})` per segnare in blocco (id
+> espliciti, max 200). `/conferme-ordine` → redirect a `/fornitori`,
+> `pages/ConfermeOrdine.tsx` eliminata, una sola voce di menu («Fornitori e
+> conferme»). Suite 258 file / 2.746 test; check e build puliti.
+> **Verifica browser fatta** (finalmente): istanza locale con dati finti su
+> porta 5197 (harness nello scratchpad, `.claude/launch.json` ripristinato),
+> 1440x900 e 390x844 — gruppi, In arrivo, dialogo anteprima e «segna
+> ricevute» provati dal vivo; `scrollWidth == clientWidth` su mobile.
+> Resta da fare in produzione: il primo giro dopo il deploy.
+>
+> **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
+> Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
+> unexpected error occurred», React #185 «Maximum update depth exceeded».
+> Causa: nella vista «In arrivo» la selezione delle consegne era tenuta
+> allineata da un `useEffect` con `setSegnate(s => s.filter(...))` e
+> dipendenza `consegne = inArrivo.data ?? []` — un array nuovo a ogni render
+> quando la query è disabilitata, e un filtro che restituisce sempre un array
+> nuovo: render → effetto → stato → render, all'infinito. In sviluppo React
+> lo scrive in console e la pagina resta in piedi; in produzione lancia.
+> Fix: la selezione si **deriva** (`client/src/lib/consegneSelezione.ts`, tre
+> test) e `consegne` è memoizzata. **Lezione operativa**: la verifica nel
+> browser non è finita finché non si è letta la console
+> (`read_console_messages`), gli screenshot da soli non vedono questo bug.
 
 ## 1. Contesto
 

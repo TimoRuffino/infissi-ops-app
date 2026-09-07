@@ -4,7 +4,7 @@
 // Centro Azioni e la prova che l'applicazione tocca SOLO la data di
 // consegna dell'ordine — mai pianificazione, commessa o righe.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { jsPDF } from "jspdf";
 
 const memoriaStorage = vi.hoisted(() => new Map<string, Buffer>());
@@ -45,6 +45,17 @@ import { getCommessaById } from "./commesse";
 import { getInterventiStore } from "./interventi";
 import { getOrdineFornitoreById } from "./fornitori";
 import { getUtentiStore } from "./utenti";
+
+// Le date di posa e consegna del file sono fisse (settembre 2026) e la
+// priorità dei segnali dipende da quanto distano da OGGI: senza un orologio
+// fermo il test cambia esito a mezzanotte. Solo Date viene finta: i timer
+// restano veri (il debounce dei salvataggi ne ha bisogno).
+beforeAll(() => {
+  vi.useFakeTimers({ now: new Date("2026-09-07T12:00:00+02:00"), toFake: ["Date"] });
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const SEDE = 91501;
 const ALTRA_SEDE = 91502;

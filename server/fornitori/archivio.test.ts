@@ -23,7 +23,8 @@ import {
   FORNITORE_DA_RICONOSCERE,
   azzeraArchivioFornitoriPerTest,
   collegaVoceArchivio,
-  confermeArchivio,
+  confermeDiSede,
+  consegneInArrivo,
   eseguiGiroArchivioFornitori,
   fornitoreDiComunicazione,
   getArchivioFornitoriStore,
@@ -359,16 +360,118 @@ describe("scarta, riapri e riepilogo", () => {
     });
     expect(scartata.stato).toBe("scartata");
     expect(scartata.motivoDecisione).toContain("listino");
-    expect(confermeArchivio({ sedeId: SEDE, stato: "da_collegare" })).toHaveLength(0);
+    expect(confermeDiSede({ sedeId: SEDE, gruppo: "da_collegare" })).toHaveLength(0);
 
     const riaperta = riapriVoceArchivio({ voceId: voce.id, sedeId: SEDE });
     expect(riaperta.stato).toBe("da_collegare");
     expect(riaperta.motivoDecisione).toBeNull();
 
     const riepilogo = riepilogoFornitori(SEDE);
-    expect(riepilogo[0]).toMatchObject({ fornitore: "Alias", daCollegare: 1, collegate: 0 });
+    expect(riepilogo[0]).toMatchObject({ fornitore: "Alias", daCollegare: 1 });
     // Un'altra sede non vede niente.
     expect(riepilogoFornitori(SEDE + 1)).toHaveLength(0);
-    expect(confermeArchivio({ sedeId: SEDE + 1 })).toHaveLength(0);
+    expect(confermeDiSede({ sedeId: SEDE + 1 })).toHaveLength(0);
+  });
+});
+
+describe("l'elenco unico delle conferme", () => {
+  it("mette insieme quello che ha collegato Tars e quello che aspetta una mano, e dice cosa porta", async () => {
+    const commessa = await commessaIn("da_ordinare", "Ventura Marco");
+    const collegabile = confermaPer("VENTURA MARCO", "2000101");
+    const orfana = confermaPer("NESSUNO AL MONDO", "2000102");
+    const mailCollegata = await mailFornitore({}, collegabile);
+    const mailOrfana = await mailFornitore({}, orfana);
+
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(
+        new Map([
+          [mailCollegata.id, collegabile],
+          [mailOrfana.id, orfana],
+        ]),
+        [mailCollegata, mailOrfana]
+      ),
+    });
+
+    const elenco = confermeDiSede({ sedeId: SEDE });
+    const collegata = elenco.find(r => r.commessa?.id === commessa.id);
+    const daCollegare = elenco.find(r => r.nome.includes("2000102"));
+
+    // Quella certa è nel fascicolo, con il costo e la merce che ne sono nati.
+    expect(collegata?.gruppo).toBe("collegata_tars");
+    expect(collegata?.costo).toMatchObject({ stato: "registrato", importo: 948.73 });
+    expect(collegata?.merce.consegne).toBe(1);
+    expect(collegata?.fileUrl).toBe(`/api/documenti/${collegata?.documentoId}/file`);
+
+    // Quella senza commessa resta apribile dalla mail, e dice già cosa porta.
+    expect(daCollegare?.gruppo).toBe("da_collegare");
+    expect(daCollegare?.fileUrl).toBe(
+      `/api/comunicazioni/${mailOrfana.id}/allegati/0`
+    );
+    expect(daCollegare?.merce.articoliLetti.length).toBeGreaterThan(0);
+    expect(daCollegare?.costo.stato).toBe("in_attesa");
+
+    // Il filtro per gruppo è quello che la pagina usa per le sue schede.
+    expect(confermeDiSede({ sedeId: SEDE, gruppo: "da_collegare" })).toHaveLength(1);
+    // Un'altra sede non vede niente.
+    expect(confermeDiSede({ sedeId: SEDE + 1 })).toHaveLength(0);
+  });
+
+  it("una conferma caricata a mano nel fascicolo compare lo stesso, senza doppioni", async () => {
+    const commessa = await commessaIn("da_ordinare", "Manuale Luigi");
+    const pdf = confermaPer("MANUALE LUIGI", "2000103");
+    const mail = await mailFornitore({}, pdf);
+    const mappa = new Map([[mail.id, pdf]]);
+    await eseguiGiroArchivioFornitori({ sedeId: SEDE, deps: deps(mappa, [mail]) });
+
+    const documenti = getDocumentiDiCommessa(commessa.id);
+    const conferme = confermeDiSede({ sedeId: SEDE }).filter(
+      r => r.commessa?.id === commessa.id
+    );
+    // Una voce d'archivio e il suo documento sono la stessa conferma.
+    expect(documenti.filter(d => d.tipo === "conferma_ordine")).toHaveLength(1);
+    expect(conferme).toHaveLength(1);
+    expect(conferme[0].voceId).not.toBeNull();
+    expect(conferme[0].documentoId).not.toBeNull();
+  });
+});
+
+describe("il magazzino visto dal fornitore", () => {
+  it("mostra cosa deve ancora arrivare, con il ritardo, e lo segna ricevuto a lotti", async () => {
+    const commessa = await commessaIn("da_ordinare", "Attesa Giulio");
+    const pdf = confermaPer("ATTESA GIULIO", "2000104");
+    const mail = await mailFornitore({}, pdf);
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[mail.id, pdf]]), [mail]),
+    });
+
+    const consegna = getMagazzinoStore().find(p => p.commessaId === commessa.id);
+    expect(consegna).toBeTruthy();
+    (consegna as any).dataConsegna = "2026-01-10";
+
+    const inArrivo = consegneInArrivo({
+      sedeId: SEDE,
+      fornitore: "Alias",
+      adesso: new Date("2026-01-20T09:00:00Z"),
+    });
+    const riga = inArrivo.find(r => r.commessa?.id === commessa.id);
+    expect(riga?.giorniDiRitardo).toBe(10);
+    expect(riga?.fileUrl).toBe(`/api/documenti/${riga?.documentoId}/file`);
+
+    // Il riepilogo del fornitore porta il conto in cima alla pagina.
+    const alias = riepilogoFornitori(SEDE).find(r => r.fornitore === "Alias");
+    expect(alias!.inArrivo).toBeGreaterThan(0);
+
+    // Segnare ricevuto a lotti tocca solo le righe che si avevano davanti.
+    const esito = await direzione().magazzino.segnaRicevute({
+      prodottoIds: [riga!.prodottoId],
+    });
+    expect(esito.segnate).toBe(1);
+    expect(
+      consegneInArrivo({ sedeId: SEDE, fornitore: "Alias" }).some(
+        r => r.prodottoId === riga!.prodottoId
+      )
+    ).toBe(false);
   });
 });
