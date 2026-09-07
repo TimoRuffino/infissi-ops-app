@@ -30,8 +30,9 @@ import type {
   EvidenzaTars,
   StrumentoTars,
 } from "./tipi";
+import { PRODOTTO } from "@shared/brand";
 
-const FONTE = "Servizio canonico transizioni commessa di Ruffino Flow";
+const FONTE = `Servizio canonico transizioni commessa di ${PRODOTTO}`;
 
 const COMANDO_DIRETTO =
   /(?:(?:passa|porta|sposta|avanza|arretra|riporta)\s+(?:(?:la|questa|quella)\s+)?commess[ae]|cambia\s+(?:lo\s+)?stat[oa]\s+(?:della|alla)\s+commess[ae]|fai\s+(?:passare|avanzare|arretrare)\s+(?:(?:la|questa|quella)\s+)?commess[ae]|procedi\s+(?:allo|al|con\s+il)\s+stat[oa])\b/i;
