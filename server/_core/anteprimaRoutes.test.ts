@@ -8,10 +8,13 @@ import express from "express";
 import type { Server } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { appRouter } from "../routers";
+import * as preventiviContrattiModulo from "../routers/preventiviContratti";
 import { caricaDocumentoCommessaDaBuffer } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
 import { disponibilitaOcr } from "../documenti/ocr";
 import { pdfConTesto } from "../documenti/pdfMinimo";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import type { TenantRecord } from "../tenants/tipi";
 import { registerAnteprimaRoutes } from "./anteprimaRoutes";
 
 // Storage in memoria: le pagine rese non toccano ./data/files.
@@ -32,8 +35,17 @@ vi.mock("./fileStorage", async importOriginal => {
   };
 });
 
-// La sessione: il test decide chi è l'utente e in quale sede.
-const sessione = vi.hoisted(() => ({ corrente: null as null | { userId: number; sedeId: number } }));
+// La sessione: il test decide chi è l'utente, in quale sede e (WS2) con
+// quale tenant — di norma il predefinito (1, senza record), a meno che un
+// test non imposti esplicitamente un tenant per provare la guardia.
+const sessione = vi.hoisted(() => ({
+  corrente: null as null | {
+    userId: number;
+    sedeId: number;
+    tenantId?: number;
+    tenant?: TenantRecord | null;
+  },
+}));
 vi.mock("./context", () => ({
   createContext: vi.fn(async () =>
     sessione.corrente
@@ -41,8 +53,8 @@ vi.mock("./context", () => ({
           user: { id: sessione.corrente.userId, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "Dir" },
           sedeId: sessione.corrente.sedeId,
           sediIds: [sessione.corrente.sedeId],
-          tenantId: 1,
-          tenant: null,
+          tenantId: sessione.corrente.tenantId ?? 1,
+          tenant: sessione.corrente.tenant ?? null,
           req: {},
           res: {},
         }
@@ -148,6 +160,38 @@ describe("GET /api/documenti/:id/pagina/:n", () => {
     expect((await chiedi(`/api/documenti/${documentoId}/pagina/0`)).status).toBe(404);
     expect((await chiedi(`/api/documenti/abc/pagina/1`)).status).toBe(404);
     expect((await chiedi(`/api/documenti/999999999/pagina/1`)).status).toBe(404);
+  });
+
+  it("dentro il gestore tenantCorrente() è il tenant del contesto, anche con l'azienda sospesa", async () => {
+    modalitaTenantStretta(true);
+    let tenantVisto: number | null | undefined;
+    const originale = preventiviContrattiModulo.getDocumentoCommessaById;
+    const spia = vi
+      .spyOn(preventiviContrattiModulo, "getDocumentoCommessaById")
+      .mockImplementation((...args: Parameters<typeof originale>) => {
+        tenantVisto = tenantCorrente();
+        return originale(...args);
+      });
+    try {
+      const sospeso: TenantRecord = {
+        id: 4,
+        slug: "gamma",
+        nome: "Gamma",
+        stato: "sospeso",
+        motivoStato: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      sessione.corrente = { userId: DIREZIONE_ID, sedeId: SEDE, tenantId: 4, tenant: sospeso };
+      const r = await chiedi(`/api/documenti/${documentoId}/pagina/1`);
+      // La lettura non è bloccata dal tenant sospeso (sola lettura, non sola
+      // negazione): la guardia lascia passare, il gestore gira nel tenant 4.
+      expect(r.status).not.toBe(412);
+      expect(tenantVisto).toBe(4);
+    } finally {
+      spia.mockRestore();
+      modalitaTenantStretta(false);
+    }
   });
 
   it.skipIf(!binariPresenti)(

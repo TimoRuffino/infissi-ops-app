@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { createContext as defaultCreateContext } from "../_core/context";
 import { kvSql } from "../_core/persistence";
+import { conTenantDelContesto, rifiutaTenant } from "../tenants/express";
 import {
   getNotificationRepository,
   type NotificationRepository,
@@ -130,83 +131,87 @@ export function createNotificationSseHandler(
       res.status(401).end();
       return;
     }
+    if (rifiutaTenant(res, context, { scrittura: false })) return;
     const recipientUserId = Number(context.user.id);
     const sedeId = Number(context.sedeId);
-    res.status(200);
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-    activeConnectionsBySite.set(sedeId, getSseConnectionCount(sedeId) + 1);
 
-    const queryAfter =
-      typeof req.query?.after === "string" ? req.query.after : undefined;
-    let lastSent = Number(
-      req.get("last-event-id") ??
-        req.headers["last-event-id"] ??
-        queryAfter ??
-        0
-    );
-    if (!Number.isInteger(lastSent) || lastSent < 0) lastSent = 0;
-    const pending = new Set<number>();
-    let replaying = true;
-    let delivery = Promise.resolve();
-    const flushPending = async () => {
-      const ids = Array.from(pending).sort((a, b) => a - b);
-      pending.clear();
-      for (const id of ids) {
-        if (id <= lastSent) continue;
-        const item = await repository.findById(id, recipientUserId, sedeId);
-        if (!item || item.id <= lastSent) continue;
-        res.write(eventFrame(item));
-        lastSent = item.id;
-      }
-    };
-    const scheduleFlush = () => {
-      delivery = delivery.then(flushPending).catch(error => {
-        const code =
-          error && typeof error === "object" && "code" in error
-            ? String((error as any).code)
-            : "SSE_DELIVERY_FAILED";
-        console.warn(`[notifications] sse delivery failed: ${code}`);
+    await conTenantDelContesto(context, async () => {
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      activeConnectionsBySite.set(sedeId, getSseConnectionCount(sedeId) + 1);
+
+      const queryAfter =
+        typeof req.query?.after === "string" ? req.query.after : undefined;
+      let lastSent = Number(
+        req.get("last-event-id") ??
+          req.headers["last-event-id"] ??
+          queryAfter ??
+          0
+      );
+      if (!Number.isInteger(lastSent) || lastSent < 0) lastSent = 0;
+      const pending = new Set<number>();
+      let replaying = true;
+      let delivery = Promise.resolve();
+      const flushPending = async () => {
+        const ids = Array.from(pending).sort((a, b) => a - b);
+        pending.clear();
+        for (const id of ids) {
+          if (id <= lastSent) continue;
+          const item = await repository.findById(id, recipientUserId, sedeId);
+          if (!item || item.id <= lastSent) continue;
+          res.write(eventFrame(item));
+          lastSent = item.id;
+        }
+      };
+      const scheduleFlush = () => {
+        delivery = delivery.then(flushPending).catch(error => {
+          const code =
+            error && typeof error === "object" && "code" in error
+              ? String((error as any).code)
+              : "SSE_DELIVERY_FAILED";
+          console.warn(`[notifications] sse delivery failed: ${code}`);
+        });
+      };
+      const unsubscribe = hub.subscribe({ recipientUserId, sedeId }, signal => {
+        if (signal.notificationId <= lastSent) return;
+        pending.add(signal.notificationId);
+        if (!replaying) scheduleFlush();
       });
-    };
-    const unsubscribe = hub.subscribe({ recipientUserId, sedeId }, signal => {
-      if (signal.notificationId <= lastSent) return;
-      pending.add(signal.notificationId);
-      if (!replaying) scheduleFlush();
-    });
 
-    const replay = await repository.listAfterId({
-      sedeId,
-      recipientUserId,
-      afterId: lastSent,
-      limit: 100,
-      now: new Date(),
+      const replay = await repository.listAfterId({
+        sedeId,
+        recipientUserId,
+        afterId: lastSent,
+        limit: 100,
+        now: new Date(),
+      });
+      for (const item of replay) {
+        res.write(eventFrame(item));
+        lastSent = Math.max(lastSent, item.id);
+      }
+      replaying = false;
+      scheduleFlush();
+      const heartbeat = setInterval(
+        () => res.write(": heartbeat\n\n"),
+        heartbeatMs
+      );
+      heartbeat.unref();
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+        const remaining = Math.max(0, getSseConnectionCount(sedeId) - 1);
+        if (remaining) activeConnectionsBySite.set(sedeId, remaining);
+        else activeConnectionsBySite.delete(sedeId);
+      };
+      res.once("close", cleanup);
+      res.once("finish", cleanup);
     });
-    for (const item of replay) {
-      res.write(eventFrame(item));
-      lastSent = Math.max(lastSent, item.id);
-    }
-    replaying = false;
-    scheduleFlush();
-    const heartbeat = setInterval(
-      () => res.write(": heartbeat\n\n"),
-      heartbeatMs
-    );
-    heartbeat.unref();
-    let cleaned = false;
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      clearInterval(heartbeat);
-      unsubscribe();
-      const remaining = Math.max(0, getSseConnectionCount(sedeId) - 1);
-      if (remaining) activeConnectionsBySite.set(sedeId, remaining);
-      else activeConnectionsBySite.delete(sedeId);
-    };
-    res.once("close", cleanup);
-    res.once("finish", cleanup);
   };
 }

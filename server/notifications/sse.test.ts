@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 import { createMemoryNotificationRepository } from "./repository";
 import { createNotificationHub, createNotificationSseHandler } from "./sse";
 
@@ -61,6 +62,43 @@ describe("notification SSE", () => {
     await handler(req, res);
     expect(res.statusCode).toBe(401);
     expect(res.ended).toBe(true);
+  });
+
+  it("dentro il gestore tenantCorrente() è il tenant del contesto, anche con l'azienda sospesa", async () => {
+    modalitaTenantStretta(true);
+    try {
+      const repository = createMemoryNotificationRepository();
+      let tenantVisto: number | null | undefined;
+      const spiato = {
+        ...repository,
+        async listAfterId(input: Parameters<typeof repository.listAfterId>[0]) {
+          tenantVisto = tenantCorrente();
+          return repository.listAfterId(input);
+        },
+      };
+      const handler = createNotificationSseHandler({
+        repository: spiato,
+        hub: createNotificationHub(),
+        createContext: async () => ({
+          user: { id: 7 },
+          sedeId: 1,
+          tenantId: 42,
+          tenant: { id: 42, slug: "delta", nome: "Delta", stato: "sospeso", motivoStato: null, createdAt: new Date(), updatedAt: new Date() },
+        }),
+        heartbeatMs: 60_000,
+      });
+      const req = request({ "last-event-id": "0" });
+      const res = response();
+
+      await handler(req, res);
+      res.emit("close");
+
+      // Lettura: il tenant sospeso non la blocca (412 è solo per la scrittura).
+      expect(res.statusCode).toBe(200);
+      expect(tenantVisto).toBe(42);
+    } finally {
+      modalitaTenantStretta(false);
+    }
   });
 
   it("replay e live stream restano isolati per utente e sede", async () => {

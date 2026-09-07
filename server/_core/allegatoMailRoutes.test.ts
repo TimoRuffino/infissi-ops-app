@@ -8,12 +8,42 @@
 
 import express from "express";
 import type { Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import * as comunicazioniModulo from "../comunicazioni/comunicazioni";
+import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import type { TenantRecord } from "../tenants/tipi";
 import { registerAllegatoMailRoutes } from "./allegatoMailRoutes";
 
 let server: Server;
 let base = "";
+
+// La sessione: senza contesto impostato, `createContext` reale non trova
+// nessuna sessione (nessun cookie) e tutte le rotte muoiono a 401, come
+// prima del WS2. Un test che vuole superare l'autenticazione imposta un
+// tenant qui e lo inietta mockando `./context`.
+const sessione = vi.hoisted(() => ({
+  corrente: null as null | { userId: number; sedeId: number; tenantId?: number; tenant?: TenantRecord | null },
+}));
+vi.mock("./context", async importOriginal => {
+  const actual = await importOriginal<typeof import("./context")>();
+  return {
+    ...actual,
+    createContext: vi.fn(async (input: any) =>
+      sessione.corrente
+        ? {
+            user: { id: sessione.corrente.userId, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "Dir" },
+            sedeId: sessione.corrente.sedeId,
+            sediIds: [sessione.corrente.sedeId],
+            tenantId: sessione.corrente.tenantId ?? 1,
+            tenant: sessione.corrente.tenant ?? null,
+            req: {},
+            res: {},
+          }
+        : actual.createContext(input)
+    ),
+  };
+});
 
 beforeAll(async () => {
   const app = express();
@@ -28,6 +58,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>(risolvi => server.close(() => risolvi()));
+});
+
+afterEach(() => {
+  sessione.corrente = null;
 });
 
 const chiedi = (percorso: string, headers: Record<string, string> = {}) =>
@@ -61,5 +95,36 @@ describe("GET /api/comunicazioni/:id/allegati/:indice", () => {
   it("un indice negativo è una richiesta malformata, non un allegato", async () => {
     const r = await chiedi("/api/comunicazioni/1/allegati/-1");
     expect([401, 404]).toContain(r.status);
+  });
+
+  it("dentro il gestore tenantCorrente() è il tenant del contesto, anche con l'azienda sospesa", async () => {
+    modalitaTenantStretta(true);
+    let tenantVisto: number | null | undefined;
+    const originale = comunicazioniModulo.getLiveComunicazione;
+    const spia = vi
+      .spyOn(comunicazioniModulo, "getLiveComunicazione")
+      .mockImplementation((...args: Parameters<typeof originale>) => {
+        tenantVisto = tenantCorrente();
+        return originale(...args);
+      });
+    try {
+      const sospeso: TenantRecord = {
+        id: 4,
+        slug: "gamma",
+        nome: "Gamma",
+        stato: "sospeso",
+        motivoStato: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      sessione.corrente = { userId: 1, sedeId: 5, tenantId: 4, tenant: sospeso };
+      const r = await chiedi("/api/comunicazioni/1/allegati/0");
+      // Lettura: il tenant sospeso non la blocca (412 è solo per la scrittura).
+      expect(r.status).not.toBe(412);
+      expect(tenantVisto).toBe(4);
+    } finally {
+      spia.mockRestore();
+      modalitaTenantStretta(false);
+    }
   });
 });

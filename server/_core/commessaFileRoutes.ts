@@ -17,6 +17,7 @@ import {
   getDocumentoCommessaById,
   StorageAllegatoTemporaneamenteNonDisponibile,
 } from "../routers/preventiviContratti";
+import { conTenantDelContesto, rifiutaTenant } from "../tenants/express";
 
 const uploadMetadataSchema = z.object({
   commessaId: z.coerce.number().int().positive(),
@@ -86,6 +87,37 @@ function releaseUploadSlot(res: Response): void {
   }
 }
 
+/**
+ * Primo gestore della rotta di upload: sessione, guardia del tenant (WS2,
+ * scrittura) e poi il resto della catena (limite di concorrenza, multer, il
+ * gestore vero) dentro il contesto del tenant — `next()` è sincrono e i
+ * callback che crea ereditano l'ALS. Esportata (invece che anonima dentro
+ * `registerCommessaFileRoutes`) perché è l'unico punto della rotta che vale
+ * la pena testare da sola, con un req/res/next finti.
+ */
+export async function contestoUploadCommessa(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!sameOrigin(req)) {
+      res.status(403).json({ error: "Cross-origin request blocked" });
+      return;
+    }
+    const context = await createContext({ req, res });
+    if (!context.user || context.sedeId == null) {
+      res.status(401).json({ error: "Autenticazione richiesta" });
+      return;
+    }
+    if (rifiutaTenant(res, context, { scrittura: true })) return;
+    res.locals.commessaUploadContext = context;
+    return conTenantDelContesto(context, () => next());
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function registerCommessaFileRoutes(app: Express): void {
   const rawUpload = express.raw({
     limit: COMMESSA_UPLOAD_MAX_BYTES,
@@ -105,23 +137,7 @@ export function registerCommessaFileRoutes(app: Express): void {
 
   app.post(
     "/api/commesse/:commessaId/documenti/file",
-    async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        if (!sameOrigin(req)) {
-          res.status(403).json({ error: "Cross-origin request blocked" });
-          return;
-        }
-        const context = await createContext({ req, res });
-        if (!context.user || context.sedeId == null) {
-          res.status(401).json({ error: "Autenticazione richiesta" });
-          return;
-        }
-        res.locals.commessaUploadContext = context;
-        next();
-      } catch (error) {
-        next(error);
-      }
-    },
+    contestoUploadCommessa,
     (_req: Request, res: Response, next: NextFunction) => {
       const release = acquireUploadSlot();
       if (!release) {
@@ -201,65 +217,69 @@ export function registerCommessaFileRoutes(app: Express): void {
           res.status(401).json({ error: "Autenticazione richiesta" });
           return;
         }
+        if (rifiutaTenant(res, context, { scrittura: false })) return;
+        const sedeId = context.sedeId;
 
-        const documentoId = Number(req.params.documentoId);
-        if (!Number.isSafeInteger(documentoId)) {
-          res.status(404).end();
-          return;
-        }
+        await conTenantDelContesto(context, async () => {
+          const documentoId = Number(req.params.documentoId);
+          if (!Number.isSafeInteger(documentoId)) {
+            res.status(404).end();
+            return;
+          }
 
-        const documento = getDocumentoCommessaById(documentoId, context.sedeId);
-        if (!documento) {
-          res.status(404).end();
-          return;
-        }
+          const documento = getDocumentoCommessaById(documentoId, sedeId);
+          if (!documento) {
+            res.status(404).end();
+            return;
+          }
 
-        const rawRangeHeader =
-          typeof req.headers.range === "string" ? req.headers.range : undefined;
-        const requestedRange = contentRange(rawRangeHeader, documento.size);
-        if (rawRangeHeader && !requestedRange) {
-          res.setHeader("Content-Range", `bytes */${documento.size}`);
-          res.status(416).end();
-          return;
-        }
+          const rawRangeHeader =
+            typeof req.headers.range === "string" ? req.headers.range : undefined;
+          const requestedRange = contentRange(rawRangeHeader, documento.size);
+          if (rawRangeHeader && !requestedRange) {
+            res.setHeader("Content-Range", `bytes */${documento.size}`);
+            res.status(416).end();
+            return;
+          }
 
-        const contenuto = await apriDocumentoCommessaDaStorage(
-          documentoId,
-          context.sedeId,
-          requestedRange ?? undefined
-        );
-        if (!contenuto) {
-          res.status(404).end();
-          return;
-        }
-
-        const { stream, contentLength, totalBytes } = contenuto;
-        const disposition =
-          req.query.download === "1" ? "attachment" : "inline";
-        const encodedName = encodeHeaderFilename(documento.nome);
-        res.setHeader(
-          "Content-Type",
-          documento.mimeType || "application/octet-stream"
-        );
-        res.setHeader(
-          "Content-Disposition",
-          `${disposition}; filename*=UTF-8''${encodedName}`
-        );
-        res.setHeader("Accept-Ranges", "bytes");
-        res.setHeader("Cache-Control", "private, no-store");
-
-        if (requestedRange) {
-          res.status(206);
-          res.setHeader(
-            "Content-Range",
-            `bytes ${requestedRange.start}-${requestedRange.end}/${totalBytes}`
+          const contenuto = await apriDocumentoCommessaDaStorage(
+            documentoId,
+            sedeId,
+            requestedRange ?? undefined
           );
-        }
-        res.setHeader("Content-Length", contentLength);
-        stream.on("error", error => {
-          next(error);
+          if (!contenuto) {
+            res.status(404).end();
+            return;
+          }
+
+          const { stream, contentLength, totalBytes } = contenuto;
+          const disposition =
+            req.query.download === "1" ? "attachment" : "inline";
+          const encodedName = encodeHeaderFilename(documento.nome);
+          res.setHeader(
+            "Content-Type",
+            documento.mimeType || "application/octet-stream"
+          );
+          res.setHeader(
+            "Content-Disposition",
+            `${disposition}; filename*=UTF-8''${encodedName}`
+          );
+          res.setHeader("Accept-Ranges", "bytes");
+          res.setHeader("Cache-Control", "private, no-store");
+
+          if (requestedRange) {
+            res.status(206);
+            res.setHeader(
+              "Content-Range",
+              `bytes ${requestedRange.start}-${requestedRange.end}/${totalBytes}`
+            );
+          }
+          res.setHeader("Content-Length", contentLength);
+          stream.on("error", error => {
+            next(error);
+          });
+          stream.pipe(res);
         });
-        stream.pipe(res);
       } catch (error) {
         next(error);
       }
