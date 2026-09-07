@@ -30,6 +30,14 @@ afterEach(() => {
 });
 
 describe("reminder worker", () => {
+  // R20 (fix wave finale): `conTenantDellaSede` è fail-closed a interruttore
+  // acceso — una sede che non esiste lancia invece di ripiegare sul tenant 1.
+  // Le sedi vanno quindi dichiarate, come in produzione.
+  beforeEach(() => {
+    getSediStore().length = 0;
+    getSediStore().push({ id: 1, tenantId: 1, nome: "La Spezia", attiva: true } as any);
+  });
+
   it("proietta una sola notifica per revisione anche con due worker", async () => {
     const reminders = createMemoryReminderRepository();
     const notifications = createMemoryNotificationRepository();

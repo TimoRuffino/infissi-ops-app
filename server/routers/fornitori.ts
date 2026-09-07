@@ -34,6 +34,9 @@ type OrdineFornitore = {
   dataOrdine: string;
   dataConsegnaPrevista?: string;
   dataConsegnaEffettiva?: string;
+  // `RigaOrdine.id` è progressivo DENTRO questo ordine (1, 2, 3 — `idx + 1`
+  // alla creazione), non un id globale: due ordini hanno entrambi una riga 1.
+  // Cercare una riga significa sempre partire dal suo ordine.
   righe: RigaOrdine[];
   noteOrdine?: string;
   noteRicevimento?: string;

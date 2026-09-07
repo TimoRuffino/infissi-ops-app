@@ -412,6 +412,17 @@ describe("aggiornaStatoFattura", () => {
 });
 
 describe("giroSonda", () => {
+  // R20 (fix wave finale): `conTenantDellaSede` è fail-closed a interruttore
+  // acceso — una sede che non esiste lancia invece di ripiegare sul tenant 1.
+  // Le sedi vanno quindi dichiarate, come in produzione.
+  beforeEach(() => {
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: SEDE, tenantId: 1, nome: "La Spezia", attiva: true } as any,
+      { id: ALTRA_SEDE, tenantId: 1, nome: "Altra", attiva: true } as any
+    );
+  });
+
   it("nessuna fattura da sondare", async () => {
     expect(await giroSonda({ repository })).toEqual({
       controllate: 0,

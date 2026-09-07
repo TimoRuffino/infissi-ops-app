@@ -29,6 +29,14 @@ async function publish(
 }
 
 describe("business event worker", () => {
+  // R20 (fix wave finale): `conTenantDellaSede` è fail-closed a interruttore
+  // acceso — una sede che non esiste lancia invece di ripiegare sul tenant 1.
+  // Le sedi vanno quindi dichiarate, come in produzione.
+  beforeEach(() => {
+    getSediStore().length = 0;
+    getSediStore().push({ id: 1, tenantId: 1, nome: "La Spezia", attiva: true } as any);
+  });
+
   it("isola il fallimento di un consumer dal successo di un altro", async () => {
     const repo = createMemoryBusinessEventRepository({ now: () => now });
     const registry = createEventConsumerRegistry();

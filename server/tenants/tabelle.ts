@@ -10,7 +10,7 @@
 //   - un trigger BEFORE INSERT la riempie SOLO se arriva NULL, leggendo lo
 //     specchio `tenant_sedi` (che il boot e la creazione di una sede tengono
 //     allineato): una sede sconosciuta lascia NULL, non blocca l'INSERT, e lo
-//     specchio ancora inesistente nemmeno (il trigger cattura `undefined_table`);
+//     specchio ancora inesistente nemmeno (il trigger controlla `to_regclass`);
 //   - il backfill dei NULL rimasti è una funzione SEPARATA, a lotti.
 // Una tabella assente al boot viene saltata e segnalata nel log: la creerà il
 // suo modulo alla prima richiesta e il boot successivo la troverà.
@@ -181,19 +181,21 @@ export async function applicaTenantIdAlleTabelle(
   }
 
   // Una sola funzione condivisa da tutti i trigger: se cambia la regola,
-  // cambia in un posto solo. Il blocco EXCEPTION è la differenza fra «una
-  // riga senza tenant» e «ogni INSERT del CRM fallisce»: se `tenant_sedi`
-  // non c'è (control plane non ancora creato, o droppato da un test che
-  // condivide il database) il trigger lascia NULL invece di propagare
+  // cambia in un posto solo. `to_regclass` è la differenza fra «una riga
+  // senza tenant» e «ogni INSERT del CRM fallisce»: se `tenant_sedi` non c'è
+  // (control plane non ancora creato, o droppato da un test che condivide il
+  // database) il trigger lascia NULL invece di propagare
   // `relation "tenant_sedi" does not exist`.
+  //
+  // La guardia era un blocco `BEGIN … EXCEPTION WHEN undefined_table`, che
+  // ha la stessa tolleranza ma un costo diverso: in PL/pgSQL ogni blocco con
+  // EXCEPTION apre una SOTTOTRANSAZIONE (savepoint) — su OGNI riga inserita,
+  // su tutte le 33 tabelle. `to_regclass` è una lookup nel catalogo, in
+  // cache: nessun savepoint, nessun consumo di xid (fix wave finale, F5).
   await sql`CREATE OR REPLACE FUNCTION tenant_id_dalla_sede() RETURNS trigger AS $$
     BEGIN
-      IF NEW.tenant_id IS NULL THEN
-        BEGIN
-          SELECT tenant_id INTO NEW.tenant_id FROM tenant_sedi WHERE sede_id = NEW.sede_id;
-        EXCEPTION WHEN undefined_table THEN
-          NEW.tenant_id := NULL;
-        END;
+      IF NEW.tenant_id IS NULL AND to_regclass('tenant_sedi') IS NOT NULL THEN
+        SELECT tenant_id INTO NEW.tenant_id FROM tenant_sedi WHERE sede_id = NEW.sede_id;
       END IF;
       RETURN NEW;
     END; $$ LANGUAGE plpgsql`;

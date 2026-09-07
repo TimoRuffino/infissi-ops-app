@@ -11,6 +11,7 @@ import {
 } from "../reminders/service";
 import { runReminderWorkerOnce } from "../reminders/worker";
 import { appRouter } from "../routers";
+import { getSediStore } from "./sedi";
 import { getUtentiStore } from "./utenti";
 
 const now = new Date("2026-08-26T10:00:00.000Z");
@@ -171,6 +172,12 @@ describe("promemoria API", () => {
         now: () => currentTime,
       }),
     );
+
+    // Il worker proietta ogni promemoria nel tenant della SUA sede, e
+    // `conTenantDellaSede` è fail-closed a interruttore acceso (R20): la
+    // sede va dichiarata, come in produzione.
+    getSediStore().length = 0;
+    getSediStore().push({ id: sedeId, tenantId: 1, nome: "Prova", attiva: true } as any);
 
     const users = getUtentiStore();
     users.push({

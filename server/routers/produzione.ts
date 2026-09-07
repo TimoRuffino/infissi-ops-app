@@ -21,6 +21,9 @@ type DistintaBase = {
   commessaId: number;
   aperturaId: number;
   stato: "bozza" | "validata" | "in_produzione" | "completata";
+  // `ComponenteBOM.id` è progressivo DENTRO questa distinta (1, 2, 3 —
+  // `idx + 1` alla creazione), non un id globale: due distinte hanno
+  // entrambe un componente 1. Si cerca sempre partendo dalla distinta.
   componenti: ComponenteBOM[];
   noteValidazione?: string;
   validataDa?: string;
