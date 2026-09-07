@@ -27,6 +27,7 @@ import { matchComunicazione } from "./match";
 import { caselle, saveCaselle, type Casella } from "./caselle";
 import { getCommesseStore } from "../routers/commesse";
 import { getClientiStore } from "../routers/clienti";
+import { conTenantDellaSede, perOgniTenantAttivo } from "../tenants/giri";
 
 // Prima sincronizzazione e importazione storico: per DATA, non per numero.
 // Sei mesi di posta, con un tetto duro a protezione del server (e nostra).
@@ -514,11 +515,17 @@ function avviaWatcher(casella: Casella): Watcher {
 
   // L'evento può arrivare a raffica (una mail per volta): si sincronizza
   // qualche secondo dopo l'ultimo avviso, una volta sola.
+  // Il confine con imapflow perde il contesto del tenant: i suoi callback
+  // (`exists`, la riconnessione) girano fuori da qualunque `conTenant`.
+  // Il contesto si rimette qui, l'unico punto in cui il watcher tocca gli
+  // store — così vale per ogni chiamante di `syncPresto`, presente e futuro.
   const syncPresto = () => {
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(() => {
       syncTimer = null;
-      void sincronizzaCasella(casella).catch(() => {});
+      void conTenantDellaSede(casella.sedeId, () =>
+        sincronizzaCasella(casella)
+      ).catch(() => {});
     }, 3_000);
   };
 
@@ -561,13 +568,26 @@ function avviaWatcher(casella: Casella): Watcher {
   };
 }
 
-/** Allinea i watcher alle caselle attive. Da chiamare a ogni modifica. */
-export function riavviaWatchers() {
+/**
+ * Allinea i watcher alle caselle attive di OGNI azienda. Da chiamare a ogni
+ * modifica: la mappa è per `casella.id` (gli id sono globali fra i tenant),
+ * quindi fermare tutto e ripartire resta corretto anche quando la chiamata
+ * arriva da una richiesta di un solo tenant — prima, in quel caso, i
+ * watcher delle altre aziende restavano fermi.
+ *
+ * `dip.avvia` (default `avviaWatcher`) è iniettabile solo per i test.
+ */
+export async function riavviaWatchers(dip?: {
+  avvia?: (casella: Casella) => Watcher;
+}): Promise<void> {
+  const avvia = dip?.avvia ?? avviaWatcher;
   for (const w of Array.from(watchers.values())) w.stop();
   watchers.clear();
-  for (const c of caselle.filter((c) => c.attiva)) {
-    watchers.set(c.id, avviaWatcher(c));
-  }
+  await perOgniTenantAttivo("imap-watcher", async () => {
+    for (const c of caselle.filter((c) => c.attiva)) {
+      watchers.set(c.id, avvia(c));
+    }
+  });
   if (watchers.size > 0) {
     console.log(`[imap] watcher IDLE su ${watchers.size} caselle`);
   }
@@ -578,25 +598,41 @@ export function riavviaWatchers() {
 let timer: NodeJS.Timeout | null = null;
 const INTERVALLO_MS = 5 * 60 * 1000;
 
-export function avviaPollerMail() {
-  if (timer) return;
-  const giro = async () => {
+/**
+ * Un giro del poller: una passata per ogni azienda attiva, nel suo contesto.
+ * `caselle` è il Proxy dello store per tenant — dentro `conTenant` elenca
+ * le caselle di quel tenant, e `sincronizzaTutte()` sincronizza le sue.
+ * Fuori da qualunque contesto (com'era prima) il giro esplodeva al primo
+ * accesso allo store. Il try/catch resta per tenant: una casella che non
+ * risponde non ferma le altre aziende.
+ *
+ * `dip.sincronizza` (default `sincronizzaTutte`) è iniettabile solo per i test.
+ */
+export async function giroPollerMail(dip?: {
+  sincronizza?: (sedeId?: number) => Promise<EsitoSync[]>;
+}): Promise<void> {
+  const sincronizza = dip?.sincronizza ?? sincronizzaTutte;
+  await perOgniTenantAttivo("imap", async () => {
     try {
       const attive = caselle.filter((c) => c.attiva);
       if (attive.length === 0) return;
-      const esiti = await sincronizzaTutte();
+      const esiti = await sincronizza();
       const tot = esiti.reduce((s, e) => s + e.importate, 0);
       if (tot > 0) console.log(`[imap] poller: ${tot} nuove comunicazioni`);
     } catch (e: any) {
       console.error("[imap] poller:", e?.message ?? e);
     }
-  };
-  timer = setInterval(() => void giro(), INTERVALLO_MS);
+  });
+}
+
+export function avviaPollerMail() {
+  if (timer) return;
+  timer = setInterval(() => void giroPollerMail(), INTERVALLO_MS);
   // Primo giro (e primi watcher) dopo un minuto: lascia finire il
   // bootstrap degli store, che a freddo può metterci qualche secondo.
   setTimeout(() => {
-    void giro();
-    riavviaWatchers();
+    void giroPollerMail();
+    void riavviaWatchers();
   }, 60_000);
   console.log("[imap] poller avviato (ogni 5 minuti) + watcher IDLE");
 }

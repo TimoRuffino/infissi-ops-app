@@ -220,7 +220,7 @@ export const mailRouter = router({
         };
         caselle.push(casella);
         saveCaselle();
-        riavviaWatchers();
+        void riavviaWatchers();
         return casellaPubblica(casella);
       }),
 
@@ -259,7 +259,7 @@ export const mailRouter = router({
         if (input.attiva !== undefined) c.attiva = input.attiva;
         c.updatedAt = new Date();
         saveCaselle();
-        riavviaWatchers();
+        void riavviaWatchers();
         return casellaPubblica(c);
       }),
 
@@ -276,7 +276,7 @@ export const mailRouter = router({
         const idx = caselle.findIndex(x => x.id === c.id);
         caselle.splice(idx, 1);
         saveCaselle();
-        riavviaWatchers();
+        void riavviaWatchers();
         let cancellate = 0;
         if (input.cancellaComunicazioni) {
           cancellate = await deleteComunicazioniByCasella(c.id, "email");
