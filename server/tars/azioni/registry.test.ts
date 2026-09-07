@@ -33,6 +33,7 @@ function contesto(
 ): ContestoRun {
   return {
     utenteId: 7,
+    tenantId: 1,
     sedeId: 3,
     ruoli: ["direzione"],
     direzione: true,

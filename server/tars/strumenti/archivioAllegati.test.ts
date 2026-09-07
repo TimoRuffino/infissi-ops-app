@@ -77,6 +77,7 @@ function contesto(
 ): ContestoRun {
   return {
     utenteId: 9,
+    tenantId: 1,
     sedeId: SEDE,
     ruoli: ["direzione"],
     direzione: true,

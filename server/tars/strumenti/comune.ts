@@ -8,6 +8,7 @@
 
 import { TRPCError } from "@trpc/server";
 import type { TrpcContext } from "../../_core/context";
+import { getTenantRepository } from "../../tenants/repository";
 import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./tipi";
 
 export function contestoServer(
@@ -21,15 +22,12 @@ export function contestoServer(
       ruoli: [...contesto.ruoli],
       name: `Tars per l'utente ${contesto.utenteId}`,
     } as any,
+    tenantId: contesto.tenantId,
+    // Il record serve alla guardia di sola lettura anche quando la mutation
+    // parte da Tars e non dal client.
+    tenant: getTenantRepository().perId(contesto.tenantId),
     sedeId: contesto.sedeId,
     sediIds: [contesto.sedeId],
-    // WS1 (Task 7): `ContestoRun` non porta ancora un tenant (Tars opera solo
-    // sul tenant predefinito, come tutto il resto prima del WS2), ma la
-    // guardia tRPC (`guardiaTenant`) ora rifiuta un `tenantId` assente. Senza
-    // questo campo la porta chiusa scatterebbe su OGNI strumento di
-    // scrittura di Tars. Da rivedere quando Tars diventerà tenant-aware.
-    tenantId: 1,
-    tenant: null,
   };
 }
 
