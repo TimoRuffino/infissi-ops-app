@@ -8,6 +8,7 @@ import { createWebPushSender } from "./push";
 import { getNotificationRepository } from "./repository";
 import { decryptSecret } from "../_core/secretBox";
 import { getFeatureFlags } from "../platform/featureFlags";
+import { PRODOTTO } from "@shared/brand";
 
 export type CriticalFallbackSender = {
   send(input: {
@@ -25,7 +26,7 @@ export const disabledCriticalFallbackSender: CriticalFallbackSender = {
 export function buildPrivacySafePushPayload(notification: Notification) {
   return {
     notificationId: notification.id,
-    title: "Ruffino Flow",
+    title: PRODOTTO,
     genericBody:
       notification.priority === "critical"
         ? "Hai una nuova attivita critica da gestire."

@@ -317,6 +317,32 @@ persino escluso come «ordine del cliente».
    cognome/telefono/comunicazioni prima di dire non posso) e «sicurezza»
    (conclusioni senza attenuazioni, niente «vuoi che proceda?»).
 
+## Nona tranche (07/09): una conferma = una consegna
+
+«La gestione del magazzino è assolutamente un casino.» In produzione 155
+righe su 52 commesse: la seconda tranche scriveva una riga per ARTICOLO del
+PDF, quindi una porta Alias erano otto consegne di kit e coprifili senza
+data, «giovedì 25 giugno 2026 Commessa» entrava con quantità 808, i
+fornitori avevano dieci nomi e le conferme di maggio rilette a settembre
+risultavano «in ritardo» su commesse già posate.
+
+1. `routers/magazzino.ts`: `Prodotto.articoli[]` e `prontaDal`;
+   `creaConsegnaDaConferma` (una riga per documento, idempotente, eredita
+   il «ricevuto»); `segnaTuttoRicevuto` (bottone per commessa; niente
+   «ricevuto» automatico: decisione della direzione).
+2. `documenti/estrazioneMerce.ts` 2.0.0: righe che iniziano con giorno o
+   data escluse, pezzi > 500 non sono quantità, `articoloPrincipale`.
+3. `shared/fornitori.ts`: lista aziendale + `normalizzaFornitore` (testo o
+   dominio mail → nome; referenti e agenti mai); usata dalla regola e dai
+   filtri della pagina.
+4. `costoDaConferma.ts`: `applicaMerceDaConferma` crea la consegna unica
+   con gli articoli, il nome dall'articolo principale, «pronta dal»
+   dall'approntamento; `deps.mittente` porta anche l'email; lettura 1.11.0
+   rigenera le righe della forma vecchia.
+5. Client: scheda commessa con «Ricevuto tutto», dettaglio «N articoli»,
+   «Pronta dal fornitore dal…», copy «Da ordinare»; registro conferme
+   «1 consegna · N articoli».
+
 ## Task
 
 - [x] `server/_core/margine.ts`: `CostoCommessa.documentoId`.

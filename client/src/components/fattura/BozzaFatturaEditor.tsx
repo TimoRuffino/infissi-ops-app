@@ -22,7 +22,7 @@ import type { inferRouterInputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
-import type { RigaFattura } from "@shared/fatturazione/tipi";
+import type { ClienteSnapshot, RigaFattura } from "@shared/fatturazione/tipi";
 import {
   azionePerControllo,
   DICITURE_SELEZIONABILI,
@@ -207,10 +207,27 @@ function RigaBozzaCampi({
   };
 }
 
+/** I campi dell'anagrafica che si correggono dalla fattura (07/09/2026). */
+type AnagraficaForm = {
+  nome: string; tipo: ClienteSnapshot["tipo"]; codiceFiscale: string; partitaIva: string; indirizzo: string;
+  cap: string; citta: string; provincia: string; email: string; pec: string; codiceDestinatario: string;
+};
+const CAMPI_ANAGRAFICA: Array<keyof AnagraficaForm> = ["nome", "tipo", "codiceFiscale", "partitaIva", "indirizzo", "cap", "citta", "provincia", "email", "pec", "codiceDestinatario"];
+function anagraficaDaSnapshot(s: ClienteSnapshot | null): AnagraficaForm {
+  return {
+    nome: s?.nome ?? "", tipo: s?.tipo ?? "privato", codiceFiscale: s?.codiceFiscale ?? "", partitaIva: s?.partitaIva ?? "",
+    indirizzo: s?.indirizzo ?? "", cap: s?.cap ?? "", citta: s?.citta ?? "", provincia: s?.provincia ?? "",
+    email: s?.email ?? "", pec: s?.pec ?? "", codiceDestinatario: s?.codiceDestinatario ?? "",
+  };
+}
+const ETICHETTA_TIPO_CLIENTE: Record<ClienteSnapshot["tipo"], string> = { privato: "Privato", azienda: "Azienda", condominio: "Condominio", ente_pubblico: "Ente pubblico" };
+const ETICHETTA_DETRAZIONE: Record<"nessuna" | "ecobonus" | "ristrutturazione", string> = { nessuna: "Nessuna", ecobonus: "Ecobonus", ristrutturazione: "Ristrutturazione (bonus casa)" };
+
 export default function BozzaFatturaEditor({
   commessaId,
   fatturaId,
   puoModificare,
+  puoModificareCliente = false,
   puoEmettere,
   dryRun,
   onAnnullata,
@@ -219,6 +236,8 @@ export default function BozzaFatturaEditor({
   commessaId: number;
   fatturaId: number;
   puoModificare: boolean;
+  /** Da `fatture.perCommessa`: l'anagrafica si corregge dalla bozza solo con il permesso sui clienti. */
+  puoModificareCliente?: boolean;
   puoEmettere: boolean;
   /** Da `fatture.perCommessa`: dichiarato sempre nella conferma di emissione. */
   dryRun: boolean;
@@ -250,6 +269,8 @@ export default function BozzaFatturaEditor({
   const [cantiere, setCantiere] = useState("");
   const [note, setNote] = useState("");
   const [scavalco, setScavalco] = useState({ attivo: false, motivo: "" });
+  const [anagrafica, setAnagrafica] = useState<AnagraficaForm>(anagraficaDaSnapshot(null));
+  const [detrazione, setDetrazione] = useState<"nessuna" | "ecobonus" | "ristrutturazione">("nessuna");
   const [sporco, setSporco] = useState(false);
 
   const [dialogoRiga, setDialogoRiga] = useState(false);
@@ -289,6 +310,8 @@ export default function BozzaFatturaEditor({
     setCantiere(f.intestazioneCantiere ?? "");
     setNote(f.note ?? "");
     setScavalco({ attivo: f.scavalcoLimiti, motivo: f.scavalcoMotivo ?? "" });
+    setAnagrafica(anagraficaDaSnapshot(f.clienteSnapshot));
+    setDetrazione(f.detrazioneTipo);
   }, [dettaglio.data, sporco]);
 
   function ricarica(): void {
@@ -410,6 +433,13 @@ export default function BozzaFatturaEditor({
         setLocation(hrefPasso(commessaId, azione.passo));
         return;
       case "cliente": {
+        // Con il permesso sui clienti l'anagrafica si corregge qui, nella bozza.
+        if (puoModificare && puoModificareCliente) {
+          const el = document.getElementById("fattura-cliente");
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+          document.getElementById("cliente-nome")?.focus({ preventScroll: true });
+          return;
+        }
         const id = f.clienteSnapshot?.clienteId;
         if (id == null) {
           toast.error("La bozza non è legata a un cliente: rigenerala.");
@@ -521,6 +551,16 @@ export default function BozzaFatturaEditor({
         motivo: scavalco.motivo.trim() || null,
       };
     }
+    // Anagrafica: solo i campi cambiati; i campi opzionali vuoti vanno a null.
+    const base = anagraficaDaSnapshot(f.clienteSnapshot);
+    const cambiati = CAMPI_ANAGRAFICA.filter(c => anagrafica[c] !== base[c]);
+    if (cambiati.length > 0 && puoModificareCliente) {
+      const opzionali = new Set(["codiceFiscale", "partitaIva", "email", "pec"]);
+      modifica.clienteSnapshot = Object.fromEntries(
+        cambiati.map(c => [c, opzionali.has(c) ? (anagrafica[c].trim() || null) : anagrafica[c].trim()])
+      ) as NonNullable<ModificaBozza["clienteSnapshot"]>;
+    }
+    if (f.origine === "libera" && detrazione !== f.detrazioneTipo) modifica.detrazioneTipo = detrazione;
     return modifica;
   }
 
@@ -829,11 +869,13 @@ export default function BozzaFatturaEditor({
                 variant="outline"
                 size="sm"
                 className="h-9"
-                disabled={!haBeniSignificativi || inCorso}
+                disabled={!haBeniSignificativi || inCorso || f.origine === "libera"}
                 title={
-                  haBeniSignificativi
-                    ? undefined
-                    : "Senza beni significativi non c'è nulla da riequilibrare."
+                  f.origine === "libera"
+                    ? "Su una fattura libera il markup è sempre zero: il totale sono le righe."
+                    : haBeniSignificativi
+                      ? undefined
+                      : "Senza beni significativi non c'è nulla da riequilibrare."
                 }
                 onClick={() => {
                   setMarkupTesto("0,00");
@@ -858,6 +900,114 @@ export default function BozzaFatturaEditor({
             }}
           />
           </div>
+
+          {/* Anagrafica del cliente in fattura (07/09/2026): corretta qui, torna nella scheda cliente. */}
+          <section
+            id="fattura-cliente"
+            aria-label="Anagrafica del cliente"
+            className="scroll-mt-24 space-y-3 min-w-0"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-medium">Anagrafica cliente</h3>
+              <span className="text-xs text-text-3">
+                {puoModificare && puoModificareCliente
+                  ? "Le correzioni aggiornano anche la scheda cliente (non il cliente su Fatture in Cloud)."
+                  : "In sola lettura: si corregge dalla scheda cliente."}
+              </span>
+            </div>
+            {(() => {
+              const bloccata = !puoModificare || !puoModificareCliente;
+              const campo = (
+                chiave: keyof AnagraficaForm,
+                etichetta: string,
+                opzioni?: { maxLength?: number; placeholder?: string; className?: string }
+              ) => (
+                <div className={`space-y-1 min-w-0 ${opzioni?.className ?? ""}`}>
+                  <Label htmlFor={`cliente-${chiave}`} className="text-xs text-text-3">
+                    {etichetta}
+                  </Label>
+                  <Input
+                    id={`cliente-${chiave}`}
+                    value={anagrafica[chiave]}
+                    maxLength={opzioni?.maxLength}
+                    placeholder={opzioni?.placeholder}
+                    disabled={bloccata}
+                    onChange={e => {
+                      tocca();
+                      setAnagrafica(prev => ({ ...prev, [chiave]: e.target.value }));
+                    }}
+                  />
+                </div>
+              );
+              return (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {campo("nome", "Nome o ragione sociale", { maxLength: 200, className: "sm:col-span-2" })}
+                  <div className="space-y-1 min-w-0">
+                    <Label htmlFor="cliente-tipo" className="text-xs text-text-3">
+                      Tipo
+                    </Label>
+                    <Select
+                      value={anagrafica.tipo}
+                      disabled={bloccata}
+                      onValueChange={v => {
+                        tocca();
+                        setAnagrafica(prev => ({ ...prev, tipo: v as ClienteSnapshot["tipo"] }));
+                      }}
+                    >
+                      <SelectTrigger id="cliente-tipo">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(ETICHETTA_TIPO_CLIENTE) as Array<ClienteSnapshot["tipo"]>).map(t => (
+                          <SelectItem key={t} value={t}>
+                            {ETICHETTA_TIPO_CLIENTE[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {campo("codiceFiscale", "Codice fiscale", { maxLength: 16 })}
+                  {campo("partitaIva", "Partita IVA", { maxLength: 11 })}
+                  {campo("indirizzo", "Indirizzo", { maxLength: 200, className: "sm:col-span-2 lg:col-span-1" })}
+                  {campo("cap", "CAP", { maxLength: 5 })}
+                  {campo("citta", "Città", { maxLength: 100 })}
+                  {campo("provincia", "Provincia (sigla)", { maxLength: 2, placeholder: "SP" })}
+                  {campo("email", "Email", { maxLength: 200 })}
+                  {campo("pec", "PEC", { maxLength: 200 })}
+                  {campo("codiceDestinatario", "Codice destinatario SdI", { maxLength: 7, placeholder: "0000000" })}
+                </div>
+              );
+            })()}
+            {f.origine === "libera" && (
+              <div className="space-y-1 max-w-xs">
+                <Label htmlFor="fattura-detrazione" className="text-xs text-text-3">
+                  Detrazione fiscale
+                </Label>
+                <Select
+                  value={detrazione}
+                  disabled={!puoModificare}
+                  onValueChange={v => {
+                    tocca();
+                    setDetrazione(v as typeof detrazione);
+                  }}
+                >
+                  <SelectTrigger id="fattura-detrazione">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ETICHETTA_DETRAZIONE) as Array<keyof typeof ETICHETTA_DETRAZIONE>).map(d => (
+                      <SelectItem key={d} value={d}>
+                        {ETICHETTA_DETRAZIONE[d]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-text-3">
+                  Su una fattura libera la scegli qui: con una detrazione valgono storno e riaddebito dei beni significativi e le diciture del bonifico.
+                </p>
+              </div>
+            )}
+          </section>
 
           {/* Diciture, cantiere, note */}
           <section
@@ -940,7 +1090,7 @@ export default function BozzaFatturaEditor({
         <aside className="space-y-3 min-w-0">
           <DataSurface density="compact" tone="sunken" title="Riepilogo">
             <dl className="space-y-1 text-sm">
-              {riepilogoView(f).map(riga => (
+              {riepilogoView(f, { libera: f.origine === "libera" }).map(riga => (
                 <div
                   key={riga.etichetta}
                   className="flex items-baseline gap-2 min-w-0"
@@ -1131,7 +1281,7 @@ export default function BozzaFatturaEditor({
             >
               <Printer className="h-4 w-4 mr-1" /> Stampa
             </Button>
-            {puoModificare && f.tipo !== "nota_credito" && (
+            {puoModificare && f.tipo !== "nota_credito" && f.origine !== "libera" && (
               <Button
                 variant="outline"
                 className="h-11 sm:h-10"

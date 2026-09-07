@@ -1435,7 +1435,10 @@ export const preventiviContrattiRouter = router({
                 },
             merce: {
               righe: merce.length,
+              // Dal 07/09 la conferma è UNA consegna con gli articoli dentro.
+              articoli: merce.reduce((n, p) => n + (p.articoli?.length ?? 0), 0),
               dataConsegna: merce[0]?.dataConsegna ?? null,
+              prontaDal: merce[0]?.prontaDal ?? null,
               arrivate: merce.filter(p => p.arrivato).length,
             },
             fonteTesto: lettura?.fonteTesto ?? null,

@@ -106,6 +106,18 @@ export default function FatturaTab({
     },
     onError: e => toast.error(e.message),
   });
+  // Fattura libera (07/09/2026): vuota, senza contratto né computo, sempre
+  // dentro la commessa; se ne possono aprire più d'una.
+  const creaLibera = trpc.fatture.creaBozzaLibera.useMutation({
+    onSuccess: esito => {
+      void utils.fatture.perCommessa.invalidate({ commessaId });
+      setSelezionata(esito.fattura.id);
+      toast.success("Fattura libera aperta: scrivi le righe");
+      esito.avvertenze.forEach(a => toast.warning(a));
+      onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
   // Cancellazione definitiva: solo bozze, annullate o emissioni ferme senza
   // documento FiC (lo decide il server); conferma umana prima del click.
   const [daEliminare, setDaEliminare] = useState<number | null>(null);
@@ -245,6 +257,7 @@ export default function FatturaTab({
         commessaId={commessaId}
         fatturaId={fattura.id}
         puoModificare={q.data.puoDraft}
+        puoModificareCliente={q.data.puoModificareCliente}
         puoEmettere={q.data.puoEmettere}
         dryRun={q.data.dryRun}
         onAnnullata={() => {
@@ -313,6 +326,24 @@ export default function FatturaTab({
         </div>
       )}
 
+      {q.data.puoDraft && (
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className={guidata ? "min-h-11" : "h-9"}
+            disabled={creaLibera.isPending}
+            onClick={() => creaLibera.mutate({ commessaId })}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {creaLibera.isPending ? "Apertura…" : "Nuova fattura libera"}
+          </Button>
+          <span className="text-xs text-text-3 min-w-0">
+            Senza contratto né limiti: righe scritte a mano, totale dalle righe. Anche più d'una per commessa (acconti, lavori extra).
+          </span>
+        </div>
+      )}
+
       {elenco.length === 0 && (
         <p className="text-sm text-muted-foreground py-6 text-center">
           Nessuna fattura su questa commessa.
@@ -347,6 +378,11 @@ export default function FatturaTab({
                     {f.numero ?? "in bozza"}
                     {f.data ? ` · ${f.data}` : ""}
                   </span>
+                  {f.origine === "libera" && (
+                    <Badge variant="outline" className="shrink-0">
+                      Libera
+                    </Badge>
+                  )}
                   <Badge
                     variant={VARIANTE_BADGE[badge.tono]}
                     className="shrink-0"

@@ -41,7 +41,7 @@ export default function Preventivatori() {
       <PageHeader
         eyebrow="Commesse"
         title="Preventivatori"
-        description="Calcolatori di preventivo per azienda e prodotto. Apri quello pronto: misure, listino, riepilogo e PDF restano dentro Ruffino Flow."
+        description="Calcolatori di preventivo per azienda e prodotto. Apri quello pronto: misure, listino, riepilogo e PDF restano dentro Wyndor."
         metadata={
           <>
             <span>
@@ -115,7 +115,7 @@ export default function Preventivatori() {
             <DataSurface
               density="compact"
               tone="default"
-              title="Non disponibili in Ruffino Flow"
+              title="Non disponibili in Wyndor"
               description="Restano a catalogo per memoria del listino cartaceo: senza calcolatore non c'è nulla da aprire."
             >
               <ul className="-mx-3 -mb-3 min-w-0 divide-y divide-border-soft border-t border-border-soft sm:-mx-4 sm:-mb-4">
@@ -131,7 +131,7 @@ export default function Preventivatori() {
                       {voce.prodottoLabel}
                     </span>
                     <span className="ml-auto shrink-0 text-xs text-text-3">
-                      Non disponibile in Ruffino Flow
+                      Non disponibile in Wyndor
                     </span>
                   </li>
                 ))}

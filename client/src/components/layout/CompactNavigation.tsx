@@ -29,7 +29,7 @@ export default function CompactNavigation({
         className="w-[min(21rem,92vw)] gap-0 rounded-r-[var(--radius-dialog)] border-r border-sidebar-border bg-sidebar p-0 [&>button]:z-50"
       >
         <SheetHeader className="sr-only">
-          <SheetTitle>Navigazione Ruffino Flow</SheetTitle>
+          <SheetTitle>Navigazione Wyndor</SheetTitle>
           <SheetDescription>
             Scegli una destinazione del gestionale.
           </SheetDescription>

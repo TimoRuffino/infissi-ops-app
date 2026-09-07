@@ -3,7 +3,7 @@
 // L'hub `/preventivatori` è un ingresso guidato «azienda → prodotto →
 // calcola»: qui vivono il catalogo statico e il resolver delle route, così la
 // pagina non decide da sola cosa è raggiungibile. Una coppia che non compare
-// in `PREVENTIVATORE_ROUTES` non ha un calcolatore in Ruffino Flow, e
+// in `PREVENTIVATORE_ROUTES` non ha un calcolatore in Wyndor, e
 // l'assenza va mostrata come informazione passiva — mai come route inventata.
 //
 // Il catalogo è indipendente dall'anagrafica Fornitori: aggiungere o togliere
@@ -43,7 +43,7 @@ export const AZIENDE_PREVENTIVATORE: PreventivatoreAzienda[] = [
   {
     id: "alias",
     nome: "Alias",
-    descrizione: "Listino non ancora modellato in Ruffino Flow.",
+    descrizione: "Listino non ancora modellato in Wyndor.",
     prodotti: ["blindati"],
   },
 ];

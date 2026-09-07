@@ -32,7 +32,18 @@ export type RigaMerce = {
 // che si sommano invece di sparire.
 // 1.3.0 (06/09/2026): ogni riga porta la posizione nel testo della pagina
 // (anteprime delle evidenze). Nomi e quantità non cambiano.
-export const ESTRATTORE_MERCE_VERSIONE = "1.3.0";
+// 2.0.0 (07/09/2026): una riga che comincia con un giorno o una data non è
+// merce («giovedì 25 giugno 2026 Commessa» entrava a magazzino con quantità
+// 808); una quantità a pezzi sopra 500 è un codice, non un conteggio; e si
+// riconosce l'ARTICOLO PRINCIPALE della conferma (la porta, non il kit) —
+// a magazzino la conferma è una consegna sola con gli articoli dentro.
+// 2.1.0 (07/09/2026, primo giro in produzione): «giovedì» non finisce su un
+// confine di parola JS (la «ì» non è \w) e passava; le etichette di stanza
+// dei PDF Pail («Bagni», «Cucina») non sono articoli; l'articolo principale
+// preferisce un serramento (porta, finestra, tapparella…) a un codice.
+// 2.1.1: nessuna regola nuova; le consegne si rigenerano con il fornitore
+// e il numero corretti nel nome del segnaposto.
+export const ESTRATTORE_MERCE_VERSIONE = "2.1.1";
 
 /** Dove comincia ogni riga nel testo della pagina, separatori compresi. */
 function iniziRighe(testo: string): number[] {
@@ -58,6 +69,48 @@ export function annotaAreeMerce(
 }
 
 const MASSIMO_RIGHE = 40;
+/** Oltre questi pezzi non è una quantità di serramenti: è un codice o un prezzo. */
+const PEZZI_MASSIMI = 500;
+
+/** «giovedì 25 giugno 2026», «25/06/2026 …»: una data, non un articolo. */
+// Niente \b dopo i giorni: in JS «ì» non è un carattere di parola e
+// «giovedì\b» non combacia mai. Il confine è esplicito.
+const INIZIA_CON_DATA =
+  /^(?:lun(?:ed[iì])?|mar(?:ted[iì])?|mer(?:coled[iì])?|gio(?:ved[iì])?|ven(?:erd[iì])?|sab(?:ato)?|dom(?:enica)?)(?![a-zà-ù])|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}(?!\d)/i;
+
+/**
+ * Le stanze con cui i fornitori raggruppano le posizioni («Bagni», «Cucina»,
+ * «Piano terra»): intestazioni, non articoli.
+ */
+const INIZIA_CON_STANZA =
+  /^(?:bagn[oi]|cucina|camer[ae](?:tta)?|soggiorno|salone|salotto|studio|ingresso|corridoio|disimpegno|garage|cantina|lavanderia|ripostiglio|terrazz[oa]|balcone|mansarda|taverna|scala|scale|piano\s+(?:terra|primo|secondo|terzo|rialzato|interrato|seminterrato))(?![a-zà-ù])/i;
+
+/** Un serramento: quando c'è, è lui che dà il nome alla consegna. */
+const SERRAMENTO =
+  /\b(?:port[ae]|portoncin[oi]|blindat[aeoi]|finestr[ae]|portafinestr[ae]|persian[ae]|tapparell[ae]|avvolgibil[ei]|zanzarier[ae]|vetrat[ae]|scorrevol[ei]|tend[ae]|cassonett[oi]|ant[ae]|infiss[oi]|serrament[oi]|griglia|inferriat[ae]|basculant[ei]|sezional[ei]|pergol[ae]|veranda|lucernari[oi]|monoblocc[oi])\b/i;
+
+/**
+ * Accessori e complementi che accompagnano il serramento nella stessa
+ * conferma: non sono la consegna, sono dentro la consegna.
+ */
+const ACCESSORIO =
+  /\b(?:kit|falso|falsi|coprifil\w*|imbott\w*|ritocco|busta|pomol\w*|manigli\w*|set|accessor\w*|cassa|riv\.?|rivest\w*|guarniz\w*|vite|viti|tassell\w*|silicon\w*|schium\w*|telecomand\w*|centralin\w*|anemometr\w*|ricevitor\w*|staff\w*|tapp[oi]|cernier\w*|serratur\w*|cilindr\w*|spioncin\w*|imball\w*|trasport\w*|zoccol\w*|profil\w*|copert\w*|carter|piastr\w*|supporto|supporti|distanzial\w*|adattator\w*|batteri\w*|alimentator\w*|cavo|cavi|motore|motori)\b/i;
+
+/**
+ * L'articolo che dà il nome alla consegna: il primo che non è un accessorio
+ * (la porta blindata, la finestra, la tenda); se sono tutti accessori, il
+ * primo letto.
+ */
+export function articoloPrincipale<T extends { nome: string }>(righe: readonly T[]): T | null {
+  if (righe.length === 0) return null;
+  const nonAccessori = righe.filter(r => !ACCESSORIO.test(r.nome));
+  return (
+    nonAccessori.find(r => SERRAMENTO.test(r.nome)) ??
+    righe.find(r => SERRAMENTO.test(r.nome)) ??
+    nonAccessori[0] ??
+    righe[0]
+  );
+}
 
 /** Righe che non sono merce anche se contengono un numero. */
 const NON_MERCE =
@@ -168,7 +221,7 @@ function candidato(
 ): { nome: string; quantita: number } | null {
   const nome = pulisciNome(nomeGrezzo);
   const quantita = Number(quantitaGrezza);
-  if (!nomeValido(nome) || !(quantita >= 1 && quantita <= 9999)) return null;
+  if (!nomeValido(nome) || !(quantita >= 1 && quantita <= PEZZI_MASSIMI)) return null;
   return { nome, quantita };
 }
 
@@ -221,6 +274,9 @@ function leggiRigaCelle(
     if (!q) continue;
     const quantita = Number(q[1].replace(",", "."));
     if (!(quantita > 0 && quantita <= 9999)) continue;
+    // A pezzi, sopra il tetto è un codice o un prezzo finito nella colonna
+    // sbagliata; a misura (metri, chili) i numeri grandi sono normali.
+    if (aPezzi && quantita > PEZZI_MASSIMI) continue;
     const descrizione = celle.slice(0, prima ? u - 1 : u).join(" ");
     if (lettere(descrizione) < 4 || NON_MERCE.test(descrizione.slice(0, 40))) return null;
     const nome = pulisciNome(descrizione);
@@ -292,6 +348,7 @@ export function estraiRigheMerce(pagine: readonly string[]): RigaMerce[] {
     for (let i = 0; i < linee.length; i += 1) {
       const riga = linee[i];
       if (riga.length < 8) continue;
+      if (INIZIA_CON_DATA.test(riga) || INIZIA_CON_STANZA.test(riga)) continue;
       const indiceRiga = i;
       const aCelle = leggiRigaCelle(riga, linee[i + 1] ?? null);
       if (aCelle?.usaRigaSotto) i += 1;
