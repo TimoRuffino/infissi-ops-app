@@ -188,7 +188,9 @@ describe("APP_ROUTE_CONTRACT", () => {
 // rotte restano registrate come redirect, così i segnalibri e le notifiche
 // già salvate non finiscono su un 404 muto.
 describe("superfici rimosse", () => {
-  const redirette = ["/garanzie", "/fornitori"];
+  // Fornitori è tornata una pagina il 07/09/2026 (archivio delle conferme
+  // d'ordine per fornitore): qui resta solo ciò che è davvero rimosso.
+  const redirette = ["/garanzie"];
 
   it("non hanno più una pagina, ma portano dove il lavoro è rimasto", () => {
     for (const path of redirette) {
@@ -201,8 +203,14 @@ describe("superfici rimosse", () => {
     expect(
       APP_ROUTE_CONTRACT.find(entry => entry.path === "/garanzie")?.target
     ).toBe("/clienti");
-    expect(
-      APP_ROUTE_CONTRACT.find(entry => entry.path === "/fornitori")?.target
-    ).toBe("/commesse");
+  });
+
+  it("Fornitori è una pagina, e il suo archivio è sede-scoped", () => {
+    const route = APP_ROUTE_CONTRACT.find(entry => entry.path === "/fornitori");
+    expect(route?.kind).toBe("page");
+    expect(route?.target).toBe("Fornitori");
+    expect(route?.navigation).toBe("primary");
+    expect(route?.requiredCapabilities).toContain("commessa.read");
+    expect(route?.serverAuthority).toContain("fornitoriRouter.archivio");
   });
 });

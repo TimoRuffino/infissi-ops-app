@@ -46,6 +46,7 @@ export const ORIGINI_DOCUMENTO = [
   "tars", // Tars su richiesta di un utente
   "smistamento", // lo smistamento di Tars, in fondo
   "automatico", // la regola delle conferme certe, in fondo
+  "fornitori", // collegata a mano dall'archivio fornitori (07/09/2026)
   "fic", // PDF scaricato da Fatture in Cloud
 ] as const;
 export type OrigineDocumento = (typeof ORIGINI_DOCUMENTO)[number];

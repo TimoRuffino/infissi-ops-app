@@ -1,8 +1,24 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { DEFAULT_SEDE_ID } from "./sedi";
-import { assertSedeScope } from "../_core/permissions";
+import {
+  assertSedeScope,
+  requireDirezioneOAmministrazione,
+} from "../_core/permissions";
+import {
+  chiaviRicercaFornitore,
+  collegaVoceArchivio,
+  confermeArchivio,
+  eseguiGiroArchivioFornitori,
+  riapriVoceArchivio,
+  riepilogoFornitori,
+  rileggiVoceArchivio,
+  scartaVoceArchivio,
+} from "../fornitori/archivio";
+import { listComunicazioni } from "../comunicazioni/comunicazioni";
+import { linkComunicazione } from "../tars/smistamento/segnali";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -478,4 +494,188 @@ export const fornitoriRouter = router({
       return { success: true };
     }),
   }),
+
+  // ── Archivio fornitori (07/09/2026) ────────────────────────────────────
+  // Ogni conferma d'ordine arrivata da un fornitore, con quello che la
+  // lettura ha capito. Le certe sono già nel fascicolo; le altre aspettano
+  // che una persona dica di quale commessa sono. Dominio in
+  // `server/fornitori/archivio.ts`: qui solo sede, permessi e forma.
+  archivio: router({
+    /** I fornitori con conferme in archivio, chi ha più lavoro in cima. */
+    fornitori: protectedProcedure.query(({ ctx }) => {
+      const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+      const righe = riepilogoFornitori(sedeId);
+      return {
+        fornitori: righe,
+        totali: {
+          fornitori: righe.length,
+          daCollegare: righe.reduce((n, r) => n + r.daCollegare, 0),
+          collegate: righe.reduce((n, r) => n + r.collegate, 0),
+          scartate: righe.reduce((n, r) => n + r.scartate, 0),
+        },
+      };
+    }),
+
+    /** Le conferme di un fornitore (o di tutti), da collegare per prime. */
+    conferme: protectedProcedure
+      .input(
+        z
+          .object({
+            fornitore: z.string().trim().min(1).max(80).optional(),
+            stato: z.enum(["da_collegare", "collegata", "scartata"]).optional(),
+            limite: z.number().int().min(1).max(300).optional(),
+          })
+          .optional()
+      )
+      .query(({ input, ctx }) =>
+        confermeArchivio({
+          sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          fornitore: input?.fornitore ?? null,
+          stato: input?.stato ?? null,
+          limite: input?.limite,
+        })
+      ),
+
+    /** Le comunicazioni di un fornitore: mittente cercato per le sue chiavi. */
+    comunicazioni: protectedProcedure
+      .input(
+        z.object({
+          fornitore: z.string().trim().min(1).max(80),
+          limite: z.number().int().min(1).max(50).optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+        const limite = input.limite ?? 20;
+        const viste = new Map<number, any>();
+        for (const chiave of chiaviRicercaFornitore(input.fornitore)) {
+          const righe = await listComunicazioni({ sedeId, search: chiave, limit: limite });
+          for (const c of righe) if (!viste.has(c.id)) viste.set(c.id, c);
+          if (viste.size >= limite * 2) break;
+        }
+        return [...viste.values()]
+          .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
+          .slice(0, limite)
+          .map(c => ({
+            id: c.id,
+            canale: c.canale,
+            mittente: c.mittenteNome?.trim() || c.mittente,
+            oggetto: c.oggetto,
+            estratto: c.testo.length > 180 ? `${c.testo.slice(0, 180)}…` : c.testo,
+            allegati: c.allegati.map((a: any) => a.nome),
+            commessaId: c.commessaId,
+            ricevutaIl: c.receivedAt,
+            link: linkComunicazione(c),
+          }));
+      }),
+
+    /**
+     * «È di questa commessa»: la conferma entra nel fascicolo e da lì
+     * nascono il costo fornitore e la consegna a magazzino. Come per il
+     * riscontro delle conferme automatiche, decide direzione o
+     * amministrazione: è un effetto sul margine.
+     */
+    collega: protectedProcedure
+      .input(
+        z.object({
+          voceId: z.number().int().positive(),
+          commessaId: z.number().int().positive(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        requireDirezioneOAmministrazione(ctx.user);
+        try {
+          const esito = await collegaVoceArchivio({
+            voceId: input.voceId,
+            commessaId: input.commessaId,
+            sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+            utenteId: Number((ctx.user as any).id) || 0,
+            nomeUtente: String((ctx.user as any).name ?? "un operatore"),
+          });
+          return {
+            documentoId: esito.documentoId,
+            commessaId: esito.commessaId,
+            costo: esito.costo,
+            consegne: esito.consegne,
+          };
+        } catch (errore) {
+          throw comeErroreArchivio(errore);
+        }
+      }),
+
+    /** Non è una conferma da collegare: resta a registro con chi lo ha detto. */
+    scarta: protectedProcedure
+      .input(
+        z.object({
+          voceId: z.number().int().positive(),
+          motivo: z.string().trim().max(200).optional(),
+        })
+      )
+      .mutation(({ input, ctx }) => {
+        requireDirezioneOAmministrazione(ctx.user);
+        try {
+          return scartaVoceArchivio({
+            voceId: input.voceId,
+            sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+            utenteId: Number((ctx.user as any).id) || 0,
+            nomeUtente: String((ctx.user as any).name ?? "un operatore"),
+            motivo: input.motivo ?? null,
+          });
+        } catch (errore) {
+          throw comeErroreArchivio(errore);
+        }
+      }),
+
+    /** Scartata per sbaglio: torna in coda. */
+    riapri: protectedProcedure
+      .input(z.object({ voceId: z.number().int().positive() }))
+      .mutation(({ input, ctx }) => {
+        requireDirezioneOAmministrazione(ctx.user);
+        try {
+          return riapriVoceArchivio({
+            voceId: input.voceId,
+            sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          });
+        } catch (errore) {
+          throw comeErroreArchivio(errore);
+        }
+      }),
+
+    /** Rilegge il file: la lettura può essere migliorata dopo una correzione. */
+    rileggi: protectedProcedure
+      .input(z.object({ voceId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requireDirezioneOAmministrazione(ctx.user);
+        try {
+          return await rileggiVoceArchivio({
+            voceId: input.voceId,
+            sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          });
+        } catch (errore) {
+          throw comeErroreArchivio(errore);
+        }
+      }),
+
+    /** Un giro subito, invece di aspettare il worker (direzione). */
+    aggiorna: protectedProcedure.mutation(async ({ ctx }) => {
+      requireDirezioneOAmministrazione(ctx.user);
+      return eseguiGiroArchivioFornitori({ sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID });
+    }),
+  }),
 });
+
+/** Gli errori del dominio archivio arrivano già scritti per chi legge. */
+function comeErroreArchivio(errore: unknown): TRPCError {
+  const messaggio = errore instanceof Error ? errore.message : "Operazione non riuscita.";
+  const codice = messaggio.startsWith("NOT_FOUND")
+    ? "NOT_FOUND"
+    : messaggio.startsWith("CONFLICT")
+      ? "CONFLICT"
+      : messaggio.startsWith("PRECONDITION_FAILED")
+        ? "PRECONDITION_FAILED"
+        : "BAD_REQUEST";
+  return new TRPCError({
+    code: codice as any,
+    message: messaggio.replace(/^[A-Z_]+:\s*/, ""),
+  });
+}

@@ -245,6 +245,31 @@
 > dopo il deploy (OCR/visione per le scansioni: pochi centesimi). La
 > verifica nel browser (1440/390) resta da fare a mano: il server demo
 > chiede il login e l'agente non entra.
+>
+> **07/09/2026 — La pagina Fornitori: l'archivio delle conferme.** Mandato:
+> «per ogni fornitore vengono archiviate tutte le conf. ordine e le
+> comunicazioni in automatico da Tars; da lì analizza la conf. ordine e
+> capisce di quale commessa è, e se non lo capisce deve dirlo e va collegata
+> a mano, così che una volta collegata compaia nella commessa e da lì si
+> ricavi il costo fornitore, stessa cosa per il prodotto in magazzino».
+> Fatto (§36-bis del PRD): `server/fornitori/archivio.ts` — un INDICE sulle
+> comunicazioni (store `fornitori_archivio`), non una copia dei byte: le
+> conferme restano allegati delle mail. Worker `archivioFornitoriWorker`
+> (boot +60 s, ogni 10 min, 8 letture nuove per giro,
+> `ARCHIVIO_FORNITORI=off`): scansione (fornitore dal mittente o dal
+> dominio, `shared/fornitori.ts`; allegato «da conferma» via
+> `nomeDaConferma`), lettura (`ricercaCommessaNelDocumento`: testo nativo,
+> OCR, trascrizione del modello) e decisione — **commessa unica** → entra da
+> sola nel fascicolo con `origine: "automatico"`, la mail libera viene
+> collegata, e nascono costo e consegna; **altrimenti «da collegare» col
+> motivo**. Pagina `/fornitori` (era redirect): fornitori a sinistra,
+> conferme a destra con i candidati che il testo nomina, ricerca libera,
+> Rileggi / Non è da collegare / Rimettila in coda, e le comunicazioni del
+> fornitore. Procedure `fornitori.archivio.*`; collegare e scartare come
+> «È di questa commessa» (direzione o amministrazione); nuova origine
+> documento `fornitori`. Suite 251 file / 2.703 test. Da fare a mano: la
+> verifica nel browser (1440/390) e il primo giro in produzione, dove le
+> conferme già nei fascicoli entrano in archivio come «collegate».
 
 ## 1. Contesto
 
