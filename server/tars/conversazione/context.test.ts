@@ -107,6 +107,7 @@ function cliente(id: number, cognome: string) {
 function contestoRun(): ContestoRun {
   return {
     utenteId: UTENTE,
+    tenantId: 1,
     sedeId: SEDE,
     ruoli: ["direzione"],
     direzione: true,

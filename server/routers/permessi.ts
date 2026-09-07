@@ -13,6 +13,8 @@ import {
   getPolicyRepository,
 } from "../authz/repository";
 import { effectiveCapabilitySet } from "../authz/enforcement";
+import { interruttoreAttivo } from "../platform/interruttori";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import { getUtentiStore } from "./utenti";
 
 const capabilitySchema = z.enum(CAPABILITIES);
@@ -30,7 +32,11 @@ function directionContext(ctx: any) {
       message: "Sessione non valida.",
     });
   }
-  return { sedeId: ctx.sedeId as number, actorUserId: Number(ctx.user.id) };
+  return {
+    sedeId: ctx.sedeId as number,
+    actorUserId: Number(ctx.user.id),
+    tenantId: (ctx.tenantId ?? TENANT_PREDEFINITO_ID) as number,
+  };
 }
 
 function rolesFor(user: any): string[] {
@@ -38,12 +44,14 @@ function rolesFor(user: any): string[] {
   return user.ruolo ? [user.ruolo] : [];
 }
 
-function findUserInSede(userId: number, sedeId: number) {
+function findUserInSede(userId: number, sedeId: number, tenantId: number) {
   const user = getUtentiStore().find(
     candidate =>
       candidate.id === userId &&
       Array.isArray(candidate.sediIds) &&
-      candidate.sediIds.includes(sedeId)
+      candidate.sediIds.includes(sedeId) &&
+      (!interruttoreAttivo("multiAzienda") ||
+        (typeof candidate.tenantId === "number" ? candidate.tenantId : TENANT_PREDEFINITO_ID) === tenantId)
   );
   if (!user) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Utente non trovato." });
@@ -93,6 +101,16 @@ async function revokeActiveOverrides(input: {
   }
 }
 
+function assertCapabilityDelegabile(capability: Capability): void {
+  if (capability === "tenant.manage_proprietari") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "La nomina dei proprietari non si delega né si sovrascrive: spetta ai proprietari dell'azienda.",
+    });
+  }
+}
+
 export const permessiRouter = router({
   /**
    * Le capability effettive dell'utente autenticato nella sede attiva
@@ -114,8 +132,8 @@ export const permessiRouter = router({
   preview: protectedProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input, ctx }) => {
-      const { sedeId } = directionContext(ctx);
-      const user = findUserInSede(input.userId, sedeId);
+      const { sedeId, tenantId } = directionContext(ctx);
+      const user = findUserInSede(input.userId, sedeId, tenantId);
       const repository = getPolicyRepository();
       const now = new Date();
       const [overrides, delegations, effectiveOverrides] = await Promise.all([
@@ -165,8 +183,9 @@ export const permessiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { sedeId, actorUserId } = directionContext(ctx);
-      const user = findUserInSede(input.userId, sedeId);
+      const { sedeId, actorUserId, tenantId } = directionContext(ctx);
+      assertCapabilityDelegabile(input.capability);
+      const user = findUserInSede(input.userId, sedeId, tenantId);
       const now = new Date();
       if (input.effect === "deny") {
         try {
@@ -241,7 +260,8 @@ export const permessiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { sedeId, actorUserId } = directionContext(ctx);
+      const { sedeId, actorUserId, tenantId } = directionContext(ctx);
+      assertCapabilityDelegabile(input.capability);
       if (input.delegateUserId === input.delegatorUserId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -254,8 +274,8 @@ export const permessiRouter = router({
           message: "La scadenza deve essere successiva all'inizio.",
         });
       }
-      const delegator = findUserInSede(input.delegatorUserId, sedeId);
-      const delegate = findUserInSede(input.delegateUserId, sedeId);
+      const delegator = findUserInSede(input.delegatorUserId, sedeId, tenantId);
+      const delegate = findUserInSede(input.delegateUserId, sedeId, tenantId);
       if (!delegator.attivo || !delegate.attivo) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -300,8 +320,8 @@ export const permessiRouter = router({
       z.object({ id: z.number(), userId: z.number(), reason: reasonSchema })
     )
     .mutation(async ({ input, ctx }) => {
-      const { sedeId, actorUserId } = directionContext(ctx);
-      findUserInSede(input.userId, sedeId);
+      const { sedeId, actorUserId, tenantId } = directionContext(ctx);
+      findUserInSede(input.userId, sedeId, tenantId);
       const repository = getPolicyRepository();
       const records = await repository.listDelegations({
         sedeId,
@@ -350,8 +370,8 @@ export const permessiRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      const { sedeId } = directionContext(ctx);
-      if (input.userId != null) findUserInSede(input.userId, sedeId);
+      const { sedeId, tenantId } = directionContext(ctx);
+      if (input.userId != null) findUserInSede(input.userId, sedeId, tenantId);
       const repository = getPolicyRepository();
       const [changes, diffs] = await Promise.all([
         repository.listPolicyChanges({ sedeId, userId: input.userId }),

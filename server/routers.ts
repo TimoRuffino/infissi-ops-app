@@ -48,6 +48,10 @@ import { fatturazioneConfigRouter } from "./routers/fatturazioneConfig";
 import { fatturazioneGuidataRouter } from "./routers/fatturazioneGuidata";
 import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
+import { tenantsRouter } from "./tenants/router";
+import { interruttoreAttivo } from "./platform/interruttori";
+import { MESSAGGI, TENANT_PREDEFINITO_ID } from "./tenants/costanti";
+import { portaChiusaPerTenant } from "./tenants/regole";
 import {
   createLocalToken,
   clearLocalSessionFromRequest,
@@ -135,6 +139,17 @@ export const appRouter = router({
         // Success — reset the failure counter for this account.
         clearLoginAttempts(input.email);
 
+        // Porta chiusa (WS1): niente sessione per un tenant che gli archivi
+        // non sanno ancora servire. Stesso messaggio della guardia tRPC.
+        const tenantUtente =
+          typeof utente.tenantId === "number" ? utente.tenantId : TENANT_PREDEFINITO_ID;
+        if (interruttoreAttivo("multiAzienda") && portaChiusaPerTenant(tenantUtente)) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: MESSAGGI.portaChiusa,
+          });
+        }
+
         const ruoli: string[] =
           Array.isArray(utente.ruoli) && utente.ruoli.length > 0
             ? utente.ruoli
@@ -201,6 +216,7 @@ export const appRouter = router({
   fileStorage: fileStorageAdminRouter,
   conoscenza: conoscenzaRouter,
   platform: platformRouter,
+  tenants: tenantsRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,

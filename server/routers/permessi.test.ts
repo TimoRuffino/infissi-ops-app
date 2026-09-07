@@ -30,6 +30,8 @@ function context(
     res: {} as any,
     sedeId,
     sediIds,
+    tenantId: 1,
+    tenant: null,
   };
 }
 

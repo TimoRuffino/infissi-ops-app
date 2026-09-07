@@ -21,6 +21,108 @@
 > è cambiato: script `icone`, devDependency `sharp`), dominio, servizio
 > Railway, callback OAuth.
 
+> **Novità 07/09/2026 — WS1 fondazione tenant su branch, revisione finale
+> corretta.** I 15 task del piano di implementazione
+> (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`) sono
+> committati su `feature/ws1-fondazione-tenant` (nato da
+> `claude/ruffino-flow-saas-multi-afaecf`, cioè `main` @ `ecb2042` più spec e
+> piano), dal commit `4c3a71b` al `a01a757` (131 file, +3184/−193 fino al
+> client), più i commit di documentazione e correzioni finali
+> `07f1b1f`…`e54dba4`; nessun push, nessun merge su `main` da qui
+> — quella è una decisione della direzione dopo una verifica a schermo
+> dell'utente. **Revisione finale del branch (07/09):** nessun Critical;
+> alcuni Important, tutti corretti in un'unica onda — i ruoli vengono dallo
+> store a ogni richiesta e non dal JWT (una revoca vale alla richiesta
+> successiva, non fra sette giorni); guardia sull'ultima sede attiva del
+> tenant; `tenants.servizio.crea` resiliente a un commit fallito (evento
+> `creato` registrato subito dopo l'inserimento del tenant, sede/utente
+> tolti dagli array vivi se il commit di store fallisce); hash della
+> password azzerato dal payload del comando alla sua chiusura; guardia
+> dell'ultimo proprietario applicata solo con `FLAG_MULTI_AZIENDA` acceso.
+> **PR #3 verso `main` aperta il 07/09, CI verde.** La revisione automatica
+> ha segnalato 5 punti «da verificare»: 3 infondati (porta chiusa voluta,
+> anteprima già mascherata, `sedeId` nullo coperto da guardia e rotte), 2
+> corretti (PRD §60.6 e prova gratuita; `pnpm tenant` non esegue più DDL:
+> sonda `to_regclass`, si ferma se le tabelle mancano). Il merge resta alla
+> direzione.
+> **Aperto per il WS2:** le rotte Express che usano `createContext` (upload
+> documenti `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non
+> applicano ancora porta chiusa né sola lettura — non conta nel WS1 (solo
+> tenant 1, sospensione solo dall'operatore); nel WS2 va estratta una
+> guardia pura `motivoRifiutoTenant` in `regole.ts`, riusata da `trpc.ts` e
+> dalle rotte. Contratto: control plane
+> `server/tenants/` (tabelle `tenants`, `tenant_eventi` append-only,
+> `tenant_comandi`), `tenantId` su utenti e sedi con backfill a 1, ruolo
+> `proprietario` (ottavo, capability `tenant.manage_proprietari` che la
+> direzione non ha per costruzione), porta chiusa a chiave e sola lettura
+> del tenant sospeso in `protectedProcedure`, `tenants.mio`, servizio di
+> dominio con comandi accodati da `pnpm tenant` ed eseguiti solo dal server,
+> Tars con `tenantId` obbligatorio e senza fallback di sede, tutto dietro
+> `FLAG_MULTI_AZIENDA` fail-closed. Deviazione dalla spec, corretta nel
+> documento: `portaChiusaPerTenant` vive in `server/tenants/regole.ts`
+> (pura), non in `servizio.ts`. **Verificato:** `pnpm check`/`test`/`build`
+> verdi (suite piena a parte i 3 FAIL preesistenti e indipendenti «foto HEIC
+> vera (sips)»), repository provato su Postgres vero (Docker, usa-e-getta:
+> schema idempotente, trigger append-only, seed con `setval`, `FOR UPDATE
+> SKIP LOCKED`, slug duplicato a cache fredda), script `pnpm tenant` con i 4
+> sottocomandi, boot locale in memoria col log `[tenants] tenant 1
+> (ruffino-group) pronto: … utenti, … sedi`, login caricato senza errori
+> console/rete. **Non verificato:** `/utenti` a 1440×900 e 390×844 (voce
+> «Proprietario», serve login demo che l'agente non digita — da fare
+> dall'utente nell'anteprima), produzione Railway (nulla distribuito,
+> `FLAG_MULTI_AZIENDA` assente dall'env = spento, nessuna verifica read-only
+> fatta lì), comportamento con più repliche (cache e ciclo comandi sono
+> in-process, una sola replica come oggi). Runbook:
+> `docs/runbooks/multi-azienda.md`. PRD §60.9 (v5.51). Voce 21 del debito
+> aggiornata.
+
+> **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
+> registrato, nessun codice.** La direzione ha approvato in chat il modello
+> commerciale e l'architettura per distribuire Wyndor a più
+> rivenditori: testo integrale in
+> `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (sezioni
+> 1–18), riassunto in PRD §60 (v5.49). Decisioni fisse: un solo prodotto
+> completo, canone fisso per azienda mensile o annuale, niente tariffe per
+> utenti, sedi, caselle o numeri; Email, WhatsApp e Tars inclusi; storage
+> (100 GB) e Tars (budget mensile) sole risorse misurate, avvisi al 50, 80 e
+> 100 %, pacchetti extra; il **tenant sopra la sede**, `tenantId` dalla
+> sessione e mai dal client, `NOT_FOUND` cross-tenant; Proprietario azienda
+> in più ai sette ruoli; Platform Admin globale con MFA che non legge i dati
+> delle aziende; abbonamenti omaggio senza oggetti sul provider; marchio
+> Wyndor con personalizzazione del rivenditore; Ruffino Group =
+> tenant 1, migrazione con backup, dry-run, chiavi `tenant:1:<store>`
+> accanto alle legacy in sola lettura, rollback. Otto workstream ordinati
+> (fondazione tenant → migrazione → file, comunicazioni e integrazioni →
+> abbonamenti → onboarding → Platform Admin → pilota omaggio → rollout).
+> L'agente ha fatto il **riscontro sul codice** (Appendice A della spec, PRD
+> §60.7): reggono contesto server-side, `assertSedeScope`, ruoli a unione,
+> catalogo Tars fail-closed, ledger R1 e ledger costi `tars_costi` per sede,
+> coda durevole degli eventi, storage con checksum, segreti cifrati, webhook
+> Meta firmato; **non esistono** tenant, Proprietario, Platform Admin, MFA,
+> inviti, reset password, conteggio dei byte, backup per tenant e restore,
+> export aziendale, abbonamenti; **esistono in forma diversa** utenti e sedi
+> come blob JSONB (non tabelle), guardia dell'ultima direzione globale,
+> budget Tars solo da env e aggregato senza sede, refresh token Drive in
+> chiaro, OAuth `state` in memoria senza l'utente, 11 worker `setInterval`
+> senza lease, audit append-only solo per convenzione, «limiti» che nel repo
+> sono i massimali DM MITE. **Nessuna implementazione autorizzata**: prima
+> del workstream 1 servono la sua spec tecnica e, fuori dal codice, prezzo,
+> budget Tars incluso, tolleranze, prezzo degli extra e provider di
+> pagamento. Voce 21 del debito. Aggiunta la stessa sera: il prodotto si
+> chiamerà **Wyndor** (spec §18-bis); rebranding dell'app a parte, fuori
+> dal workstream 1. Poi, sempre la sera del 06/09, la **spec tecnica del
+> WS1** approvata a sezioni in chat:
+> `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` (PRD
+> §60.9) — porta chiusa a chiave, `proprietario` ottavo ruolo, servizio
+> `tenants` con comandi eseguiti solo dal server, `FLAG_MULTI_AZIENDA`,
+> stato del tenant con sola lettura. Piano di implementazione scritto e
+> autorevisionato: `docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`
+> (15 task, TDD, un commit per task; da eseguire su un branch di lavoro
+> creato da `main`). Nessun codice ancora.
+> Terza decisione della sera: **prova gratuita di 30 giorni** per ogni nuova
+> azienda (spec madre §18-bis): tocca WS4 e WS5, non il WS1; aperti carta
+> alla registrazione, soglie in prova, una prova per partita IVA, avvisi.
+
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
 > `docs/superpowers/specs/2026-09-06-anteprime-evidenze-design.md`, piano
@@ -390,6 +492,7 @@ server/comunicazioni/        (era server/tars/, ma non era l'agente)
 server/events/              registro eventi, consumer e recovery lease
 server/notifications/       repository, proiettore, SSE e Web Push
 server/observability/       metriche aggregate privacy-safe
+server/tenants/             control plane multi-azienda: contesto, guardie, servizio, comandi (WS1 su branch, PRD §60.9; FLAG_MULTI_AZIENDA spento)
 
 server/actionCenter/
   signals.ts                regole pure, priorità e deduplica
@@ -1627,6 +1730,13 @@ Poi verificare nel browser, desktop e mobile:
 - Timeline e board: spostare una commessa sul Kanban e verificare che le
   milestone corrispondenti risultino completate.
 
+Se e quando il branch `feature/ws1-fondazione-tenant` va in produzione
+(decisione della direzione, non automatica col merge): deploy con
+`FLAG_MULTI_AZIENDA` spento, verifica in sola lettura
+(`docs/runbooks/multi-azienda.md`), backup Drive riuscito nelle 24 ore, solo
+allora accendere l'interruttore e controllare la riga di log `[tenants]
+tenant 1 … pronto` e l'evento `proprietario_assegnato`.
+
 Per lo storage cloud aggiungere, nell'ambiente Railway già configurato:
 
 ```bash
@@ -1648,6 +1758,8 @@ pnpm storage:dry-run
 | `docs/runbooks/piattaforma-recovery.md` | boot, guasti tipici e recovery del CRM |
 | `docs/tars-rimosso-2026-08-28.md` | cosa era Tars, cosa resta, cosa decidere |
 | `docs/storage-r2.md` | configurazione e migrazione R2 |
+| `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` | design approvato del SaaS multi-azienda (tenant sopra sede, canone fisso, soglie d'uso, Platform Admin, omaggi, migrazione di Ruffino Group) con il riscontro sul codice in Appendice A — nessun codice autorizzato |
+| `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` | spec tecnica del workstream 1 (fondazione tenant): control plane, contesto, guardie, ruolo proprietario, comandi e script, interruttore, test — approvata a sezioni; piano `docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md` eseguito il 07/09/2026 sul branch `feature/ws1-fondazione-tenant` (voce 21), non su `main` |
 | `docs/design/modular-control/route-manifest.md` | stato di migrazione per ogni route Wouter, uno-a-uno con `App.tsx` |
 | `docs/design/modular-control/verification-log.md` | registro append-only delle verifiche UI v2, con ciò che non è stato eseguito |
 | `CLAUDE.md` | guida operativa per agenti di coding |
@@ -4164,6 +4276,81 @@ a vuoto e dice «57 saltati»).
     le 15 conferme reali anonimizzate si confrontano tesseract e modello
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
+
+21. **SaaS multi-azienda (06/09/2026): design approvato, nessun codice.**
+    Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
+    PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
+    annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
+    extra, provider di pagamento (Stripe o equivalente). Le aperture trovate
+    nel codice, da risolvere nella spec tecnica del workstream 1 (Appendice
+    A della spec): (1) nessun tenant: `context.ts` risolve utente, `sedeId`,
+    `sediIds`; il fallback `DEFAULT_SEDE_ID = 1` (anche in
+    `tars/contesto.ts:23`) va reso tenant-aware; (2) `utenti` e `sedi` sono
+    blob JSONB, drizzle copre solo `users` (OAuth), le tabelle nascono da
+    `ensureSchema()`: decidere la forma del control plane e chi è la verità
+    degli utenti; (3) `persistedStore` ha un registro statico di 50 store
+    caricati al boot, chiave = nome puro, riscrittura intera, nessun
+    optimistic locking: le chiavi `tenant:<id>:<store>` richiedono un
+    registro dinamico e una scelta boot/lazy, più una decisione sugli store
+    globali (`sedi`, `utenti`, `backup_*`, `notifiche_read`,
+    `timeline_steps`); il filtro di lista è a mano 165 volte, nessun helper;
+    (4) `direzione` = tutte le capability + tutte le sedi + `role:"admin"`
+    derivato; nessuna capability per gestire utenti e sedi; il Proprietario
+    non esiste; (5) guardia dell'ultima direzione globale, non per tenant;
+    (6) niente inviti, reset password, MFA; (7) storage: chiavi senza tenant,
+    nessun conteggio dei byte, cancellazioni mai per allegati mail,
+    `fatture_xml/pdf`, `anteprime`; media WhatsApp non salvati; (8) backup:
+    un archivio globale, OAuth Drive globale con refresh token in chiaro,
+    nessun restore; (9) OAuth `state` in `Map` in memoria (FiC lega la sede
+    ma non l'utente, Drive nessun legame); il webhook Meta prova il secret di
+    ogni sede; (10) 11 worker `setInterval` in-process senza lease né
+    dead-letter, solo gli eventi business hanno coda durevole; (11) budget
+    Tars da env, aggregati di `tars_costi` senza `sede_id`, lock advisory
+    globale; (12) rate limit solo su login e Tars, non su upload, webhook,
+    ICS; (13) audit append-only per convenzione, senza vincolo DB;
+    `platform_feature_flag_audit` è un blob riscrivibile; (14) nessun export
+    aziendale; (15) `platform_feature_flags` per sede senza endpoint di
+    scrittura e `FLAG_*` env globali: la visibilità del menu per tenant
+    (spec §7) è nuova; (16) vocabolario: «limiti» = massimali DM MITE (§55),
+    le soglie commerciali si chiamano «soglie d'uso». **Sera del 06/09:**
+    spec tecnica del WS1 approvata a sezioni
+    (`docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
+    PRD §60.9) e piano in 15 task
+    (`docs/superpowers/plans/2026-09-06-ws1-fondazione-tenant.md`); i punti
+    (1)–(6) hanno lì la loro risposta, gli altri restano per WS2–WS6.
+    **07/09/2026: WS1 codificato, su branch, non su `main`.** I 15 task sono
+    committati su `feature/ws1-fondazione-tenant` (`4c3a71b`…`a01a757`, più
+    i commit di documentazione e correzioni finali `07f1b1f`…`e54dba4`);
+    `pnpm check`/`test`/`build` verdi (a parte i 3 FAIL preesistenti «foto
+    HEIC vera (sips)», indipendenti dal WS1); `FLAG_MULTI_AZIENDA` resta
+    spento e assente dall'env di produzione. Non verificati: `/utenti` a
+    1440×900/390×844 (serve login demo) e qualunque cosa in produzione
+    Railway (nulla distribuito). Nessun push da qui; il merge su `main` è
+    una decisione della direzione dopo verifica a schermo dell'utente.
+    Runbook: `docs/runbooks/multi-azienda.md`. Il prezzo, il budget Tars
+    incluso, le tolleranze e il provider di pagamento restano da fissare
+    come sopra; i punti (7)–(16) restano per WS2–WS6.
+
+    **Stesso giorno: revisione finale dell'intero branch, nessun Critical.**
+    Alcuni Important, tutti corretti in un'unica onda: i ruoli vengono dallo
+    store a ogni richiesta e non dal JWT; guardia sull'ultima sede attiva
+    del tenant; `tenants.servizio.crea` resiliente a un commit fallito
+    (evento `creato` subito dopo l'inserimento del tenant, sede/utente
+    tolti dagli array vivi se il commit fallisce); hash della password
+    azzerato dal payload del comando alla sua chiusura; guardia dell'ultimo
+    proprietario applicata solo con l'interruttore acceso. **Aperto per il
+    WS2:** le rotte Express che usano `createContext` (upload documenti
+    `commessaFileRoutes.ts`, allegati mail, anteprime, SSE) non applicano
+    ancora porta chiusa né sola lettura — non conta nel WS1 (solo tenant 1,
+    sospensione solo dall'operatore); nel WS2 va estratta una guardia pura
+    `motivoRifiutoTenant` in `regole.ts`, riusata da `trpc.ts` e dalle
+    rotte. Minor lasciati, nessuno bloccante: riga di
+    `tenant.manage_proprietari` sovrascrivibile in `CapabilityMatrix`;
+    `contestoAutorizzazione` in `tars/strumenti/commesse.ts` costruito a
+    mano senza tenant; lo script `scripts/tenant.ts` esegue
+    `ensureSchema()`; `RUOLO_COLORS` senza `proprietario`; messaggio
+    letterale invece che da `MESSAGGI` in `permissions.ts`; doppio guasto
+    possibile in `registraEvento` del `comando_fallito`.
 
 ## 13. Cosa resta della piattaforma
 

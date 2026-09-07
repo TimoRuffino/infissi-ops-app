@@ -17,6 +17,7 @@ const SEDE = 96501;
 function contesto(): ContestoRun {
   return {
     utenteId: 7,
+    tenantId: 1,
     sedeId: SEDE,
     ruoli: ["direzione"],
     direzione: true,

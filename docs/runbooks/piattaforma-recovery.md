@@ -11,6 +11,11 @@
    resta `UNLOADED` e **i suoi save sono bloccati** finché la background
    recovery (30 tentativi × 5 s) non legge il dato: mai riavviare in loop
    sperando che "si sistemi", guardare i log `[persistence]`.
+1-bis. `avviaTenants()` (WS1): `ensureSchema` di `tenants`, `tenant_eventi`,
+   `tenant_comandi` e cache dei tenant; con `FLAG_MULTI_AZIENDA=on` anche il
+   seed del tenant 1 «Ruffino Group», il proprietario di ripiego e i comandi
+   in attesa (poi ogni 30 s). Log `[tenants] …`. Spento: solo schema e cache.
+   Runbook: `docs/runbooks/multi-azienda.md`.
 2. Riconciliazione timeline→board (idempotente, solo in avanti).
 3. `ensureSchema` di: azioni operative, eventi business, policy, notifiche,
    promemoria. In produzione un fallimento qui deve fermare l'avvio.

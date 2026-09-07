@@ -31,6 +31,8 @@ function contesto(sedeId = SEDE): TrpcContext {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

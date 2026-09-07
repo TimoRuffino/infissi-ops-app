@@ -312,6 +312,8 @@ describe("configurazione parziale", () => {
       res: {},
       sedeId: 1,
       sediIds: [1],
+      tenantId: 1,
+      tenant: null,
     };
   }
 

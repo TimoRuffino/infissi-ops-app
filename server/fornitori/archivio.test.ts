@@ -60,6 +60,8 @@ function contestoTrpc(): TrpcContext {
     res: {} as any,
     sedeId: SEDE,
     sediIds: [SEDE],
+    tenantId: 1,
+    tenant: null,
   };
 }
 const direzione = () => appRouter.createCaller(contestoTrpc());

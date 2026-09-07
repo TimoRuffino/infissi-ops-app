@@ -9,6 +9,8 @@ function context(ruoli: string[]): TrpcContext {
     res: {} as any,
     sedeId: 1,
     sediIds: [1],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

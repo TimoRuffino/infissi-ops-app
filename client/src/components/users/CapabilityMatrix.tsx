@@ -59,6 +59,7 @@ const CAPABILITY_META: Record<string, { label: string; group: string }> = {
   // Nome storico, funzione attuale: è il permesso che governa i permessi.
   // Rinominare la stringa significherebbe migrare le regole salvate.
   "tars.manage_policy": { label: "Gestire permessi", group: "Permessi" },
+  "tenant.manage_proprietari": { label: "Nominare i proprietari", group: "Azienda" },
 };
 
 type OverrideEffect = "allow" | "deny" | "inherit";

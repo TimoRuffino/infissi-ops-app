@@ -17,6 +17,7 @@ function autorizzata(
     return false;
   }
   if (!Number.isInteger(contesto.sedeId) || contesto.sedeId <= 0) return false;
+  if (!Number.isInteger(contesto.tenantId) || contesto.tenantId <= 0) return false;
   if (azione.prerequisiti.direzione && !contesto.direzione) return false;
   if (!azione.capability.every(c => contesto.capability.has(c))) return false;
   return azione.interruttori.every(interruttoreAttivo);

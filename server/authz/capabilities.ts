@@ -43,6 +43,10 @@ export const CAPABILITIES = [
   // applicare richiedono ENTRAMBE.
   "documento.approve_proposals",
   "fornitore.manage_ordini",
+  // Tenant (WS1, 06/09/2026): nominare e revocare i proprietari dell'azienda.
+  // La dà SOLO il ruolo `proprietario`: né la direzione per costruzione, né
+  // override, né delega (spec WS1 §4.4).
+  "tenant.manage_proprietari",
   // Capability storiche dell'agente rimosso il 28/08/2026. Restano perché
   // `tars.manage_policy` governa i permessi stessi: rinominarla significa
   // migrare le regole già salvate. Le altre non compaiono più nella UI.
@@ -148,12 +152,18 @@ const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "documento.approve_proposals",
     "fornitore.manage_ordini",
   ],
+  proprietario: [...SHARED_CAPABILITIES, "tenant.manage_proprietari"],
 };
 
 export function capabilitiesForRoles(roles: readonly string[]): Set<Capability> {
-  if (roles.includes("direzione")) return new Set(CAPABILITIES);
-
   const capabilities = new Set<Capability>();
+  if (roles.includes("direzione")) {
+    for (const capability of CAPABILITIES) capabilities.add(capability);
+    // L'unica eccezione al «direzione = tutto»: la nomina dei proprietari
+    // spetta ai proprietari (spec WS1 §4.4). Chi è anche proprietario la
+    // riprende dal proprio ruolo, qui sotto.
+    capabilities.delete("tenant.manage_proprietari");
+  }
   for (const role of roles) {
     for (const capability of ROLE_CAPABILITIES[role] ?? []) {
       capabilities.add(capability);

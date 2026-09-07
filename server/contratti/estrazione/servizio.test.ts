@@ -29,11 +29,15 @@ import {
 const SEDE = 84_601;
 const ALTRA_SEDE = 84_602;
 
-function ctx(sedeId: number): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> {
+function ctx(sedeId: number): Pick<TrpcContext, "user" | "sedeId" | "sediIds" | "tenantId" | "tenant"> {
   return {
     user: { id: 5, role: "admin", ruolo: "direzione", ruoli: ["direzione"], name: "Test" } as any,
     sedeId,
     sediIds: [sedeId],
+    // WS1: contesto di prova completo, altrimenti la guardia del tenant
+    // (server/_core/trpc.ts) legge `tenantId` undefined e chiude la porta.
+    tenantId: 1,
+    tenant: null,
   };
 }
 

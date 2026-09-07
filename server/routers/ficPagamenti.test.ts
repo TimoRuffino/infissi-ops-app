@@ -28,6 +28,8 @@ function ctx(sedeId: number): TrpcContext {
     res: {} as TrpcContext["res"],
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

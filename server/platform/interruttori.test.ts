@@ -33,6 +33,8 @@ function direzione(sedeId = 94001) {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
   return appRouter.createCaller(ctx);
 }

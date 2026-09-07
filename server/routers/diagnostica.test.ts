@@ -13,6 +13,8 @@ function context(role: "direzione" | "commerciale"): TrpcContext {
     } as any,
     sedeId: 977,
     sediIds: [977],
+    tenantId: 1,
+    tenant: null,
     req: { protocol: "http", headers: {} } as any,
     res: {} as any,
   };

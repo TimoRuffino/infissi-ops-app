@@ -8,11 +8,12 @@
 
 import { TRPCError } from "@trpc/server";
 import type { TrpcContext } from "../../_core/context";
+import { getTenantRepository } from "../../tenants/repository";
 import type { ContestoRun, EsitoAzione, EvidenzaTars } from "./tipi";
 
 export function contestoServer(
   contesto: ContestoRun
-): Pick<TrpcContext, "user" | "sedeId" | "sediIds"> {
+): Pick<TrpcContext, "user" | "sedeId" | "sediIds" | "tenantId" | "tenant"> {
   return {
     user: {
       id: contesto.utenteId,
@@ -21,6 +22,10 @@ export function contestoServer(
       ruoli: [...contesto.ruoli],
       name: `Tars per l'utente ${contesto.utenteId}`,
     } as any,
+    tenantId: contesto.tenantId,
+    // Il record serve alla guardia di sola lettura anche quando la mutation
+    // parte da Tars e non dal client.
+    tenant: getTenantRepository().perId(contesto.tenantId),
     sedeId: contesto.sedeId,
     sediIds: [contesto.sedeId],
   };

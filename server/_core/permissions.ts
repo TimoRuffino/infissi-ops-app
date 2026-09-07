@@ -72,6 +72,28 @@ export function assertSedeScope(
   }
 }
 
+type TenantScopedRecord = { tenantId?: number | null } | null | undefined;
+
+/**
+ * Gemello di `assertSedeScope` per il control plane (utenti, sedi; dal WS2
+ * anche i record business): un record di un'altra azienda risponde
+ * NOT_FOUND, mai FORBIDDEN, così la risposta non conferma che l'id esista.
+ * Con `tenantId` nullo (non autenticato: non succede dietro una procedura
+ * protetta) non fa nulla.
+ */
+export function assertTenantScope(
+  record: TenantScopedRecord,
+  tenantId: number | null
+): void {
+  if (!record) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+  }
+  if (tenantId == null) return;
+  if ((record as any).tenantId !== tenantId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+  }
+}
+
 /** True when the user holds the `direzione` role (or legacy admin flag). */
 export function isDirezione(user: AnyUser): boolean {
   if (!user) return false;

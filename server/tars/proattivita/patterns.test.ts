@@ -272,6 +272,8 @@ describe("panorama via router e tool", () => {
       res: {} as any,
       sedeId: SEDE,
       sediIds: [SEDE],
+      tenantId: 1,
+      tenant: null,
     };
   }
 

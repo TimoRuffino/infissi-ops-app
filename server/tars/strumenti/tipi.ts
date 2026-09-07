@@ -41,6 +41,8 @@ export type IntentoTars =
 
 export type ContestoRun = {
   utenteId: number;
+  /** Azienda della sessione (WS1): vincolo del catalogo, mai fonte di autorità del modello. */
+  tenantId: number;
   sedeId: number;
   ruoli: string[];
   direzione: boolean;

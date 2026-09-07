@@ -21,6 +21,8 @@ function context(sedeId: number, roles = ["commerciale"]): TrpcContext {
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
+    tenantId: 1,
+    tenant: null,
   };
 }
 

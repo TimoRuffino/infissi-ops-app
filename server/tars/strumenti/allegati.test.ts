@@ -16,6 +16,7 @@ const COMMESSA = 88101;
 function contesto(sedeId = SEDE): ContestoRun {
   return {
     utenteId: 9,
+    tenantId: 1,
     sedeId,
     ruoli: ["direzione"],
     direzione: true,

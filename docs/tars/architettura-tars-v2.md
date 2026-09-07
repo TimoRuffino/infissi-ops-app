@@ -163,6 +163,8 @@ type StrumentoTars = {
 };
 ```
 
+`ContestoRun.tenantId` è obbligatorio dal WS1; nessun fallback di sede.
+
 Letture restituiscono `{dati, evidenze, freschezza, fonteAutorevole,
 omissioni, scope, versioniEntita}`; azioni `{stato, azioneId, auditId,
 entitaToccate, prima, dopo, undoDisponibile, undoEntro, avvertenze}`.
