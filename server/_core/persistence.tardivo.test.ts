@@ -60,15 +60,17 @@ describe("store registrato dopo bootstrapAll", () => {
     );
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(caricati).toEqual([[{ id: 7, nota: "dal db" }]]);
-    expect(tardivo.items).toEqual([{ id: 7, nota: "dal db" }]);
+    // `tenantId: 1` lo mette il backfill del caricamento (spec §3.4): il
+    // record letto dal DB non ce l'aveva, quello nato dopo non ce l'ha ancora.
+    expect(caricati).toEqual([[{ id: 7, nota: "dal db", tenantId: 1 }]]);
+    expect(tardivo.items).toEqual([{ id: 7, nota: "dal db", tenantId: 1 }]);
 
     tardivo.items.push({ id: 8 });
     tardivo.save();
     await vi.advanceTimersByTimeAsync(250);
 
     expect(database.scritture.map(s => s.key)).toEqual(["tardivo-links"]);
-    expect(database.scritture[0].items).toEqual([{ id: 7, nota: "dal db" }, { id: 8 }]);
+    expect(database.scritture[0].items).toEqual([{ id: 7, nota: "dal db", tenantId: 1 }, { id: 8 }]);
   });
 
   it("non perde gli elementi messi in memoria prima che il caricamento finisca", async () => {
@@ -82,8 +84,8 @@ describe("store registrato dopo bootstrapAll", () => {
     store.save();
     await vi.advanceTimersByTimeAsync(1500);
 
-    expect(store.items).toEqual([{ id: 1 }, { id: 99 }]);
-    expect(database.scritture.at(-1)?.items).toEqual([{ id: 1 }, { id: 99 }]);
+    expect(store.items).toEqual([{ id: 1, tenantId: 1 }, { id: 99 }]);
+    expect(database.scritture.at(-1)?.items).toEqual([{ id: 1, tenantId: 1 }, { id: 99 }]);
   });
 
   it("uno store registrato prima del bootstrap si carica come sempre, senza doppio caricamento", async () => {
@@ -97,6 +99,6 @@ describe("store registrato dopo bootstrapAll", () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(caricamenti).toBe(1);
-    expect(store.items).toEqual([{ id: 3 }]);
+    expect(store.items).toEqual([{ id: 3, tenantId: 1 }]);
   });
 });

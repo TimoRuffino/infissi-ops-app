@@ -3,11 +3,15 @@
 // basta per provare famiglie, Proxy, chiavi e resolver.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  bootstrapAll,
   chiaveStore,
+  conTransazioneStoreAtomica,
   getAllStoreSnapshots,
   impostaResolverTenant,
+  istanziaStoresPerTenant,
   persistedStore,
   storeDi,
+  tenantsNoti,
   __resetPersistenzaPerTest,
   __registraTenantNotoPerTest,
 } from "./persistence";
@@ -93,6 +97,38 @@ describe("persistence per tenant", () => {
     expect(chiavi).toEqual(
       expect.arrayContaining([["garanzie", "garanzie", 1], ["tenant:2:garanzie", "garanzie", 2], ["utenti", "utenti", null]])
     );
+  });
+
+  it("il salvataggio segue il tenant corrente, e senza tenant è un errore", async () => {
+    const s = persistedStore<any>("scadenze");
+    tenant = 2;
+    // Senza DATABASE_URL scheduleSave non fa nulla e salvaEntriesAtomici
+    // esce subito: qui conta che l'istanza del tenant 2 si risolva.
+    expect(() => s.save()).not.toThrow();
+    await expect(
+      conTransazioneStoreAtomica([s], commit => commit())
+    ).resolves.toBeUndefined();
+    tenant = null;
+    expect(() => s.save()).toThrow(/senza tenant nel contesto/);
+  });
+
+  it("bootstrapAll({ tenantIds }) istanzia ogni famiglia per ogni tenant (senza DB: firstBoot per tutti)", async () => {
+    const seed: Array<number | null> = [];
+    persistedStore<any>("squadre", (items, meta) => { seed.push(meta.tenantId); if (meta.firstBoot) items.push({ id: 1, tenantId: meta.tenantId }); });
+    await bootstrapAll({ tenantIds: [1, 2, 5] });
+    expect(seed.sort()).toEqual([1, 2, 5]);
+    expect(storeDi(5, "squadre")).toEqual([{ id: 1, tenantId: 5 }]);
+    expect(tenantsNoti()).toEqual([1, 2, 5]);
+  });
+
+  it("istanziaStoresPerTenant crea le istanze di un tenant nuovo dopo il boot", async () => {
+    const s = persistedStore<any>("tickets");
+    await bootstrapAll({ tenantIds: [1] });
+    await istanziaStoresPerTenant(4);
+    tenant = 4;
+    s.items.push({ id: 1 });
+    expect(storeDi(4, "tickets")).toHaveLength(1);
+    expect(tenantsNoti()).toEqual([1, 2, 4]); // il 2 viene dal beforeEach
   });
 
   it("senza resolver: nei test ripiega sul tenant 1, fuori dai test è un errore", () => {

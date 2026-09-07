@@ -9,12 +9,16 @@ vi.mock("./persistence", () => ({
   getAllStoreSnapshots: () => snapshots,
 }));
 
-let snapshots: Array<{ key: string; items: any[] }> = [];
+// La stessa forma di getAllStoreSnapshots (chiave, nome della famiglia,
+// tenant dell'istanza): un doppio più stretto del contratto non prova niente.
+let snapshots: Array<{ key: string; items: any[]; nome: string; tenantId: number | null }> = [];
 
 function conBackupRecente() {
   snapshots = [
     {
       key: "backup_log",
+      nome: "backup_log",
+      tenantId: 1,
       items: [{ ok: true, finishedAt: new Date().toISOString() }],
     },
   ];

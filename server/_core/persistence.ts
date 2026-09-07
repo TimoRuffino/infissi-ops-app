@@ -241,6 +241,8 @@ export function storeDi<T = any>(tenantId: number, nome: string): T[] {
 function proxyArray(f: Famiglia): any[] {
   // Il bersaglio è un array vuoto: Array.isArray(proxy) è vero e JSON.stringify
   // lo tratta da array. Ogni trap inoltra all'array reale del tenant corrente.
+  // `structuredClone(proxy)` invece esplode (DataCloneError): per copiarlo
+  // partire sempre da `[...items]`.
   const reale = () => istanzaCorrente(f).items;
   return new Proxy([] as any[], {
     get(_t, prop) {
@@ -304,8 +306,10 @@ export function persistedStore<T>(
   if (nome.startsWith("tenant:")) throw new Error(`[persistence] nome di store non ammesso: ${nome}`);
   if (famiglie.has(nome)) throw new Error(`[persistence] duplicate store key: ${nome}`);
   const f: Famiglia = { nome, ambito: opzioni.ambito ?? "tenant", onLoad: onLoad as any, istanze: new Map(), globale: null, maxId: 0 };
-  famiglie.set(nome, f);
+  // Le istanze prima della registrazione: una famiglia senza istanze nella
+  // mappa sarebbe una famiglia che `istanzaCorrente` non sa risolvere.
   const nuove: StoreEntry[] = f.ambito === "globale" ? [creaIstanza(f, null)] : [...noti].map(id => creaIstanza(f, id));
+  famiglie.set(nome, f);
   const store: PersistedStore<T> = {
     items: proxyArray(f) as T[],
     save: () => scheduleSave(istanzaCorrente(f).key),
@@ -326,11 +330,13 @@ export function __resetPersistenzaPerTest(): void {
   if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_RESET_PERSISTENZA");
   for (const t of saveTimers.values()) clearTimeout(t);
   saveTimers.clear();
+  storeLocks.clear();
   famiglie.clear();
   registry.clear();
   noti.clear();
   noti.add(TENANT_PREDEFINITO);
   resolverTenant = null;
+  bootstrapEseguito = false;
 }
 export function __registraTenantNotoPerTest(tenantId: number): void {
   if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_TENANT_NOTO");
@@ -370,9 +376,8 @@ function risolviStoreAtomici(
   const entries = stores.map(store => {
     // La famiglia dice quale istanza: quella del tenant corrente.
     const f = storeKeys.get(store as object);
-    const entry = f ? istanzaCorrente(f) : null;
-    if (!f || !entry)
-      throw new Error("[persistence] store atomico non registrato");
+    if (!f) throw new Error("[persistence] store atomico non registrato");
+    const entry = istanzaCorrente(f);
     if (!entry.loaded)
       throw new Error(`[persistence] store ${entry.key} non caricato`);
     return entry;
@@ -565,17 +570,25 @@ async function flushSaveBloccato(key: string) {
   }
 }
 
-export async function bootstrapAll() {
+/**
+ * Carica ogni istanza registrata. `tenantIds` è la lista dei tenant da
+ * istanziare — la prepara chi conosce il control plane (server/tenants/boot.ts)
+ * e la passa qui: `persistence.ts` non importa server/tenants. Con un tenant
+ * solo il carico è identico a quello di sempre, chiave per chiave.
+ */
+export async function bootstrapAll(opzioni: { tenantIds?: number[] } = {}) {
+  for (const id of opzioni.tenantIds ?? []) registraTenantNoto(id);
+  for (const f of famiglie.values()) {
+    if (f.ambito !== "tenant") continue;
+    for (const id of noti) if (!f.istanze.has(id)) creaIstanza(f, id);
+  }
   if (!sql) {
     console.warn(
       "[persistence] DATABASE_URL missing — data will NOT be persisted (in-memory only)"
     );
     // No DB at all → treat as first boot so seed callbacks can populate
     // initial data locally.
-    registry.forEach((store) => {
-      store.onLoad?.(store.items, { firstBoot: true, tenantId: store.tenantId });
-      store.loaded = true;
-    });
+    registry.forEach((store) => dopoCaricamento(store, true));
     bootstrapEseguito = true;
     return;
   }
@@ -609,6 +622,70 @@ export async function bootstrapAll() {
   // self-heal when DNS / network finally comes up.
   const anyUnloaded = Array.from(registry.values()).some((s) => !s.loaded);
   if (anyUnloaded) void backgroundRecover();
+}
+
+/**
+ * Dà gli archivi a un tenant nato a caldo (`tenants.servizio.crea`): un'istanza
+ * per ogni famiglia per tenant, caricata dal DB (righe assenti → firstBoot →
+ * seed col tenant giusto). O tutte o nessuna: se una famiglia non si carica,
+ * le istanze già create spariscono e il tenant torna sconosciuto, così il
+ * comando fallisce senza lasciare un tenant a metà.
+ */
+export async function istanziaStoresPerTenant(tenantId: number): Promise<void> {
+  if (noti.has(tenantId)) return;
+  registraTenantNoto(tenantId);
+  const create: StoreEntry[] = [];
+  try {
+    for (const f of famiglie.values()) if (f.ambito === "tenant") create.push(creaIstanza(f, tenantId));
+    for (const entry of create) {
+      if (!sql) {
+        dopoCaricamento(entry, true);
+        continue;
+      }
+      const ok = await caricaEntry(entry);
+      if (!ok) throw new Error(`[persistence] store ${entry.key} non caricato`);
+    }
+  } catch (e) {
+    for (const entry of create) {
+      registry.delete(entry.key);
+      entry.famiglia.istanze.delete(tenantId);
+    }
+    noti.delete(tenantId);
+    throw e;
+  }
+}
+
+/**
+ * Chiude il caricamento di un'istanza: backfill additivo di `tenantId`
+ * (spec §3.4), massimo degli id per il contatore della famiglia, `onLoad` del
+ * modulo, `loaded`. Il backfill tocca solo i record oggetto senza `tenantId`
+ * numerico — uno già scritto non si cambia mai, nemmeno se discorda: lo conta
+ * `pnpm tenant verifica`. Il risalvataggio si programma DOPO `loaded = true`
+ * (altrimenti la guardia di `flushSave` lo rinvierebbe) e subito, non dietro
+ * un `setTimeout(0)`: così un `flushAll()` che segue il bootstrap lo trova in
+ * coda e lo scrive, invece di lasciarlo a un turno del ciclo che potrebbe
+ * arrivare dopo la chiusura del processo.
+ */
+function dopoCaricamento(store: StoreEntry, firstBoot: boolean): void {
+  let backfill = 0;
+  if (store.tenantId != null) {
+    for (const r of store.items) {
+      if (r && typeof r === "object" && typeof (r as any).tenantId !== "number") {
+        (r as any).tenantId = store.tenantId;
+        backfill++;
+      }
+    }
+  }
+  for (const r of store.items) {
+    const id = (r as any)?.id;
+    if (typeof id === "number" && id > store.famiglia.maxId) store.famiglia.maxId = id;
+  }
+  store.onLoad?.(store.items, { firstBoot, tenantId: store.tenantId });
+  store.loaded = true;
+  if (backfill > 0) {
+    console.log(`[persistence] backfill tenantId ${store.key}: ${backfill} record`);
+    scheduleSave(store.key);
+  }
 }
 
 /** Carica un solo store dal DB (con retry). `false` = resta non caricato, salvataggi bloccati. */
@@ -664,8 +741,7 @@ async function caricaEntry(store: StoreEntry): Promise<boolean> {
     } else {
       console.log(`[persistence] load ${key}: no row in DB (cold)`);
     }
-    store.onLoad?.(store.items, { firstBoot, tenantId: store.tenantId });
-    store.loaded = true;
+    dopoCaricamento(store, firstBoot);
     console.log(`[persistence] loaded ${key}: ${store.items.length} items`);
     return true;
   } catch (e) {
@@ -713,8 +789,7 @@ async function backgroundRecover() {
               store.items.push(...restored);
             }
           }
-          store.onLoad?.(store.items, { firstBoot, tenantId: store.tenantId });
-          store.loaded = true;
+          dopoCaricamento(store, firstBoot);
           console.log(
             `[persistence] backgroundRecover loaded ${store.key}: ${store.items.length} items`
           );
@@ -734,6 +809,27 @@ async function backgroundRecover() {
   } finally {
     recovering = false;
   }
+}
+
+// ── Letture di sola lettura ─────────────────────────────────────────────────
+// `pnpm tenant verifica` (spec §7.2) deve leggere il DATABASE, non il registro
+// in memoria: contare i record di una chiave che nessuno ha istanziato è
+// esattamente il suo mestiere. Nessuna scrittura, nessuno schema, nessun
+// effetto sul registro.
+
+/** Il blob di una chiave di kv_store. `null` se la riga manca o non è un array. */
+export async function leggiBlobDaDb(key: string): Promise<any[] | null> {
+  if (!sql) return null;
+  const rows = await sql`SELECT data FROM kv_store WHERE key = ${key} LIMIT 1`;
+  if (rows.length === 0) return null;
+  const raw = typeof rows[0].data === "string" ? JSON.parse(rows[0].data) : rows[0].data;
+  return Array.isArray(raw) ? raw : null;
+}
+
+/** Tutte le chiavi di kv_store, in ordine: legacy e `tenant:n:*` insieme. */
+export async function elencaChiaviDaDb(): Promise<string[]> {
+  if (!sql) return [];
+  return (await sql`SELECT key FROM kv_store ORDER BY key`).map(r => String(r.key));
 }
 
 export async function flushAll() {
