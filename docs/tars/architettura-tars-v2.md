@@ -163,7 +163,13 @@ type StrumentoTars = {
 };
 ```
 
-`ContestoRun.tenantId` è obbligatorio dal WS1; nessun fallback di sede.
+`ContestoRun.tenantId` è obbligatorio dal WS1; nessun fallback di sede. Dal
+WS2 `eseguiRun` (`server/tars/orchestratore.ts`) avvolge sempre l'esecuzione
+in `conTenant(contesto.tenantId, …)`: cintura di sicurezza, idempotente
+quando il contesto c'è già (richiesta tRPC o worker avvolto), necessaria
+quando un run parte da un punto d'ingresso che non l'ha impostato — senza,
+gli store per tenant fallirebbero. Strumenti, catalogo e governor non
+cambiano.
 
 Letture restituiscono `{dati, evidenze, freschezza, fonteAutorevole,
 omissioni, scope, versioniEntita}`; azioni `{stato, azioneId, auditId,

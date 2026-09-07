@@ -47,6 +47,14 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - Applicare `sedeId` a ogni entità, query e mutation business.
 - Un record di un'altra sede deve produrre `NOT_FOUND`, mai informazioni utili
   a enumerarne l'id.
+- Ogni punto d'ingresso fuori richiesta (worker, scheduler, callback di
+  librerie, riconciliazioni del boot, script) dichiara il tenant con
+  `conTenant`, `conTenantDellaSede` o `perOgniTenantAttivo`
+  (`server/tenants/giri.ts`): gli store per tenant senza contesto falliscono.
+- `storeDi` solo in migrazione, verifica e Platform Admin, mai nei router né
+  negli strumenti di Tars. Store globali: solo i sette elencati nella spec
+  WS2 §3.1. Gli script chiamano `bootstrapAll()` senza `backfill` e non
+  scrivono mai.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.

@@ -1,7 +1,11 @@
 # WS2 — Porta aperta: archivi per tenant (spec tecnica)
 
 **Data:** 07/09/2026 · **Stato:** approvata in chat a sezioni dalla direzione
-(cinque decisioni + design in sette sezioni), nessun codice scritto ·
+(cinque decisioni + design in sette sezioni) e **implementata** in 15 task
+sul branch `feature/ws2-porta-aperta` (07/09/2026, `964fb6b`…HEAD); non su
+`main`, non in produzione. Le decisioni prese durante l'esecuzione sono
+in §2-bis e le sezioni che ne sono cambiate portano la nota
+«(esecuzione, R\<n\>)» ·
 **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`
 (§12.3–12.5, §13, §14, §16.1, §16.5, §17 punto 2) · **Precedente:**
 `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` ·
@@ -61,6 +65,34 @@ l'interruttore spento il codice si comporta esattamente come oggi.
 Restano valide le decisioni del WS1 (spec WS1 §2) e le «decisioni
 consolidate» della spec madre §18, con la sola deviazione della riga 1,
 registrata qui e nel PRD §60.
+
+## 2-bis. Decisioni in corso d'opera (07/09/2026)
+
+Diciassette scelte prese mentre il piano veniva eseguito, quando il codice
+vero ha contraddetto la lettera della spec o del piano. Ognuna è un
+emendamento a questo documento: le sezioni sotto sono già corrette di
+conseguenza e portano la nota «(esecuzione, R\<n\>)». Registro completo:
+`.superpowers/sdd/2026-09-07-ws2-porta-aperta/progress.md`.
+
+| # | Che cosa | Perché | Costo se sbagliata |
+|---|---|---|---|
+| R1 | `pnpm tenant verifica` gira PRIMA di `caricaCache()` e non pretende il control plane: se `tenant_sedi` manca lo dice e salta le discordanze delle tabelle | il rapporto di partenza si lancia prima del deploy, su un database senza tabelle tenant | un rapporto meno completo su un database mai avviato col WS1 |
+| R2 | gli helper di scansione dei sorgenti (`fileSorgente`, `relativo`, `RADICE`) escono da `confine.test.ts` in `server/_core/sorgentiDiProva.ts` | importare un file `.test.ts` da un altro test farebbe girare due volte le sue suite | un file di supporto in più sotto `pnpm check` |
+| R3 | il backfill di `tenantId` timbra i record SOLO al caricamento, mai alla scrittura | la scrittura calda non deve pagare una scansione, e il campo è comunque ignorato dal codice precedente | un record nato dopo il boot resta senza `tenantId` fino al riavvio (la verifica lo conta; l'isolamento è per chiave, quindi intatto) |
+| R4 | il risalvataggio dopo il backfill chiama `scheduleSave` direttamente, non dietro `setTimeout(…, 0)` | `loaded` è già true, così un `flushAll()` successivo lo trova in coda | nessuno (stesso debounce) |
+| R5 | `famiglia.maxId` si calcola DOPO `onLoad`, non prima | un seed spinto dentro `onLoad` deve alzare il contatore | `prossimoId()` potrebbe restituire un id già usato da un seed |
+| R6 | il backfill timbra e risalva SOLO con `bootstrapAll({ backfill: true })`: lo passa il boot del server, mai gli script | uno script che risalva la sua copia stantia del blob mentre il server vivo scrive la sua è il clobber che il repo vieta | nessuno: il server timbra comunque al boot |
+| R7 | la regex del test strutturale sugli id copre anche le arrow tipizzate (`(x: any) => x.id`) | il pattern del piano non attraversava le parentesi e lasciava passare lo stile del repo | nessuno (test più severo) |
+| R8 | gli accessi agli store AL BOOT fuori da una richiesta sono responsabilità del boot, non dei worker: riconciliazione della timeline e conteggio del costo-da-conferma girano in `perOgniTenantAttivo` dentro `index.ts` | con l'interruttore acceso il server deve arrivare a `listen` (§3.5) | un giro di riconciliazione in più per tenant, idempotente |
+| R9 | `contestoCorrente.ts` diventa un modulo FOGLIA (solo interruttori, costanti, `_core/persistence`); `conTenantDellaSede`, `tenantsAttivi`, `perOgniTenantAttivo` passano in `server/tenants/giri.ts` | `trpc.ts` → `contestoCorrente` → `contesto` → `routers/sedi` → `trpc` era un ciclo che rendeva `protectedProcedure` undefined a seconda dell'ordine di import | un file in più e qualche import da aggiornare |
+| R10 | il callback di `hub.subscribe` in `notifications/sse.ts` gira dentro `conTenantDellaSede(sedeId, …)` (cintura) | oggi il repository delle notifiche riceve `sedeId` esplicito e non tocca store, ma domani una lettura per tenant girerebbe sotto il tenant di chi pubblica | una chiamata in più per notifica |
+| R11 | l'analisi azienda automatica gira solo sulle sedi **attive** del tenant (prima: tutte) | una sede chiusa non merita un'analisi a costo di modello, e i worker gemelli filtrano già `attiva` | una sede disattivata non riceve più l'analisi giornaliera automatica (la richiesta manuale da `/tars` resta) |
+| R12 | lo scheduler FiC itera `sediAttiveDelTenant`, non `sediDelTenant` | `allSedeIds()` filtrava già `attiva`: è la scelta che preserva il comportamento | nessuno |
+| R13 | `preparaTenants()` semina la riga `tenants` del tenant 1 **anche a interruttore spento** (`ON CONFLICT DO NOTHING`); resta condizionata all'interruttore solo la parte sugli store | specchio e backfill di `tenant_id` devono avvenire nel deploy spento, verificabili prima dell'accensione (§7.1, §8) | una riga in `tenants` in più in produzione, inerte finché l'interruttore è spento |
+| R14 | `applicaTenantIdAlleTabelle` fa SOLO il DDL, con `lock_timeout` per tabella (timeout → tabella rinviata al boot successivo); il backfill è `backfillTenantIdSulleTabelle`, a lotti, DOPO `server.listen`, in sottofondo | il primo boot spento non deve tenere il server fuori dalla porta né bloccare gli altri client con lock esclusivi | il backfill finisce qualche secondo dopo il `listen` invece che prima (la verifica CLI lo conferma); una tabella con lock scaduto resta senza colonna fino al boot successivo |
+| R15 | la forma documentata per l'automazione è `pnpm --silent tenant verifica --json` (o `npx tsx scripts/tenant.ts verifica --json`) | banner e trailer `ELIFECYCLE` sono di pnpm, non dello script: senza `--silent` lo stdout non è JSON valido | un operatore che dimentica `--silent` deve ritagliare l'output |
+| R16 | un blob di `kv_store` che non è un array conta come anomalia (`blobNonValido`), non come store vuoto | è la peggiore condizione d'integrità che lo strumento possa incontrare, e il piano la faceva passare in silenzio | nessuno |
+| R17 | in `server/routers/clienti.ts` i «non trovato» diventano `TRPCError NOT_FOUND`; l'idioma negli altri router resta un lavoro a parte | il 500 non fa trapelare nulla (stesso messaggio per id assente e altrui) ma non è il contratto della §9, e riscrivere 19 router esula dal WS2 | negli altri router un id altrui risponde 500 invece di 404 fino alla pulizia (§9) |
 
 ## 3. Persistenza per tenant (`server/_core/persistence.ts`)
 
@@ -174,32 +206,68 @@ un'istanza senza passare dal contesto: mai nei router.
   programmato. Nessun `onLoad` di modulo da toccare. Un record con `tenantId`
   già presente e diverso dall'istanza NON viene toccato: viene contato dalla
   verifica (§7.2). Il campo in più è ignorato dal codice precedente.
+  **(esecuzione, R6)** Il backfill è **su richiesta**: timbra e risalva solo
+  se il chiamante passa `bootstrapAll({ backfill: true })`. Lo fa il boot del
+  server (`server/_core/index.ts`); i cinque script che chiamano
+  `bootstrapAll()` nudo (reset pattuiti, riconciliazione degli eventi
+  business, migrazione dei documenti, backfill delle notifiche, importazione
+  clienti) leggono e basta — nessuno di loro deve riscrivere la propria copia
+  stantia del blob mentre il server vivo scrive la sua. Il flag vale per
+  tutto il processo, quindi anche per le istanze nate dopo il boot
+  (`istanziaStoresPerTenant`, caricamento tardivo, `backgroundRecover`).
+  **(esecuzione, R3)** Il timbro avviene **solo al caricamento**, mai alla
+  scrittura: un record creato dopo il boot resta senza `tenantId` fino al
+  riavvio successivo, che lo timbra. Non è un buco d'isolamento — quello è
+  garantito dalla chiave dell'istanza, non dal campo — ed è ciò che
+  `pnpm tenant verifica` conta come `senzaTenant`.
+  **(esecuzione, R5)** `famiglia.maxId` (§4) si aggiorna DOPO `onLoad`, così
+  un record seminato dentro `onLoad` alza il contatore.
 
 ### 3.5 Boot e tenant creato a caldo
 
 Ordine in `server/_core/index.ts` (`startServer`):
 
+0. `impostaResolverTenant(tenantCorrente)` (§5.1), prima di tutto il resto.
 1. `preparaTenants()` (nuovo, `server/tenants/boot.ts`): `ensureSchema()`
-   del control plane, `caricaCache()`, con interruttore acceso
-   `assicuraTenantPredefinito()`. Restituisce gli id dei tenant da
-   istanziare: tutti quelli in cache (anche sospesi: leggibili), oppure `[1]`
-   a interruttore spento. Non tocca gli store.
-2. `bootstrapAll({ tenantIds })`: istanzia e carica le famiglie globali e,
-   per ogni tenant, le famiglie `tenant`. `persistence.ts` non importa
-   `server/tenants/*` (la lista arriva come parametro: nessun ciclo di
-   import). Lo stesso ordine di caricamento di oggi, chiave per chiave.
+   del control plane, `caricaCache()`, `assicuraTenantPredefinito()`.
+   Restituisce gli id dei tenant da istanziare: tutti quelli in cache (anche
+   sospesi: leggibili), oppure `[1]` a interruttore spento. Non tocca gli
+   store. **(esecuzione, R13)** Il seed della riga `tenants` del tenant 1
+   avviene **sempre**, anche a interruttore spento (`ON CONFLICT DO
+   NOTHING`): senza quella riga lo specchio `tenant_sedi` resterebbe vuoto
+   (`INSERT … WHERE EXISTS tenants`) e `tenant_id` resterebbe NULL fino al
+   primo boot acceso — cioè la migrazione additiva non sarebbe verificabile
+   nel deploy spento, contro §7.1 e §8. Resta condizionata all'interruttore
+   solo la parte sugli store (proprietario di ripiego, comandi, ciclo). Nota:
+   «inerte» non vuol dire invisibile — anche a flag spento `tenants.mio` e
+   `ctx.tenant` leggono quella riga, con gli stessi valori.
+2. `bootstrapAll({ tenantIds, backfill: true })`: istanzia e carica le
+   famiglie globali e, per ogni tenant, le famiglie `tenant`.
+   `persistence.ts` non importa `server/tenants/*` (la lista arriva come
+   parametro: nessun ciclo di import; test strutturale in `confine.test.ts`).
+   Lo stesso ordine di caricamento di oggi, chiave per chiave. `backfill:
+   true` lo passa solo il server (§3.4, R6).
 3. (vedi il passo 5 per gli `ensureSchema()` espliciti: `completaTenants()` viene prima, perché il contesto di ogni richiesta e dei worker usa il backfill di utenti e sedi).
 4. `completaTenants()` (rinomina dell'attuale `avviaTenants()` senza la
-   parte di schema/cache): backfill di `tenantId` su utenti e sedi
-   (WS1), proprietario di ripiego, `sincronizzaTenantSedi()` (§6.1),
-   comandi in attesa e ciclo ogni 30 s.
+   parte di schema/cache): `sincronizzaTenantSedi()` (§6.1) sempre, poi —
+   solo a interruttore acceso — backfill di `tenantId` su utenti e sedi
+   (WS1), proprietario di ripiego, comandi in attesa e ciclo ogni 30 s.
 5. Gli `ensureSchema()` espliciti dei repository SQL già presenti nel boot
    (`index.ts`), poi `applicaSchemaTabelleTenant()` → `applicaTenantIdAlleTabelle()`
    (§6.2): dopo, così più tabelle esistono già al primo boot.
-   Specchio, colonne e backfill girano anche a interruttore spento
-   (additivi, come il backfill di WS1): così il deploy spento li verifica
-   prima dell'accensione.
-6. Worker e `server.listen` come oggi.
+   Specchio e colonne girano anche a interruttore spento (additivi, come il
+   backfill di WS1): così il deploy spento li verifica prima
+   dell'accensione.
+6. Worker (ognuno per tenant, §5.3) e `server.listen` come oggi. Fra i
+   «worker» del boot ci sono anche due giri che toccano gli store una volta
+   sola e che **(esecuzione, R8)** sono responsabilità del boot, non dei
+   worker: la riconciliazione della timeline (`reconcileTimelineBoardStates`)
+   e il conteggio iniziale del costo-da-conferma girano dentro
+   `perOgniTenantAttivo`, in `index.ts`.
+7. **(esecuzione, R14)** DOPO `server.listen`, in sottofondo:
+   `avviaBackfillTabelleTenant()` → `backfillTenantIdSulleTabelle()` (§6.2).
+   Il backfill delle righe già a terra non deve tenere il servizio fuori
+   dalla porta.
 
 **Tenant a caldo** (`tenants.servizio.crea`, comando `crea` del WS1): dopo
 l'inserimento del tenant e della sede, prima dell'utente proprietario, il
@@ -221,8 +289,14 @@ un `Set`).
 ### 3.7 Memoria
 
 Tutti gli store di tutti i tenant restano in memoria (accesso sincrono,
-come oggi). Al boot un log per tenant: `[persistence] tenant <id>: N store, M
-record`. Nessun caricamento pigro nel WS2 (§12).
+come oggi). Nessun caricamento pigro nel WS2 (§12).
+
+**(esecuzione)** Il riepilogo per tenant (`[persistence] tenant <id>: N
+store, M record`) non è stato costruito: al boot resta il log per chiave che
+c'era già — `[persistence] loaded <key>: N items`, una riga per istanza,
+quindi con le chiavi `tenant:n:*` già distinte per tenant. Chi vuole il
+conteggio aggregato lo ha, in sola lettura e senza toccare il processo, da
+`pnpm tenant verifica` (§7.2).
 
 ### 3.8 Snapshot e strumenti installazione-wide
 
@@ -250,8 +324,17 @@ l'installazione per natura e continuano a farlo, includendo le chiavi
 ## 4. Id globali
 
 - Ogni famiglia tiene `maxId`: al caricamento di ogni istanza
-  `maxId = max(maxId, max degli id numerici dei record)`; `prossimoId()`
-  restituisce `++maxId`. Gli store senza id numerici non lo usano.
+  `maxId = max(maxId, max degli id numerici dei record)`, calcolato DOPO
+  `onLoad` (**esecuzione, R5**); `prossimoId()` restituisce `++maxId`. Gli
+  store senza id numerici non lo usano.
+- **(esecuzione)** I moduli convertiti sono **29**, non 23: alla lista del
+  piano se ne sono aggiunti sei trovati durante la conversione —
+  `_core/driveBackup.ts` (store `backup_log`), `comunicazioni/caselle.ts`,
+  `routers/fornitori.ts`, `routers/notifiche.ts`, `routers/produzione.ts`,
+  `routers/reclamiRifacimenti.ts`. Il test strutturale
+  (`server/_core/idGlobali.test.ts`) vieta nuovi contatori locali e
+  **(esecuzione, R7)** riconosce anche le arrow tipizzate
+  (`(x: any) => x.id`), che il pattern del piano lasciava passare.
 - I 23 moduli con store per tenant che generano id localmente — 15 con
   `let nextId = 1` + riga in `onLoad`
   (`nextId = items.length ? Math.max(...items.map(x => x.id)) + 1 : 1`) +
@@ -270,18 +353,29 @@ l'installazione per natura e continuano a farlo, includendo le chiavi
 
 ## 5. Contesto corrente, guardie, worker
 
-### 5.1 `server/tenants/contestoCorrente.ts` (nuovo)
+### 5.1 `server/tenants/contestoCorrente.ts` e `giri.ts` (nuovi)
+
+**(esecuzione, R9)** I due file sono due perché uno solo riapriva un ciclo:
+`_core/trpc.ts` → `contestoCorrente` → `contesto` → `routers/sedi` →
+`trpc.ts`, che lasciava `protectedProcedure` a `undefined` se un router
+veniva importato prima. `contestoCorrente.ts` è quindi una **foglia** del
+grafo dei moduli (importa solo `platform/interruttori`, `./costanti`,
+`_core/persistence`; guardia strutturale in `confine.test.ts`), e tutto ciò
+che ha bisogno del control plane o delle sedi vive in `giri.ts`.
 
 ```ts
+// server/tenants/contestoCorrente.ts — FOGLIA
 export function conTenant<T>(tenantId: number, fn: () => T): T;        // als.run
 export function tenantCorrente(): number | null;   // spento → 1; acceso → dal contesto
+export function modalitaTenantStretta(attiva: boolean): void; // solo test: toglie il ripiego sul tenant 1
+
+// server/tenants/giri.ts — importa contestoCorrente, contesto, repository
 export function conTenantDellaSede<T>(sedeId: number, fn: () => T): T; // tenantIdDellaSede (WS1)
 export function tenantsAttivi(): number[];         // spento o control plane vuoto → [1]; acceso → i tenant `attivo`
 export function perOgniTenantAttivo(etichetta: string, fn: (tenantId: number) => Promise<void>): Promise<void>;
-export function modalitaTenantStretta(attiva: boolean): void; // solo test: toglie il ripiego sul tenant 1
 ```
 
-`persistence.ts` non importa questo file (ciclo): riceve il resolver con
+`persistence.ts` non importa nessuno dei due (ciclo): riceve il resolver con
 `impostaResolverTenant(tenantCorrente)`, che `contestoCorrente.ts` chiama
 da sé quando viene importato e `index.ts` ripete al boot; senza resolver e
 con interruttore acceso, ogni accesso a uno store `tenant` è un errore
@@ -348,9 +442,28 @@ dal contesto):
 | Backup Drive (`buildBackupTree`, cartelle per sede) | `server/_core/driveBackup.ts` |
 | Worker degli eventi business (coda durevole, evento con `sedeId`) | `server/events/worker.ts` |
 | Ponte notifiche Postgres (`startNotificationPgBridge`) | `server/notifications/sse.ts` |
+| **(esecuzione, R8)** Riconciliazione della timeline e conteggio iniziale del costo-da-conferma, al boot | `server/_core/index.ts` |
 
 `snapshotByKey()` del backup legge il registro (`getAllStoreSnapshots`), non
 passa dal Proxy e non ha bisogno del contesto.
+
+**Precisazioni dell'esecuzione.**
+- **(R11)** L'analisi azienda automatica (`tars/analisi/worker.ts`) gira ora
+  solo sulle sedi **attive** del tenant; prima girava su tutte. È un cambio
+  di comportamento: una sede disattivata non riceve più l'analisi
+  giornaliera (la richiesta manuale da `/tars` resta).
+- **(R12)** Lo scheduler FiC itera `sediAttiveDelTenant`: `allSedeIds()`
+  filtrava già `attiva`, quindi il comportamento è invariato.
+  `tars/followup/worker.ts` resta invece su `sediDelTenant` (tutte), sempre
+  per non cambiare comportamento.
+- **(R10)** In `notifications/sse.ts` anche il callback di `hub.subscribe`
+  — il flush verso una connessione già aperta, innescato da un publish di
+  chiunque — gira dentro `conTenantDellaSede(sedeId, …)`: cintura, non
+  correzione di un difetto attuale.
+- IMAP: poller e watcher IDLE girano entrambi per tenant. Durante il Task 10
+  si è scoperto e corretto un guasto che non c'entrava col multi-azienda: il
+  processo moriva a 60 s per un'eccezione non intercettata in
+  `riavviaWatchers`, lanciata dal `setTimeout` del poller.
 
 ### 5.4 Tars
 
@@ -392,10 +505,38 @@ boot (§3.5 passo 4) e dopo ogni sede creata (`creaSedeInterna`, usata da
 
 ### 6.2 `server/tenants/tabelle.ts` (nuovo)
 
+**(esecuzione, R14)** DDL e backfill sono due funzioni, non una: il primo
+boot spento non deve tenere il server fuori dalla porta per tutto il tempo
+del backfill, né bloccare gli altri client con lock esclusivi senza scadenza.
+
 ```ts
 export const TABELLE_PER_SEDE: readonly string[]; // le 33 di seguito
-export async function applicaTenantIdAlleTabelle(sql): Promise<{ applicate: string[]; assenti: string[]; backfill: Record<string, number> }>;
+
+// Solo DDL — prima di server.listen
+export async function applicaTenantIdAlleTabelle(
+  sql, opzioni?: { soloTabelle?: string[]; lockTimeout?: string }
+): Promise<{ applicate: string[]; assenti: string[]; rinviate: string[]; specchio: number }>;
+
+// Solo dati, a lotti — dopo server.listen, in sottofondo
+export async function backfillTenantIdSulleTabelle(
+  sql, opzioni?: { soloTabelle?: string[]; dimensioneLotto?: number }
+): Promise<{ totale: number; righe: Record<string, number>; ms: Record<string, number> }>;
 ```
+
+- Il DDL gira con `SET LOCAL lock_timeout` per tabella (`'5s'` di default):
+  se il lock non arriva (`55P03`/`57014`) la tabella finisce in `rinviate`
+  (log, nessun errore) e ci riprova il boot successivo; ogni altro errore
+  propaga e ferma l'avvio, come gli altri `ensureSchema()`. L'esistenza delle 33 tabelle si risolve con una sola
+  query, non 33 `to_regclass`.
+- La funzione del trigger tollera `tenant_sedi` assente (`EXCEPTION
+  undefined_table → RETURN NEW`): colonne e trigger si installano lo stesso,
+  `tenant_id` resta NULL finché lo specchio non esiste.
+- Il backfill lavora a lotti (`ctid … LIMIT`, 5000 righe) e logga righe e ms
+  per tabella. Gira a ogni boot: quando non c'è più nulla da riempire costa
+  una manciata di query a vuoto in sottofondo.
+- Il test `tabelle.pg.test.ts` limita entrambe le funzioni alle proprie
+  tabelle e rimuove trigger e funzione in `afterAll`: il database di prova è
+  condiviso e non va avvelenato.
 
 Le 33 tabelle (inventario del 07/09/2026, verificato da un test
 strutturale che estrae i blocchi `CREATE TABLE IF NOT EXISTS … ( … )` con
@@ -410,27 +551,42 @@ strutturale che estrae i blocchi `CREATE TABLE IF NOT EXISTS … ( … )` con
 `tars_costi`, `tars_miglioramenti`, `tars_osservazioni`, `tars_run`,
 `tars_smistamento`, `tars_turni`.
 
-Per ogni tabella, in una transazione per tabella, saltando con un log quelle
-che `to_regclass` non trova ancora (create pigramente: ricevono tutto al
-boot successivo):
+Per ogni tabella esistente, in una transazione per tabella (le assenti sono
+create pigramente e ricevono tutto al boot successivo):
 
 ```sql
+SET LOCAL lock_timeout = '5s';                    -- (esecuzione, R14)
 ALTER TABLE <t> ADD COLUMN IF NOT EXISTS tenant_id BIGINT;
 CREATE INDEX IF NOT EXISTS <t>_tenant_id_idx ON <t> (tenant_id);
 DROP TRIGGER IF EXISTS <t>_tenant_id ON <t>;
 CREATE TRIGGER <t>_tenant_id BEFORE INSERT ON <t>
   FOR EACH ROW EXECUTE FUNCTION tenant_id_dalla_sede();
-UPDATE <t> t SET tenant_id = s.tenant_id
-  FROM tenant_sedi s WHERE t.tenant_id IS NULL AND t.sede_id = s.sede_id;
 ```
 
-La funzione, creata una volta (`CREATE OR REPLACE`):
+E poi, DOPO `server.listen`, in sottofondo, a lotti (**esecuzione, R14**):
+
+```sql
+UPDATE <t> t SET tenant_id = s.tenant_id
+  FROM tenant_sedi s
+ WHERE t.ctid IN (SELECT ctid FROM <t>
+                   WHERE tenant_id IS NULL
+                     AND sede_id IN (SELECT sede_id FROM tenant_sedi)
+                   LIMIT 5000)
+   AND t.sede_id = s.sede_id;
+```
+
+La funzione, creata una volta (`CREATE OR REPLACE`), tollerante allo
+specchio ancora assente (**esecuzione, R14**):
 
 ```sql
 CREATE OR REPLACE FUNCTION tenant_id_dalla_sede() RETURNS trigger AS $$
 BEGIN
   IF NEW.tenant_id IS NULL THEN
-    SELECT tenant_id INTO NEW.tenant_id FROM tenant_sedi WHERE sede_id = NEW.sede_id;
+    BEGIN
+      SELECT tenant_id INTO NEW.tenant_id FROM tenant_sedi WHERE sede_id = NEW.sede_id;
+    EXCEPTION WHEN undefined_table THEN
+      NEW.tenant_id := NULL;
+    END;
   END IF;
   RETURN NEW;
 END; $$ LANGUAGE plpgsql;
@@ -474,16 +630,41 @@ Sottocomando nuovo di `scripts/tenant.ts`, logica in
   di `persistence.ts` (`leggiBlobDaDb(key)` / `elencaChiaviDaDb()`), mai il
   registro in memoria; la mappa sede → tenant viene dal blob `sedi`;
 - per ogni chiave (legacy e `tenant:n:*`): numero di record, record senza
-  `tenantId`, con `tenantId` diverso da quello della chiave, con `sedeId`
-  assente o non esistente, id doppi;
+  `tenantId` (`senzaTenant`), con `tenantId` diverso da quello della chiave
+  (`tenantDiscorde`), con `sedeId` assente o non esistente
+  (`sedeSconosciuta`), id doppi (`idDoppi`) e **(esecuzione, R16)** un blob
+  che non è un array (`blobNonValido`, vale 1 anomalia: un `?? []`
+  silenzioso trasformerebbe un blob corrotto in uno store vuoto);
+- **(esecuzione)** tre insiemi di esenzione, perché non tutte le famiglie
+  hanno tutti i campi: `FAMIGLIE_GLOBALI` (`sedi`, `utenti`, `backup_config`,
+  `backup_log`, `backup_oauth`: nessun tenant né sede confrontabile — esenti
+  da `senzaTenant`, `tenantDiscorde` e `sedeSconosciuta`),
+  `FAMIGLIE_GLOBALI_PER_SEDE` (`platform_feature_flags`,
+  `platform_feature_flag_audit`: globali ma con un `sedeId` vero, quindi
+  esenti solo dai controlli sul tenant) e `FAMIGLIE_SENZA_SEDE_DIRETTA` (per
+  tenant, ma senza `sedeId` sul record). Sono liste a mano, senza guardia
+  strutturale: chi aggiunge una famiglia globale le aggiorni;
 - per ogni tabella di `TABELLE_PER_SEDE` presente: righe con `sede_id`
   sconosciuto, con `tenant_id` nullo, con `tenant_id` diverso dal tenant
   della sede (join su `tenant_sedi`); tabelle o colonne assenti segnalate,
-  non errore;
+  non errore. Attenzione: `sedeSconosciuta` lato tabelle è relativa a
+  `tenant_sedi`, lato store al blob `sedi` — uno specchio stantio si vede
+  come anomalia di tabella anche con il blob perfettamente coerente;
+- **(esecuzione, R1)** il ramo `verifica` gira PRIMA di `caricaCache()` e non
+  pretende il control plane: se `tenant_sedi` manca lo dichiara e salta le
+  discordanze delle tabelle (exit `0` se non c'è altro). È il caso normale
+  del rapporto di partenza, lanciato su un database dove il WS1 non è mai
+  partito;
 - stampa un rapporto (tabella; `--json` per il formato macchina) ed esce
-  con `1` se trova orfani, discordanze o doppioni, `0` altrimenti. Non
-  esegue DDL (usa il repository con `creaSchema: false`, come gli altri
-  sottocomandi).
+  con `1` se trova orfani, discordanze o doppioni, `0` altrimenti, `2` per
+  uso errato. Non esegue DDL (usa il repository con `creaSchema: false`,
+  come gli altri sottocomandi).
+  **(esecuzione, R15)** Per l'automazione la forma è
+  `pnpm --silent tenant verifica --json` (oppure
+  `npx tsx scripts/tenant.ts verifica --json`): senza `--silent`, pnpm
+  scrive il proprio banner prima del `{` e, a exit 1, la riga `ELIFECYCLE`
+  dopo — lo stdout non è JSON valido. L'exit `1` resta in ogni forma: sotto
+  `set -e` va gestito.
 
 Va lanciata prima del deploy (rapporto di partenza: tutto a `tenantId`
 assente è atteso), dopo il deploy a interruttore spento (zero record senza
@@ -498,13 +679,18 @@ l'accensione.
   worker che passano da `conTenantDellaSede` senza effetto. Acceso: contesto
   per richiesta, istanze per tenant, guardie, tenant ≥ 2 ammessi.
 - Ordine in produzione (runbook `docs/runbooks/multi-azienda.md`, sezione
-  WS2): (1) backup Drive riuscito nelle 24 ore; (2) `pnpm tenant verifica`
-  di partenza; (3) deploy a interruttore spento: al boot specchio, colonne,
-  trigger, backfill; (4) `pnpm tenant verifica`: zero record senza
-  `tenantId`, zero righe a NULL; (5) accensione (già fatta se il WS1 è
-  acceso); (6) nessun tenant 2 in produzione finché il WS3 non separa
-  storage, backup e credenziali: regola di runbook, non gate di codice. Il
-  primo tenant 2 nasce in staging, con `pnpm tenant crea`.
+  «WS2 — archivi per tenant»): (1) backup Drive riuscito nelle 24 ore;
+  (2) `pnpm tenant verifica` di partenza; (3) deploy a interruttore spento —
+  al boot, PRIMA del `listen`: seed della riga `tenants` del tenant 1 (R13),
+  specchio `tenant_sedi`, colonne, indici e trigger, con la riga
+  `[tenants] tabelle: …`; DOPO il `listen`, in sottofondo: il backfill di
+  `tenant_id`, con la riga `[tenants] backfill tenant_id: …` (R14) — quindi
+  il passo (4) va fatto **dopo** aver visto la seconda riga;
+  (4) `pnpm tenant verifica`: zero record senza `tenantId`, zero righe a
+  NULL; (5) accensione (già fatta se il WS1 è acceso), poi un nuovo login;
+  (6) nessun tenant 2 in produzione finché il WS3 non separa storage, backup
+  e credenziali: regola di runbook, non gate di codice. Il primo tenant 2
+  nasce in staging, con `pnpm tenant crea`.
 - Il codice del WS2 funziona anche con il WS1 mai acceso: il backfill e le
   colonne sono indipendenti dall'interruttore.
 
@@ -519,7 +705,19 @@ l'accensione.
 | store non istanziato per un tenant noto | `persistence.ts` | `Error` interno (tenant creato a metà: comando in `errore`) |
 | tenant creato a caldo, caricamento di una famiglia fallito | `servizio.crea` | istanze rimosse, comando `errore`, evento `comando_fallito` |
 | `pnpm tenant verifica` trova orfani o discordanze | CLI | exit `1`, rapporto |
-| script contro database senza control plane | CLI | «Tabelle del control plane del tenant assenti…» (WS1) |
+| script contro database senza control plane | CLI | «Tabelle del control plane del tenant assenti…» (WS1); `verifica` è l'eccezione: gira lo stesso (esecuzione, R1) |
+
+**(esecuzione, R17) Residuo aperto sulla terza riga.** Il contratto «un id di
+un altro tenant risponde `NOT_FOUND`» vale oggi in
+`server/routers/clienti.ts`, corretto nel Task 14. Negli altri **19 router**
+restano **96 siti** che lanciano `throw new Error("… non trovato")`: fuori
+da una `TRPCError` diventano `INTERNAL_SERVER_ERROR`, quindi un id di un
+altro tenant risponde **500 invece di 404**. Non è una fuga di dati — il
+messaggio è identico per un id inesistente e per uno altrui, e l'istanza
+dello store non contiene comunque record altrui — ma non è il contratto di
+questa tabella. La pulizia (sostituire l'idioma con `TRPCError NOT_FOUND` e
+`MESSAGGI.nonTrovato`) è un lavoro a parte, fuori dal WS2: elenco dei siti
+nel rapporto del Task 14.
 
 ## 10. Test
 
@@ -568,29 +766,35 @@ l'accensione.
 
 ## 11. File toccati
 
+Aggiornata a fine esecuzione (07/09/2026): la colonna dice che cosa c'è
+davvero nel branch, non che cosa era previsto.
+
 | File | Modifica |
 |---|---|
-| `server/_core/persistence.ts` | famiglie e istanze, `chiaveStore`, Proxy, `ambito`, `LoadMeta.tenantId`, backfill centrale, `prossimoId`, `bootstrapAll({ tenantIds })`, `istanziaStoresPerTenant`, `storeDi`, `impostaResolverTenant`, `leggiBlobDaDb`/`elencaChiaviDaDb`, snapshot con `nome`/`tenantId` |
-| `server/tenants/contestoCorrente.ts` (nuovo) | `conTenant`, `tenantCorrente`, `conTenantDellaSede` |
-| `server/tenants/regole.ts` | `motivoRifiutoTenant`; via `portaChiusaPerTenant` |
-| `server/tenants/express.ts` (nuovo) | `rifiutaTenant(res, ctx, op)` |
-| `server/tenants/tabelle.ts` (nuovo) | `TABELLE_PER_SEDE`, `applicaTenantIdAlleTabelle` |
-| `server/tenants/verifica.ts` (nuovo) | logica pura del rapporto |
-| `server/tenants/repository.ts` | tabella `tenant_sedi`, `sincronizzaTenantSedi` (scrittura) |
+| `server/_core/persistence.ts` | famiglie e istanze, `chiaveStore`, Proxy, `ambito`, `LoadMeta.tenantId`, backfill centrale opt-in (R6), `prossimoId`/`riservaIdFinoA`, `bootstrapAll({ tenantIds, backfill })`, `istanziaStoresPerTenant`, `storeDi`, `impostaResolverTenant`, `tenantsNoti`, `leggiBlobDaDb`/`elencaChiaviDaDb`, snapshot con `nome`/`tenantId` |
+| `server/tenants/contestoCorrente.ts` (nuovo) | FOGLIA (R9): `conTenant`, `tenantCorrente`, `modalitaTenantStretta`, auto-registrazione del resolver |
+| `server/tenants/giri.ts` (nuovo, R9) | `conTenantDellaSede`, `tenantsAttivi`, `perOgniTenantAttivo` |
+| `server/tenants/regole.ts` | `motivoRifiutoTenant`, `tenantDelContesto`, `righeTenantSedi`; via `portaChiusaPerTenant` |
+| `server/tenants/express.ts` (nuovo) | `rifiutaTenant(res, ctx, op)`, `conTenantDelContesto(ctx, fn)` |
+| `server/tenants/tabelle.ts` (nuovo) | `TABELLE_PER_SEDE`, `applicaTenantIdAlleTabelle` (solo DDL), `backfillTenantIdSulleTabelle` (R14) |
+| `server/tenants/verifica.ts` (nuovo) | logica pura del rapporto: `tenantDellaChiave`, `verificaStore`, `rapportoBlobNonValido`, `riassumi`, `formattaRapporto` |
+| `server/tenants/repository.ts` | tabella `tenant_sedi`, `sincronizzaTenantSedi` (scrittura), `assicuraTenantPredefinito` chiamato anche a flag spento (R13) |
 | `server/tenants/servizio.ts` | `istanziaStoresPerTenant` in `crea`, `sincronizzaTenantSedi` dopo la sede, pulizia in caso di errore |
-| `server/tenants/boot.ts` | `preparaTenants`, `completaTenants` |
-| `server/_core/index.ts` | nuovo ordine di boot, `impostaResolverTenant` |
+| `server/tenants/boot.ts` | `preparaTenants`, `completaTenants`, `applicaSchemaTabelleTenant`, `avviaBackfillTabelleTenant` |
+| `server/_core/index.ts` | nuovo ordine di boot, `impostaResolverTenant`, giri al boot per tenant (R8), backfill delle tabelle dopo il `listen` (R14) |
 | `server/_core/trpc.ts` | guardia con `motivoRifiutoTenant` + `conTenant` |
 | `server/routers.ts` | via la porta chiusa dal login |
-| `server/_core/commessaFileRoutes.ts`, `anteprimaRoutes.ts`, `allegatoMailRoutes.ts`, `server/notifications/sse.ts` | `rifiutaTenant` + `conTenant` |
-| i 13 file della tabella §5.3 | corpo per sede dentro `conTenantDellaSede` |
-| `server/tars/orchestratore.ts` (`eseguiRun`) | cintura `conTenant` |
+| `server/_core/commessaFileRoutes.ts`, `anteprimaRoutes.ts`, `allegatoMailRoutes.ts`, `server/notifications/sse.ts` | `rifiutaTenant` + `conTenantDelContesto` |
+| i file della tabella §5.3 | corpo per tenant (`perOgniTenantAttivo`) e per sede (`conTenantDellaSede`) |
+| `server/tars/orchestratore.ts` (`eseguiRun`) | cintura `conTenant(contesto.tenantId, …)` |
+| `server/routers/clienti.ts` | 4 «non trovato» → `TRPCError NOT_FOUND` (R17) |
 | 7 dichiarazioni di store globali | `{ ambito: "globale" }` |
 | `server/comunicazioni/whatsapp.ts` | seed con `meta.tenantId` |
-| 26 moduli con `nextId` | `_store.prossimoId()` |
+| 29 moduli con `nextId` (23 del piano + 6) | `_store.prossimoId()` |
 | `scripts/tenant.ts`, `server/tenants/cli.ts` | sottocomando `verifica` |
+| `server/_core/sorgentiDiProva.ts` (nuovo, R2) | `fileSorgente`, `relativo`, `RADICE` per i test strutturali |
 | `server/_core/contestoDiProva.ts` | `conTenantDiProva` |
-| `docs/runbooks/multi-azienda.md`, PRD §60, `handoff.md`, `CLAUDE.md` (regola del contesto implicito) | documentazione |
+| `docs/runbooks/multi-azienda.md`, PRD §60.10, `handoff.md`, `CLAUDE.md` (regola del contesto implicito), `docs/tars/architettura-tars-v2.md` | documentazione |
 
 ## 12. Rischi e limiti noti
 
@@ -614,9 +818,30 @@ l'accensione.
   la rinomina a chiavi uniformi resta possibile in futuro con un solo
   `UPDATE` reversibile, se mai servisse.
 
+**Aggiunti dall'esecuzione (07/09/2026).**
+- **96 «non trovato» a 500** in 19 router (§9, R17): un id di un altro
+  tenant risponde `INTERNAL_SERVER_ERROR` invece di `NOT_FOUND`. Nessuna
+  fuga di dati, ma non è il contratto: pulizia a parte, prima del WS3.
+- **`Sede …/Utenti.json` del backup** include, in ogni sede, gli utenti
+  senza `sediIds` di **tutti** i tenant: `utenti` è globale e il backup lo è
+  fino al WS3. Motivo in più per non avere un tenant 2 in produzione prima
+  del WS3.
+- **`riavviaWatchers` (IMAP) non è atomico** con due o più tenant: fra un
+  tenant e l'altro c'è una finestra di microtask senza guardia di rientro.
+  Con un tenant solo non si vede.
+- **Il backfill delle tabelle rigira a ogni boot**: quando non c'è più nulla
+  da riempire costa una manciata di query a vuoto in sottofondo.
+- **Gli insiemi di esenzione della verifica** (§7.2) sono liste a mano senza
+  guardia strutturale: una famiglia globale nuova va aggiunta anche lì.
+- **`tenant_id` non si aggiorna mai** dopo il primo timbro: se un giorno una
+  sede cambiasse tenant, le righe già timbrate resterebbero al tenant
+  vecchio. Oggi una sede non si sposta (si disattiva).
+
 ## 13. Cosa viene dopo
 
-Il piano (`docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md`) scompone
-questa spec in task con test; il codice parte solo dopo l'approvazione del
-piano. Poi WS3: prefissi e byte dello storage, backup ed export per tenant,
-`state` OAuth persistito, retry e dead-letter per tenant.
+Il piano (`docs/superpowers/plans/2026-09-07-ws2-porta-aperta.md`) ha
+scomposto questa spec in 15 task con test, tutti eseguiti il 07/09/2026 sul
+branch `feature/ws2-porta-aperta`. Restano fuori, in ordine: la pulizia dei
+96 «non trovato» a 500 nei 19 router (§9, R17) e poi il **WS3** — prefissi e
+byte dello storage, backup ed export per tenant, `state` OAuth persistito,
+retry e dead-letter per tenant.

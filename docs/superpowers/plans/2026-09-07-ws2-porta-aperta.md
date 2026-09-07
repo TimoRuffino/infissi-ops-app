@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Esito (07/09/2026).** Piano **eseguito**: 15 task su 15, sul branch `feature/ws2-porta-aperta` (`964fb6b`…HEAD), non su `main` e non in produzione. Dove il codice vero ha contraddetto la lettera di questo piano, la decisione è registrata come «Ruling R1…R17»: le trovi riassunte nella spec, sezione **§2-bis «Decisioni in corso d'opera»**, e per esteso nel registro d'esecuzione `.superpowers/sdd/2026-09-07-ws2-porta-aperta/progress.md`. Quando questo piano e la spec divergono, **vale la spec**: è stata corretta a fine esecuzione. Runbook operativo: `docs/runbooks/multi-azienda.md`, sezione «WS2 — archivi per tenant». Riassunto per la direzione: PRD §60.10.
+
 **Goal:** con `FLAG_MULTI_AZIENDA` acceso un tenant diverso da Ruffino Group usa il gestionale con i propri archivi, isolati per costruzione; con l'interruttore spento il codice si comporta come oggi.
 
 **Architecture:** `persistence.ts` diventa un registro a famiglie (un'istanza per tenant e store, chiave `tenant:<id>:<nome>`, alias per il tenant 1) e restituisce array-Proxy che risolvono il tenant corrente da `AsyncLocalStorage`; una guardia pura serve tRPC ed Express; ogni punto d'ingresso fuori richiesta dichiara il tenant; le 33 tabelle SQL con `sede_id` ricevono `tenant_id` da un trigger alimentato dalla tabella specchio `tenant_sedi`; la migrazione di Ruffino Group è solo additiva e verificabile da CLI.
@@ -1397,7 +1399,9 @@ export async function applicaTenantIdAlleTabelle(sql: NonNullable<typeof kvSql>)
   return esito;
 }
 ```
-I nomi di tabella vengono SOLO dalla costante (mai da input): `unsafe` è ammesso qui e va commentato. Log al boot: `[tenants] tabelle: N applicate, M assenti (…), backfill: {…}`.
+I nomi di tabella vengono SOLO dalla costante (mai da input): `unsafe` è ammesso qui e va commentato. Log al boot: `[tenants] tabelle: N applicate, M assenti (…), R rinviate (…), specchio K sedi` prima del `listen`, e `[tenants] backfill tenant_id: T righe in X ms (…)` dopo il `listen`.
+
+> **Corretto in esecuzione (Ruling R14, spec §2-bis e §6.2):** lo schizzo qui sopra è superato. `applicaTenantIdAlleTabelle(sql, { soloTabelle?, lockTimeout? })` fa SOLO il DDL, con `SET LOCAL lock_timeout` per tabella (timeout → tabella in `rinviate`, riprovata al boot successivo) e una sola query per sapere quali tabelle esistono; la funzione del trigger tollera `tenant_sedi` assente. Il backfill è una funzione separata, `backfillTenantIdSulleTabelle(sql, { soloTabelle?, dimensioneLotto? })`, a lotti da 5000 righe (`ctid … LIMIT`), lanciata DOPO `server.listen` da `avviaBackfillTabelleTenant()`. L'esito del DDL è `{ applicate, assenti, rinviate, specchio }`, quello del backfill `{ totale, righe, ms }`.
 
 `regole.ts`: `righeTenantSedi(sedi)` → `sedi.map(s => ({ sedeId: s.id, tenantId: typeof s.tenantId === "number" ? s.tenantId : TENANT_PREDEFINITO_ID }))`.
 
