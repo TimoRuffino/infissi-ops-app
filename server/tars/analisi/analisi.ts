@@ -4,7 +4,15 @@
 import { z } from "zod";
 import { descrittoreAzione } from "../azioni/registry";
 import { strumentiProponibili } from "./proponibili";
-import type { RichiestaProvider, TarsProvider } from "../provider";
+import type { MessaggioTars, RichiestaProvider, TarsProvider } from "../provider";
+import type { ContestoRun } from "../strumenti/tipi";
+import {
+  CHIAMATE_MASSIME_INDAGINE,
+  GIRI_MASSIMI_INDAGINE,
+  eseguiLettura,
+  rispostaPerIlModello,
+  strumentiDiIndagine,
+} from "./indagine";
 import { senzaImportiEuro } from "../smistamento/analisi";
 import { entitaDellaFotografia, fiduciaDellaFotografia, testoFotografia } from "./fotografia";
 import { PROMPT_ANALISI, PROMPT_ANALISI_VERSIONE, SCHEMA_JSON_ANALISI } from "./prompt";
@@ -233,12 +241,17 @@ export async function analizzaConModello(input: {
   modello: string;
   identita: RichiestaProvider["identita"];
   timeoutMs?: number;
+  /**
+   * Con un contesto, il modello può leggere prima di rispondere (punto 19).
+   * Senza, resta il colpo solo di prima — ed è quello che fanno i test.
+   */
+  contestoIndagine?: ContestoRun | null;
 }): Promise<EsitoAnalisiAzienda> {
   const richiesta: RichiestaProvider = {
     modello: input.modello,
     istruzioni: PROMPT_ANALISI,
     input: [{ ruolo: "user", contenuto: testoFotografia(input.fotografia) }],
-    strumenti: [],
+    strumenti: input.contestoIndagine ? strumentiDiIndagine() : [],
     // Prima analisi reale (sede 1, 02/09 sera): 2.500 token non bastavano e
     // il JSON arrivava troncato («non decodificabile»). Una chiamata al
     // giorno: il margine costa poco, il buco costa l'analisi.
@@ -248,9 +261,56 @@ export async function analizzaConModello(input: {
     identita: input.identita,
     formatoJson: { nome: "analisi_azienda", schema: SCHEMA_JSON_ANALISI },
   };
-  const risposta = await input.provider.rispondi(richiesta);
+  // Il salto (punto 19 del piano 08/09/2026): il modello può CHIEDERE
+  // prima di rispondere. Solo letture, un tetto di giri e di chiamate, e
+  // l'output di uno strumento è un dato — mai un'istruzione.
+  const ammessi = new Set(richiesta.strumenti.map(s => s.nome));
+  const contesto = input.contestoIndagine ?? null;
+  const conversazione: MessaggioTars[] = [...richiesta.input];
+  let risposta = await input.provider.rispondi(richiesta);
+  let chiamateFatte = 0;
+  for (let giro = 0; giro < GIRI_MASSIMI_INDAGINE && risposta.tipo === "tool_call"; giro++) {
+    if (!contesto || chiamateFatte >= CHIAMATE_MASSIME_INDAGINE) break;
+    const chiamate = risposta.chiamate.slice(
+      0,
+      CHIAMATE_MASSIME_INDAGINE - chiamateFatte
+    );
+    conversazione.push({ ruolo: "assistant", contenuto: "", chiamate });
+    for (const chiamata of chiamate) {
+      chiamateFatte += 1;
+      let argomenti: unknown = {};
+      try {
+        argomenti = chiamata.argomenti ? JSON.parse(chiamata.argomenti) : {};
+      } catch {
+        argomenti = {};
+      }
+      const esito = await eseguiLettura({
+        nome: chiamata.nome,
+        argomenti,
+        contesto,
+        ammessi,
+      });
+      conversazione.push({
+        ruolo: "tool",
+        toolCallId: chiamata.id,
+        nome: chiamata.nome,
+        contenuto: rispostaPerIlModello(esito),
+      });
+    }
+    risposta = await input.provider.rispondi({
+      ...richiesta,
+      input: conversazione,
+      // All'ultimo giro gli strumenti spariscono: adesso deve rispondere.
+      strumenti:
+        giro + 1 >= GIRI_MASSIMI_INDAGINE || chiamateFatte >= CHIAMATE_MASSIME_INDAGINE
+          ? []
+          : richiesta.strumenti,
+    });
+  }
   if (risposta.tipo !== "messaggio") {
-    throw new Error("ANALISI_RISPOSTA_INVALIDA: il modello ha chiamato strumenti inesistenti.");
+    throw new Error(
+      "ANALISI_RISPOSTA_INVALIDA: il modello ha continuato a chiedere invece di rispondere."
+    );
   }
   let grezzo: unknown;
   try {

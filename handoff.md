@@ -8,6 +8,20 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — il salto: l'analisi può chiedere** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punto 19,
+> decisione D4 «senza tetto»; PRD §54.17). Prima di rispondere il modello
+> può **leggere il CRM**: strumenti derivati dal registro (azioni R0 senza
+> effetto — nessuna scrittura può nascere da qui), quattro giri e dodici
+> chiamate al massimo, con gli strumenti che spariscono all'ultimo giro
+> così deve rispondere. Contesto di sistema sulla sede con le capability
+> della direzione; un errore torna al modello come dato e il giro continua;
+> l'output di uno strumento resta un dato, mai un'istruzione, e `entita`
+> accetta ancora solo i riferimenti della fotografia. Prompt `analisi-v20`.
+> **Con questo il piano è completo: 31 interventi su 31.** Resta fuori,
+> dichiarato: l'invio di posta DAL CRM (metà di D5), che richiede
+> credenziali SMTP e non è stato costruito.
+
 > **Novità 08/09/2026 (sera) — il fascicolo prende il secondo lato** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punti 30 e
 > 11; PRD §54.16). La **posta inviata** entra nel CRM come quella in

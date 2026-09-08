@@ -22,6 +22,7 @@ import {
   testoRiscontro,
 } from "./riscontro";
 import { correttivi } from "./correttivi";
+import { contestoDiIndagine } from "./indagine";
 import { conDestinatari, type DipendenzeDestinatari } from "./destinatari";
 import { costruisciFotografia, giornoLocale, type DipendenzeFotografia } from "./fotografia";
 import { repositoryAnalisiCorrente, type RepositoryAnalisiAzienda } from "./repository";
@@ -224,6 +225,8 @@ export async function generaAnalisiAzienda(input: {
           fotografia,
           provider,
           modello: deps.modello,
+          // Il salto (punto 19): l'analisi può leggere prima di proporre.
+          contestoIndagine: contestoDiIndagine(input.sedeId),
           identita: {
             runId: `analisi:${input.sedeId}:${giorno}:${adesso.getTime()}`,
             passo: 0,
