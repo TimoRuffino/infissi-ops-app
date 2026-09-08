@@ -14,6 +14,7 @@ import {
   SUPPORT_QUEUE_ALL,
   SUPPORT_QUEUE_STATES,
   nextQueueAdvance,
+  ordinaTicketPerCoda,
   ticketMatchesQueueFilter,
 } from "@/lib/supportQueue";
 import { supportQueuePermissions } from "@/lib/operationalRoutes";
@@ -256,7 +257,8 @@ export default function TicketList({
       setErroreOggetto(null);
       setDialogOpen(false);
       setPendingFiles([]);
-      if (!allegatiKo) toast.success(`Ticket ${codiceTicket(created.id)} aperto`);
+      if (!allegatiKo)
+        toast.success(`Ticket ${codiceTicket(created.id)} aperto`);
     },
     onError: e => toast.error(e.message ?? "Apertura ticket non riuscita"),
   });
@@ -365,7 +367,10 @@ export default function TicketList({
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files ?? []);
     if (picked.length === 0) return;
-    setPendingFiles(prev => [...prev, ...picked.map(f => ({ file: f, note: "" }))]);
+    setPendingFiles(prev => [
+      ...prev,
+      ...picked.map(f => ({ file: f, note: "" })),
+    ]);
     // Clear the native input so the same file can be re-picked after removal.
     e.target.value = "";
   }
@@ -483,18 +488,20 @@ export default function TicketList({
 
   const ticketFiltrati = useMemo(
     () =>
-      (tickets.data ?? []).filter((t: any) =>
-        ticketMatchesQueueFilter(
-          {
-            stato: t.stato,
-            oggetto: t.oggetto,
-            descrizione: t.descrizione,
-            contatto: t.contatto,
-            // anche le note dei solleciti: "chi ho già sollecitato per X?"
-            solleciti: t.solleciti ?? [],
-            riferimenti: riferimentiDi(t),
-          },
-          { stato: filtroStato, search }
+      ordinaTicketPerCoda(
+        (tickets.data ?? []).filter((t: any) =>
+          ticketMatchesQueueFilter(
+            {
+              stato: t.stato,
+              oggetto: t.oggetto,
+              descrizione: t.descrizione,
+              contatto: t.contatto,
+              // anche le note dei solleciti: "chi ho già sollecitato per X?"
+              solleciti: t.solleciti ?? [],
+              riferimenti: riferimentiDi(t),
+            },
+            { stato: filtroStato, search }
+          )
         )
       ),
     [tickets.data, filtroStato, search, commessaById, clienteById]
@@ -526,7 +533,8 @@ export default function TicketList({
       .join(" "),
   }));
 
-  const filtriAttivi = search.trim() !== "" || filtroStato !== SUPPORT_QUEUE_ALL;
+  const filtriAttivi =
+    search.trim() !== "" || filtroStato !== SUPPORT_QUEUE_ALL;
   const azzeraFiltri = () => {
     setSearch("");
     setFiltroStato(SUPPORT_QUEUE_ALL);
@@ -724,7 +732,9 @@ export default function TicketList({
       >
         <div className="-mx-3 -mb-3 min-w-0 border-t border-border-soft sm:-mx-4 sm:-mb-4">
           {ticketFiltrati.map((t: any) => {
-            const commessa = t.commessaId ? commessaById.get(t.commessaId) : null;
+            const commessa = t.commessaId
+              ? commessaById.get(t.commessaId)
+              : null;
             const chi = intestatario(t);
             const isExpanded = expandedTicket === t.id;
             // Una sola zona espansa per riga: descrizione e allegati insieme,
@@ -803,7 +813,9 @@ export default function TicketList({
 
                 {/* Cosa è successo e qual è il passo successivo. */}
                 <div className="min-w-0">
-                  <p className="text-sm leading-snug text-text-1">{t.oggetto}</p>
+                  <p className="text-sm leading-snug text-text-1">
+                    {t.oggetto}
+                  </p>
                   <p className="mt-1 text-xs text-text-2">
                     <span className="text-text-3">Prossima azione:</span>{" "}
                     {avanzamento
@@ -824,7 +836,9 @@ export default function TicketList({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setExpandedTicket(isExpanded ? null : t.id)}
+                      onClick={() =>
+                        setExpandedTicket(isExpanded ? null : t.id)
+                      }
                       aria-expanded={isExpanded}
                       aria-controls={dettaglioId}
                       className="inline-flex min-h-11 items-center gap-1 text-accent-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
@@ -852,12 +866,15 @@ export default function TicketList({
                       </span>
                       <span
                         className={
-                          i.squadraId ? "text-text-2" : "font-medium text-warning"
+                          i.squadraId
+                            ? "text-text-2"
+                            : "font-medium text-warning"
                         }
                       >
                         {i.squadraId
-                          ? (squadre.data?.find((sq: any) => sq.id === i.squadraId)
-                              ?.nome ?? "Squadra")
+                          ? (squadre.data?.find(
+                              (sq: any) => sq.id === i.squadraId
+                            )?.nome ?? "Squadra")
                           : "Senza squadra"}
                       </span>
                       <span className="text-text-2">
@@ -902,7 +919,10 @@ export default function TicketList({
                         }
                       >
                         {avanzamento.stato === "chiuso" && (
-                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          <CheckCircle2
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
                         )}
                         {avanzamento.label}
                       </Button>
@@ -917,7 +937,10 @@ export default function TicketList({
                           title="Registra un sollecito"
                           onClick={() => setSollecitaFor(t)}
                         >
-                          <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                          <BellRing
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
                           Sollecita
                         </Button>
                         <Button
@@ -937,7 +960,10 @@ export default function TicketList({
                             });
                           }}
                         >
-                          <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                          <CalendarPlus
+                            className="h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
                           Pianifica
                         </Button>
                       </>
@@ -1019,7 +1045,8 @@ export default function TicketList({
                           await handleAttachToExisting(t.id, fl);
                         } catch (errore: any) {
                           toast.error(
-                            errore?.message ?? "Caricamento allegato non riuscito"
+                            errore?.message ??
+                              "Caricamento allegato non riuscito"
                           );
                         } finally {
                           setUploadingFor(null);
@@ -1467,7 +1494,9 @@ export default function TicketList({
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="ticket-sollecito-nota">Nota (a chi / per cosa)</Label>
+              <Label htmlFor="ticket-sollecito-nota">
+                Nota (a chi / per cosa)
+              </Label>
               <Input
                 id="ticket-sollecito-nota"
                 autoFocus

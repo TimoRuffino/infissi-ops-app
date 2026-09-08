@@ -1,7 +1,7 @@
 // Router tRPC `fatture`: valida, autorizza, delega ai servizi di dominio
 // (server/fatture/servizio.ts, emissione.ts, sonda.ts, notaCredito.ts) e
 // mappa gli errori. Stesso pattern di server/routers/contratti.test.ts.
-// `emettiFattura` è mockato: l'emissione vera tocca Fatture in Cloud, e i
+// `creaSuFic` è mockato: l'emissione vera tocca Fatture in Cloud, e i
 // test non devono mai raggiungere la rete (server/_core/testSetup.ts).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
@@ -14,7 +14,7 @@ import { creaCommessa } from "./commesse";
 
 vi.mock("../fatture/emissione", async importOriginal => {
   const actual = await importOriginal<typeof import("../fatture/emissione")>();
-  return { ...actual, emettiFattura: vi.fn() };
+  return { ...actual, creaSuFic: vi.fn(), inviaAlloSdi: vi.fn() };
 });
 vi.mock("../_core/fileStorage", async importOriginal => {
   const actual = await importOriginal<typeof import("../_core/fileStorage")>();
@@ -23,14 +23,14 @@ vi.mock("../_core/fileStorage", async importOriginal => {
 // creaNotaCredito richiede una fattura già emessa (STATI_STORNABILI): per
 // verificare che il router valida, autorizza e inoltra gli argomenti non
 // serve costruire davvero quello stato con la pipeline di emissione —
-// si mocka anche questo, come emettiFattura.
+// si mocka anche questo, come creaSuFic.
 vi.mock("../fatture/notaCredito", async importOriginal => {
   const actual = await importOriginal<typeof import("../fatture/notaCredito")>();
   return { ...actual, creaNotaCredito: vi.fn() };
 });
 
 import { getFile } from "../_core/fileStorage";
-import { emettiFattura } from "../fatture/emissione";
+import { creaSuFic, inviaAlloSdi } from "../fatture/emissione";
 import { creaNotaCredito } from "../fatture/notaCredito";
 import { appRouter } from "../routers";
 
@@ -90,7 +90,8 @@ async function commessaConContratto(sedeId = 1): Promise<number> {
 beforeEach(() => {
   _resetContrattiRepositoryForTests();
   _resetFattureRepositoryForTests();
-  vi.mocked(emettiFattura).mockReset();
+  vi.mocked(creaSuFic).mockReset();
+  vi.mocked(inviaAlloSdi).mockReset();
   vi.mocked(getFile).mockClear();
   vi.mocked(creaNotaCredito).mockReset();
 });
@@ -148,7 +149,62 @@ describe("router fatture — autorizzazione", () => {
   it("il commerciale non può emettere", async () => {
     const commerciale = appRouter.createCaller(context(1, 22, ["commerciale"]));
     await expect(commerciale.fatture.emetti({ id: 1, revisione: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(emettiFattura).not.toHaveBeenCalled();
+    expect(creaSuFic).not.toHaveBeenCalled();
+  });
+
+  // R47: la modifica di una fattura già su Fatture in Cloud DEVE passare
+  // di là prima di essere scritta qui. Senza collegamento FiC il
+  // salvataggio fallisce — che è il punto: meglio un errore che due
+  // versioni diverse della stessa fattura.
+  it("modificare una fattura già su FiC senza collegamento fallisce, e non scrive", async () => {
+    const commessaId = await commessaConContratto();
+    const amministrazione = appRouter.createCaller(context(1, 26, ["amministrazione"]));
+    const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
+    await getFattureRepository().aggiornaStato({
+      sedeId: 1,
+      id: fattura.id,
+      patch: { stato: "emessa", ficDocumentId: 9911, eiStatusFic: "not_sent" },
+      now: new Date(),
+    });
+    const emessa = (await getFattureRepository().perId(1, fattura.id))!;
+
+    // Il fallimento deve venire da Fatture in Cloud (nessun collegamento
+    // nei test), non dal router che si è dimenticato di passare la
+    // sincronizzazione: quello sarebbe un difetto, non una protezione.
+    await expect(
+      amministrazione.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: emessa.revisione,
+        modifica: { note: "non deve restare" },
+      })
+    ).rejects.toThrow(/^(?!.*richiede la sincronizzazione)/s);
+
+    const dopo = await getFattureRepository().perId(1, fattura.id);
+    expect(dopo!.note).toBe(emessa.note);
+    expect(dopo!.revisione).toBe(emessa.revisione);
+  });
+
+  it("il commerciale non può mandare allo SdI", async () => {
+    const commerciale = appRouter.createCaller(context(1, 24, ["commerciale"]));
+    await expect(
+      commerciale.fatture.inviaSdi({ id: 1, revisione: 1 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(inviaAlloSdi).not.toHaveBeenCalled();
+  });
+
+  it("inviaSdi delega a inviaAlloSdi con sede, attore e revisione", async () => {
+    const amministrazione = appRouter.createCaller(context(1, 25, ["amministrazione"]));
+    vi.mocked(inviaAlloSdi).mockResolvedValue({
+      fattura: { id: 77, stato: "inviata" },
+      passi: [{ passo: "invio", esito: "fatto", dettaglio: null }],
+    } as any);
+
+    const esito = await amministrazione.fatture.inviaSdi({ id: 77, revisione: 3 });
+
+    expect(esito.fattura.stato).toBe("inviata");
+    expect(inviaAlloSdi).toHaveBeenCalledWith(
+      expect.objectContaining({ sedeId: 1, id: 77, actorUserId: 25, revisione: 3 })
+    );
   });
 
   // Ruling R34: «Procedi comunque» sui limiti è una decisione di chi
@@ -245,7 +301,7 @@ describe("router fatture — ciclo bozza/emissione", () => {
     expect(aggiornata.fattura.note).toBe("Pagamento anticipato");
     expect(aggiornata.fattura.revisione).toBeGreaterThan(creata.fattura.revisione);
 
-    vi.mocked(emettiFattura).mockResolvedValue({
+    vi.mocked(creaSuFic).mockResolvedValue({
       fattura: { ...aggiornata.fattura, stato: "emessa" },
       passi: [{ passo: "validazione", esito: "fatto", dettaglio: null }],
     } as any);
@@ -256,7 +312,7 @@ describe("router fatture — ciclo bozza/emissione", () => {
     });
     expect(emessa.fattura.stato).toBe("emessa");
     expect(emessa.passi).toHaveLength(1);
-    expect(emettiFattura).toHaveBeenCalledWith(
+    expect(creaSuFic).toHaveBeenCalledWith(
       expect.objectContaining({
         sedeId: 1,
         id: creata.fattura.id,

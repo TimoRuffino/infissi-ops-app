@@ -32,3 +32,18 @@ describe("repository computi (memoria)", () => {
     expect(await repo.ultimoIntestazione(1, 11)).toBeNull();
   });
 });
+
+describe("repository computi (memoria) — elimina (08/09/2026)", () => {
+  it("toglie tutti i computi della commessa nella sede, non quelli di altre commesse o sedi", async () => {
+    const repo = createMemoryComputiRepository();
+    await repo.salva({ computo: computo(10, "h1"), now: NOW });
+    await repo.salva({ computo: computo(10, "h2"), now: NOW });
+    await repo.salva({ computo: computo(11, "h3"), now: NOW });
+    await repo.salva({ computo: { ...computo(10, "h4"), sedeId: 2 }, now: NOW });
+    expect(await repo.elimina(1, 10)).toBe(2);
+    expect(await repo.ultimo(1, 10)).toBeNull();
+    expect((await repo.ultimo(1, 11))?.hashRighe).toBe("h3");
+    expect((await repo.ultimo(2, 10))?.hashRighe).toBe("h4");
+    expect(await repo.elimina(1, 10)).toBe(0);
+  });
+});

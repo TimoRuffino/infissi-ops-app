@@ -21,8 +21,13 @@ export type IngressoPassi = {
     pattuitoTipo: "lordo" | "imponibile";
   } | null;
   computo: { valido: boolean; esito: "ok" | "incompleto" } | null;
-  /** Fatture CRM della commessa (nessuna FiC qui: quelle escludono a monte, §4.2). */
+  /** Fatture CRM della commessa. */
   fatture: { stato: string; totaleCent: number; tipo: string }[];
+  /**
+   * Fatture FiC collegate alla commessa (08/09/2026): una basta a chiudere il
+   * passo Fattura — la commessa è già fatturata, da fuori. Assente = zero.
+   */
+  fattureFic?: number;
   flag: { limiti: boolean; fatturazione: boolean };
 };
 
@@ -41,6 +46,12 @@ export const STATI_FATTURA_EMESSA = new Set([
 export type RisultatoPassi = {
   passi: Record<PassoFatturazione, EsitoPasso>;
   prossimoPasso: PassoFatturazione | null;
+  /**
+   * Quante fatture annullate ha la commessa (08/09/2026): non fanno
+   * avanzare nulla, ma restano da vedere e da eliminare, quindi il client
+   * tiene il passo Fattura raggiungibile anche quando è «da fare».
+   */
+  annullate: number;
   fatturaStato: string | null;
   fatturaPrevistaCent: number | null;
   fatturaPrevistaStima: boolean;
@@ -74,7 +85,8 @@ function esitoLimiti(i: IngressoPassi): EsitoPasso {
 }
 
 /**
- * Fattura: non disponibile a flag spento. Fatto solo da una fattura vera
+ * Fattura: non disponibile a flag spento. Fatto da una fattura FiC collegata
+ * (già fatturata da fuori, 08/09/2026) o da una fattura vera del CRM
  * (tipo `fattura`, non una nota di credito) arrivata a uno stato di
  * `STATI_FATTURA_EMESSA`. In corso se esiste una fattura (di qualunque
  * tipo) non annullata: una nota di credito o una bozza in lavorazione sono
@@ -82,6 +94,7 @@ function esitoLimiti(i: IngressoPassi): EsitoPasso {
  */
 function esitoFattura(i: IngressoPassi): EsitoPasso {
   if (!i.flag.fatturazione) return "non_disponibile";
+  if ((i.fattureFic ?? 0) > 0) return "fatto";
   const emessa = i.fatture.some(
     (f) => f.tipo === "fattura" && STATI_FATTURA_EMESSA.has(f.stato)
   );
@@ -162,6 +175,7 @@ export function calcolaPassi(i: IngressoPassi): RisultatoPassi {
   return {
     passi,
     prossimoPasso,
+    annullate: i.fatture.filter((f) => f.stato === "annullata").length,
     fatturaStato: ultimoStatoNonAnnullato(i.fatture),
     ...prevediFattura(i),
   };

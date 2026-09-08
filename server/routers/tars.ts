@@ -81,6 +81,11 @@ import { getProposteStore } from "../proposte/gateway";
 import { destinatarioPerTema, puoVedere } from "../tars/destinatari";
 import { repositoryAnalisiCorrente } from "../tars/analisi/repository";
 import {
+  esitoVisibileA,
+  propostaVisibileA,
+  type ChiGuarda,
+} from "../tars/analisi/destinatari";
+import {
   eseguiPropostaAnalisi,
   PropostaNonEseguibile,
   scartaPropostaAnalisi,
@@ -324,6 +329,19 @@ function comeErrore(errore: any): never {
     code: "INTERNAL_SERVER_ERROR",
     message: "Tars non è riuscito a completare la richiesta.",
   });
+}
+
+/** Chi sta guardando: la direzione vede tutto, gli altri la propria coda. */
+function chiGuarda(contesto: {
+  utenteId: number;
+  ruoli: readonly string[];
+  direzione: boolean;
+}): ChiGuarda {
+  return {
+    utenteId: contesto.utenteId,
+    ruoli: contesto.ruoli,
+    direzione: contesto.direzione,
+  };
 }
 
 export const tarsRouter = router({
@@ -1226,22 +1244,30 @@ export const tarsRouter = router({
 
   /**
    * Analisi azienda giornaliera (02/09/2026): l'ultima analisi della sede.
-   * Riservata alla direzione come il Panorama; nessun importo dentro.
+   * Nessun importo dentro. Dall'08/09 (punto 3 del piano «Tars più
+   * intelligente») non è più riservata alla direzione: la vedono anche gli
+   * altri, ma ognuno vede le proposte indirizzate a sé — l'amministrazione
+   * le sue fatture, chi ha la commessa il suo gate. Sintesi, punti e
+   * domande restano comuni: sono la lettura dell'azienda, non una coda.
    */
   analisiAzienda: procedura.query(async ({ ctx }) => {
     try {
       assicuraTars("tarsProactive");
       assicuraTars("tarsAnalisiAzienda");
       const contesto = await costruisciContesto(ctx);
-      if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+      if (!contesto.capability.has("commessa.read")) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "L'analisi dell'azienda è riservata alla direzione.",
+          message: "Non hai accesso alle commesse di questa sede.",
         });
       }
       const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+      const mio =
+        record?.esito
+          ? { ...record, esito: esitoVisibileA(record.esito, chiGuarda(contesto)) }
+          : record;
       return {
-        record: await conEntitaRisolte(record, contesto.sedeId),
+        record: await conEntitaRisolte(mio, contesto.sedeId),
         oggi: giornoLocaleAnalisi(new Date()),
       };
     } catch (errore) {
@@ -1293,10 +1319,10 @@ export const tarsRouter = router({
         assicuraTars("tarsProactive");
         assicuraTars("tarsAnalisiAzienda");
         const contesto = await costruisciContesto(ctx);
-        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+        if (!contesto.capability.has("commessa.read")) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "L'analisi dell'azienda è riservata alla direzione.",
+            message: "Non hai accesso alle commesse di questa sede.",
           });
         }
         const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
@@ -1306,15 +1332,27 @@ export const tarsRouter = router({
             message: "L'analisi è cambiata: ricaricala e rileggi la proposta.",
           });
         }
+        // Una proposta si decide solo se è la tua: la direzione decide tutto.
+        const mia = record.esito?.proposte[input.indice];
+        if (!mia || !propostaVisibileA(mia, chiGuarda(contesto))) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Proposta non trovata fra le tue.",
+          });
+        }
         const { esecuzione } = await eseguiPropostaAnalisi({
           contesto,
           record,
           indice: input.indice,
         });
         const aggiornato = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        const visibile =
+          aggiornato?.esito
+            ? { ...aggiornato, esito: esitoVisibileA(aggiornato.esito, chiGuarda(contesto)) }
+            : aggiornato;
         return {
           esecuzione,
-          record: await conEntitaRisolte(aggiornato, contesto.sedeId),
+          record: await conEntitaRisolte(visibile, contesto.sedeId),
           oggi: giornoLocaleAnalisi(new Date()),
         };
       } catch (errore) {
@@ -1339,10 +1377,10 @@ export const tarsRouter = router({
         assicuraTars("tarsProactive");
         assicuraTars("tarsAnalisiAzienda");
         const contesto = await costruisciContesto(ctx);
-        if (!contesto.direzione || !contesto.capability.has("commessa.read")) {
+        if (!contesto.capability.has("commessa.read")) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "L'analisi dell'azienda è riservata alla direzione.",
+            message: "Non hai accesso alle commesse di questa sede.",
           });
         }
         const record = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
@@ -1352,15 +1390,27 @@ export const tarsRouter = router({
             message: "L'analisi è cambiata: ricaricala e rileggi la proposta.",
           });
         }
+        // Una proposta si decide solo se è la tua: la direzione decide tutto.
+        const mia = record.esito?.proposte[input.indice];
+        if (!mia || !propostaVisibileA(mia, chiGuarda(contesto))) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Proposta non trovata fra le tue.",
+          });
+        }
         const { esecuzione } = await scartaPropostaAnalisi({
           record,
           indice: input.indice,
           utenteId: contesto.utenteId,
         });
         const aggiornato = await repositoryAnalisiCorrente().ultima(contesto.sedeId);
+        const visibile =
+          aggiornato?.esito
+            ? { ...aggiornato, esito: esitoVisibileA(aggiornato.esito, chiGuarda(contesto)) }
+            : aggiornato;
         return {
           esecuzione,
-          record: await conEntitaRisolte(aggiornato, contesto.sedeId),
+          record: await conEntitaRisolte(visibile, contesto.sedeId),
           oggi: giornoLocaleAnalisi(new Date()),
         };
       } catch (errore) {

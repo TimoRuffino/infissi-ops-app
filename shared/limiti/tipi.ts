@@ -102,9 +102,36 @@ export const CODICI_OPERA = [
 ] as const;
 export type CodiceOpera = (typeof CODICI_OPERA)[number];
 
-/** Scelte che cambiano quali opere entrano nei totali del computo (analisi §3.2). */
-export type OpzioniComputo = { rilievo: "foro" | "pezzo"; speseProfessionali: boolean; eventuali: CodiceOpera[] };
-export const OPZIONI_COMPUTO_DEFAULT: OpzioniComputo = { rilievo: "foro", speseProfessionali: false, eventuali: [] };
+/**
+ * Correzione a mano di una voce del computo (08/09/2026, «devo poter
+ * modificare i limiti dal gestionale»): come le celle ritoccate nelle copie
+ * del foglio «CALCOLO NUOVI LIMITI». Vive nelle opzioni del computo del
+ * contratto, entra nell'hash dei parametri e la applica il motore, che
+ * conserva e dichiara il valore calcolato. `null` = «come calcolato».
+ */
+export type CorrezioneVoce = {
+  /** Codice della voce (`posa`, `massimale_A`, `dei_riga_3`, `controtelaio_1`…). */
+  codice: string;
+  /** Quantità forzata (ore, mq, pezzi, km). */
+  quantita: number | null;
+  /** Prezzo unitario forzato, in centesimi. */
+  prezzoUnitCent: number | null;
+  /** Limite forzato tale quale, in centesimi: vince su quantità e prezzo. */
+  limiteCent: number | null;
+  /** Dentro o fuori dai totali. */
+  inclusa: boolean | null;
+  motivo: string | null;
+};
+
+/** Scelte che cambiano quali opere entrano nei totali del computo (analisi §3.2), più le correzioni a mano. */
+export type OpzioniComputo = {
+  rilievo: "foro" | "pezzo";
+  speseProfessionali: boolean;
+  eventuali: CodiceOpera[];
+  /** Assente nei contratti salvati prima del 08/09/2026: vale «nessuna». */
+  correzioni?: CorrezioneVoce[];
+};
+export const OPZIONI_COMPUTO_DEFAULT: OpzioniComputo = { rilievo: "foro", speseProfessionali: false, eventuali: [], correzioni: [] };
 
 export type Contratto = {
   commessaId: number;

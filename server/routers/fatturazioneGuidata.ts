@@ -27,7 +27,7 @@ import { leggiContratto } from "../contratti/servizio";
 import { statoComputoLeggero } from "../computo/servizio";
 import type { IntestazioneComputo } from "../computo/repository";
 import { getFattureRepository } from "../fatture/repository";
-import { ficFatture } from "./ficFatture";
+import { fattureFicCollegate, type FatturaFic } from "./ficFatture";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
 const procedura = procedureConInterruttore("limiti");
@@ -118,6 +118,8 @@ type DatiCommessa = {
   statoComputo: StatoComputo;
   /** Ordinate dalla più vecchia: `calcolaPassi` legge l'ultima non annullata come stato corrente (Ruling P4-R2). */
   fatture: Fattura[];
+  /** Fatture FiC collegate (08/09/2026): la commessa è già fatturata da fuori. */
+  fattureFic: FatturaFic[];
 };
 
 /**
@@ -146,6 +148,7 @@ async function leggiDatiCommessa(
     righeContratto: righe.length,
     statoComputo,
     fatture: [...fatture].sort((a, b) => a.id - b.id),
+    fattureFic: fattureFicCollegate(sedeId, commessa.id),
   };
 }
 
@@ -154,9 +157,9 @@ function haFatturaCrmEmessa(dati: Pick<DatiCommessa, "fatture">): boolean {
   return dati.fatture.some((f) => f.tipo === "fattura" && STATI_FATTURA_EMESSA.has(f.stato));
 }
 
-/** §4.2: una fattura FiC collegata (di qualunque stato) toglie la commessa dall'elenco. */
+/** §4.2: una fattura FiC collegata (non ignorata, non una nota di credito) toglie la commessa dall'elenco. */
 function haFatturaFicCollegata(sedeId: number, commessaId: number): boolean {
-  return ficFatture.some((f) => f.sedeId === sedeId && f.commessaId === commessaId);
+  return fattureFicCollegate(sedeId, commessaId).length > 0;
 }
 
 /** Lo stesso record per l'elenco e per la pagina a passi di una commessa (§5). */
@@ -165,7 +168,7 @@ function costruisciRecord(
   mostraImporti: boolean,
   adesso: Date
 ): CommessaDaFatturare {
-  const { commessa, documenti, contratto, righeContratto, statoComputo, fatture } = dati;
+  const { commessa, documenti, contratto, righeContratto, statoComputo, fatture, fattureFic } = dati;
 
   const ingresso: IngressoPassi = {
     documenti: documenti.map((d) => ({ tipo: d.tipo, mimeType: d.mimeType })),
@@ -176,6 +179,7 @@ function costruisciRecord(
       ? { valido: statoComputo.valido, esito: statoComputo.computo.esito }
       : null,
     fatture: fatture.map((f) => ({ stato: f.stato, totaleCent: f.totaleCent, tipo: f.tipo })),
+    fattureFic: fattureFic.length,
     flag: {
       limiti: interruttoreAttivo("limiti"),
       fatturazione: interruttoreAttivo("fatturazione"),
@@ -183,6 +187,8 @@ function costruisciRecord(
   };
   const risultato = calcolaPassi(ingresso);
   const statoDal = statoDalDiCommessa(commessa);
+  // La più recente per data (poi per id): quella che si mostra come «già fatturata».
+  const ultimaFic = [...fattureFic].sort((a, b) => a.data.localeCompare(b.data) || a.id - b.id).pop() ?? null;
 
   return {
     commessaId: commessa.id,
@@ -197,6 +203,7 @@ function costruisciRecord(
     },
     passi: risultato.passi,
     prossimoPasso: risultato.prossimoPasso,
+    annullate: risultato.annullate,
     pattuitoCent: mostraImporti ? contratto?.pattuitoCent ?? centDaEuro(commessa.importoTotale) : null,
     pattuitoTipo: mostraImporti ? contratto?.pattuitoTipo ?? null : null,
     fatturaPrevistaCent: mostraImporti ? risultato.fatturaPrevistaCent : null,
@@ -208,6 +215,9 @@ function costruisciRecord(
     // (nessuno store, nessun import di dominio): qui si restringe di nuovo
     // al contratto pubblico dell'API.
     fatturaStato: risultato.fatturaStato as StatoFattura | null,
+    fatturaFic: ultimaFic
+      ? { numero: ultimaFic.numero, data: ultimaFic.data, lordoCent: mostraImporti ? Math.round(ultimaFic.importoLordo * 100) : null }
+      : null,
   };
 }
 

@@ -3,9 +3,18 @@
 
 import { z } from "zod";
 import { descrittoreAzione } from "../azioni/registry";
-import type { RichiestaProvider, TarsProvider } from "../provider";
+import { strumentiProponibili } from "./proponibili";
+import type { MessaggioTars, RichiestaProvider, TarsProvider } from "../provider";
+import type { ContestoRun } from "../strumenti/tipi";
+import {
+  CHIAMATE_MASSIME_INDAGINE,
+  GIRI_MASSIMI_INDAGINE,
+  eseguiLettura,
+  rispostaPerIlModello,
+  strumentiDiIndagine,
+} from "./indagine";
 import { senzaImportiEuro } from "../smistamento/analisi";
-import { entitaDellaFotografia, testoFotografia } from "./fotografia";
+import { entitaDellaFotografia, fiduciaDellaFotografia, testoFotografia } from "./fotografia";
 import { PROMPT_ANALISI, PROMPT_ANALISI_VERSIONE, SCHEMA_JSON_ANALISI } from "./prompt";
 import {
   PRIORITA_PUNTO,
@@ -14,37 +23,27 @@ import {
   type AzionePropostaAnalisi,
   type EsitoAnalisiAzienda,
   type FotografiaAzienda,
+  type FiduciaFatto,
   type PropostaAnalisi,
   type PuntoAnalisi,
 } from "./types";
 
 /**
  * Gli strumenti che una proposta può portare come azione eseguibile con un
- * click (T3). Whitelist chiusa: tutte azioni R1 già nel registro; lo
- * scavalco del gate non nasce MAI da una proposta.
+ * click (T3). **Derivata dal registro**, non scritta a mano (punto 2 del
+ * piano 08/09/2026): la regola sta in `proponibili.ts`. Lo scavalco del
+ * gate non nasce MAI da una proposta: lo blocca `eseguiPropostaAnalisi`.
  */
-export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = [
-  "crea_ticket",
-  "aggiorna_ticket",
-  "pianifica_intervento",
-  "crea_promemoria",
-  "collega_comunicazione",
-  "collega_fattura_commessa",
-  "sposta_documento",
-  "archivia_commessa",
-  "transizione_adiacente_commessa",
-  // La conferma d'ordine arrivata per mail entra nel fascicolo con un click
-  // (04/09/2026: il prompt lo chiedeva già, ma la whitelist lo scartava e
-  // la proposta decadeva a richiesta in chat). Lo strumento rilegge il
-  // testo e rifiuta da solo se non cita la commessa: la proposta non porta
-  // mai `confermaSenzaRiscontro`.
-  "archivia_allegato_comunicazione",
-];
+export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = strumentiProponibili();
 
 const MODELLO_ANALISI_DEFAULT = "gpt-5.6-sol";
 const SINTESI_MASSIMA = 900;
 const TESTO_MASSIMO = 400;
 const PUNTI_MASSIMI = 8;
+// Il modello ne propone fino a dodici e ne restano sei: la scelta la fa
+// l'ordinamento per posta in gioco, non l'autocensura del modello
+// (punto 13 del piano 08/09/2026).
+const PROPOSTE_GENERATE = 12;
 const PROPOSTE_MASSIME = 6;
 const DOMANDE_MASSIME = 3;
 
@@ -69,6 +68,8 @@ const schemaEsitoModello = z.object({
       z.object({
         testo: z.string(),
         richiestaPerTars: z.string(),
+        fonte: z.string().nullable().default(null),
+        bozza: z.string().max(1200).nullable().default(null),
         entita: z.array(z.string()),
         azione: z
           .object({ strumento: z.string(), input: z.string().max(2000) })
@@ -136,20 +137,73 @@ export function verificaEsito(
     return { strumento: azione.strumento, input: JSON.stringify(valido.data) };
   };
 
+  // La fonte dichiarata vale solo se è una sezione vera: una chiave
+  // inventata falserebbe la misura invece di alimentarla.
+  const sezioniVere = new Set(fotografia.sezioni.map(s => s.chiave));
+  // La fiducia della proposta è la più debole fra quelle dei fatti che cita:
+  // se poggia su una lettura senza riscontro, lo dice invece di sembrare
+  // una certezza (punto 23 del piano 08/09/2026).
+  const fiducie = fiduciaDellaFotografia(fotografia);
+  const peso: Record<FiduciaFatto, number> = { certa: 0, letta: 1, da_verificare: 2 };
+  const fiduciaDi = (entita: string[]): FiduciaFatto =>
+    entita.reduce<FiduciaFatto>((peggiore, rif) => {
+      const sua = fiducie.get(rif) ?? "certa";
+      return peso[sua] > peso[peggiore] ? sua : peggiore;
+    }, "certa");
+  const verificaFonte = (fonte: string | null | undefined): string | null =>
+    fonte && sezioniVere.has(fonte) ? fonte : null;
+
+  // Le cifre: le porta la proposta, e il filtro dei destinatari le toglie a
+  // chi non è direzione (decisione 08/09/2026).
+  const economiaDi = (entita: string[]) => {
+    const residuo = pesoDi(entita);
+    const conMargine = entita.map(e => posta[e]).find(x => x?.marginePerc != null);
+    const marginePerc = conMargine?.marginePerc ?? null;
+    return residuo > 0 || marginePerc != null ? { residuo, marginePerc } : null;
+  };
+
   const punti: PuntoAnalisi[] = grezzo.punti
     .filter(p => p.testo.trim().length > 0)
     .map(p => ({ tipo: p.tipo, priorita: p.priorita, testo: pulisci(p.testo, TESTO_MASSIMO), ...filtraEntita(p.entita) }))
     .sort((a, b) => ORDINE_PRIORITA[a.priorita] - ORDINE_PRIORITA[b.priorita])
     .slice(0, PUNTI_MASSIMI);
+  // L'ordine delle proposte non lo decide il modello: lo decide quanto costa
+  // ignorarle (punto 22 del piano 08/09/2026). Il peso è il denaro esposto
+  // dietro le entità citate, e non è mai passato al modello.
+  const posta = fotografia.postaInGioco ?? {};
+  const pesoDi = (entita: string[]): number =>
+    entita.reduce((somma, rif) => somma + (posta[rif]?.residuo ?? 0), 0);
+
   const proposte: PropostaAnalisi[] = grezzo.proposte
     .filter(p => p.testo.trim().length > 0 && p.richiestaPerTars.trim().length > 0)
-    .map(p => ({
-      testo: pulisci(p.testo, TESTO_MASSIMO),
-      richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
-      ...filtraEntita(p.entita),
-      azione: verificaAzione(p.azione),
-    }))
-    .slice(0, PROPOSTE_MASSIME);
+    .map(p => {
+      const entita = filtraEntita(p.entita);
+      const fiducia = fiduciaDi(entita.entita);
+      const testo = pulisci(p.testo, TESTO_MASSIMO);
+      return {
+        // Finché la pagina non mostra la fiducia con un segno suo, la porta
+        // il testo: chi legge deve sapere che sotto c'è una lettura non
+        // riscontrata, non una certezza.
+        testo:
+          fiducia === "da_verificare" && !/^da verificare/i.test(testo)
+            ? `Da verificare: ${testo}`.slice(0, TESTO_MASSIMO)
+            : testo,
+        richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
+        fonte: verificaFonte(p.fonte),
+        // La bozza passa dallo stesso pavimento economico del resto: un
+        // importo inventato in un messaggio al cliente è peggio che altrove.
+        bozza: p.bozza?.trim() ? senzaImportiEuro(p.bozza).trim().slice(0, 1200) : null,
+        fiducia,
+        ...entita,
+        azione: verificaAzione(p.azione),
+        economia: economiaDi(entita.entita),
+      };
+    })
+    // Stabile: a parità di posta in gioco resta l'ordine del modello.
+    .map((p, i) => ({ p, i, peso: pesoDi(p.entita) }))
+    .sort((a, b) => b.peso - a.peso || a.i - b.i)
+    .map(x => x.p)
+    .slice(0, Math.min(PROPOSTE_MASSIME, PROPOSTE_GENERATE));
   const domande = grezzo.domande
     .map(d => pulisci(d, TESTO_MASSIMO))
     .filter(Boolean)
@@ -187,12 +241,17 @@ export async function analizzaConModello(input: {
   modello: string;
   identita: RichiestaProvider["identita"];
   timeoutMs?: number;
+  /**
+   * Con un contesto, il modello può leggere prima di rispondere (punto 19).
+   * Senza, resta il colpo solo di prima — ed è quello che fanno i test.
+   */
+  contestoIndagine?: ContestoRun | null;
 }): Promise<EsitoAnalisiAzienda> {
   const richiesta: RichiestaProvider = {
     modello: input.modello,
     istruzioni: PROMPT_ANALISI,
     input: [{ ruolo: "user", contenuto: testoFotografia(input.fotografia) }],
-    strumenti: [],
+    strumenti: input.contestoIndagine ? strumentiDiIndagine() : [],
     // Prima analisi reale (sede 1, 02/09 sera): 2.500 token non bastavano e
     // il JSON arrivava troncato («non decodificabile»). Una chiamata al
     // giorno: il margine costa poco, il buco costa l'analisi.
@@ -202,9 +261,56 @@ export async function analizzaConModello(input: {
     identita: input.identita,
     formatoJson: { nome: "analisi_azienda", schema: SCHEMA_JSON_ANALISI },
   };
-  const risposta = await input.provider.rispondi(richiesta);
+  // Il salto (punto 19 del piano 08/09/2026): il modello può CHIEDERE
+  // prima di rispondere. Solo letture, un tetto di giri e di chiamate, e
+  // l'output di uno strumento è un dato — mai un'istruzione.
+  const ammessi = new Set(richiesta.strumenti.map(s => s.nome));
+  const contesto = input.contestoIndagine ?? null;
+  const conversazione: MessaggioTars[] = [...richiesta.input];
+  let risposta = await input.provider.rispondi(richiesta);
+  let chiamateFatte = 0;
+  for (let giro = 0; giro < GIRI_MASSIMI_INDAGINE && risposta.tipo === "tool_call"; giro++) {
+    if (!contesto || chiamateFatte >= CHIAMATE_MASSIME_INDAGINE) break;
+    const chiamate = risposta.chiamate.slice(
+      0,
+      CHIAMATE_MASSIME_INDAGINE - chiamateFatte
+    );
+    conversazione.push({ ruolo: "assistant", contenuto: "", chiamate });
+    for (const chiamata of chiamate) {
+      chiamateFatte += 1;
+      let argomenti: unknown = {};
+      try {
+        argomenti = chiamata.argomenti ? JSON.parse(chiamata.argomenti) : {};
+      } catch {
+        argomenti = {};
+      }
+      const esito = await eseguiLettura({
+        nome: chiamata.nome,
+        argomenti,
+        contesto,
+        ammessi,
+      });
+      conversazione.push({
+        ruolo: "tool",
+        toolCallId: chiamata.id,
+        nome: chiamata.nome,
+        contenuto: rispostaPerIlModello(esito),
+      });
+    }
+    risposta = await input.provider.rispondi({
+      ...richiesta,
+      input: conversazione,
+      // All'ultimo giro gli strumenti spariscono: adesso deve rispondere.
+      strumenti:
+        giro + 1 >= GIRI_MASSIMI_INDAGINE || chiamateFatte >= CHIAMATE_MASSIME_INDAGINE
+          ? []
+          : richiesta.strumenti,
+    });
+  }
   if (risposta.tipo !== "messaggio") {
-    throw new Error("ANALISI_RISPOSTA_INVALIDA: il modello ha chiamato strumenti inesistenti.");
+    throw new Error(
+      "ANALISI_RISPOSTA_INVALIDA: il modello ha continuato a chiedere invece di rispondere."
+    );
   }
   let grezzo: unknown;
   try {
@@ -225,6 +331,16 @@ export async function analizzaConModello(input: {
 export function analisiDeterministica(fotografia: FotografiaAzienda): EsitoAnalisiAzienda {
   const c = fotografia.contatori;
   const parti: string[] = [];
+  // Anche senza modello, le fonti mute e la merce in ritardo si dicono per
+  // prime: sono le due cose che non devono MAI restare in silenzio.
+  if ((c.fontiCieche ?? 0) > 0) {
+    parti.push(
+      `Attenzione: ${c.fontiCieche} fonti non stanno più portando dati (posta, WhatsApp o Fatture in Cloud): quello che segue è incompleto.`
+    );
+  }
+  if ((c.merceInRitardo ?? 0) > 0) {
+    parti.push(`${c.merceInRitardo} consegne in ritardo.`);
+  }
   parti.push(`${c.commesseAttive ?? 0} commesse attive${c.commesseUrgenti ? ` (${c.commesseUrgenti} urgenti)` : ""}.`);
   if ((c.casiAperti ?? 0) > 0) parti.push(`${c.casiAperti} casi aperti nel Centro Azioni${c.casiCritici ? `, ${c.casiCritici} critici` : ""}.`);
   if ((c.comunicazioniUrgenti ?? 0) + (c.comunicazioniDaRispondere ?? 0) + (c.comunicazioniDaDecidere ?? 0) > 0) {
@@ -233,6 +349,15 @@ export function analisiDeterministica(fotografia: FotografiaAzienda): EsitoAnali
   if ((c.ticketAperti ?? 0) > 0) parti.push(`${c.ticketAperti} ticket aperti${c.ticketUrgenti ? ` (${c.ticketUrgenti} alta priorità)` : ""}.`);
   if ((c.interventiSettimana ?? 0) > 0) parti.push(`${c.interventiSettimana} interventi in settimana${c.interventiSenzaSquadra ? `, ${c.interventiSenzaSquadra} senza squadra` : ""}.`);
   const punti: PuntoAnalisi[] = [];
+  for (const fatto of fotografia.sezioni.find(s => s.chiave === "guasti")?.fatti ?? []) {
+    punti.push({ tipo: "rischio", priorita: "alta", testo: fatto.testo, entita: fatto.entita, link: fatto.link });
+  }
+  const ritardi = (fotografia.sezioni.find(s => s.chiave === "magazzino")?.fatti ?? []).filter(f =>
+    f.chiave.endsWith(":ritardo")
+  );
+  for (const fatto of ritardi.slice(0, 3)) {
+    punti.push({ tipo: "rischio", priorita: "alta", testo: fatto.testo, entita: fatto.entita, link: fatto.link });
+  }
   const casi = fotografia.sezioni.find(s => s.chiave === "casi")?.fatti ?? [];
   for (const fatto of casi.slice(0, 4)) {
     punti.push({ tipo: "rischio", priorita: fatto.testo.startsWith("[critica]") ? "alta" : "media", testo: fatto.testo, entita: fatto.entita, link: fatto.link });

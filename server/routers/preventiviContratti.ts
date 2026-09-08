@@ -69,6 +69,7 @@ import {
   nomeDocumentoDaTipo,
   type DocTipo,
 } from "@shared/docTipi";
+import { statoVersioni } from "@shared/versioniDocumenti";
 export { DOC_TIPI, DOC_TIPO_LABEL };
 export type { DocTipo };
 
@@ -1160,14 +1161,19 @@ export const preventiviContrattiRouter = router({
   byCommessa: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
     // Don't leak another sede's documents.
     if (!commessaInSede(input, ctx.sedeId)) return [];
+    const dellaCommessa = documenti.filter(d => d.commessaId === input);
+    // Quale versione vale (punto 26 del piano 08/09/2026): due «misure.pdf»
+    // con byte diversi non sono un duplicato, sono due versioni — e chi
+    // apre il fascicolo deve sapere quale è l'ultima.
+    const versioni = statoVersioni(dellaCommessa);
     return (
-      documenti
-        .filter(d => d.commessaId === input)
+      dellaCommessa
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         // Strip heavy payload from list
         .map(({ dataBase64, ...rest }) => ({
           ...rest,
           hasData: !!dataBase64 || !!rest.storageKey,
+          versione: versioni.get(rest.id) ?? null,
         }))
     );
   }),

@@ -174,13 +174,16 @@ describe("calcolaPassi", () => {
     expect(r.fatturaPrevistaStima).toBe(false);
   });
 
-  it("(i-bis) con la sola fattura annullata, Fattura resta da fare e l'importo previsto è nullo senza contratto", () => {
+  it("(i-bis) con la sola fattura annullata, Fattura resta da fare e l'importo previsto è nullo senza contratto; le annullate si contano (08/09/2026)", () => {
     const r = calcolaPassi(
       ingresso({
         fatture: [{ stato: "annullata", totaleCent: 1_000_000, tipo: "fattura" }],
       })
     );
     expect(r.passi.fattura).toBe("da_fare");
+    // Il client tiene il passo Fattura raggiungibile grazie a questo conteggio.
+    expect(r.annullate).toBe(1);
+    expect(calcolaPassi(ingresso()).annullate).toBe(0);
     expect(r.fatturaStato).toBeNull();
     expect(r.fatturaPrevistaCent).toBeNull();
   });
@@ -323,5 +326,17 @@ describe("calcolaPassi", () => {
       })
     );
     expect(r.passi.documenti).toBe("fatto");
+  });
+});
+
+describe("calcolaPassi — fattura FiC collegata (08/09/2026)", () => {
+  it("(r) una fattura FiC collegata chiude il passo Fattura anche senza fatture CRM; il resto del percorso non cambia", () => {
+    const r = calcolaPassi(ingresso({ fattureFic: 1 }));
+    expect(r.passi.fattura).toBe("fatto");
+    expect(r.passi.documenti).toBe("da_fare");
+    expect(r.prossimoPasso).toBe("documenti");
+    expect(r.fatturaStato).toBeNull();
+    expect(calcolaPassi(ingresso({ fattureFic: 0 })).passi.fattura).toBe("da_fare");
+    expect(calcolaPassi(ingresso({ fattureFic: 1, flag: { limiti: true, fatturazione: false } })).passi.fattura).toBe("non_disponibile");
   });
 });

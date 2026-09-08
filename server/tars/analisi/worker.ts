@@ -4,13 +4,26 @@
 
 import { TZDate } from "@date-fns/tz";
 import { tarsAttivo } from "../../platform/interruttori";
+import { getCommesseStore } from "../../routers/commesse";
+import { getInterventiStore } from "../../routers/interventi";
 import { sediAttiveDelTenant } from "../../routers/sedi";
+import { getTicketStore } from "../../routers/ticket";
 import { tenantCorrente } from "../../tenants/contestoCorrente";
 import { TENANT_PREDEFINITO_ID } from "../../tenants/costanti";
 import { perOgniTenantAttivo } from "../../tenants/giri";
 import { creaProviderPerRun, statoProvider } from "../costi/providerGovernato";
 import type { TarsProvider } from "../provider";
 import { analisiDeterministica, analizzaConModello, modelloAnalisi } from "./analisi";
+import {
+  GIORNI_MEMORIA_SCARTATE,
+  giornoDiInizio,
+  riscontroPerFonte,
+  scartateRecenti,
+  testoRiscontro,
+} from "./riscontro";
+import { correttivi } from "./correttivi";
+import { contestoDiIndagine } from "./indagine";
+import { conDestinatari, type DipendenzeDestinatari } from "./destinatari";
 import { costruisciFotografia, giornoLocale, type DipendenzeFotografia } from "./fotografia";
 import { repositoryAnalisiCorrente, type RepositoryAnalisiAzienda } from "./repository";
 import { VERSIONE_ANALISI_AZIENDA, type RecordAnalisiAzienda } from "./types";
@@ -28,6 +41,8 @@ export type DipendenzeAnalisi = {
   provider: (sedeId: number) => TarsProvider | null;
   modello: string;
   fotografia?: DipendenzeFotografia;
+  /** Chi ha in carico la commessa e il ticket: serve a indirizzare le proposte. */
+  destinatari: DipendenzeDestinatari;
   sedi: () => number[];
   now: () => Date;
 };
@@ -40,6 +55,10 @@ export function dipendenzeAnalisiReali(): DipendenzeAnalisi {
   const modello = modelloAnalisi();
   return {
     repository: repositoryAnalisiCorrente(),
+    destinatari: {
+      commessa: id => (getCommesseStore() as any[]).find(c => c.id === id) ?? null,
+      ticket: id => (getTicketStore() as any[]).find(t => t.id === id) ?? null,
+    },
     provider: sedeId => {
       if (statoProvider(modello).tipo !== "openai") return null;
       return creaProviderPerRun({
@@ -73,29 +92,132 @@ export async function generaAnalisiAzienda(input: {
   const adesso = deps.now();
   const giorno = giornoLocale(adesso);
   try {
+    // I contatori dell'ultima analisi: servono alla sezione «cosa è
+    // cambiato». Se non c'è (prima analisi della sede) la sezione non
+    // nasce — un confronto con il nulla non è un confronto.
+    const ultima = await deps.repository.ultima(input.sedeId);
     const fotografia = await costruisciFotografia({
       sedeId: input.sedeId,
       adesso,
       deps: deps.fotografia,
+      contatoriPrecedenti: ultima?.esito?.contatori ?? null,
     });
-    // Le proposte già scartate oggi dalla direzione entrano nella fotografia
-    // come fatto: il modello non le ripropone, nemmeno riformulate (04/09:
-    // «le proposte di Tars sono inutili, se le rifiuto rimangono lì»).
-    const precedente = await deps.repository.perGiorno(input.sedeId, giorno);
-    const scartate = (precedente?.esito?.proposte ?? []).filter(
-      p => p.esecuzione?.stato === "scartata"
+    // Le proposte rifiutate NON tornano il giorno dopo (04/09: «le proposte
+    // di Tars sono inutili, se le rifiuto rimangono lì»). Fino all'08/09 la
+    // memoria durava un giorno solo: adesso guarda indietro due settimane,
+    // e nello stesso giro misura quali sezioni producono proposte che la
+    // direzione accetta davvero (punti 4 e 12 del piano 08/09/2026).
+    const recenti = await deps.repository.recenti(
+      input.sedeId,
+      giornoDiInizio(giorno)
     );
+    const scartate = scartateRecenti(recenti);
     if (scartate.length > 0) {
       fotografia.sezioni.push({
         chiave: "proposte_scartate",
-        titolo: "Proposte già scartate oggi dalla direzione (NON riproporle, nemmeno riformulate)",
-        fatti: scartate.slice(0, 12).map((p, i) => ({
+        titolo: `Già scartate dalla direzione negli ultimi ${GIORNI_MEMORIA_SCARTATE} giorni (NON riproporle, nemmeno riformulate)`,
+        fatti: scartate.slice(0, 15).map((p, i) => ({
           chiave: `scartata:${i}`,
-          testo: p.testo,
+          testo: `${p.giorno}${p.fonte ? ` [${p.fonte}]` : ""}: ${p.testo}`,
           entita: [],
           link: null,
         })),
       });
+    }
+    // Cosa hai fatto invece (punto 24): le proposte rifiutate che poi si
+    // sono avverate in un altro modo. È il segnale più forte che esista.
+    const diversi = correttivi(recenti, {
+      commessa: id => (getCommesseStore() as any[]).find(c => c.id === id) ?? null,
+      interventiDi: commessaId =>
+        (getInterventiStore() as any[]).filter(
+          i => i.commessaId === commessaId && i.stato !== "annullato"
+        ),
+    });
+    if (diversi.length > 0) {
+      fotografia.sezioni.push({
+        chiave: "correttivi",
+        titolo: "Cosa hai fatto invece (proposte rifiutate, poi avvenute in un altro modo)",
+        fatti: diversi.slice(0, 8).map(c => ({
+          chiave: c.chiave,
+          testo: c.testo,
+          entita: [`commessa:${c.commessaId}`],
+          link: `/commesse/${c.commessaId}`,
+        })),
+      });
+    }
+    // Il consuntivo di ieri (punto 6): quante proposte, quante fatte,
+    // quante scartate. Tars non chiudeva mai il cerchio.
+    const ieri = [...recenti]
+      .filter(r => r.giorno < giorno)
+      .sort((a, b) => b.giorno.localeCompare(a.giorno))[0];
+    if (ieri?.esito) {
+      const totali = ieri.esito.proposte.length;
+      const fatte = ieri.esito.proposte.filter(
+        p => p.esecuzione && p.esecuzione.stato !== "scartata"
+      ).length;
+      const buttate = ieri.esito.proposte.filter(
+        p => p.esecuzione?.stato === "scartata"
+      ).length;
+      if (totali > 0) {
+        fotografia.sezioni.push({
+          chiave: "consuntivo",
+          titolo: "Ieri (com'è andata l'analisi precedente)",
+          fatti: [
+            {
+              chiave: "consuntivo:ieri",
+              testo: `Analisi del ${ieri.giorno}: ${totali} proposte, ${fatte} eseguite, ${buttate} scartate, ${totali - fatte - buttate} lasciate lì.`,
+              entita: [],
+              link: null,
+            },
+          ],
+        });
+      }
+    }
+    const riscontro = riscontroPerFonte(recenti);
+    if (riscontro.length > 0) {
+      fotografia.sezioni.push({
+        chiave: "riscontro_proposte",
+        titolo: "Cosa accetti e cosa scarti (dove conviene spendere i sei posti)",
+        fatti: riscontro.map(riga => ({
+          chiave: `riscontro:${riga.fonte}`,
+          testo: testoRiscontro(riga),
+          entita: [],
+          link: null,
+        })),
+      });
+    }
+    // Due sedi, due liste, nessun confronto (punto 15): la direzione vede
+    // due analisi e non sa quale delle due stia andando peggio.
+    const altreSedi = deps.sedi().filter(s => s !== input.sedeId);
+    if (altreSedi.length > 0) {
+      const confronti: string[] = [];
+      for (const altra of altreSedi.slice(0, 3)) {
+        const sua = await deps.repository.ultima(altra);
+        const suoi = sua?.esito?.contatori;
+        if (!suoi) continue;
+        const mie = fotografia.contatori;
+        const differenze = CONTATORI_CONFRONTO_SEDI.filter(
+          ([chiave]) =>
+            typeof mie[chiave] === "number" &&
+            typeof suoi[chiave] === "number" &&
+            mie[chiave] !== suoi[chiave]
+        ).map(([chiave, nome]) => `${nome} ${mie[chiave]} contro ${suoi[chiave]}`);
+        if (differenze.length > 0) {
+          confronti.push(`sede ${altra} (analisi del ${sua!.giorno}): ${differenze.join(", ")}`);
+        }
+      }
+      if (confronti.length > 0) {
+        fotografia.sezioni.push({
+          chiave: "confronto_sedi",
+          titolo: "Come sta l'altra sede (stessi conti, altro cantiere)",
+          fatti: confronti.map((testo, i) => ({
+            chiave: `confronto:${i}`,
+            testo,
+            entita: [],
+            link: null,
+          })),
+        });
+      }
     }
     const provider = deps.provider(input.sedeId);
     const esito = provider
@@ -103,6 +225,8 @@ export async function generaAnalisiAzienda(input: {
           fotografia,
           provider,
           modello: deps.modello,
+          // Il salto (punto 19): l'analisi può leggere prima di proporre.
+          contestoIndagine: contestoDiIndagine(input.sedeId),
           identita: {
             runId: `analisi:${input.sedeId}:${giorno}:${adesso.getTime()}`,
             passo: 0,
@@ -111,12 +235,15 @@ export async function generaAnalisiAzienda(input: {
           },
         })
       : analisiDeterministica(fotografia);
+    // Ogni proposta al suo destinatario: derivato da sezione e assegnatario
+    // con la stessa regola T6 della chat (punto 3 del piano 08/09/2026).
+    const esitoIndirizzato = conDestinatari(esito, deps.destinatari);
     return await deps.repository.salva({
       sedeId: input.sedeId,
       giorno,
       versione: VERSIONE_ANALISI_AZIENDA,
       stato: "pronta",
-      esito,
+      esito: esitoIndirizzato,
       errore: null,
       richiestaDa: input.richiestaDa,
       now: adesso,
@@ -137,8 +264,53 @@ export async function generaAnalisiAzienda(input: {
   }
 }
 
+/**
+ * I contatori che, se cambiano, meritano un'analisi nuova prima delle
+ * quattro ore: non lo stato del mondo, ma i fatti che cambiano cosa c'è da
+ * fare oggi (punto 5 del piano 08/09/2026 — «nessun evento la sveglia»).
+ */
+const CONTATORI_SVEGLIA: readonly string[] = [
+  "fontiCieche",
+  "merceInRitardo",
+  "discordanzeCritiche",
+  "ticketUrgenti",
+  "impegniScaduti",
+  "confermeOrdineDaArchiviareSubito",
+  "pronteAlPassoSuccessivo",
+];
+/** Almeno mezz'ora fra due analisi, anche quando il mondo cambia in fretta. */
+export const INTERVALLO_MINIMO_MS = 30 * 60 * 1000;
+
+/**
+ * Qualcosa è successo da quando l'analisi è stata fatta? Confronta i
+ * contatori di allora con quelli di adesso: se un fatto che conta è
+ * peggiorato, non si aspetta domani mattina.
+ */
+export function fattoNuovo(
+  esistente: RecordAnalisiAzienda,
+  contatoriOra: Record<string, number>
+): string | null {
+  const prima = esistente.esito?.contatori ?? {};
+  for (const chiave of CONTATORI_SVEGLIA) {
+    const adesso = contatoriOra[chiave];
+    const allora = prima[chiave];
+    if (typeof adesso !== "number" || typeof allora !== "number") continue;
+    if (adesso > allora) return chiave;
+  }
+  return null;
+}
+
 /** Dopo tante ore l'analisi di oggi è vecchia: si rifà (direzione 04/09: «non ne ho più ricevute di nuove»). */
 export const RIGENERA_DOPO_MS = 4 * 60 * 60 * 1000;
+
+/** I pochi numeri che ha senso mettere a confronto fra due sedi. */
+const CONTATORI_CONFRONTO_SEDI: ReadonlyArray<readonly [string, string]> = [
+  ["preventiviFermi7", "preventivi fermi"],
+  ["gateMancanti", "gate scoperti"],
+  ["merceInRitardo", "consegne in ritardo"],
+  ["piuLenteDelSolito", "lavori più lenti del solito"],
+  ["fattureNonCollegate", "fatture non collegate"],
+];
 /** Se tutte le proposte sono state gestite (eseguite o scartate), la prossima arriva dopo mezz'ora. */
 export const RIGENERA_SE_GESTITE_DOPO_MS = 30 * 60 * 1000;
 
@@ -172,8 +344,28 @@ export async function giroAnalisi(deps: DipendenzeAnalisi): Promise<{ generate: 
   for (const sedeId of deps.sedi()) {
     const esistente = await deps.repository.perGiorno(sedeId, giorno);
     if (esistente && !analisiDaRifare(esistente, adesso)) {
-      saltate.push(sedeId);
-      continue;
+      // Il tempo non basta più da solo: se un fatto che conta è peggiorato
+      // (una fonte muta, una consegna saltata, un ticket urgente), la
+      // rifacciamo subito — con almeno mezz'ora di distanza dalla scorsa.
+      const eta = adesso.getTime() - esistente.generataAt.getTime();
+      let sveglia: string | null = null;
+      if (eta >= INTERVALLO_MINIMO_MS) {
+        try {
+          const ora = await costruisciFotografia({
+            sedeId,
+            adesso,
+            deps: deps.fotografia,
+          });
+          sveglia = fattoNuovo(esistente, ora.contatori);
+        } catch {
+          sveglia = null;
+        }
+      }
+      if (!sveglia) {
+        saltate.push(sedeId);
+        continue;
+      }
+      console.info(`[tars] analisi sede ${sedeId} rifatta: «${sveglia}» è peggiorato`);
     }
     await generaAnalisiAzienda({ sedeId, richiestaDa: null, deps });
     generate.push(sedeId);

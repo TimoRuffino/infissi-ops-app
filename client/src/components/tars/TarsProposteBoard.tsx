@@ -1,17 +1,24 @@
-// Vista «Proposte» della pagina Tars (02/09/2026, sera, seconda stesura
-// su richiesta della direzione): una coda di decisioni, a tutta larghezza.
-// Una riga per proposta: cosa è, dove Tars vuole portarla, quanto è
-// sicuro, e un bottone grande. Il perché e gli effetti si aprono a
-// richiesta. Il server è il confine: qui si decide, mai si applica da soli.
+// Vista «Proposte» della pagina Tars: la coda delle decisioni.
+//
+// Terza stesura (08/09/2026, PRD §62). Le tre sorgenti — comunicazioni da
+// collegare, dati letti dai documenti, consigli dell'analisi — arrivavano
+// qui con le parole della propria sorgente: il titolo di una comunicazione
+// era l'oggetto grezzo dell'email, cosa Tars volesse fare stava sotto in
+// piccolo e il perché era chiuso in un pannello da aprire riga per riga.
+// Ora ogni riga dice, nell'ordine: cosa succede se dici sì, perché, cosa
+// cambia, da dove viene. Il testo lo prepara `lib/tarsDecisioniView.ts`
+// (puro, provato da solo); qui si disegna e si decide.
+//
+// Il server resta il confine: qui si decide, mai si applica da soli.
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import {
+  ArrowRight,
   Brain,
   Check,
-  ChevronDown,
   ClipboardCheck,
   ExternalLink,
   Inbox,
@@ -24,6 +31,14 @@ import {
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  decisioneDaComunicazione,
+  decisioneDaConsiglio,
+  decisioneDaDocumento,
+  ETICHETTA_FIDUCIA,
+  titoloCoda,
+  type Decisione,
+} from "@/lib/tarsDecisioniView";
 import { useAnalisiAzienda } from "./TarsAnalisiAzienda";
 import { useDecisioneSmistamento } from "./TarsSmistamento";
 
@@ -48,17 +63,25 @@ export function useProposteTars(abilitato: boolean) {
   });
   const analisi = useAnalisiAzienda(abilitato);
   const demo = fixtureDemo();
+  const proposteAnalisi = demo?.analisi ?? analisi.proposte;
   return {
     smistamento: demo?.smistamento ?? smistamento.data ?? [],
     gateway: demo?.gateway ?? gateway.data ?? [],
-    analisi: demo?.analisi ?? analisi.proposte,
+    analisi: proposteAnalisi,
     analisiId: demo ? 999 : analisi.analisiId,
-    totale: demo
-      ? demo.smistamento.length + demo.gateway.length + demo.analisi.length
-      : (smistamento.data?.length ?? 0) +
-        (gateway.data?.length ?? 0) +
-        analisi.proposte.length,
+    // Il numero sulla linguetta è quello che aspetta una decisione: un
+    // consiglio già eseguito o scartato non è lavoro, e contarlo faceva
+    // dire «6» alla linguetta sopra una coda di cinque righe.
+    totale:
+      (demo?.smistamento.length ?? smistamento.data?.length ?? 0) +
+      (demo?.gateway.length ?? gateway.data?.length ?? 0) +
+      proposteAnalisi.filter(p => !p.esecuzione).length,
     loading: !demo && (smistamento.isLoading || gateway.isLoading),
+    // L'analisi di oggi si rigenera da qui: è dove si leggono i suoi
+    // consigli. Prima il pulsante stava nella colonna destra della chat,
+    // che non c'è più (PRD §62).
+    rigeneraAnalisi: analisi.rigenera,
+    analisiNascosta: analisi.nascosta,
     // Lo smistamento può essere spento (flag) senza che il resto sparisca.
     erroreSmistamento: smistamento.error?.message ?? null,
     errore: gateway.error?.message ?? null,
@@ -162,109 +185,139 @@ function fixtureDemo(): {
   };
 }
 
-function dataBreve(valore: string | Date): string {
-  const d = new Date(valore);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-const ETICHETTA_CONFIDENZA: Record<string, string> = {
-  alta: "sicuro",
-  media: "probabile",
-  bassa: "incerto",
-};
-
-function classeConfidenza(confidenza: string): string {
-  if (confidenza === "alta") return "bg-success-soft text-success";
-  if (confidenza === "media") return "bg-warning-soft text-warning";
+function classeFiducia(fiducia: NonNullable<Decisione["fiducia"]>): string {
+  if (fiducia === "alta") return "bg-success-soft text-success";
+  if (fiducia === "media") return "bg-warning-soft text-warning";
   return "bg-surface-2 text-text-2";
 }
 
-type Filtro = "tutte" | "comunicazioni" | "analisi" | "documenti";
-
 /**
- * Una riga della coda. Sopra: titolo e meta. Sotto: la destinazione in
- * evidenza. A destra: i bottoni. Il resto (perché, effetti) si apre.
+ * Una riga della coda, letta dall'alto: cosa succede se dici sì (il
+ * titolo), perché, cosa cambia, da dove viene. Niente si apre: quello che
+ * serve per decidere è già tutto qui, e quello che non serve non c'è.
  */
-function RigaProposta({
+function RigaDecisione({
+  decisione: d,
   icona,
-  tipo,
-  titolo,
-  meta,
-  destinazione,
-  chip,
-  dettagli,
   azioni,
   onApri,
+  onApriLink,
 }: {
+  decisione: Decisione;
   icona: ReactNode;
-  tipo: string;
-  titolo: string;
-  meta?: string | null;
-  destinazione: ReactNode;
-  chip?: ReactNode;
-  dettagli: ReactNode;
   azioni: ReactNode;
   onApri?: () => void;
+  onApriLink: (link: string) => void;
 }) {
-  const [aperta, setAperta] = useState(false);
   return (
-    <li className="px-4 py-3 sm:px-5">
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 md:grid-cols-[auto_minmax(0,1fr)_auto]">
+    <li className="px-4 py-4 sm:px-5">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
         <span
-          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-text-2"
+          className="hidden size-8 shrink-0 items-center justify-center rounded-md bg-surface-2 text-text-2 lg:flex"
           aria-hidden="true"
         >
           {icona}
         </span>
-        <div className="min-w-0">
-          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-text-3">
-            <span className="font-semibold uppercase tracking-wide">{tipo}</span>
-            {meta && <span className="min-w-0 truncate">{meta}</span>}
-          </p>
-          <p className="mt-0.5 text-sm font-semibold leading-5 text-text-1 break-words [overflow-wrap:anywhere]">
-            {titolo}
-          </p>
-          <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-5 text-text-1 break-words [overflow-wrap:anywhere]">
-            {destinazione}
-            {chip}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <button
-              type="button"
-              className="inline-flex min-h-8 items-center gap-1 text-text-2 hover:text-text-1"
-              aria-expanded={aperta}
-              onClick={() => setAperta(a => !a)}
-            >
-              <ChevronDown
-                className={cn("size-4 transition-transform motion-reduce:transition-none", aperta && "rotate-180")}
-                aria-hidden="true"
-              />
-              {aperta ? "Nascondi dettagli" : "Perché e cosa succede"}
-            </button>
-            {onApri && (
-              <button
-                type="button"
-                className="inline-flex min-h-8 items-center gap-1 text-text-2 hover:text-text-1"
-                onClick={onApri}
-              >
-                <ExternalLink className="size-3.5" aria-hidden="true" />
-                Apri
-              </button>
+
+        <div className="min-w-0 flex-1">
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-sm font-semibold leading-6 text-text-1 break-words [overflow-wrap:anywhere]">
+              {d.azione}
+            </span>
+            {d.urgente && (
+              <span className="shrink-0 rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-semibold text-danger">
+                urgente
+              </span>
             )}
-          </div>
-          {aperta && (
-            <div className="mt-2 space-y-1.5 rounded-md border border-border-soft bg-surface-2 px-3 py-2.5 text-xs leading-5 text-text-2">
-              {dettagli}
-            </div>
+            {d.fiducia && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                  classeFiducia(d.fiducia)
+                )}
+              >
+                {ETICHETTA_FIDUCIA[d.fiducia]}
+              </span>
+            )}
+          </p>
+
+          {d.perche && (
+            <p className="mt-1 text-sm leading-5 text-text-2 break-words [overflow-wrap:anywhere]">
+              {d.perche}
+            </p>
+          )}
+
+          {d.cambio && (
+            <p className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span className="text-text-3 line-through">{d.cambio.da}</span>
+              <ArrowRight className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
+              <strong className="font-semibold text-text-1">{d.cambio.a}</strong>
+            </p>
+          )}
+
+          {d.effetti.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {d.effetti.map(effetto => (
+                <li
+                  key={effetto}
+                  className="flex min-w-0 gap-1.5 text-xs leading-5 text-text-3"
+                >
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+                    {effetto}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {d.riguarda.length > 0 && (
+            <p className="mt-2 flex flex-wrap gap-1">
+              {/* Nomi, non id: le etichette e i link li risolve il server. */}
+              {d.riguarda.map(e =>
+                e.link ? (
+                  <button
+                    key={e.etichetta}
+                    type="button"
+                    className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-1 hover:underline"
+                    onClick={() => onApriLink(e.link!)}
+                  >
+                    {e.etichetta}
+                  </button>
+                ) : (
+                  <span
+                    key={e.etichetta}
+                    className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-2"
+                  >
+                    {e.etichetta}
+                  </span>
+                )
+              )}
+            </p>
+          )}
+
+          {(d.provenienza || onApri) && (
+            <p className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] leading-5 text-text-3">
+              {d.provenienza && (
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+                  {d.provenienza}
+                </span>
+              )}
+              {onApri && (
+                <button
+                  type="button"
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1 font-semibold text-text-2 hover:text-text-1"
+                  onClick={onApri}
+                >
+                  <ExternalLink className="size-3.5" aria-hidden="true" />
+                  Apri l'originale
+                </button>
+              )}
+            </p>
           )}
         </div>
-        <div className="col-span-2 flex flex-wrap items-center gap-2 md:col-span-1 md:flex-nowrap md:self-start md:pl-2">
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:pl-2">
           {azioni}
         </div>
       </div>
@@ -272,23 +325,17 @@ function RigaProposta({
   );
 }
 
-function Dettaglio({ etichetta, children }: { etichetta: string; children: ReactNode }) {
-  return (
-    <p className="break-words [overflow-wrap:anywhere]">
-      <span className="font-semibold text-text-1">{etichetta}: </span>
-      {children}
-    </p>
-  );
-}
-
+/** Sì e no, con lo stesso peso visivo ovunque: il verbo dice il gesto. */
 function BottoniDecisione({
   inCorso,
-  etichettaSi,
+  verbo,
+  etichettaNo = "Rifiuta",
   onSi,
   onNo,
 }: {
   inCorso: boolean;
-  etichettaSi: string;
+  verbo: string;
+  etichettaNo?: string;
   onSi: () => void;
   onNo: () => void;
 }) {
@@ -296,7 +343,7 @@ function BottoniDecisione({
     <>
       <Button
         type="button"
-        className="min-h-10 flex-1 md:flex-none"
+        className="min-h-10"
         disabled={inCorso}
         onClick={onSi}
       >
@@ -305,45 +352,42 @@ function BottoniDecisione({
         ) : (
           <Check aria-hidden="true" />
         )}
-        {etichettaSi}
+        {verbo}
       </Button>
       <Button
         type="button"
         variant="outline"
         className="min-h-10"
         disabled={inCorso}
-        aria-label="Rifiuta la proposta"
-        title="Rifiuta"
         onClick={onNo}
       >
         <X aria-hidden="true" />
-        <span className="md:sr-only">Rifiuta</span>
+        {etichettaNo}
       </Button>
     </>
   );
 }
 
+/**
+ * Un gruppo della coda. Titolo e conteggio, niente istruzioni: cosa fa il
+ * pulsante lo dice il pulsante.
+ */
 function Sezione({
   titolo,
-  suggerimento,
   conteggio,
   children,
 }: {
   titolo: string;
-  suggerimento: string;
   conteggio: number;
   children: ReactNode;
 }) {
   return (
     <section aria-label={titolo}>
-      <div className="flex items-baseline gap-2 px-4 pb-1.5 pt-4 sm:px-5">
+      <div className="flex items-baseline gap-2 px-4 pb-1.5 pt-5 sm:px-5">
         <h3 className="text-xs font-bold uppercase tracking-wide text-text-2">
           {titolo}
         </h3>
         <span className="text-xs font-semibold text-text-3">{conteggio}</span>
-        <span className="hidden min-w-0 truncate text-xs text-text-3 sm:inline">
-          · {suggerimento}
-        </span>
       </div>
       <ul className="divide-y divide-border-soft border-y border-border-soft bg-card">
         {children}
@@ -365,7 +409,6 @@ export function TarsProposteBoard({
   onVaiAlRegistro: () => void;
 }) {
   const utils = trpc.useUtils();
-  const [filtro, setFiltro] = useState<Filtro>("tutte");
   // Le proposte già gestite (eseguite o scartate) non sono lavoro: restano
   // dietro un toggle, così la lista mostra solo ciò che aspetta una
   // decisione (direzione 04/09/2026: «se le rifiuto rimangono lì»).
@@ -456,26 +499,19 @@ export function TarsProposteBoard({
   });
 
   const gatewayVisibili = dati.gateway.filter(p => !decise.includes(p.id));
-  // I contatori dei filtri contano quello che si vede, non quello che il
-  // server non sa ancora di aver perso.
-  const nascoste = dati.gateway.length - gatewayVisibili.length;
-  const totaleVisibile = dati.totale - nascoste;
 
   // L'indice originale resta la chiave delle mutation (Esegui/Scarta):
-  // il filtro non lo perde.
+  // nasconderne una non lo sposta.
   const analisiTutte = dati.analisi.map((p, i) => ({ p, i }));
   const analisiAperte = analisiTutte.filter(x => !x.p.esecuzione);
   const analisiGestite = analisiTutte.length - analisiAperte.length;
   const analisiVoci = mostraGestite ? analisiTutte : analisiAperte;
 
-  const tuttiIFiltri: Array<{ id: Filtro; etichetta: string; n: number }> = [
-    { id: "tutte", etichetta: "Tutte", n: dati.totale - nascoste - analisiGestite },
-    { id: "comunicazioni", etichetta: "Comunicazioni", n: dati.smistamento.length },
-    { id: "analisi", etichetta: "Analisi di oggi", n: analisiAperte.length },
-    { id: "documenti", etichetta: "Documenti", n: gatewayVisibili.length },
-  ];
-  const filtri = tuttiIFiltri.filter(f => f.id === "tutte" || f.n > 0);
-  const mostra = (id: Exclude<Filtro, "tutte">) => filtro === "tutte" || filtro === id;
+  // Un numero solo, contato dalle righe che si vedono. Prima l'intestazione
+  // partiva dal totale del server e i filtri toglievano le gestite: la
+  // pagina diceva «6 proposte» sopra una lista di cinque.
+  const daDecidere =
+    dati.smistamento.length + analisiAperte.length + gatewayVisibili.length;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
@@ -483,17 +519,33 @@ export function TarsProposteBoard({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-text-1">
-              {totaleVisibile === 0
-                ? "Nessuna proposta da decidere"
-                : totaleVisibile === 1
-                  ? "1 proposta da decidere"
-                  : `${totaleVisibile} proposte da decidere`}
+              {titoloCoda(daDecidere)}
             </h2>
             <p className="text-xs leading-5 text-text-3">
-              Tars fa da solo quando è sicuro e lo scrive nel Registro. Qui
-              solo ciò che aspetta te.
+              Quando è sicuro Tars fa da solo e lo scrive nel Registro. Qui
+              resta ciò che vuole il tuo sì.
             </p>
           </div>
+          {!dati.analisiNascosta && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-10 shrink-0"
+              // Sotto sm resta la sola icona: il nome accessibile non può
+              // dipendere dal testo che sparisce.
+              aria-label="Rigenera l'analisi di oggi"
+              title="Rifà l'analisi di oggi e i suoi consigli"
+              disabled={dati.rigeneraAnalisi.isPending}
+              onClick={() => dati.rigeneraAnalisi.mutate()}
+            >
+              {dati.rigeneraAnalisi.isPending ? (
+                <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+              ) : (
+                <Brain aria-hidden="true" />
+              )}
+              <span className="hidden sm:inline">Rigenera l'analisi</span>
+            </Button>
+          )}
           <Button
             type="button"
             size="icon"
@@ -506,27 +558,6 @@ export function TarsProposteBoard({
             <RefreshCw aria-hidden="true" />
           </Button>
         </div>
-        {dati.totale > 0 && filtri.length > 2 && (
-          <div role="tablist" aria-label="Filtra le proposte" className="mt-3 flex flex-wrap gap-1.5">
-            {filtri.map(f => (
-              <button
-                key={f.id}
-                type="button"
-                role="tab"
-                aria-selected={filtro === f.id}
-                className={cn(
-                  "min-h-9 rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  filtro === f.id
-                    ? "border-accent bg-accent text-accent-foreground"
-                    : "border-border-soft bg-surface text-text-2 hover:text-text-1"
-                )}
-                onClick={() => setFiltro(f.id)}
-              >
-                {f.etichetta} <span className="opacity-80">{f.n}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-6">
@@ -535,13 +566,15 @@ export function TarsProposteBoard({
             <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Carico le proposte…
           </p>
-        ) : totaleVisibile === 0 ? (
+        ) : daDecidere === 0 ? (
           <div className="mx-auto max-w-md px-4 py-12 text-center">
             <Inbox className="mx-auto size-8 text-text-3" aria-hidden="true" />
-            <p className="mt-3 text-sm font-semibold text-text-1">Coda vuota</p>
+            <p className="mt-3 text-sm font-semibold text-text-1">
+              Niente da decidere
+            </p>
             <p className="mt-1 text-xs leading-5 text-text-3">
-              Comunicazioni ambigue, importi, cancellazioni ed effetti esterni
-              arrivano qui. Tutto il resto Tars lo fa da solo.
+              Qui arrivano i messaggi da collegare, i dati letti dai documenti
+              e i consigli dell'analisi. Tutto il resto Tars lo fa da solo.
             </p>
             <Button
               type="button"
@@ -560,82 +593,24 @@ export function TarsProposteBoard({
           </div>
         ) : (
           <>
-            {mostra("comunicazioni") && dati.smistamento.length > 0 && (
+            {dati.smistamento.length > 0 && (
               <Sezione
-                titolo="Comunicazioni da collegare"
-                suggerimento="Approva: collega la comunicazione e archivia gli allegati riconosciuti"
+                titolo="Messaggi da collegare"
                 conteggio={dati.smistamento.length}
               >
                 {dati.smistamento.map(voce => {
-                  const candidato = voce.candidati.find(c =>
-                    voce.collegamento.commessaId
-                      ? c.tipo === "commessa" && c.id === voce.collegamento.commessaId
-                      : c.tipo === "cliente" && c.id === voce.collegamento.clienteId
-                  );
-                  const destinazione =
-                    candidato?.etichetta ??
-                    (voce.collegamento.commessaId
-                      ? `commessa ${voce.collegamento.commessaId}`
-                      : `cliente ${voce.collegamento.clienteId}`);
                   const inCorso = smistamentoInCorso === voce.comunicazioneId;
-                  const allegati = voce.allegatiDaArchiviare;
                   return (
-                    <RigaProposta
+                    <RigaDecisione
                       key={voce.comunicazioneId}
+                      decisione={decisioneDaComunicazione(voce)}
                       icona={<Link2 className="size-4" aria-hidden="true" />}
-                      tipo={voce.canale === "whatsapp" ? "WhatsApp" : "Email"}
-                      meta={`${voce.mittente} · ${dataBreve(voce.ricevutaIl)}`}
-                      titolo={voce.oggetto || voce.mittente}
-                      destinazione={
-                        <>
-                          <span className="text-text-3">Collega a</span>
-                          <strong className="font-semibold">{destinazione}</strong>
-                        </>
-                      }
-                      chip={
-                        <>
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                              classeConfidenza(voce.collegamento.confidenza)
-                            )}
-                          >
-                            {ETICHETTA_CONFIDENZA[voce.collegamento.confidenza] ??
-                              voce.collegamento.confidenza}
-                          </span>
-                          {(voce.urgenza === "critica" || voce.urgenza === "alta") && (
-                            <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-medium text-danger">
-                              urgente
-                            </span>
-                          )}
-                          {allegati.length > 0 && (
-                            <span className="text-xs text-text-3">
-                              + {allegati.length}{" "}
-                              {allegati.length === 1 ? "allegato" : "allegati"} nel fascicolo
-                            </span>
-                          )}
-                        </>
-                      }
-                      dettagli={
-                        <>
-                          <Dettaglio etichetta="Perché">{voce.collegamento.motivo}</Dettaglio>
-                          {voce.riepilogo && (
-                            <Dettaglio etichetta="Il messaggio">{voce.riepilogo}</Dettaglio>
-                          )}
-                          <Dettaglio etichetta="Se approvi">
-                            {voce.collegamento.commessaId
-                              ? "la comunicazione viene collegata alla commessa e segnata gestita"
-                              : "la comunicazione viene agganciata al cliente"}
-                            {allegati.length > 0
-                              ? `; ${allegati.length === 1 ? "l'allegato" : "gli allegati"} ${allegati.join(", ")} ${allegati.length === 1 ? "finisce" : "finiscono"} nel fascicolo.`
-                              : "."}
-                          </Dettaglio>
-                        </>
-                      }
+                      onApri={() => onApriLink(voce.link)}
+                      onApriLink={onApriLink}
                       azioni={
                         <BottoniDecisione
                           inCorso={inCorso}
-                          etichettaSi="Approva"
+                          verbo="Collega"
                           onSi={() => {
                             setSmistamentoInCorso(voce.comunicazioneId);
                             decidiSmistamento.mutate({
@@ -652,120 +627,96 @@ export function TarsProposteBoard({
                           }}
                         />
                       }
-                      onApri={() => onApriLink(voce.link)}
                     />
                   );
                 })}
               </Sezione>
             )}
 
-            {mostra("analisi") && dati.analisi.length > 0 && (
+            {gatewayVisibili.length > 0 && (
               <Sezione
-                titolo="Dall'analisi di oggi"
-                suggerimento="«Esegui» fa la cosa ora e la scrive nel Registro; «Chiedi a Tars» apre la chat. Gestite tutte? Una nuova analisi arriva da sola entro mezz'ora."
+                titolo="Dati letti dai documenti"
+                conteggio={gatewayVisibili.length}
+              >
+                {gatewayVisibili.map(p => (
+                  <RigaDecisione
+                    key={p.id}
+                    decisione={decisioneDaDocumento(p)}
+                    icona={<ClipboardCheck className="size-4" aria-hidden="true" />}
+                    onApri={() => onApriLink(p.link)}
+                    onApriLink={onApriLink}
+                    azioni={
+                      <BottoniDecisione
+                        inCorso={gatewayInCorso === p.id}
+                        verbo="Applica"
+                        onSi={() => {
+                          setGatewayInCorso(p.id);
+                          nascondi(p.id);
+                          approva.mutate({ id: p.id, hashAnteprima: p.hashAnteprima });
+                        }}
+                        onNo={() => {
+                          setGatewayInCorso(p.id);
+                          nascondi(p.id);
+                          rifiuta.mutate({ id: p.id });
+                        }}
+                      />
+                    }
+                  />
+                ))}
+              </Sezione>
+            )}
+
+            {analisiVoci.length > 0 && (
+              <Sezione
+                titolo="Consigli dell'analisi di oggi"
                 conteggio={analisiAperte.length}
               >
-                {analisiGestite > 0 && (
-                  <div className="flex items-center justify-between gap-2 px-1 pb-1 text-xs text-text-3">
-                    <span>
-                      {analisiAperte.length === 0
-                        ? "Tutte le proposte di oggi sono state gestite."
-                        : `${analisiGestite} già ${analisiGestite === 1 ? "gestita" : "gestite"}.`}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8"
-                      onClick={() => setMostraGestite(v => !v)}
-                    >
-                      {mostraGestite ? "Nascondi le gestite" : `Mostra ${analisiGestite} gestite`}
-                    </Button>
-                  </div>
-                )}
-                {analisiVoci.map(({ p, i }) => (
-                  <RigaProposta
-                    key={i}
-                    icona={<Brain className="size-4" aria-hidden="true" />}
-                    tipo="Consiglio"
-                    titolo={p.testo}
-                    destinazione={
-                      <span className="text-text-2">
-                        Tars farebbe: <em className="not-italic font-medium text-text-1">{p.richiestaPerTars}</em>
-                      </span>
-                    }
-                    dettagli={
-                      <>
-                        <Dettaglio etichetta="Cosa succede">
-                          {p.azione
-                            ? `un click: Tars esegue ora «${p.azione.strumento.replaceAll("_", " ")}» con i vincoli del dominio (sede, permessi, gate) e lo scrive nel Registro.`
-                            : "niente finché non lo chiedi: la richiesta va in chat, Tars la esegue con i suoi strumenti e la scrive nel Registro."}
-                        </Dettaglio>
-                        {p.entita.length > 0 && (
-                          <Dettaglio etichetta="Riguarda">
-                            <span className="inline-flex flex-wrap gap-1">
-                              {/* Nomi, non id: le etichette e i link li
-                                  risolve il server. */}
-                              {p.entita.map(e =>
-                                e.link ? (
-                                  <button
-                                    key={e.riferimento}
-                                    type="button"
-                                    className="rounded-sm bg-surface px-1.5 py-0.5 text-[11px] text-text-1 hover:underline"
-                                    onClick={() => onApriLink(e.link!)}
-                                  >
-                                    {e.etichetta}
-                                  </button>
-                                ) : (
-                                  <span
-                                    key={e.riferimento}
-                                    className="rounded-sm bg-surface px-1.5 py-0.5 text-[11px] text-text-2"
-                                  >
-                                    {e.etichetta}
-                                  </span>
-                                )
+                {analisiVoci.map(({ p, i }) => {
+                  const decisione = decisioneDaConsiglio(p, i);
+                  const link =
+                    p.link ?? p.entita.find(e => e.link)?.link ?? null;
+                  return (
+                    <RigaDecisione
+                      key={i}
+                      decisione={decisione}
+                      icona={<Brain className="size-4" aria-hidden="true" />}
+                      onApri={link ? () => onApriLink(link) : undefined}
+                      onApriLink={onApriLink}
+                      azioni={
+                        p.esecuzione ? (
+                          <>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-1 text-[11px] font-semibold",
+                                p.esecuzione.stato === "scartata"
+                                  ? "bg-surface-2 text-text-3"
+                                  : p.esecuzione.stato === "non_eseguito"
+                                    ? "bg-warning-soft text-warning"
+                                    : "bg-success-soft text-success"
                               )}
-                            </span>
-                          </Dettaglio>
-                        )}
-                      </>
-                    }
-                    azioni={
-                      p.esecuzione ? (
-                        <div className="flex flex-1 items-center justify-end gap-2 md:flex-none">
-                          <span
-                            className={cn(
-                              "rounded-full px-2 py-1 text-[11px] font-semibold",
-                              p.esecuzione.stato === "scartata"
-                                ? "bg-surface-2 text-text-3"
-                                : p.esecuzione.stato === "non_eseguito"
-                                  ? "bg-warning-soft text-warning"
-                                  : "bg-success-soft text-success"
-                            )}
-                          >
-                            {p.esecuzione.stato === "scartata"
-                              ? "Scartata"
-                              : p.esecuzione.stato === "non_eseguito"
-                                ? (p.esecuzione.motivo ?? "Non eseguita")
-                                : "Fatto da Tars"}
-                          </span>
-                          {p.esecuzione.stato !== "scartata" && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="min-h-10"
-                              onClick={onVaiAlRegistro}
                             >
-                              Registro
-                            </Button>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          {p.azione ? (
+                              {p.esecuzione.stato === "scartata"
+                                ? "Scartata"
+                                : p.esecuzione.stato === "non_eseguito"
+                                  ? (p.esecuzione.motivo ?? "Non eseguita")
+                                  : "Fatto da Tars"}
+                            </span>
+                            {p.esecuzione.stato !== "scartata" && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="min-h-10"
+                                onClick={onVaiAlRegistro}
+                              >
+                                Registro
+                              </Button>
+                            )}
+                          </>
+                        ) : p.azione ? (
+                          <>
                             <Button
                               type="button"
-                              className="min-h-10 flex-1 md:flex-none"
+                              className="min-h-10"
                               disabled={analisiInCorso === i || dati.analisiId == null}
                               onClick={() => {
                                 setAnalisiInCorso(i);
@@ -779,115 +730,79 @@ export function TarsProposteBoard({
                               )}
                               Esegui
                             </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              className="min-h-10 flex-1 md:flex-none"
-                              onClick={() => onSuggerimento(p.richiestaPerTars)}
-                            >
-                              <MessageSquarePlus aria-hidden="true" />
-                              Chiedi a Tars
-                            </Button>
-                          )}
-                          {p.azione && (
                             <Button
                               type="button"
                               variant="outline"
                               className="min-h-10"
                               aria-label="Chiedi a Tars in chat"
-                              title="Chiedi a Tars"
+                              title="Chiedi a Tars invece di eseguire"
                               onClick={() => onSuggerimento(p.richiestaPerTars)}
                             >
                               <MessageSquarePlus aria-hidden="true" />
                             </Button>
-                          )}
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="min-h-10 shrink-0"
-                            aria-label="Scarta la proposta"
-                            title="Scarta"
-                            disabled={analisiInCorso === i || dati.analisiId == null}
-                            onClick={() => {
-                              setAnalisiInCorso(i);
-                              scartaAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
-                            }}
-                          >
-                            <X aria-hidden="true" />
-                          </Button>
-                        </>
-                      )
-                    }
-                    onApri={
-                      p.link
-                        ? () => onApriLink(p.link!)
-                        : p.entita.find(e => e.link)
-                          ? () => onApriLink(p.entita.find(e => e.link)!.link!)
-                          : undefined
-                    }
-                  />
-                ))}
-              </Sezione>
-            )}
-
-            {mostra("documenti") && gatewayVisibili.length > 0 && (
-              <Sezione
-                titolo="Dai documenti letti"
-                suggerimento="Cambiano dati dell'ordine: si applicano solo con la tua approvazione"
-                conteggio={gatewayVisibili.length}
-              >
-                {gatewayVisibili.map(p => {
-                  const inCorso = gatewayInCorso === p.id;
-                  return (
-                    <RigaProposta
-                      key={p.id}
-                      icona={<ClipboardCheck className="size-4" aria-hidden="true" />}
-                      tipo="Documento"
-                      meta={`${p.documentoNome} · ${dataBreve(p.creataIl)}`}
-                      titolo={p.etichetta}
-                      destinazione={
-                        p.valoreCorrente !== p.valoreProposto ? (
-                          <>
-                            <span className="text-text-3 line-through">
-                              {p.valoreCorrente ?? "—"}
-                            </span>
-                            <span aria-hidden="true" className="text-text-3">
-                              →
-                            </span>
-                            <strong className="font-semibold">{p.valoreProposto}</strong>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="min-h-10"
+                              disabled={analisiInCorso === i || dati.analisiId == null}
+                              onClick={() => {
+                                setAnalisiInCorso(i);
+                                scartaAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
+                              }}
+                            >
+                              <X aria-hidden="true" />
+                              Scarta
+                            </Button>
                           </>
                         ) : (
-                          <span>{p.effetto ?? p.motivazione}</span>
+                          <>
+                            <Button
+                              type="button"
+                              className="min-h-10"
+                              onClick={() => onSuggerimento(p.richiestaPerTars)}
+                            >
+                              <MessageSquarePlus aria-hidden="true" />
+                              Apri in chat
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="min-h-10"
+                              disabled={analisiInCorso === i || dati.analisiId == null}
+                              onClick={() => {
+                                setAnalisiInCorso(i);
+                                scartaAnalisi.mutate({ analisiId: dati.analisiId!, indice: i });
+                              }}
+                            >
+                              <X aria-hidden="true" />
+                              Scarta
+                            </Button>
+                          </>
                         )
                       }
-                      dettagli={
-                        <>
-                          {p.effetto && <Dettaglio etichetta="Effetto">{p.effetto}</Dettaglio>}
-                          <Dettaglio etichetta="Perché">{p.motivazione}</Dettaglio>
-                        </>
-                      }
-                      azioni={
-                        <BottoniDecisione
-                          inCorso={inCorso}
-                          etichettaSi="Approva e applica"
-                          onSi={() => {
-                            setGatewayInCorso(p.id);
-                            nascondi(p.id);
-                            approva.mutate({ id: p.id, hashAnteprima: p.hashAnteprima });
-                          }}
-                          onNo={() => {
-                            setGatewayInCorso(p.id);
-                            nascondi(p.id);
-                            rifiuta.mutate({ id: p.id });
-                          }}
-                        />
-                      }
-                      onApri={() => onApriLink(p.link)}
                     />
                   );
                 })}
               </Sezione>
+            )}
+
+            {analisiGestite > 0 && (
+              <p className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-text-3 sm:px-5">
+                <span>
+                  {analisiAperte.length === 0
+                    ? "I consigli di oggi sono stati gestiti tutti."
+                    : `${analisiGestite} ${analisiGestite === 1 ? "consiglio gestito" : "consigli gestiti"}.`}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setMostraGestite(v => !v)}
+                >
+                  {mostraGestite ? "Nascondi i gestiti" : "Mostra i gestiti"}
+                </Button>
+              </p>
             )}
           </>
         )}

@@ -6,6 +6,7 @@ import { TZDate } from "@date-fns/tz";
 import { getActionCaseRepository } from "../../actionCenter/repository";
 import { OPEN_ACTION_STATUSES } from "../../actionCenter/service";
 import { getProposteStore } from "../../proposte/gateway";
+import { STATI_COMMESSA } from "../../commesse/transizioni";
 import { getCommesseStore } from "../../routers/commesse";
 import { ficFatture, statoFattura } from "../../routers/ficFatture";
 import { getOrdiniFornitoriStore } from "../../routers/fornitori";
@@ -13,13 +14,22 @@ import { getInterventiStore } from "../../routers/interventi";
 import {
   DOC_TIPO_LABEL,
   REQUIRED_DOC_TIPI_PER_STATO,
+  getDocumentiDiCommessa,
   statoHasRequiredDoc,
 } from "../../routers/preventiviContratti";
+import {
+  catenePerTipo,
+  type DocumentoVersionabile,
+} from "@shared/versioniDocumenti";
 import { getTicketStore } from "../../routers/ticket";
 import { sezioneSmistamento } from "../briefing";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
 import { repositoryOsservazioniCorrente } from "../proattivita/repository";
 import { smistamentoAttivo } from "../smistamento/worker";
+// Le promesse dette a parole e il filo delle conversazioni (punti 28 e 27).
+import { impegniDiSede, testoImpegno, type ImpegnoInScadenza } from "../smistamento/impegni";
+import { fili, filiInAttesa, type Filo } from "../../comunicazioni/filo";
+import { listComunicazioni } from "../../comunicazioni/comunicazioni";
 import { tarsAttivo } from "../../platform/interruttori";
 import { ultimaComunicazionePerCommessa } from "../../comunicazioni/comunicazioni";
 import { ultimaAttivitaCommessa } from "../../commesse/attivita";
@@ -31,8 +41,42 @@ import {
 // Il costo che nasce dalla conferma è regola di dominio, non di Tars: qui
 // si legge solo dove NON è nato, per dirlo.
 import { confermeSenzaCostoLeggibileDiSede } from "../../commesse/costoDaConferma";
+// La merce ordinata: senza questa sezione la fotografia non vedeva l'unica
+// cosa che fa slittare le pose (punto 1 del piano 08/09/2026).
+import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivio";
+// Documento contro dato: la merce che arriva dopo la posa, la data e il
+// costo che non coincidono con la conferma (punto 29 del piano).
+import { discordanzeDiSede, type Discordanza } from "../../commesse/discordanze";
+// I documenti che la NATURA del lavoro vuole, oltre a quelli della fase
+// (punto 31): avviso, non blocco.
+import { documentiAttesi, testoAttesi } from "../../commesse/documentiAttesi";
+import { getClientiStore } from "../../routers/clienti";
+// Quello che la direzione ha detto a Tars in chat deve arrivare al mattino
+// dopo (punti 10 e 25 del piano): i due cervelli erano scollegati.
+import { memorieValide, type MemoriaTars } from "../memoria";
+import { getGaranzieStore } from "../../routers/garanzie";
+// Le soglie dalla storia dell'azienda, non inventate a mano (punto 17), e
+// la posta in gioco che ordina le proposte (punti 8 e 22).
+import {
+  commesseLenteDiSede,
+  type CommessaLenta,
+  type MedianaStato,
+} from "../../commesse/tempiDiAttraversamento";
+import {
+  postaPerEntita,
+  postaInGiocoDiSede,
+  sogliaMargine,
+  type PostaCommessa,
+} from "../../commesse/postaInGioco";
+// Le fonti mute: l'unico difetto che mente in modo rassicurante (punto 7).
+import { guastiDiSede, type GuastoIntegrazione } from "./guasti";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
-import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
+import type {
+  FattoAnalisi,
+  FiduciaFatto,
+  FotografiaAzienda,
+  SezioneFotografia,
+} from "./types";
 
 const COMMESSE_FERME = 6;
 const CASI_MASSIMI = 12;
@@ -42,6 +86,9 @@ const GIORNI_INTERVENTI = 7;
 const PREVENTIVI_MASSIMI = 10;
 const GATE_MASSIMI = 8;
 const FATTURE_MASSIME = 5;
+const CONSEGNE_MASSIME = 8;
+/** Oltre questa soglia una consegna prevista è «vicina», non futura. */
+const GIORNI_CONSEGNA_VICINA = 14;
 /**
  * Una commessa senza FATTI reali da così tanto è dormiente: non lavoro da
  * proporre, al più da archiviare. Era 120 giorni misurati su `updatedAt`,
@@ -66,6 +113,58 @@ function giornoLocale(istante: Date): string {
   const dd = String(locale.getDate()).padStart(2, "0");
   return `${locale.getFullYear()}-${mm}-${dd}`;
 }
+
+/** Il passo avanti secondo la macchina a stati: nessuna regola nuova qui. */
+function statoSuccessivo(stato: string): string | null {
+  const stati = STATI_COMMESSA as readonly string[];
+  const i = stati.indexOf(stato);
+  return i >= 0 ? stati[i + 1] ?? null : null;
+}
+
+/**
+ * Nessun taglio silenzioso (punto 20 del piano 08/09/2026): la fotografia
+ * mostra i primi N e DICE quanti restano fuori. Prima il modello vedeva
+ * otto righe e non aveva modo di sapere che ce n'erano altre quattordici:
+ * per quelle non poteva nascere nessuna proposta, mai.
+ */
+function conResto(
+  fatti: FattoAnalisi[],
+  totale: number,
+  cosa: string,
+  link: string | null = null
+): FattoAnalisi[] {
+  const fuori = totale - fatti.length;
+  if (fuori <= 0) return fatti;
+  return [
+    ...fatti,
+    {
+      chiave: `resto:${cosa.replace(/\s+/g, "_")}`,
+      testo: `E altre ${fuori} ${cosa} non elencate qui: chiedile prima di concludere che queste sono tutte.`,
+      entita: [],
+      link,
+    },
+  ];
+}
+
+/**
+ * I contatori che vale la pena confrontare con l'analisi precedente, con
+ * il nome che il modello deve usare. Non tutti: un elenco di variazioni
+ * lungo trenta righe è rumore quanto nessuna variazione.
+ */
+const CONTATORI_CONFRONTATI: ReadonlyArray<readonly [string, string]> = [
+  ["commesseAttive", "Commesse attive"],
+  ["preventiviFermi7", "Preventivi fermi da oltre 7 giorni"],
+  ["gateMancanti", "Gate documentali scoperti"],
+  ["pronteAlPassoSuccessivo", "Commesse pronte al passo successivo"],
+  ["confermeOrdineMancanti", "Conferme d'ordine mancanti"],
+  ["merceInRitardo", "Consegne in ritardo"],
+  ["fattureNonCollegate", "Fatture non collegate"],
+  ["fattureDaRiconciliare", "Fatture incassate ma non a registro"],
+  ["ticketAperti", "Ticket post-vendita aperti"],
+  ["casiAperti", "Casi aperti del Centro Azioni"],
+  ["comunicazioniSenzaRisposta24h", "Messaggi senza risposta da oltre 24 ore"],
+  ["fontiCieche", "Fonti mute"],
+];
 
 function etichettaCommessa(c: any): string {
   return `${c.codice ?? `Commessa ${c.id}`} — ${c.cliente ?? "cliente non indicato"}`;
@@ -103,6 +202,29 @@ export type DipendenzeFotografia = {
    * non dichiarato, scansione illeggibile): il costo va scritto a mano.
    */
   confermeSenzaCosto?: (sedeId: number) => Promise<ConfermaSenzaCostoFotografia[]>;
+  /** Merce ordinata e non ancora arrivata, con i giorni di ritardo. */
+  consegne?: (sedeId: number, adesso: Date) => ConsegnaInArrivo[];
+  /** Le fonti mute o in errore: posta, WhatsApp, Fatture in Cloud. */
+  guasti?: (sedeId: number, adesso: Date) => GuastoIntegrazione[];
+  /** Dove il documento e il dato non dicono la stessa cosa. */
+  discordanze?: (sedeId: number, adesso: Date) => Discordanza[];
+  /** I documenti di una commessa: servono a vedere quale versione vale. */
+  documentiDi?: (commessaId: number) => DocumentoVersionabile[];
+  /** Quanto dura di solito ogni stato, e chi sfora (dalla storia vera). */
+  tempi?: (
+    sedeId: number,
+    adesso: Date
+  ) => { mediane: Map<string, MedianaStato>; lente: CommessaLenta[] };
+  /** Residuo e margine per commessa: le cifre restano fuori dal prompt. */
+  posta?: (sedeId: number) => Map<number, PostaCommessa>;
+  /** Le promesse lette nei messaggi, scadute o in scadenza. */
+  impegni?: (sedeId: number, adesso: Date) => Promise<ImpegnoInScadenza[]>;
+  /** I fili di conversazione che aspettano una risposta. */
+  filiInAttesa?: (sedeId: number, adesso: Date) => Promise<Filo[]>;
+  /** Le convenzioni condivise che la direzione ha dettato a Tars in chat. */
+  memorie?: (sedeId: number) => MemoriaTars[];
+  /** Garanzie con la loro data di scadenza. */
+  garanzie?: () => any[];
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -151,6 +273,19 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
         limite: 25,
       }),
     confermeSenzaCosto: async sedeId => confermeSenzaCostoLeggibileDiSede(sedeId, 20),
+    consegne: (sedeId, adesso) => consegneInArrivo({ sedeId, adesso }),
+    guasti: (sedeId, adesso) => guastiDiSede({ sedeId, adesso }),
+    discordanze: (sedeId, adesso) => discordanzeDiSede({ sedeId, adesso }),
+    documentiDi: commessaId => getDocumentiDiCommessa(commessaId),
+    tempi: (sedeId, adesso) => commesseLenteDiSede({ sedeId, adesso }),
+    posta: sedeId => postaInGiocoDiSede({ sedeId }),
+    impegni: (sedeId, adesso) => impegniDiSede({ sedeId, adesso }),
+    // Perimetro «sede»: le convenzioni valide per tutti. Le memorie
+    // personali restano della chat di chi le ha dettate.
+    memorie: sedeId => memorieValide(sedeId, 0).filter(m => m.perimetro === "sede"),
+    garanzie: () => getGaranzieStore() as any[],
+    filiInAttesa: async (sedeId, adesso) =>
+      filiInAttesa(fili(await listComunicazioni({ sedeId, limit: 400 }), adesso)),
   };
 }
 
@@ -167,6 +302,12 @@ export async function costruisciFotografia(input: {
   sedeId: number;
   adesso: Date;
   deps?: DipendenzeFotografia;
+  /**
+   * I contatori dell'ultima analisi: senza confronto un numero non dice
+   * niente. «12 preventivi fermi» è muto, «12, ieri erano 8» no
+   * (punto 16 del piano 08/09/2026).
+   */
+  contatoriPrecedenti?: Record<string, number> | null;
 }): Promise<FotografiaAzienda> {
   const deps = input.deps ?? dipendenzeFotografiaReali();
   const { sedeId, adesso } = input;
@@ -237,14 +378,19 @@ export async function costruisciFotografia(input: {
   sezioni.push({
     chiave: "preventivi",
     titolo: "Preventivi fermi (sollecito a 7 giorni, perso a 30)",
-    fatti: preventiviFermi.slice(0, PREVENTIVI_MASSIMI).map(({ c, giorni }) => ({
+    fatti: conResto(
+      preventiviFermi.slice(0, PREVENTIVI_MASSIMI).map(({ c, giorni }) => ({
       chiave: `commessa:${c.id}:preventivo_fermo`,
       testo: `${etichettaCommessa(c)}: preventivo senza fatti nuovi da ${giorni} giorni${
         giorni >= 30 ? " — da proporre come perso" : " — da sollecitare"
       }.`,
       entita: [`commessa:${c.id}`],
       link: `/commesse/${c.id}`,
-    })),
+      })),
+      preventiviFermi.length,
+      "commesse col preventivo fermo",
+      "/commesse"
+    ),
   });
 
   // 1-ter. Gate documentali mancanti sulle commesse vive: il documento che
@@ -256,15 +402,66 @@ export async function costruisciFotografia(input: {
   sezioni.push({
     chiave: "gate",
     titolo: "Gate documentali mancanti (il documento che blocca l'avanzamento)",
-    fatti: [...gateMancanti]
-      .sort((a, b) => a.giorni - b.giorni)
-      .slice(0, GATE_MASSIMI)
-      .map(({ c, gate }) => ({
-        chiave: `commessa:${c.id}:gate`,
-        testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
+    fatti: conResto(
+      [...gateMancanti]
+        .sort((a, b) => a.giorni - b.giorni)
+        .slice(0, GATE_MASSIMI)
+        .map(({ c, gate }) => ({
+          chiave: `commessa:${c.id}:gate`,
+          testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
+          entita: [`commessa:${c.id}`],
+          link: `/commesse/${c.id}`,
+        })),
+      gateMancanti.length,
+      "commesse con un gate documentale scoperto",
+      "/commesse"
+    ),
+  });
+
+  // 1-ter-ter. Il contrario del gate mancante: le commesse che il documento
+  // ce l'hanno già e possono andare avanti (direzione 08/09/2026: «se c'è
+  // già una fattura collegata a una commessa, perché Tars non propone di
+  // mandarla avanti? le commesse vanno tenute aggiornate»). Prima la
+  // fotografia diceva soltanto che cosa manca, quindi Tars non aveva modo
+  // di accorgersi che un passaggio era già dovuto.
+  const pronte = commesse
+    .map(c => ({
+      c,
+      giorni: giorniFermi(c.id),
+      gate: deps.gate(c.id, c.stato),
+      successivo: statoSuccessivo(c.stato),
+    }))
+    .filter(
+      x =>
+        x.giorni <= giorniDormiente() &&
+        x.gate.ok &&
+        // Solo dove il gate chiede davvero un documento: negli stati senza
+        // gate «pronta» non vorrebbe dire niente.
+        x.gate.mancano.length > 0 &&
+        x.successivo != null &&
+        // Archiviare è un'altra decisione, non un passo di avanzamento.
+        x.successivo !== "archiviata"
+    );
+  contatori.pronteAlPassoSuccessivo = pronte.length;
+  sezioni.push({
+    chiave: "pronte",
+    titolo: "Pronte per il passo successivo (il documento c'è già)",
+    fatti: conResto(
+      [...pronte]
+        .sort((a, b) => b.giorni - a.giorni)
+        .slice(0, GATE_MASSIMI)
+        .map(({ c, giorni, gate, successivo }) => ({
+        chiave: `commessa:${c.id}:pronta`,
+        testo: `${etichettaCommessa(c)}: in «${c.stato}» il documento del gate c'è (${gate.mancano.join(" o ")}) — può passare a «${successivo}»${
+          giorni >= 1 ? `, ferma da ${giorni} giorni` : ""
+        }.`,
         entita: [`commessa:${c.id}`],
         link: `/commesse/${c.id}`,
-      })),
+        })),
+      pronte.length,
+      "commesse già pronte al passo successivo",
+      "/commesse"
+    ),
   });
 
   // 1-ter-bis. Conferme d'ordine mancanti: il documento che blocca il gate
@@ -294,6 +491,9 @@ export async function costruisciFotografia(input: {
     }): il costo va registrato a mano dalla scheda commessa.`,
     entita: [`commessa:${riga.commessaId}`, `documento:${riga.documentoId}`],
     link: riga.link,
+    // Il costo non si è letto: qualunque cosa si dica su questa conferma va
+    // verificata aprendo il file.
+    fiducia: "da_verificare" as FiduciaFatto,
   }));
   sezioni.push({
     chiave: "conferme_ordine",
@@ -317,8 +517,203 @@ export async function costruisciFotografia(input: {
           ...(primo ? [`comunicazione:${primo.comunicazioneId}`] : []),
         ],
         link: primo?.link ?? `/commesse/${riga.commessaId}`,
+        // Un file letto da una macchina: col riscontro sulla commessa è una
+        // lettura affidabile, senza riscontro va guardata da una persona.
+        fiducia: (certo ? "letta" : "da_verificare") as FiduciaFatto,
       };
     })],
+  });
+
+  // 1-quinquies. Merce ordinata: quella in ritardo e quella che arriva
+  // adesso. È il dato che fa slittare le pose, e fino all'08/09/2026 la
+  // fotografia non lo guardava affatto (punto 1 del piano).
+  const consegne = deps.consegne ? deps.consegne(sedeId, adesso) : [];
+  const inRitardo = consegne
+    .filter(c => c.giorniDiRitardo > 0)
+    .sort((a, b) => b.giorniDiRitardo - a.giorniDiRitardo);
+  const limiteVicino = new Date(adesso.getTime() + GIORNI_CONSEGNA_VICINA * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const inArrivoVicine = consegne.filter(
+    c => c.giorniDiRitardo === 0 && c.dataConsegna != null && c.dataConsegna <= limiteVicino
+  );
+  const senzaData = consegne.filter(c => c.dataConsegna == null);
+  contatori.merceAttesa = consegne.length;
+  contatori.merceInRitardo = inRitardo.length;
+  contatori.merceSenzaDataConsegna = senzaData.length;
+  const fattiMagazzino: FattoAnalisi[] = conResto(
+    inRitardo.slice(0, CONSEGNE_MASSIME).map(c => ({
+      chiave: `consegna:${c.prodottoId}:ritardo`,
+      testo: `${c.fornitore}: «${c.nome}» per ${
+        c.commessa ? `${c.commessa.codice ?? `commessa ${c.commessa.id}`} — ${c.commessa.cliente ?? "cliente non indicato"} (in «${c.commessa.stato}»)` : "nessuna commessa collegata"
+      } doveva arrivare il ${c.dataConsegna} — ${c.giorniDiRitardo} giorni di ritardo${
+        c.numeroOrdine ? ` (ordine ${c.numeroOrdine})` : ""
+      }.`,
+      entita: c.commessa ? [`commessa:${c.commessa.id}`] : [],
+      link: c.commessa ? `/commesse/${c.commessa.id}` : "/fornitori",
+    })),
+    inRitardo.length,
+    "consegne in ritardo",
+    "/fornitori"
+  );
+  if (inArrivoVicine.length > 0) {
+    fattiMagazzino.push({
+      chiave: "consegne:vicine",
+      testo: `${inArrivoVicine.length} consegne previste entro ${GIORNI_CONSEGNA_VICINA} giorni${
+        inArrivoVicine.length <= 4
+          ? `: ${inArrivoVicine.map(c => `${c.fornitore} il ${c.dataConsegna}`).join("; ")}`
+          : ""
+      }.`,
+      entita: inArrivoVicine
+        .filter(c => c.commessa)
+        .slice(0, 8)
+        .map(c => `commessa:${c.commessa!.id}`),
+      link: "/fornitori",
+    });
+  }
+  if (senzaData.length > 0) {
+    fattiMagazzino.push({
+      chiave: "consegne:senza_data",
+      testo: `${senzaData.length} righe di merce attesa senza data di consegna: non si può sapere se sono in ritardo.`,
+      entita: [],
+      link: "/fornitori",
+    });
+  }
+  sezioni.push({
+    chiave: "magazzino",
+    titolo: "Merce ordinata: in ritardo e in arrivo (fa slittare le pose)",
+    fatti: fattiMagazzino,
+  });
+
+  // 1-sexies. Documento contro dato: due verità che non coincidono. La
+  // prima della lista è sempre la stessa — la merce arriva dopo la posa.
+  const discordanze = deps.discordanze ? deps.discordanze(sedeId, adesso) : [];
+  contatori.discordanze = discordanze.length;
+  contatori.discordanzeCritiche = discordanze.filter(d => d.gravita === "critica").length;
+  sezioni.push({
+    chiave: "discordanze",
+    titolo: "Documento e dato non coincidono (due verità, una sbagliata)",
+    fatti: discordanze.slice(0, GATE_MASSIMI).map(d => ({
+      chiave: d.chiave,
+      testo: d.testo,
+      entita: [`commessa:${d.commessaId}`],
+      link: d.link,
+      // Nasce dal confronto con un documento letto: chi decide apra il file.
+      fiducia: "letta" as FiduciaFatto,
+    })),
+  });
+
+  // 1-septies. Due versioni della stessa cosa nel fascicolo: chi apre può
+  // prendere quella vecchia (punto 26 del piano 08/09/2026).
+  const catene: FattoAnalisi[] = [];
+  if (deps.documentiDi) {
+    for (const c of commesse) {
+      for (const catena of catenePerTipo(deps.documentiDi(c.id))) {
+        catene.push({
+          chiave: `commessa:${c.id}:versioni:${catena.tipo}`,
+          testo: `${etichettaCommessa(c)}: nel fascicolo ci sono ${catena.superate.length + 1} documenti «${DOC_TIPO_LABEL[catena.tipo as keyof typeof DOC_TIPO_LABEL] ?? catena.tipo}» diversi fra loro. Vale l'ultimo, «${catena.vigente.nome}»: chi apre il fascicolo può prendere quello superato.`,
+          entita: [`commessa:${c.id}`],
+          link: `/commesse/${c.id}`,
+        });
+      }
+    }
+  }
+  contatori.documentiConPiuVersioni = catene.length;
+
+  // 1-decies. Documenti che la natura del lavoro vuole e non ci sono: un
+  // condominio la delibera, una posa fatta il suo verbale. NON blocca
+  // niente — il gate resta quello che è (punto 31 del piano 08/09/2026).
+  const clienti = new Map<number, any>(
+    (getClientiStore() as any[]).map(c => [c.id, c])
+  );
+  const posateDiCommessa = new Set(
+    deps
+      .interventi()
+      .filter(i => i.tipo === "posa" && (i.stato === "completato" || i.stato === "fatto"))
+      .map(i => i.commessaId)
+  );
+  const fattiAttesi: FattoAnalisi[] = [];
+  if (deps.documentiDi) {
+    for (const c of commesse) {
+      const attesi = documentiAttesi({
+        tipoCliente: clienti.get(c.clienteId)?.tipo ?? null,
+        tipiPresenti: new Set(deps.documentiDi(c.id).map(d => d.tipo)),
+        posaFatta: posateDiCommessa.has(c.id),
+      });
+      if (attesi.length === 0) continue;
+      fattiAttesi.push({
+        chiave: `commessa:${c.id}:documenti_attesi`,
+        testo: `${etichettaCommessa(c)}: manca ${testoAttesi(attesi)}. Non blocca l'avanzamento, ma il fascicolo resta incompleto.`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      });
+    }
+  }
+  contatori.documentiAttesiMancanti = fattiAttesi.length;
+  sezioni.push({
+    chiave: "documenti_attesi",
+    titolo: "Documenti che questo tipo di lavoro vuole (avviso, non blocco)",
+    fatti: conResto(
+      fattiAttesi.slice(0, GATE_MASSIMI),
+      fattiAttesi.length,
+      "commesse col fascicolo incompleto per la loro natura",
+      "/commesse"
+    ),
+  });
+  sezioni.push({
+    chiave: "versioni",
+    titolo: "Documenti con più versioni (vale l'ultimo)",
+    fatti: conResto(catene.slice(0, GATE_MASSIMI), catene.length, "commesse con documenti in più versioni", "/commesse"),
+  });
+
+  // 1-octies. Più lente del solito: la soglia non è inventata, è la mediana
+  // di questa azienda su questo stato (punto 17 del piano 08/09/2026).
+  const tempi = deps.tempi ? deps.tempi(sedeId, adesso) : null;
+  const lente = tempi?.lente ?? [];
+  contatori.piuLenteDelSolito = lente.length;
+  sezioni.push({
+    chiave: "lentezza",
+    titolo: "Più lente del solito (mediana di questa azienda, non una soglia inventata)",
+    fatti: conResto(
+      lente.slice(0, GATE_MASSIMI).map(l => {
+        const c = commesse.find(x => x.id === l.commessaId);
+        return {
+          chiave: `commessa:${l.commessaId}:lenta`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${l.commessaId}`}: in «${l.stato}» da ${l.giorni} giorni, la mediana di questa azienda è ${l.mediana} (su ${l.campione} passaggi osservati).`,
+          entita: [`commessa:${l.commessaId}`],
+          link: `/commesse/${l.commessaId}`,
+        };
+      }),
+      lente.length,
+      "commesse più lente del solito",
+      "/commesse"
+    ),
+  });
+
+  // 1-nonies. Margine sotto la soglia: SOLO il segnale. Le cifre non
+  // entrano nel prompt — le mette il codice accanto alla proposta, e le
+  // vede la sola direzione (decisione 08/09/2026).
+  const posta = deps.posta ? deps.posta(sedeId) : new Map<number, PostaCommessa>();
+  const sotto = [...posta.values()].filter(p => p.sottoMargine);
+  contatori.commesseSottoMargine = sotto.length;
+  contatori.margineNonCalcolabile = [...posta.values()].filter(p => p.datiIncompleti).length;
+  sezioni.push({
+    chiave: "margine",
+    titolo: `Margine sotto la soglia del ${Math.round(sogliaMargine() * 100)}% (segnale, senza cifre)`,
+    fatti: conResto(
+      sotto.slice(0, GATE_MASSIMI).map(p => {
+        const c = commesse.find(x => x.id === p.commessaId);
+        return {
+          chiave: `commessa:${p.commessaId}:margine`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${p.commessaId}`}: il margine è sotto la soglia. Le cifre sono nella scheda, qui non si scrivono.`,
+          entita: [`commessa:${p.commessaId}`],
+          link: `/commesse/${p.commessaId}`,
+        };
+      }),
+      sotto.length,
+      "commesse sotto la soglia di margine",
+      "/commesse"
+    ),
   });
 
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.
@@ -331,14 +726,17 @@ export async function costruisciFotografia(input: {
   contatori.fattureNonCollegate = fattureNonCollegate.length;
   contatori.fattureDaRiconciliare = statiFatture.filter(s => s === "da_riconciliare").length;
   contatori.fattureAttesaIncasso = statiFatture.filter(s => s === "attesa_incasso").length;
-  const fattiFatture: FattoAnalisi[] = fattureNonCollegate
-    .slice(0, FATTURE_MASSIME)
-    .map(f => ({
+  const fattiFatture: FattoAnalisi[] = conResto(
+    fattureNonCollegate.slice(0, FATTURE_MASSIME).map(f => ({
       chiave: `fattura:${f.id}:non_collegata`,
       testo: `Fattura n. ${f.numero} del ${f.data} — ${f.clienteNome}: non collegata a nessuna commessa.`,
       entita: [`fattura:${f.id}`],
       link: "/economia",
-    }));
+    })),
+    fattureNonCollegate.length,
+    "fatture non collegate",
+    "/economia"
+  );
   if (contatori.fattureDaRiconciliare > 0) {
     fattiFatture.push({
       chiave: "fatture:da_riconciliare",
@@ -561,8 +959,85 @@ export async function costruisciFotografia(input: {
               entita: interventi.slice(0, 12).map(i => `intervento:${i.id}`),
               link: "/planning",
             },
+            // Punto 18: agenda e magazzino non si parlavano. Per ogni posa
+            // della settimana, se la merce c'è o no — è la domanda che si
+            // fa il capo squadra la sera prima.
+            ...interventi
+              .filter(i => i.tipo === "posa")
+              .slice(0, 6)
+              .map(i => {
+                const c = commesse.find(x => x.id === i.commessaId);
+                const attese = consegne.filter(x => x.commessa?.id === i.commessaId);
+                const mancanti = attese.length;
+                return {
+                  chiave: `intervento:${i.id}:merce`,
+                  testo: `Posa del ${i.dataPianificata} — ${c ? etichettaCommessa(c) : `commessa ${i.commessaId}`}: ${
+                    mancanti === 0
+                      ? "la merce attesa risulta tutta arrivata"
+                      : `${mancanti} ${mancanti === 1 ? "riga" : "righe"} di merce non ancora arrivata${
+                          attese.some(x => x.giorniDiRitardo > 0) ? ", e almeno una è già in ritardo" : ""
+                        }`
+                  }.`,
+                  entita: [`intervento:${i.id}`, ...(c ? [`commessa:${c.id}`] : [])],
+                  link: c ? `/commesse/${c.id}` : "/planning",
+                };
+              }),
           ]
         : [],
+  });
+
+  // 7-bis. Le promesse dette a parole (punto 28 del piano 08/09/2026).
+  const impegni = deps.impegni
+    ? await tenta(() => deps.impegni!(sedeId, adesso), [] as ImpegnoInScadenza[])
+    : [];
+  contatori.impegniScaduti = impegni.filter(i => i.scaduto).length;
+  contatori.impegniInScadenza = impegni.filter(i => !i.scaduto).length;
+  sezioni.push({
+    chiave: "impegni",
+    titolo: "Promesse dette nei messaggi (scadute e in scadenza)",
+    fatti: conResto(
+      impegni.slice(0, GATE_MASSIMI).map(i => ({
+        chiave: `impegno:${i.comunicazioneId}:${i.entro}`,
+        testo: testoImpegno(i),
+        entita: [
+          `comunicazione:${i.comunicazioneId}`,
+          ...(i.commessaId ? [`commessa:${i.commessaId}`] : []),
+        ],
+        link: i.commessaId ? `/commesse/${i.commessaId}` : "/messaggi/email",
+        // Letta dal testo di un messaggio: la frase originale è lì accanto.
+        fiducia: "letta" as FiduciaFatto,
+      })),
+      impegni.length,
+      "promesse in scadenza",
+      "/messaggi/email"
+    ),
+  });
+
+  // 7-ter. Il filo della conversazione (punto 27): chi ha ripetuto, e da
+  // quanto aspetta. Un messaggio isolato non lo dice.
+  const attesa = deps.filiInAttesa
+    ? await tenta(() => deps.filiInAttesa!(sedeId, adesso), [] as Filo[])
+    : [];
+  contatori.conversazioniInAttesa = attesa.length;
+  contatori.conversazioniConInsistenza = attesa.filter(f => f.insistenze >= 2).length;
+  sezioni.push({
+    chiave: "conversazioni",
+    titolo: "Conversazioni in attesa (chi ha già chiesto più volte)",
+    fatti: conResto(
+      attesa.slice(0, GATE_MASSIMI).map(f => ({
+        chiave: `filo:${f.chiave}`,
+        testo: `${f.nome ?? f.controparte} (${f.canale}) su «${f.oggetto}»: ${
+          f.insistenze > 1 ? `ha scritto ${f.insistenze} volte senza risposta` : "aspetta una risposta"
+        }${f.giorniInAttesa != null ? ` da ${f.giorniInAttesa} giorni` : ""}${
+          f.ultimaRisposta ? "" : "; non gli abbiamo mai risposto su questo filo"
+        }.`,
+        entita: f.commessaId ? [`commessa:${f.commessaId}`] : [],
+        link: f.commessaId ? `/commesse/${f.commessaId}` : "/messaggi/email",
+      })),
+      attesa.length,
+      "conversazioni in attesa",
+      "/messaggi/email"
+    ),
   });
 
   // 8. Proposte in attesa (gateway documentale).
@@ -570,6 +1045,97 @@ export async function costruisciFotografia(input: {
     .proposteGateway()
     .filter(p => p.sedeId === sedeId && (p.stato === "proposta" || p.stato === "approvata"));
   contatori.proposteDocumentali = proposte.length;
+
+  // 8-bis. Quello che MANCA, non quello che c'è (punto 9 del piano
+  // 08/09/2026): il silenzio non entra in una fotografia fatta di elenchi.
+  const silenzi: FattoAnalisi[] = [];
+  const STATI_DOPO_FIRMA = new Set([
+    "fatture_pagamento",
+    "da_ordinare",
+    "produzione",
+    "ordini_ultimazione",
+    "attesa_posa",
+  ]);
+  for (const c of commesse) {
+    if (STATI_DOPO_FIRMA.has(c.stato) && Number(c.importoIncassato ?? 0) === 0) {
+      silenzi.push({
+        chiave: `commessa:${c.id}:senza_acconto`,
+        testo: `${etichettaCommessa(c)}: è in «${c.stato}» e non risulta incassato niente. O l'acconto non è arrivato, o non è stato registrato.`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      });
+    }
+  }
+  contatori.silenzi = silenzi.length;
+  sezioni.push({
+    chiave: "silenzi",
+    titolo: "Quello che manca (nessuno lo segnala perché non esiste)",
+    fatti: conResto(
+      silenzi.slice(0, GATE_MASSIMI),
+      silenzi.length,
+      "commesse avanti senza incassi registrati",
+      "/commesse"
+    ),
+  });
+
+  // 8-ter. Perché è ferma (punto 21): la causa, non solo il sintomo. Si
+  // incrocia la lentezza con quello che quella commessa sta aspettando.
+  const cause: FattoAnalisi[] = [];
+  for (const l of lente.slice(0, GATE_MASSIMI)) {
+    const c = commesse.find(x => x.id === l.commessaId);
+    if (!c) continue;
+    const merce = consegne.filter(x => x.commessa?.id === l.commessaId);
+    const gate = gateMancanti.find(g => g.c.id === l.commessaId);
+    const motivo =
+      merce.length > 0
+        ? `aspetta ${merce.length === 1 ? "una consegna" : `${merce.length} consegne`} da ${merce.map(m => m.fornitore).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`
+        : gate
+          ? `manca il documento del gate (${gate.gate.mancano.join(" o ") || "documento di fase"})`
+          : null;
+    if (!motivo) continue;
+    cause.push({
+      chiave: `commessa:${l.commessaId}:causa`,
+      testo: `${etichettaCommessa(c)}: è ferma in «${l.stato}» da ${l.giorni} giorni perché ${motivo}. Non è dimenticanza: è un'attesa.`,
+      entita: [`commessa:${l.commessaId}`],
+      link: `/commesse/${l.commessaId}`,
+    });
+  }
+  sezioni.push({
+    chiave: "cause",
+    titolo: "Perché è ferma (l'attesa ha un nome)",
+    fatti: cause,
+  });
+
+  // 8-quater. Garanzie in scadenza (punto 14): dopo, il cliente paga.
+  const garanzie = (deps.garanzie ? deps.garanzie() : []).filter(
+    g => (g.sedeId ?? sedeId) === sedeId && g.stato !== "chiusa" && g.dataScadenza
+  );
+  const limiteGaranzie = new Date(adesso.getTime() + 60 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const oggiIso = adesso.toISOString().slice(0, 10);
+  const inScadenza = garanzie
+    .filter(g => g.dataScadenza >= oggiIso && g.dataScadenza <= limiteGaranzie)
+    .sort((a, b) => a.dataScadenza.localeCompare(b.dataScadenza));
+  contatori.garanzieInScadenza = inScadenza.length;
+  sezioni.push({
+    chiave: "garanzie",
+    titolo: "Garanzie che scadono entro due mesi (dopo, il cliente paga)",
+    fatti: conResto(
+      inScadenza.slice(0, GATE_MASSIMI).map(g => {
+        const c = commesse.find(x => x.id === g.commessaId);
+        return {
+          chiave: `garanzia:${g.id}`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${g.commessaId}`}: garanzia ${g.tipo} «${g.descrizione}» scade il ${g.dataScadenza}.`,
+          entita: c ? [`commessa:${c.id}`] : [],
+          link: c ? `/commesse/${c.id}` : "/commesse",
+        };
+      }),
+      inScadenza.length,
+      "garanzie in scadenza",
+      "/commesse"
+    ),
+  });
 
   // 9. Perimetro: i moduli senza dati esistono nel CRM ma non in questa
   // azienda. Dichiararli evita al modello di inventarci sopra rischi.
@@ -591,7 +1157,79 @@ export async function costruisciFotografia(input: {
         : [],
   });
 
-  return { sedeId, generataIl: adesso.toISOString(), contatori, sezioni };
+  // ── In testa: prima di tutto, cosa non vedo e cosa è cambiato ────────
+  //
+  // 0-bis. Le fonti mute. Se la posta è ferma da tre giorni non entra
+  // niente, e una fotografia che conta solo ciò che è entrato scrive
+  // «tutto calmo»: l'unico difetto che mente in modo rassicurante.
+  const guasti = deps.guasti ? deps.guasti(sedeId, adesso) : [];
+  contatori.fontiCieche = guasti.filter(g => g.gravita === "ferma").length;
+  contatori.fontiRallentate = guasti.filter(g => g.gravita === "rallentata").length;
+
+  // 0-ter. La derivata: un numero da solo non dice niente.
+  const derivata: FattoAnalisi[] = [];
+  if (input.contatoriPrecedenti) {
+    const ieri = input.contatoriPrecedenti;
+    for (const [chiave, etichetta] of CONTATORI_CONFRONTATI) {
+      const oggi = contatori[chiave];
+      const prima = ieri[chiave];
+      if (typeof oggi !== "number" || typeof prima !== "number") continue;
+      const delta = oggi - prima;
+      if (delta === 0) continue;
+      derivata.push({
+        chiave: `derivata:${chiave}`,
+        testo: `${etichetta}: ${oggi} (${delta > 0 ? "+" : ""}${delta} rispetto all'ultima analisi, erano ${prima}).`,
+        entita: [],
+        link: null,
+      });
+    }
+  }
+
+  // Quello che ti è stato detto: la chat aveva memoria, il mattino no.
+  const memorie = deps.memorie ? deps.memorie(sedeId) : [];
+
+  const testa: SezioneFotografia[] = [];
+  if (guasti.length > 0) {
+    testa.push({
+      chiave: "guasti",
+      titolo: "Occhi chiusi: fonti mute o in errore (leggere PRIMA di dire che va tutto bene)",
+      fatti: guasti.map(g => ({
+        chiave: g.chiave,
+        testo: g.testo,
+        entita: [],
+        link: g.link,
+      })),
+    });
+  }
+  if (derivata.length > 0) {
+    testa.push({
+      chiave: "derivata",
+      titolo: "Cosa è cambiato dall'ultima analisi (la variazione, non il livello)",
+      fatti: derivata,
+    });
+  }
+  if (memorie.length > 0) {
+    contatori.memorieDiSede = memorie.length;
+    testa.push({
+      chiave: "memoria",
+      titolo: "Quello che la direzione ti ha già detto (vale più di qualunque regola qui sotto)",
+      fatti: memorie.slice(0, 15).map(m => ({
+        chiave: `memoria:${m.id}`,
+        testo: `[${m.tipo}] ${m.contenuto}`,
+        entita: [],
+        link: null,
+      })),
+    });
+  }
+  sezioni.unshift(...testa);
+
+  return {
+    sedeId,
+    generataIl: adesso.toISOString(),
+    contatori,
+    sezioni,
+    postaInGioco: postaPerEntita(posta),
+  };
 }
 
 /** Tutti i riferimenti di entità presenti nella fotografia (per la verifica). */
@@ -601,6 +1239,29 @@ export function entitaDellaFotografia(fotografia: FotografiaAzienda): Map<string
     for (const fatto of sezione.fatti) {
       for (const rif of fatto.entita) {
         if (!mappa.has(rif)) mappa.set(rif, fatto.link);
+      }
+    }
+  }
+  return mappa;
+}
+
+/**
+ * Quanto è solido ogni riferimento: la fiducia PIÙ DEBOLE fra i fatti che
+ * lo citano. Una commessa che compare sia in un fatto certo sia in una
+ * lettura da verificare resta da verificare (punto 23 del piano).
+ */
+export function fiduciaDellaFotografia(
+  fotografia: FotografiaAzienda
+): Map<string, FiduciaFatto> {
+  const peso: Record<FiduciaFatto, number> = { certa: 0, letta: 1, da_verificare: 2 };
+  const mappa = new Map<string, FiduciaFatto>();
+  for (const sezione of fotografia.sezioni) {
+    for (const fatto of sezione.fatti) {
+      const fiducia = fatto.fiducia ?? "certa";
+      for (const rif of fatto.entita) {
+        const attuale = mappa.get(rif) ?? "certa";
+        if (peso[fiducia] > peso[attuale]) mappa.set(rif, fiducia);
+        else if (!mappa.has(rif)) mappa.set(rif, attuale);
       }
     }
   }
@@ -618,7 +1279,9 @@ export function testoFotografia(fotografia: FotografiaAzienda): string {
   );
   for (const sezione of fotografia.sezioni) {
     righe.push("");
-    righe.push(`## ${sezione.titolo}`);
+    // La chiave accanto al titolo: è quella che una proposta dichiara come
+    // `fonte`, e senza vederla il modello non potrebbe citarla (punto 12).
+    righe.push(`## [${sezione.chiave}] ${sezione.titolo}`);
     if (sezione.fatti.length === 0) {
       righe.push("(nessun fatto)");
       continue;

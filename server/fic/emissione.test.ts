@@ -176,7 +176,7 @@ describe("client FiC di emissione", () => {
       data: documentoFixture,
       options: { fix_payments: true },
     });
-    expect(creato).toEqual(rispostaServer.data);
+    expect(creato).toEqual({ ...rispostaServer.data, updatedAt: null });
   });
 
   it("creaDocumento: 401 → errore italiano, mai il token nel messaggio", async () => {
@@ -219,10 +219,110 @@ describe("client FiC di emissione", () => {
     const letto = await client.leggiDocumento(ctx, 501);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      `${FIC}/c/77/issued_documents/501?fields=id,number,numeration,date,amount_net,amount_vat,amount_gross,url,ei_status,payments_list`
+      `${FIC}/c/77/issued_documents/501?fields=id,number,numeration,date,amount_net,amount_vat,amount_gross,url,ei_status,updated_at,payments_list`
     );
     expect(fetchMock.mock.calls[0][1].method).toBe("GET");
-    expect(letto).toEqual(rispostaServer.data);
+    expect(letto).toEqual({ ...rispostaServer.data, updatedAt: null });
+  });
+
+  it("modificaDocumento: PUT body {data}, risposta normalizzata", async () => {
+    const rispostaServer = {
+      data: {
+        id: 501,
+        number: 14,
+        numeration: "/A",
+        date: "2026-09-04",
+        amount_net: 900,
+        amount_vat: 198,
+        amount_gross: 1098,
+        url: "https://secure.fattureincloud.it/invoice/501",
+        ei_status: "not_sent",
+        updated_at: "2026-09-08 11:22:33",
+        payments_list: [{ id: 9001, amount: 1098, due_date: "2026-10-04" }],
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, rispostaServer));
+    global.fetch = fetchMock as any;
+    const client = creaClientFicEmissione();
+    const aggiornato = await client.modificaDocumento(ctx, 501, documentoFixture);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${FIC}/c/77/issued_documents/501`);
+    expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
+    expect(fetchMock.mock.calls[0][1].headers["content-type"]).toBe(
+      "application/json"
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      data: documentoFixture,
+    });
+    expect(aggiornato.amount_gross).toBe(1098);
+    expect(aggiornato.updatedAt).toBe("2026-09-08 11:22:33");
+  });
+
+  it("modificaDocumento: 401 → errore italiano, mai il token nel messaggio", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401, { error: "unauthorized" }));
+    global.fetch = fetchMock as any;
+    const client = creaClientFicEmissione();
+    const promessa = client.modificaDocumento(ctx, 501, documentoFixture);
+    await expect(promessa).rejects.toThrow(
+      /Token rifiutato da Fatture in Cloud/
+    );
+    await promessa.catch((e: Error) => {
+      expect(e.message).not.toContain(ctx.token);
+    });
+  });
+
+  it("leggiDocumento: chiede updated_at e lo riporta come updatedAt", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        data: {
+          id: 501,
+          number: 14,
+          numeration: null,
+          date: "2026-09-04",
+          amount_net: 1000,
+          amount_vat: 220,
+          amount_gross: 1220,
+          url: null,
+          ei_status: "not_sent",
+          updated_at: "2026-09-08 09:00:00",
+          payments_list: [],
+        },
+      })
+    );
+    global.fetch = fetchMock as any;
+    const client = creaClientFicEmissione();
+    const letto = await client.leggiDocumento(ctx, 501);
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain("updated_at");
+    expect(letto.updatedAt).toBe("2026-09-08 09:00:00");
+  });
+
+  it("leggiDocumento: updated_at assente diventa null, non undefined", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        data: {
+          id: 501,
+          number: 14,
+          numeration: null,
+          date: "2026-09-04",
+          amount_net: 0,
+          amount_vat: 0,
+          amount_gross: 0,
+          url: null,
+          ei_status: null,
+          payments_list: [],
+        },
+      })
+    );
+    global.fetch = fetchMock as any;
+    const client = creaClientFicEmissione();
+    const letto = await client.leggiDocumento(ctx, 501);
+
+    expect(letto.updatedAt).toBeNull();
   });
 
   it("verificaXml: 200 con success true", async () => {

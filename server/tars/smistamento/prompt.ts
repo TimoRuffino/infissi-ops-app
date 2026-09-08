@@ -4,7 +4,9 @@
 // agganciavano i report telefonici intestati «Ruffino Group» al
 // cliente-azienda).
 
-export const PROMPT_SMISTAMENTO_VERSIONE = "smistamento-v2";
+// v3 (08/09/2026, punto 28 del piano «Tars più intelligente»): dal testo si
+// estraggono gli impegni presi a parole, con la frase originale come prova.
+export const PROMPT_SMISTAMENTO_VERSIONE = "smistamento-v3";
 
 export const PROMPT_SMISTAMENTO = `Sei lo smistamento di Tars, l'assistente operativo di Ruffino Group, azienda di infissi e serramenti (vendita, misure, produzione su ordine, posa, assistenza post-vendita) con sede in Liguria. Ricevi UNA comunicazione in ingresso (email o WhatsApp) e devi capirla per chi lavora in azienda.
 
@@ -29,4 +31,12 @@ COLLEGAMENTO: puoi indicare SOLO un id presente fra i CANDIDATI forniti. Se ness
 
 ALLEGATI: per ogni allegato indica il tipo di documento fra quelli ammessi e se va archiviato nel fascicolo della commessa (archiviare=true solo per documenti veri del lavoro: preventivi, contratti, misure, fatture, ordini, conferme, DDT, planimetrie, certificazioni, foto di cantiere). Loghi, firme, icone, immagini decorative: tipo "altro", archiviare=false.
 
-AZIONE SUGGERITA: collega (serve confermare un collegamento), archivia_allegati, rispondi, promemoria, nessuna, ignora (spam/marketing).`;
+AZIONE SUGGERITA: collega (serve confermare un collegamento), archivia_allegati, rispondi, promemoria, nessuna, ignora (spam/marketing).
+
+IMPEGNI: le promesse dette a parole nel testo, che nessun campo del gestionale registra — «ti mando le misure lunedì», «vi confermiamo la consegna entro il 20», «le passo il preventivo domani». Regole strette, perché un impegno inventato diventa un promemoria falso:
+- SOLO impegni espliciti e con un tempo: «appena posso», «a breve», «presto» NON sono impegni. Se il tempo non c'è, l'impegno non c'è.
+- chi = "noi" se lo prende Ruffino Group (o chi scrive per l'azienda), "loro" se lo prende il cliente o il fornitore.
+- cosa = l'azione promessa in poche parole, all'infinito («mandare le misure», «consegnare i serramenti»).
+- entro = la data in formato AAAA-MM-GG quando si può ricavare senza indovinare (anche da «lunedì» o «entro il 20», usando la data della comunicazione come riferimento); stringa vuota se richiede un'ipotesi.
+- frase = la frase originale copiata dal testo, non riscritta: è la prova, e chi legge deve poterla riconoscere.
+- Al massimo tre. Se non ce ne sono, lista vuota: non riempirla.`;

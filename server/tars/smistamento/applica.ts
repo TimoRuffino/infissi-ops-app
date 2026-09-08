@@ -480,6 +480,9 @@ export async function applicaSmistamento(input: {
     collegamento,
     allegati: piano,
     archiviati,
+    // Le promesse dette a parole (punto 28). Solo quelle con una data
+    // ricavata dal testo: senza data non è un impegno, è un'intenzione.
+    impegni: (analisi.impegni ?? []).filter(i => /^\d{4}-\d{2}-\d{2}$/.test(i.entro)),
     candidati: candidati.candidati,
     segnali: candidati.segnali,
   };

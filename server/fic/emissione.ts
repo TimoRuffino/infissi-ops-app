@@ -97,6 +97,13 @@ export type DocumentoFicCreato = {
   amount_gross: number;
   url: string | null;
   ei_status: string | null;
+  /**
+   * `updated_at` di Fatture in Cloud, come stringa e senza reinterpretarla:
+   * serve solo a capire SE il documento è cambiato di là (confronto di
+   * uguaglianza), mai a calcolare un istante. È l'orologio di FiC, e il
+   * lock ottimistico della finestra di correzione poggia su questo.
+   */
+  updatedAt: string | null;
   payments_list: Array<{ id: number; amount: number; due_date: string }>;
 };
 
@@ -120,6 +127,17 @@ export type ClientFicEmissione = {
     ctx: ContestoFic,
     documento: DocumentoFicInput,
     opzioni: { fix_payments: boolean }
+  ): Promise<DocumentoFicCreato>;
+  /**
+   * Riscrive un documento già emesso. Fatture in Cloud lo consente finché
+   * la e-fattura non è partita: dopo l'invio allo SdI la correzione è la
+   * nota di credito, non il `PUT`. Numero e data restano quelli del
+   * documento — il corpo li riporta uguali.
+   */
+  modificaDocumento(
+    ctx: ContestoFic,
+    documentId: number,
+    documento: DocumentoFicInput
   ): Promise<DocumentoFicCreato>;
   leggiDocumento(
     ctx: ContestoFic,
@@ -150,13 +168,13 @@ export type ClientFicEmissione = {
 async function richiestaFic(
   ctx: ContestoFic,
   path: string,
-  opzioni: { method: "GET" | "POST"; body?: string }
+  opzioni: { method: "GET" | "POST" | "PUT"; body?: string }
 ): Promise<any> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${ctx.token}`,
     accept: "application/json",
   };
-  if (opzioni.method === "POST") headers["content-type"] = "application/json";
+  if (opzioni.method !== "GET") headers["content-type"] = "application/json";
   const init: RequestInit = { method: opzioni.method, headers };
   if (opzioni.body !== undefined) init.body = opzioni.body;
   const res = await fetchFicConTimeout(`${FIC}${path}`, init, ctx.signal);
@@ -187,6 +205,7 @@ function normalizzaDocumento(d: any): DocumentoFicCreato {
     amount_gross: Number(d?.amount_gross ?? 0),
     url: d?.url ?? null,
     ei_status: d?.ei_status ?? null,
+    updatedAt: d?.updated_at ?? null,
     payments_list: Array.isArray(d?.payments_list)
       ? d.payments_list.map((p: any) => ({
           id: Number(p?.id),
@@ -239,7 +258,7 @@ async function creaCliente(
 
 // ── documenti ───────────────────────────────────────────────────────────
 const CAMPI_DOCUMENTO =
-  "id,number,numeration,date,amount_net,amount_vat,amount_gross,url,ei_status,payments_list";
+  "id,number,numeration,date,amount_net,amount_vat,amount_gross,url,ei_status,updated_at,payments_list";
 
 async function creaDocumento(
   ctx: ContestoFic,
@@ -253,6 +272,19 @@ async function creaDocumento(
       options: { fix_payments: opzioni.fix_payments },
     }),
   });
+  return normalizzaDocumento(data?.data);
+}
+
+async function modificaDocumento(
+  ctx: ContestoFic,
+  documentId: number,
+  documento: DocumentoFicInput
+): Promise<DocumentoFicCreato> {
+  const data = await richiestaFic(
+    ctx,
+    `/c/${ctx.companyId}/issued_documents/${documentId}`,
+    { method: "PUT", body: JSON.stringify({ data: documento }) }
+  );
   return normalizzaDocumento(data?.data);
 }
 
@@ -462,6 +494,7 @@ export function creaClientFicEmissione(): ClientFicEmissione {
     cercaDocumenti,
     leggiRigheDocumento,
     verificaXml,
+    modificaDocumento,
     inviaEInvoice,
     scaricaXml,
     scaricaPdf,

@@ -40,9 +40,27 @@ import { getFattureRepository, type FattureRepository, type PatchBozza } from ".
 import { riequilibraBeni, type EsitoRisolutore } from "./risolutore";
 
 export type Controllo = { codice: string; esito: "ok" | "avviso" | "errore"; messaggio: string };
+/**
+ * Come la modifica arriva su Fatture in Cloud (R47). Iniettata e non
+ * importata: l'implementazione vive in `./emissione.ts`, che a sua volta
+ * importa da qui — chiamarla direttamente farebbe un anello.
+ *
+ * Riceve la fattura COM'È DOPO la modifica, ancora non scritta: il `PUT`
+ * parte prima del commit, così se Fatture in Cloud rifiuta non cambia
+ * niente da nessuna parte. Torna l'`updated_at` nuovo, che diventa il
+ * termine di paragone del giro dopo.
+ */
+export type SincronizzaFic = (input: {
+  sedeId: number;
+  fattura: Fattura;
+  actorUserId: number | null;
+}) => Promise<{ ficUpdatedAt: string | null }>;
+
 export type Dipendenze = {
   now?: () => Date;
   repository?: FattureRepository;
+  /** Obbligatoria per modificare una fattura già su Fatture in Cloud. */
+  sincronizzaFic?: SincronizzaFic;
   /** Solo per i test: `false` fa nascere la bozza grezza (beni a contratto, servizi ai limiti) invece di quella bilanciata. */
   bilanciaBozza?: boolean;
   /** Le fatture FiC sincronizzate della sede (default: lo store): per l'avviso di doppione in validazione. */
@@ -68,6 +86,13 @@ export type ModificaBozza = {
   intestazioneCantiere?: string | null;
   /** Scala le righe bene significative finché il markup vale questo importo. */
   riequilibraBeniAMarkupCent?: number;
+  /**
+   * Markup scritto a mano (08/09/2026, «devo poter modificare il markup»):
+   * un importo lo forza e il totale lo segue (Δ pattuito nel riepilogo);
+   * `null` torna al calcolo del risolutore; `undefined` lascia com'è. Il
+   * riequilibrio dei beni parla del markup calcolato e quindi lo azzera.
+   */
+  markupForzatoCent?: number | null;
   scavalcoLimiti?: { attivo: boolean; motivo: string | null };
   /**
    * Anagrafica del cliente corretta dalla fattura (07/09/2026): aggiorna lo
@@ -136,7 +161,7 @@ function commessaInSede(sedeId: number, commessaId: number): any {
 async function bozzaModificabile(repository: FattureRepository, sedeId: number, id: number): Promise<Fattura> {
   const fattura = await repository.perId(sedeId, id);
   if (!fattura) throw new Error("NOT_FOUND: Fattura non trovata.");
-  if (!fatturaModificabile(fattura.stato)) {
+  if (!fatturaModificabile(fattura)) {
     throw new Error(
       `FATTURA_IMMUTABILE: la fattura #${fattura.id} è in stato «${fattura.stato}»: correggi con una nota di credito.`
     );
@@ -299,6 +324,7 @@ export async function creaBozza(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: esito.deltaPattuitoCent,
       markupCent: esito.markupCent,
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       diciture: bozza.diciture,
       note: bozza.note,
@@ -309,6 +335,7 @@ export async function creaBozza(
       xmlSha256: null,
       documentoId: null,
       eiStatusFic: null,
+      ficUpdatedAt: null,
       eiErrore: null,
       inviataDryRun: false,
       scavalcoLimiti: false,
@@ -378,6 +405,7 @@ export async function creaBozzaLibera(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: 0,
       markupCent: 0,
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       diciture: dicitureDefault("nessuna", clienteSnapshot.praticaEdilizia),
       note: null,
@@ -388,6 +416,7 @@ export async function creaBozzaLibera(
       xmlSha256: null,
       documentoId: null,
       eiStatusFic: null,
+      ficUpdatedAt: null,
       eiErrore: null,
       inviataDryRun: false,
       scavalcoLimiti: false,
@@ -707,13 +736,24 @@ export async function aggiornaBozza(
   if (modifica.riequilibraBeniAMarkupCent !== undefined) {
     righe = riequilibra(righe, fattura, modifica.riequilibraBeniAMarkupCent);
   }
+  // Markup scritto a mano (08/09/2026): `undefined` lascia com'è, `null`
+  // torna al calcolo; il riequilibrio dei beni parla del markup calcolato e
+  // quindi lo azzera.
+  const markupForzatoCent =
+    modifica.riequilibraBeniAMarkupCent !== undefined
+      ? null
+      : modifica.markupForzatoCent !== undefined
+        ? modifica.markupForzatoCent
+        : fattura.markupForzatoCent;
 
-  // Fattura libera: il pattuito è la somma delle righe scritte a mano, così il
-  // markup resta zero e il totale è quello che si legge nelle righe.
+  // Fattura libera: il pattuito è la somma delle righe scritte a mano (più il
+  // markup a mano, se c'è), così il totale è quello che si legge nelle righe
+  // e lo scarto dal pattuito resta zero.
   const pattuitoCent = fattura.origine === "libera"
-    ? righe.filter(r => !r.derivata && (r.tipo === "bene" || r.tipo === "servizio")).reduce((s, r) => s + r.importoCent, 0)
+    ? righe.filter(r => !r.derivata && (r.tipo === "bene" || r.tipo === "servizio")).reduce((s, r) => s + r.importoCent, 0) +
+      (markupForzatoCent ?? 0)
     : fattura.pattuitoCent;
-  const ricalcolo = ricalcola({ righe, pattuitoCent, pattuitoTipo: fattura.pattuitoTipo });
+  const ricalcolo = ricalcola({ righe, pattuitoCent, pattuitoTipo: fattura.pattuitoTipo, markupForzatoCent });
   const { righe: righeComplete, esito } = fattura.origine === "libera" ? senzaMarkupVuoto(ricalcolo) : ricalcolo;
 
   const avvisi: Controllo[] = [];
@@ -740,6 +780,7 @@ export async function aggiornaBozza(
     totaleCent: esito.totaleCent,
     deltaPattuitoCent: esito.deltaPattuitoCent,
     markupCent: esito.markupCent,
+    markupForzatoCent,
     stornoCent: esito.stornoCent,
     note: modifica.note,
     diciture: modifica.diciture,
@@ -751,6 +792,42 @@ export async function aggiornaBozza(
     pattuitoCent: fattura.origine === "libera" ? pattuitoCent : undefined,
   };
 
+  // Fattura già su Fatture in Cloud: la modifica ci arriva PRIMA di essere
+  // scritta qui (R47). Se il `PUT` fallisce — o se di là il documento è
+  // cambiato sotto di noi — non si scrive niente da nessuna parte.
+  const suFic = fattura.stato === "emessa" && fattura.ficDocumentId != null;
+  if (suFic) {
+    if (!input.sincronizzaFic) {
+      throw new Error(
+        "PRECONDIZIONE: modificare una fattura già su Fatture in Cloud richiede la sincronizzazione, che questo chiamante non ha."
+      );
+    }
+    const provvisoria: Fattura = {
+      ...fattura,
+      ...senzaIndefiniti(patch),
+      righe: righeComplete.map((r, i) => ({ ...r, id: fattura.righe[i]?.id ?? 0, fatturaId: fattura.id })),
+      riepilogo: esito.riepilogo,
+      scadenze: scadenze.map((sc, i) => ({
+        ...sc,
+        id: fattura.scadenze[i]?.id ?? 0,
+        fatturaId: fattura.id,
+        ficPaymentId: fattura.scadenze[i]?.ficPaymentId ?? null,
+        stato: fattura.scadenze[i]?.stato ?? ("attesa" as const),
+      })),
+    };
+    const esitoFic = await input.sincronizzaFic({
+      sedeId: input.sedeId,
+      fattura: provvisoria,
+      actorUserId: input.actorUserId,
+    });
+    patch.ficUpdatedAt = esitoFic.ficUpdatedAt;
+    // L'XML e il PDF archiviati descrivono un documento che non esiste
+    // più: si buttano, e chi li rivuole li riscarica.
+    patch.xmlStorageKey = null;
+    patch.xmlSha256 = null;
+    patch.pdfStorageKey = null;
+  }
+
   const aggiornata = await repository.aggiornaBozza({
     sedeId: input.sedeId,
     id: input.id,
@@ -761,6 +838,20 @@ export async function aggiornaBozza(
     scadenze,
     now,
   });
+
+  if (suFic) {
+    await repository.appendEvento({
+      fatturaId: aggiornata.id,
+      sedeId: input.sedeId,
+      tipo: "aggiornata_fic",
+      payload: {
+        ficDocumentId: aggiornata.ficDocumentId,
+        ficUpdatedAt: aggiornata.ficUpdatedAt,
+        totaleCent: aggiornata.totaleCent,
+      },
+      actorUserId: input.actorUserId,
+    });
+  }
 
   if (clienteSnapshot && aggiornata.clienteSnapshot?.clienteId != null) {
     aggiornaAnagraficaCliente(aggiornata.clienteSnapshot.clienteId, input.sedeId, clienteSnapshot);
@@ -799,6 +890,13 @@ export async function aggiornaBozza(
       ...avvisi,
     ],
   };
+}
+
+/** Le chiavi a `undefined` di una patch non sono valori: significano «lascia com'è». */
+function senzaIndefiniti<T extends object>(patch: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(patch).filter(([, v]) => v !== undefined)
+  ) as Partial<T>;
 }
 
 /**
@@ -841,6 +939,14 @@ export async function rigeneraBozza(
   const repository = repo(input);
   const now = adesso(input);
   const fattura = await bozzaModificabile(repository, input.sedeId, input.id);
+  // Rigenerare butta le righe e le rifà dal contratto: su un documento già
+  // numerato su Fatture in Cloud è un'altra cosa dal correggerlo, e non
+  // passa dalla sincronizzazione (R46). Solo la bozza.
+  if (fattura.stato !== "bozza") {
+    throw new Error(
+      `FATTURA_IMMUTABILE: la fattura #${fattura.id} è già su Fatture in Cloud: correggila riga per riga, non rigenerandola.`
+    );
+  }
   if (fattura.origine === "libera") {
     throw new Error("PRECONDIZIONE: una fattura libera non nasce dal contratto e non si rigenera.");
   }
@@ -871,6 +977,8 @@ export async function rigeneraBozza(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: esito.deltaPattuitoCent,
       markupCent: esito.markupCent,
+      // Torna alla proposta anche il markup: quello del risolutore, non uno scritto a mano su righe che non ci sono più.
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       // La bozza torna alla proposta del sistema: uno scavalco deciso
       // sulle righe di prima non vale più su righe che non sono più
@@ -1210,6 +1318,13 @@ export async function annullaBozza(
   if (!corrente) throw new Error("NOT_FOUND: Fattura non trovata.");
   if (corrente.stato === "in_emissione" && corrente.ficDocumentId == null) {
     // ok: niente da proteggere
+  } else if (corrente.ficDocumentId != null) {
+    // R46 ha reso correggibile la fattura nella finestra fra FiC e SdI, ma
+    // correggibile non vuol dire cancellabile: il numero è già uscito da
+    // Fatture in Cloud, e si torna indietro solo con una nota di credito.
+    throw new Error(
+      `FATTURA_IMMUTABILE: la fattura #${corrente.id} è già numerata su Fatture in Cloud: si storna con una nota di credito, non si annulla.`
+    );
   } else {
     await bozzaModificabile(repository, input.sedeId, input.id);
   }

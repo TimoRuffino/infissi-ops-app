@@ -3,7 +3,7 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 08/09/2026<br>
+**Aggiornato:** 09/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
@@ -105,6 +105,151 @@
 > client). Runbook:
 > `docs/runbooks/multi-azienda.md`, sezione «WS3 — file, backup, credenziali
 > e guasti per tenant». PRD §60.11 (v5.65). Voce 21 del debito aggiornata.
+> **Novità 08/09/2026 (sera) — il salto: l'analisi può chiedere** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punto 19,
+> decisione D4 «senza tetto»; PRD §54.17). Prima di rispondere il modello
+> può **leggere il CRM**: strumenti derivati dal registro (azioni R0 senza
+> effetto — nessuna scrittura può nascere da qui), quattro giri e dodici
+> chiamate al massimo, con gli strumenti che spariscono all'ultimo giro
+> così deve rispondere. Contesto di sistema sulla sede con le capability
+> della direzione; un errore torna al modello come dato e il giro continua;
+> l'output di uno strumento resta un dato, mai un'istruzione, e `entita`
+> accetta ancora solo i riferimenti della fotografia. Prompt `analisi-v20`.
+> **Con questo il piano è completo: 31 interventi su 31.** Resta fuori,
+> dichiarato: l'invio di posta DAL CRM (metà di D5), che richiede
+> credenziali SMTP e non è stato costruito.
+
+> **Novità 08/09/2026 (sera) — il fascicolo prende il secondo lato** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punti 30 e
+> 11; PRD §54.16). La **posta inviata** entra nel CRM come quella in
+> arrivo: `Casella.cartellaInviati` (null = spenta) e `ultimoUidInviati`,
+> stessa connessione e stessa logica incrementale, messaggi con
+> `direzione: "out"`, controparte = destinatario, stato «gestita», fuori
+> dalla coda di smistamento. Un errore sulla cartella degli inviati non fa
+> fallire la posta in arrivo. **Parte spenta su ogni casella**: si accende
+> una alla volta da `mail.caselle.update` con `cartellaInviati` (di norma
+> «INBOX.Sent» su cPanel) — **da fare in produzione, casella per casella**.
+> L'**invio dal CRM** (l'altra metà della decisione D5) è progettato ma non
+> costruito: richiede credenziali SMTP, operazione esterna non eseguita. E
+> le **bozze**: una proposta che chiede qualcosa a qualcuno porta il testo
+> pronto, senza importi, da leggere e mandare a mano — Tars non invia
+> niente. Prompt `analisi-v19`.
+
+> **Novità 08/09/2026 (sera) — il cerchio si chiude** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco E;
+> PRD §54.15). Sette voci: il **consuntivo di ieri** (quante proposte, quante
+> fatte); **quello che manca** (una commessa avanti senza un euro
+> incassato); **perché è ferma** (l'attesa ha un nome: due consegne da
+> Alias, o il documento del gate); le **garanzie in scadenza** entro due
+> mesi; il **confronto fra sedi**; **dodici proposte generate e sei
+> tenute**, scelte dall'ordinamento per posta in gioco; e l'analisi che
+> **non aspetta più l'orario** — si rifà quando un contatore che conta
+> peggiora (fonti mute, consegne in ritardo, discordanze critiche, ticket
+> urgenti, promesse scadute), con almeno mezz'ora fra due giri e solo in
+> peggioramento. Prompt `analisi-v18`. **Restano del piano**: il punto 30
+> (lato in uscita del fascicolo, decisione «tutti e due»), il punto 11
+> (bozze pronte da inviare a mano) e il punto 19 (l'analisi che indaga da
+> sola, decisione «senza tetto»).
+
+> **Novità 08/09/2026 (sera) — il mattino ricorda, avvisa e impara dal
+> correttivo** (piano `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`;
+> PRD §54.14). Le **memorie di sede** dettate in chat entrano in testa alla
+> fotografia e valgono più di qualunque regola del prompt (punti 10 e 25: i
+> due cervelli erano scollegati). I **documenti che il tipo di lavoro vuole**
+> — delibera per un condominio, verbale per una posa eseguita, asseverazione
+> per una pratica fiscale, conformità per una edilizia — sono un **avviso e
+> non un blocco**: il gate resta quello che è, perché irrigidirlo fermerebbe
+> lavori veri (punto 31). E i **correttivi**: le proposte rifiutate che poi
+> si sono avverate in un altro modo, senza storage nuovo. Prompt
+> `analisi-v17`.
+
+> **Novità 08/09/2026 (sera) — la posta diventa memoria** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco G
+> parte 1; PRD §54.13). Le **promesse dette a parole** nei messaggi
+> («ti mando le misure lunedì») ora si estraggono nello stesso giro in cui
+> Tars legge il messaggio, con la frase originale come prova, e si contano
+> quando scadono; solo impegni espliciti e con una data, mai un'intenzione
+> vaga. `VERSIONE_SMISTAMENTO` a 1.4.0, prompt `smistamento-v3`: i record
+> vecchi si riesaminano da soli. E il **filo della conversazione**, derivato
+> senza colonne nuove da controparte + oggetto normalizzato, dice chi ha già
+> scritto più volte senza risposta e da quanto aspetta — funziona anche
+> sull'archivio. **Manca del blocco G**: il lato in uscita del fascicolo
+> (punto 30, decisione D5 «tutti e due»: invio dal CRM e cattura dalla posta
+> inviata). Prompt analisi `analisi-v16`.
+
+> **Novità 08/09/2026 (sera) — Tars conosce il mestiere** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco C;
+> PRD §54.12). Le soglie non sono più numeri scelti a mano: la **mediana**
+> per stato si calcola sulla storia vera della sede (milestone della
+> timeline, archiviate comprese, da cinque passaggi in su), e un lavoro è
+> lento quando sfora il doppio della sua mediana — «in produzione da 40
+> giorni, la mediana è 18». Il **margine** entra come segnale: al modello il
+> flag «sotto soglia» (default 20 %, `TARS_MARGINE_MINIMO`), mai un euro nel
+> prompt; le cifre le calcola il codice, viaggiano in `economia` sulla
+> proposta e `esitoVisibileA` le toglie a chi non è direzione (decisione
+> D1). Le proposte si **ordinano per residuo da incassare** prima del taglio
+> a sei. E ogni posa della settimana dice se la merce c'è. Prompt
+> `analisi-v15`.
+
+> **Novità 08/09/2026 (sera) — il documento si confronta col dato, e il
+> fascicolo dice quale versione vale** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco F;
+> PRD §54.11). Tre confronti nuovi: la **merce che arriva dopo la posa**
+> (critica: la squadra va in cantiere e il serramento non c'è), la data che
+> non coincide fra conferma e magazzino, il costo registrato diverso da
+> quello che dichiara la conferma — senza mai scrivere le cifre. E le
+> **versioni**: due «misure.pdf» con byte diversi non sono un duplicato ma
+> due versioni; un calcolo puro (nessuna colonna nuova) dice quale vale e
+> quali sono superate, `preventiviContratti.byCommessa` lo restituisce e la
+> fotografia lo segnala. I tipi che sono molti per natura — foto, DDT,
+> fatture, conferme — restano fuori. **Non ancora fatto**: confrontare il
+> CONTENUTO delle due versioni, e il punto 31 (i documenti richiesti dal
+> gate dipendono ancora solo dallo stato, non dalla natura del lavoro).
+> Prompt `analisi-v14`.
+
+> **Novità 08/09/2026 (sera) — le proposte del mattino hanno un destinatario,
+> una memoria e una misura** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco B;
+> PRD §54.10). `tars.analisiAzienda` **non è più riservata alla direzione**:
+> la chiama chiunque abbia `commessa.read` e vede sintesi, punti e domande
+> (comuni) più le sole proposte indirizzate a sé — l'amministrazione le
+> fatture, chi ha la commessa il suo gate. Il destinatario si deriva dalla
+> sezione da cui la proposta nasce e dall'assegnatario, con la stessa regola
+> T6 della chat; eseguire o scartare una proposta che non è la propria dà
+> `NOT_FOUND`, la rigenerazione resta della direzione. Nessuna modifica al
+> client: la voce di menu chiedeva già `tars.use`, che hanno tutti i ruoli.
+> Una proposta **rifiutata non torna per quattordici giorni** (prima la
+> memoria durava un giorno solo). Ogni proposta dichiara da quale sezione
+> nasce, e da lì si misura quante ne produce ciascuna, quante eseguite e
+> quante rifiutate: la sezione «Cosa accetti e cosa scarti» entra nella
+> fotografia e il prompt la usa per decidere dove spendere i sei posti — il
+> tasso si dichiara solo da tre decisioni in su. Una proposta che poggia su
+> una lettura senza riscontro apre il testo con «Da verificare:». Prompt
+> `analisi-v12`, prove in `server/tars/analisi/bloccoB.test.ts`.
+
+> **Novità 08/09/2026 — Tars si accorge di quando è cieco** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco A;
+> PRD §54.9). Fino a oggi la fotografia del mattino contava solo ciò che era
+> ENTRATO: con la posta ferma da tre giorni non entrava niente e l'analisi
+> scriveva «tutto calmo». Ora si apre con **«Occhi chiusi»** — casella in
+> errore o muta da oltre sei ore, WhatsApp in errore, Fatture in Cloud
+> scollegato o fermo da oltre trentasei ore — e il motivo arriva ripulito da
+> indirizzi, token e stringhe lunghe. Entrano anche la **merce ordinata** (i
+> ritardi con fornitore, cliente e giorni; le consegne entro quattordici
+> giorni; le righe senza data, che sono un buco e non un ritardo) e **«cosa è
+> cambiato»** rispetto all'ultima analisi. Nessun elenco è più tagliato in
+> silenzio: dove si mostrano i primi otto si dice quanti restano fuori. Gli
+> strumenti che una proposta può eseguire con un click non sono più una lista
+> scritta a mano ma una regola sul registro (R1, non L3, effetto interno, meno
+> soldi/cancellazioni/importazioni massive): da dieci a ventisette, e il
+> catalogo entra nel prompt generato dal registro. Il freno resta dov'era, al
+> click. Anche senza modello la sintesi deterministica dice per prime le fonti
+> mute e la merce in ritardo. Prompt `analisi-v11`, prove in
+> `server/tars/analisi/bloccoA.test.ts`. **Restano i blocchi B-G del piano**:
+> destinatario delle proposte, memoria oltre la giornata, tasso di
+> accettazione, tempi di attraversamento, margine, versioni dei documenti,
+> filo delle conversazioni, promesse dette nei messaggi, lato in uscita del
+> fascicolo.
 
 > **Novità 08/09/2026 — la grafia definitiva è Wyndoor, e il dominio è
 > wyndoor.com.** Il nome scelto il 07/09 aveva una o sola; l'08/09 la direzione
@@ -325,6 +470,25 @@
 > Terza decisione della sera: **prova gratuita di 30 giorni** per ogni nuova
 > azienda (spec madre §18-bis): tocca WS4 e WS5, non il WS1; aperti carta
 > alla registrazione, soglie in prova, una prova per partita IVA, avvisi.
+
+> **Novità 07/09/2026 — decisione prodotto, non ancora implementata (PRD
+> 5.62, §61; nessun codice CRM modificato).** Dopo che una persona ha rivisto
+> e applicato i dati letti dal contratto, Wyndoor dovrà preparare
+> automaticamente nella commessa una bozza di fattura rivedibile. Il trigger
+> non è l'upload né la sola estrazione; l'emissione, la numerazione su Fatture
+> in Cloud e l'invio SdI restano dietro «Emetti» e conferma autorizzata. I
+> limiti di spesa sono facoltativi: se mancano si mostra «Limiti non
+> verificati» e si offre il calcolo, senza bloccare; se sono noti e superati
+> restano controllo e scavalco motivato. Requisiti aperti: idempotenza e riuso
+> della bozza esistente, nessun duplicato se la fattura è già in emissione,
+> retry esplicito se il contratto viene salvato ma la bozza fallisce, audit e
+> separazione del gate tecnico `FLAG_LIMITI`; vanno coperti anche applicazioni
+> concorrenti, contratto cambiato senza sovrascrivere la bozza e convivenza
+> con fatture libere. La landing può illustrare contratto scansionato → campi
+> → **«Dati da verificare» → «Applica al contratto» → «BOZZA · DA
+> VERIFICARE»** solo dopo il rilascio o dentro un blocco esplicitamente **«In
+> arrivo»**. Altrimenti deve usare la variante pre-rilascio, fermarsi sul
+> contratto salvato e non promettere la preparazione automatica.
 
 > **Novità 06/09/2026 — anteprime delle evidenze, «Dove l'ho letto»** (su
 > `main` da `ad1d8be`, poi `7a0998d` e `bd75160`, PRD 5.44, 5.45 e 5.48; spec
@@ -649,6 +813,38 @@
 > modo. Per i messaggi GIÀ smistati la coda non li ripesca: c'è il tasto
 > «Riguarda questo messaggio» nel banner Tars
 > (`tars.smistamentoRiesamina`, esisteva già lato server, mancava il tasto).
+>
+> **08/09/2026 (sera) — «Le commesse vanno tenute aggiornate».** Tars non
+> proponeva mai un avanzamento di stato perché la fotografia dell'analisi
+> conosceva solo i gate MANCANTI: il documento già arrivato non era un
+> fatto. Aggiunta la sezione «Pronte per il passo successivo» in
+> `server/tars/analisi/fotografia.ts` (gate soddisfatto + stato successivo
+> dalla macchina a stati; fuori gli stati senza gate e il passo verso
+> `archiviata`) e la regola nel prompt (`analisi-v10`): lì la proposta è
+> `transizione_adiacente_commessa`, che era già fra le azioni eseguibili.
+> L'analisi si rigenera al cambio di versione del prompt, quindi le proposte
+> nuove arrivano col giro successivo.
+>
+> **08/09/2026 (sera) — Fatture FiC che creavano commesse doppie.**
+> `collegaFattureAutomatiche` lega solo se la fattura cita il codice
+> commessa; `creaCommesseDaFattureFic` controllava solo `ficSourceRef`,
+> quindi per il cliente che aveva già un lavoro aperto ne nasceva un altro.
+> Ora prima di creare guarda le commesse vive del cliente: una → collega
+> (`automatico_cliente`), più di una → lascia da collegare, nessuna → crea.
+> ATTENZIONE: in produzione ci sono **63 commesse già nate così** (una in
+> sede 2). Vanno unite a mano — scollegare la fattura, collegarla a quella
+> vera, eliminare la commessa vuota — oppure serve uno strumento di fusione,
+> che NON è stato scritto: cancellare commesse in produzione è una
+> decisione della direzione. Caso di riferimento: Sica Michele,
+> COM-2026-422 (da FiC) accanto a COM-2026-409 (quella vera, in
+> fatture_pagamento).
+>
+> Lo strumento ORA c'è (`server/fic/doppioni.ts`, sezione in Economia →
+> Fatture): elenca i doppioni con quello che sposterà e li unisce uno alla
+> volta. Rifiuta quando il cliente ha più di un'altra commessa viva o quando
+> dentro c'è lavoro vero (agenda, ticket, magazzino, costi, incassi).
+> I 63 casi in produzione restano da passare a mano, riga per riga: la
+> fusione elimina una commessa e non si annulla.
 >
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
@@ -3351,8 +3547,17 @@ numerazioni, i conti e i metodi di pagamento — il conto si auto-assegna se
 Restano da compilare IBAN, banca, intestatario, metodo di pagamento,
 numerazione FiC e spese di documentazione (default 150,00 € per sede).
 
-**Runbook della prima fattura reale.**
+**Runbook della prima fattura reale.** Riscritto l'08/09/2026: da quando
+l'emissione è in due gesti, la protezione non è più il dry-run ma il fatto
+che l'invio allo SdI è un click a sé. Il passo 4 crea il documento e basta;
+il passo 6 è quello che spedisce.
 
+0. **Prima del deploy**, chiudere le fatture ferme in `emessa` con
+   `inviata_dry_run = true`: la direzione ha dichiarato che sono tutte
+   prove (08/09/2026). Col pulsante nuovo diventerebbero spedibili con un
+   click, quindi vanno chiuse — annullate se non hanno un `ficDocumentId`,
+   stornate con una nota di credito se ce l'hanno — prima che il branch
+   arrivi in produzione.
 1. Sede/ambiente di prova, `FLAG_LIMITI` e `FLAG_FATTURAZIONE` accesi lì
    soltanto; `FATTURAZIONE_SDI_DRY_RUN` resta al suo default (attivo:
    nessuna variabile da toccare).
@@ -3367,7 +3572,8 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    `numeration` solo se `config.numerazioneFic` è valorizzata, e nessuna
    validazione la pretende — se resta «Numerazione predefinita», FiC
    numera con la propria serie e non lo segnala come errore.
-4. «Emetti» in dry-run: FiC **numera davvero** il documento (non ha bozze).
+4. «Invia a Fatture in Cloud»: FiC **numera davvero** il documento (non ha
+   bozze), ma allo SdI non parte niente — quello è il passo 6.
    Usare la company di prova FiC consigliata dalla spec §11 (licenza trial
    dal supporto), oppure accettare il numero e stornarlo subito con una
    nota di credito. Un operatore, una scheda, e nessun retry finché la
@@ -3376,22 +3582,58 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    lease, R35); una chiamata API diretta avviata dopo il lease e prima che
    FiC risponda resta scoperta (R40, chiusura rinviata alla ricerca su FiC
    di R11): per questo la regola operativa resta aspettare.
-5. XML scaricato dalla tab Fattura e verificato dal commercialista.
-6. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
-   variabile Railway di **tutto il deployment**, non un campo per sede nel
-   database — si spegne su un ambiente dedicato alla sede di prova, come
-   già `FLAG_LIMITI` nel runbook del piano 1 (§11-vicies terdecies).
+5. XML scaricato dalla tab Fattura e verificato dal commercialista. Da qui
+   ci sono **dodici giorni**: il contatore in testa all'editor li conta, e
+   in quella finestra la fattura si corregge ancora — dal CRM (il
+   salvataggio la riporta su FiC da solo) o dentro Fatture in Cloud (la
+   sonda se ne accorge entro un quarto d'ora).
+6. Solo dopo la conferma sull'XML: **«Invia allo SdI»**. Se i totali di FiC
+   nel frattempo non sono più i nostri l'invio si ferma e chiede un motivo
+   («Invia comunque»), che resta nella cronologia. Da qui non si torna
+   indietro: si corregge con una nota di credito.
+7. `FATTURAZIONE_SDI_DRY_RUN` non è più la protezione della prima fattura,
+   ma resta utile su un ambiente di collaudo: acceso, il secondo click
+   simula l'invio invece di spedirlo. È una variabile Railway di **tutto il
+   deployment**, non un campo per sede nel database.
 
 Con dry-run acceso l'invio è simulato: lo stato resta `emessa` (mai
 `inviata`) con l'etichetta «Emessa (prova SdI)». La sonda
 (`startSondaFattureWorker`) gira ogni 15 minuti in un solo processo e **non
-ritenta l'invio**, solo la lettura dello stato SdI e l'archivio mancante.
+ritenta l'invio**: legge lo stato SdI, recupera l'archivio mancante, si
+accorge delle modifiche fatte dentro Fatture in Cloud (evento
+`modificata_fic`) e, sullo stesso tick, manda gli avvisi di scadenza a chi
+ha mandato la fattura su FiC — a 7, 3 e 1 giorno, poi ogni giorno.
 Alla **prima nota di credito reale**: verificare sul PDF FiC il segno del
 totale — il CRM manda righe positive speculari all'origine con
 intestazione «Accredito su ns. fattura n. X del Y», le note reali del 2026
 in mano alla commercialista stampano il totale in negativo; se FiC inverte
 da sé il segno in output va bene così, altrimenti il generatore va
 corretto prima della seconda nota (v. spec §7.6, «Aperto»).
+
+**I due gesti (08/09/2026, R43–R51,** `docs/superpowers/specs/2026-09-08-fattura-due-passi-fic-sdi-design.md`**).**
+La fattura non esce più con un click solo. «Invia a Fatture in Cloud» crea e
+numera il documento e si ferma (`creaSuFic`, mutation `fatture.emetti`, che
+conserva il nome); «Invia allo SdI» spedisce (`inviaAlloSdi`, mutation
+`fatture.inviaSdi`), stessa capability `fattura.emit`. Nessuno stato nuovo:
+cambia il significato di `emessa`, che da stato di passaggio diventa la
+finestra dei dodici giorni. Da sapere prima di rimetterci le mani:
+
+- `fatturaModificabile` non è più una funzione dello stato ma del record
+  (stato + `eiStatusFic`): immutabile da `inviata` in poi, non da
+  `in_emissione` (R46). Ma **correggibile non è cancellabile**:
+  `annullaBozza` e `rigeneraBozza` rifiutano una fattura con un
+  `ficDocumentId` (R51) — il numero è uscito, si storna.
+- La correzione va su FiC **prima** del commit nel CRM (R47), con
+  `fatture.fic_updated_at` (`TEXT`, token opaco) come lock ottimistico. Se
+  di là è cambiato: `CONFLITTO_FIC`, e non si scrive niente da nessuna
+  parte.
+- La rilettura da FiC **non rimappa le nostre righe** (R48): FiC non
+  distingue un bene significativo da un markup. Lo scostamento si mostra,
+  non si assorbe — e la verifica dei limiti non lo segue.
+- Il documento del fascicolo nasce con l'invio, non con la creazione (R45).
+- Lo scostamento dei totali blocca l'invio, non la creazione (R49).
+- Il contatore vive in `shared/fatturazione/scadenzaSdi.ts`: giorni di
+  calendario Europe/Rome da `fattura.data` + 12.
 
 **Decisioni prese in corso d'opera che cambiano un contratto (ruling R1–R41,
 ledger completo in** `.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/progress.md`
@@ -4262,7 +4504,8 @@ buttava via la lettura), pattuito lordo/imponibile «da confermare» con IVA
 fattura mai uscita dal CRM (bozza, annullata, emissione ferma senza
 documento FiC) con righe, riepilogo, scadenze ed eventi; cestino con
 conferma sulle righe dell'elenco nel tab Fattura. Con un documento FiC
-creato non si cancella: nota di credito. Runbook della prova: PostgreSQL locale per il ledger
+creato non si cancella: nota di credito (dal 08/09/2026 il gesto sta anche
+nella vista dell'annullata e nell'editor della bozza, v. sotto). Runbook della prova: PostgreSQL locale per il ledger
 (`docker run … postgres:16`), `EVAL_CONTRATTI_REALE=on TARS_PROVIDER=openai
 FLAG_TARS=on FLAG_CONTRATTO_ESTRAZIONE=on FLAG_DOCUMENT_INTELLIGENCE=on` +
 budget `TARS_*` + `OPENAI_API_KEY`; la chiave della launch config demo è
@@ -4330,6 +4573,85 @@ righe ricomposte a colonne): prezzi con evidenza dal 44 % all'83 %. Il Drive
 fattura scaricate in `~/Desktop/dati x claude/Drive-NAS` (elenco con
 `embeddedfolderview`, download con `drive.usercontent.google.com/download`;
 gdown non funziona più).
+
+**Stampa dei limiti (07/09/2026, direzione).** «Stampa» nel tab Limiti
+apre `/commesse/:id/limiti/stampa` (`pages/LimitiStampa.tsx`,
+`lib/limitiStampaView.ts` provata): parametri, righe del contratto, CHECK 1
+e CHECK 2 voce per voce, totali, avvertenze; filigrana se il computo non è
+aggiornato. Rotta nel contratto delle rotte e nel manifesto. Verifica
+browser non eseguita (login demo). PRD 5.66 (dopo i rebase sopra il
+multi-azienda e gli allegati di main: il §60 è il SaaS, la nota «bozza
+automatica» è §61/5.65).
+
+**Eliminazione delle annullate da ogni vista (08/09/2026, direzione: «devo
+poter eliminare le bozze di fatture annullate»).** Il cestino stava solo
+nell'elenco del tab Fattura, che compare con due o più fatture: con una
+sola annullata la vista diceva «nessuna azione disponibile». Ora la vista
+dell'annullata (e dell'emissione ferma senza documento FiC) ha «Elimina
+definitivamente», l'editor della bozza «Elimina bozza» accanto ad «Annulla
+bozza»; regola unica `fatturaEliminabile` (`client/src/lib/fatturaView.ts`,
+la stessa di `eliminaBozza`), conferma e mutation nel tab, fattura tolta
+dalla cache prima del refetch. Trovato e chiuso a schermo un secondo buco:
+su una commessa senza contratto (fatture libere) l'annullata rendeva il
+passo Fattura «da fare» e non raggiungibile — spariva. `calcolaPassi`
+(`server/fatturazione/passi.ts`) torna `annullate` (conteggio) e
+`passoRaggiungibile`/`passoIniziale`/stepper tengono aperto il passo
+Fattura se > 0 (mai a flag spento). Verifica browser FATTA a 1440×900 e
+390×844 col server demo in memoria e un harness nello scratchpad che semina
+tre commesse (libera annullata senza contratto, bozza libera,
+contratto+computo del caso 127 con bozza annullata): tre cancellazioni
+riuscite, nessuno scroll orizzontale, console pulita. Server delle fatture,
+permessi e Cassa invariati. PRD 5.67.
+
+**Limiti correggibili a mano (08/09/2026, direzione: «devo poter modificare
+i limiti dal gestionale»).** Come le celle ritoccate nel foglio: matita
+«Correggi» su ogni voce del tab Limiti → dialog (quantità, prezzo, limite
+forzato, inclusione, motivo) → `computo.correggiVoce` (una voce per volta,
+`null` = ripristina). La correzione sta nel contratto
+(`opzioniComputo.correzioni[]`, `aggiornaOpzioniComputo` con hash rifatto;
+entra nell'hash solo se c'è) e il computo si rifà subito. Motore: correzioni
+dopo le voci e prima dei totali, fattore esatto della formula nel dettaglio
+(`fattore`, es. installatori 2), `fisso` per la pulizia, limite forzato che
+vince, voce esclusa fuori dai totali, T6 in centesimi con una riga DEI
+corretta, avvertenza «…corretta a mano: X (calcolato Y) — motivo». Il form
+del contratto conserva le correzioni e avvisa se cambiano le righe. Verifica
+browser 1440×900 con l'harness (`seme-elimina.mts`, ora dentro
+`conTenantDellaSede(1, …)` perché gli store vogliono il tenant): posa 18 → 8
+ore = 584,00 € esatti, CHECK 1 e limite seguono, badge, avvertenza e stampa.
+PRD 5.68.
+
+**Markup scritto a mano (08/09/2026, direzione: «devo poter modificare il
+markup»).** `fatture.markup_forzato_cent` (null = calcolato): il risolutore
+con `markupForzatoCent` pone P = N + S + M e lascia lo scarto in
+`deltaPattuitoCent`; `aggiornaBozza.markupForzatoCent` (numero/null/assente);
+riequilibrio e rigenerazione lo azzerano; sulla libera il pattuito diventa
+righe + markup (scarto zero) e il riepilogo mostra il Markup se ≠ 0. Editor:
+campo «Markup» accanto a «Riequilibra i beni», badge «calcolato»/«a mano»,
+«Torna al calcolo». PRD 5.69. Verifica browser non eseguita (chiusura rapida per la prima fattura vera): coperto dai test.
+
+**OAuth FiC non retrocede i permessi di scrittura (08/09/2026, direzione:
+«Permessi di scrittura fatture: non autorizzati continua a uscirmi»).**
+Causa dal codice: il badge legge `scopeScrittura` (intento dell'ultimo
+OAuth) e i pulsanti generici («Ricollega account», «Ricollega e aggiorna
+permessi» — che compare dopo OGNI OAuth finché un sync pieno non conferma i
+permessi economici) ripartivano in sola lettura: token nuovo senza scrittura,
+badge di nuovo «non autorizzati», giro che si ripete. Fix: `oauthStartUrl`
+senza argomento eredita `cfg.scopeScrittura`. Da fare UNA volta in
+produzione: Integrazioni → Fatture in Cloud → «Ri-autorizza con permessi di
+scrittura», poi Contabilità → Fatturazione → «Verifica permessi». Non
+verificabile in demo. PRD 5.70.
+
+**Limiti eliminabili e fattura FiC collegata = già fatturata (08/09/2026,
+direzione).** `computo.elimina` + «Elimina» nel tab Limiti (tutti i computi
+della commessa, cascata sulle voci; contratto e correzioni restano).
+`fattureFicCollegate(sedeId, commessaId)` in `routers/ficFatture.ts` è la
+regola unica (fatture, non note, sede, non ignorate): elenco `/fatturazione`
+(che già escludeva), `calcolaPassi` (`fattureFic` → passo Fattura fatto),
+record dei passi (`fatturaFic`), `fatture.perCommessa` (`fattureFic`) e tab
+Fattura (avviso, niente bozza dai limiti, percorso interno nascosto).
+Sonda read-only prod: 7 commesse su 13 «da fatturare» con FiC collegata,
+già fuori dall'elenco; il buco era passo e tab. PRD 5.71. Verifica browser
+non eseguita.
 
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la
@@ -4753,6 +5075,25 @@ a vuoto e dice «57 saltati»).
     test su Postgres vero per ledger, ricalcolo e ripristino; nulla
     distribuito su Railway, nessuna verifica a schermo (il WS3 non tocca il
     client).
+22. **Pagina Tars riscritta come coda di decisioni (08/09/2026)**: su
+    `main` (PRD §62). Le proposte si leggono come azioni — il testo lo
+    prepara `client/src/lib/tarsDecisioniView.ts`, puro e con 22 test — e
+    il pannello laterale della chat, che ripeteva «Da fare oggi» e la coda
+    stessa, è stato tolto insieme a `TarsContextPanel`,
+    `SezioneAnalisiAzienda` e `ProposteDallAnalisi`; al suo posto
+    `TarsBarraContesto`, una riga con l'entità attiva. «Rigenera
+    l'analisi» vive ora nell'intestazione della coda. Aperti: (1) la riga
+    di contesto è provata dai test ma mai vista dal vivo — il demo in
+    memoria non ha commesse da cui aprire Tars con un'entità attiva, e
+    serve un harness che ne semini una; (2) **due test rossi che non
+    vengono da lì**: `shared/brand.test.ts` cammina sul filesystem invece
+    che sui file tracciati da git, quindi entra in `Video/`,
+    `graphify-out/` e `.worktrees/` (le ultime due ignorate da git) — nel
+    checkout con un worktree locale sono mezzo milione di file e il
+    `push(...)` sull'array esaurisce lo stack. Il rimedio è scandire
+    `git ls-files`; è la guardia del lavoro sul marchio e non è stata
+    toccata da qui. (3) La voce di changelog della **5.75** manca nel PRD:
+    l'intestazione la dichiara, `## 33` no.
 
 ## 13. Cosa resta della piattaforma
 

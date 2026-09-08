@@ -557,3 +557,18 @@ describe("router fatturazioneGuidata", () => {
     expect(elenco.find((c) => c.commessaId === id)?.giorniNelloStato).toBe(0);
   });
 });
+
+describe("fatturazioneGuidata — fattura FiC collegata (08/09/2026)", () => {
+  it("(i) passi: con una fattura FiC collegata il passo Fattura è fatto e il record porta numero, data e lordo (solo con economia.read)", async () => {
+    const commessaId = await commessaDiProva(1);
+    pushFatturaFicCollegata(1, commessaId);
+    const direzione = appRouter.createCaller(context(1, 41, ["direzione"]));
+    const record = await direzione.fatturazioneGuidata.passi({ commessaId });
+    expect(record.passi.fattura).toBe("fatto");
+    expect(record.fatturaFic).toEqual({ numero: "1/2026", data: "2026-01-01", lordoCent: 12200000 });
+    expect(await direzione.fatturazioneGuidata.daFare()).not.toContainEqual(expect.objectContaining({ commessaId }));
+    const posa = appRouter.createCaller(context(1, 42, ["squadra_posa"]));
+    const senzaImporti = await posa.fatturazioneGuidata.passi({ commessaId });
+    expect(senzaImporti.fatturaFic).toEqual({ numero: "1/2026", data: "2026-01-01", lordoCent: null });
+  });
+});

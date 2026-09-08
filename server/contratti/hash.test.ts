@@ -62,3 +62,27 @@ describe("hash del contratto", () => {
     expect(hashParametri({ ...p, pattuitoCent: 999900 } as any)).not.toBe(base);
   });
 });
+
+describe("hash del contratto — correzioni a mano (08/09/2026)", () => {
+  const p = {
+    pattuitoCent: 1539500, pattuitoTipo: "lordo" as const, posaInclusa: true, zonaClimatica: "D" as const,
+    piano: 2, distanzaKm: 18, detrazioneTipo: "ristrutturazione" as const, detrazioneImmobile: "prima_casa" as const,
+    detrazionePct: 50, opzioniComputo: OPZIONI_COMPUTO_DEFAULT,
+  };
+  const c1 = { codice: "posa", quantita: 8, prezzoUnitCent: null, limiteCent: null, inclusa: null, motivo: "due squadre" };
+  const c2 = { codice: "massimale_A", quantita: null, prezzoUnitCent: 90000, limiteCent: null, inclusa: null, motivo: null };
+
+  it("entrano nell'hash solo quando ci sono: un contratto senza correzioni (anche salvato prima) conserva l'hash", () => {
+    const senza = hashParametri(p);
+    expect(hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [] } })).toBe(senza);
+    expect(hashParametri({ ...p, opzioniComputo: { rilievo: "foro", speseProfessionali: false, eventuali: [] } })).toBe(senza);
+    expect(hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [c1] } })).not.toBe(senza);
+  });
+
+  it("sono un insieme: l'ordine non conta, un valore diverso sì", () => {
+    const con = hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [c1, c2] } });
+    expect(hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [c2, c1] } })).toBe(con);
+    expect(hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [{ ...c1, quantita: 9 }, c2] } })).not.toBe(con);
+    expect(hashParametri({ ...p, opzioniComputo: { ...p.opzioniComputo, correzioni: [{ ...c1, motivo: "altro" }, c2] } })).not.toBe(con);
+  });
+});

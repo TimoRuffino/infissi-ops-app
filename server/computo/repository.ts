@@ -22,6 +22,8 @@ export type ComputiRepository = {
     sedeId: number,
     commessaId: number
   ): Promise<IntestazioneComputo | null>;
+  /** Tutti i computi della commessa, voci comprese (08/09/2026, «devo poter eliminare i limiti già fatti»): torna quanti erano. */
+  elimina(sedeId: number, commessaId: number): Promise<number>;
 };
 
 export function createMemoryComputiRepository(): ComputiRepository {
@@ -47,6 +49,16 @@ export function createMemoryComputiRepository(): ComputiRepository {
       if (!u) return null;
       const { voci: _voci, ...intestazione } = structuredClone(u);
       return intestazione;
+    },
+    async elimina(sedeId, commessaId) {
+      let eliminati = 0;
+      for (let i = computi.length - 1; i >= 0; i--) {
+        if (computi[i].sedeId === sedeId && computi[i].commessaId === commessaId) {
+          computi.splice(i, 1);
+          eliminati += 1;
+        }
+      }
+      return eliminati;
     },
   };
 }
@@ -221,6 +233,14 @@ export function createPostgresComputiRepository(
         WHERE sede_id = ${sedeId} AND commessa_id = ${commessaId}
         ORDER BY id DESC LIMIT 1`;
       return rows[0] ? rowToIntestazione(rows[0]) : null;
+    },
+    async elimina(sedeId, commessaId) {
+      await ensureSchema();
+      // Le voci seguono per ON DELETE CASCADE.
+      const rows = await sql`DELETE FROM computi
+        WHERE sede_id = ${sedeId} AND commessa_id = ${commessaId}
+        RETURNING id`;
+      return rows.length;
     },
   };
 }

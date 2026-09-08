@@ -57,10 +57,14 @@ export type CommessaDaFatturare = {
   documenti: { totale: number; contratti: number };
   passi: Record<PassoFatturazione, EsitoPasso>;
   prossimoPasso: PassoFatturazione | null;
+  /** Fatture annullate della commessa: da vedere ed eliminare, tengono aperto il passo Fattura (08/09/2026). */
+  annullate: number;
   pattuitoCent: number | null;
   pattuitoTipo: PattuitoTipo | null;
   /** `bozza.totaleCent` se esiste una bozza, altrimenti il pattuito (stima dichiarata). */
   fatturaPrevistaCent: number | null;
   fatturaPrevistaStima: boolean;
   fatturaStato: StatoFattura | null;
+  /** La fattura FiC collegata più recente (08/09/2026): la commessa è già fatturata da fuori. `lordoCent` solo con `economia.read`. */
+  fatturaFic: { numero: string; data: string; lordoCent: number | null } | null;
 };
