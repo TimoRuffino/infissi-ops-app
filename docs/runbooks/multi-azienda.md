@@ -61,7 +61,7 @@ Mai scritture sugli store con l'istanza viva.
     pnpm tenant crea --slug=acme --nome="Acme Infissi" --email=titolare@acme.it \
          --nome-utente=Mario --cognome=Rossi --scrivi --attendi
     pnpm tenant stato --slug=acme --sospendi --motivo="insoluto" --scrivi --attendi
-    pnpm tenant stato --slug=acme --riattiva --motivo="pagato" --scrivi
+    pnpm tenant stato --slug=acme --riattiva --motivo="verifica conclusa" --scrivi
     pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna --scrivi
 
 - Senza `--scrivi`: anteprima, nessuna scrittura. `--attendi`: aspetta l'esito fino a 90 s.
@@ -762,14 +762,20 @@ proroga:
     pnpm tenant abbonamento --slug=acme --omaggio --motivo="pilota fino a marzo" --scrivi --attendi
     pnpm tenant abbonamento --slug=acme --proroga=15 --motivo="attesa bonifico" --scrivi --attendi
 
-**Non** con `pnpm tenant stato --slug=acme --riattiva`. Quella riapre
-l'azienda ma non tocca il contratto: l'abbonamento resta `suspended`, la
-scheda continua a dire «sospeso», e nessun giro del worker rimette in pari le
-due cose (dal `suspended` non esiste transizione all'indietro automatica).
-`stato --sospendi/--riattiva` resta la mano dell'operatore per tutto il resto:
-una sospensione decisa a mano **non** viene annullata da un omaggio o da una
-proroga, perché non porta il marcatore `abbonamento: ` che il dominio si
-lascia dietro quando è lui a chiudere (`motivoStato` = «abbonamento: …»).
+**Non** con `pnpm tenant stato --slug=acme --riattiva`: quella riapre
+l'azienda ma non tocca il contratto, e l'abbonamento resta `suspended`. Il
+giro successivo del worker (entro 6 ore) rimette in pari le due cose e
+**risospende** l'azienda, con un evento che lo spiega (R15):
+
+    motivoStato = «abbonamento: contratto sospeso, azienda risultava attiva»
+
+Quindi `stato --riattiva` **non è il modo di riaprire un'azienda insolvente**:
+dura al massimo sei ore. Resta la mano dell'operatore per tutto il resto: una
+sospensione decisa a mano — o dal ripristino archivi, «ripristino archivi in
+corso» — **non** viene annullata da un omaggio o da una proroga, perché non
+porta il marcatore `abbonamento: ` che il dominio si lascia dietro quando è lui
+a chiudere (`motivoStato` = «abbonamento: …»), e per la stessa ragione il giro
+di R15 la lascia stare: agisce solo su un tenant `attivo`.
 
 **Un'azienda senza riga di abbonamento.** Il worker la salta e lo scrive:
 

@@ -4379,7 +4379,8 @@ tolleranza su spazio e Tars (§18-bis della spec madre). Riceve un avviso a 7,
 **sola lettura**: legge, cerca, scarica, il backup continua, non scrive —
 nessun dato viene mai cancellato. Un **omaggio** (con o senza scadenza) o una
 **proroga** la riaprono; sono le due sole strade, perché una riattivazione
-manuale del tenant lascia il contratto sospeso. Le due risorse misurate ora
+manuale del tenant lascia il contratto sospeso e il giro successivo del worker
+la risospende, spiegandolo nel registro. Le due risorse misurate ora
 **fermano invece di limitarsi ad avvisare**: oltre la quota e la tolleranza i
 caricamenti nuovi vengono rifiutati con un messaggio che dice quanto spazio è
 incluso e che cosa fare, e oltre il budget Tars del mese si fermano solo le

@@ -56,13 +56,14 @@ quota e la tolleranza, fermano solo ciò che costa. Con
 
 ## 2-bis. Decisioni in corso d'opera (08/09/2026)
 
-Diciassette scelte prese mentre il piano veniva eseguito — tre nella
-scansione pre-volo, quattordici durante i 9 task — quando il codice vero ha
-contraddetto la lettera della spec o del piano. Ognuna è un emendamento a
-questo documento: le sezioni che ne sono cambiate sono già corrette qui sotto
+Diciotto scelte prese mentre il piano veniva eseguito — tre nella
+scansione pre-volo, quattordici durante i 9 task, una nella fix wave finale
+(la revisione dell'intero branch, `final-review-report.md`) — quando il codice
+vero ha contraddetto la lettera della spec o del piano. Ognuna è un emendamento
+a questo documento: le sezioni che ne sono cambiate sono già corrette qui sotto
 — la §4.1 (R7, R8), la §6, la §11 e la §13 (pre-2, R10), la §8 (pre-3, R13),
-la §9 (R5, più la riattivazione manuale, che il testo raccontava sbagliata) e
-la §10. Con loro due correzioni di lettura, senza ruling perché non c'era
+la §9 (R5 e R15, più la riattivazione manuale, che il testo raccontava
+sbagliata) e la §10. Con loro due correzioni di lettura, senza ruling perché non c'era
 niente da decidere: la §9 sopra, e la §6 sui media WhatsApp, che dalla
 fusione di `main` si conservano nello storage invece di restare solo su Meta.
 Registro completo, con implementer, reviewer e commit:
@@ -87,6 +88,8 @@ Registro completo, con implementer, reviewer e commit:
 | R12 | il ledger espone `consumoAziendaMese(tenantId, adesso)` per la query `tenants.consumi` | la scheda ha bisogno del consumo del mese dell'azienda, e senza questo metodo l'avrebbe ricavato con un giro suo | nessuno |
 | R13 | la notifica dello storage dentro `verificaCaricamento` non si attende (fire-and-forget con `catch`, come nel governor) | un caricamento non deve pagare la consegna di una notifica che riguarda il mese, non lui | latenza in più su un upload al giorno per azienda |
 | R14 | la scheda «Abbonamento e consumi» è visibile a proprietario e direzione **anche a interruttore spento** (mostra l'omaggio del tenant 1); l'avviso nella shell resta gated su `multiAzienda` | la scheda è informativa e non promette nulla che non ci sia; una riga d'avviso in cima alle pagine, in mono-azienda, sarebbe rumore | nessuno |
+
+| R15 | l'abbonamento è la fonte di verità: un contratto `suspended` o `cancelled` con il tenant `attivo` viene risospeso dal giro successivo del worker (entro 6 ore) col marcatore `abbonamento: `; per riaprire un'azienda si usano omaggio o proroga, mai `stato --riattiva` | due strade ci arrivano senza che nessuno abbia sbagliato — la riattivazione a mano e il ripristino archivi del WS3, che riapre il tenant proprio mentre il worker porta il contratto a `suspended` — e la coppia incoerente resterebbe tale per sempre, con l'azienda che lavora senza contratto | un'azienda insolvente che continua a scrivere; nel verso opposto, se il ramo non guardasse lo stato del tenant, un ripristino disturbato a metà |
 
 **Ancora aperti**, minori accettati dalle revisioni per task e registrati nel
 progress — alla chiusura del Task 9 non era stata fatta una revisione
@@ -215,7 +218,12 @@ active ─disdetta─▶ cancelled a fine periodo (servizio attivo fino a fine_p
   3. `past_due` con `insoluto_dal + 7 giorni < adesso` → `suspended` e
      `sospendi(tenantId, "insoluto: …", boot)`, notifica «sola lettura»;
   4. mese nuovo → azzera `tars_soglia_avvisata`, `tars_soglia_100_dal`,
-     `extra_tars_nano` se `extra_tars_mese` è passato.
+     `extra_tars_nano` se `extra_tars_mese` è passato;
+  5. `suspended`/`cancelled` con il tenant ancora `attivo` → risospensione
+     col marcatore `abbonamento: ` (R15): l'abbonamento è la fonte di
+     verità, e il giro rimette in pari le due cose senza registrare un
+     secondo `abbonamento_stato` (R6). Un tenant sospeso da altri
+     (l'operatore, il ripristino archivi del WS3) non si tocca.
 - Il tenant 1 nasce `complimentary` senza scadenza, `budget_tars_nano_mese
   = NULL`, motivo «Ruffino Group, proprietaria della piattaforma»
   (`assicuraAbbonamentoPredefinito()` in `completaTenants`, dopo il seed
@@ -370,14 +378,15 @@ Comando `imposta_abbonamento` (`schemaPayloadAbbonamento`, discriminato
 su `azione`) eseguito dal server in `eseguiComando` → `servizio`. `pnpm
 tenant elenco` stampa `stato abbonamento`, `fine periodo`, `insoluto dal`.
 `pnpm tenant stato --sospendi/--riattiva` restano per la mano
-dell'operatore. Una riattivazione manuale di un tenant chiuso per insoluto
-NON cambia l'abbonamento, che resta `suspended`: il worker non lo
-risospende — dal `suspended` non esiste transizione automatica all'indietro
-— ma nemmeno rimette in pari le due cose, e la scheda continua a dire
-«sospeso». Per riaprire un'azienda si concede un omaggio o si proroga; il
-runbook lo dice. Simmetricamente, una sospensione decisa a mano non porta il
-marcatore `abbonamento: ` e non viene disfatta né da un omaggio né da una
-proroga (R5).
+dell'operatore, ma NON sono il modo di riaprire un'azienda insolvente: una
+riattivazione manuale non cambia l'abbonamento, che resta `suspended`, e il
+giro successivo del worker (entro 6 ore) rimette in pari le due cose
+risospendendo il tenant col marcatore `abbonamento: ` (R15) — l'evento
+`sospeso` nel registro dice perché. Per riaprire davvero si concede un
+omaggio o si proroga; il runbook lo dice. Simmetricamente, una sospensione
+decisa a mano — o dal ripristino archivi del WS3 — non porta quel marcatore:
+non la disfa né un omaggio né una proroga, e il ramo R15 la lascia stare
+perché agisce solo su un tenant `attivo` (R5).
 
 ## 10. Errori
 
@@ -397,8 +406,11 @@ proroga (R5).
   CHECK dei comandi con `imposta_abbonamento`.
 - Servizio con orologio finto: prova → avvisi 7/3/1 una volta sola →
   `past_due` → `suspended` con tenant sospeso; omaggio riattiva; proroga;
-  disdetta; mese nuovo azzera soglie ed extra; tenant 1 intoccabile.
-- Worker via `perOgniTenantAttivo` (tenant sospeso escluso; interruttore).
+  disdetta; mese nuovo azzera soglie ed extra; tenant 1 intoccabile; R15:
+  contratto sospeso o disdetto con azienda riaperta a mano → risospesa col
+  marcatore, azienda sospesa da altri e tenant 1 intoccati.
+- Worker via `perOgniTenantAttivo` (tenant sospeso escluso; interruttore;
+  un giro completo che risospende un'azienda riaperta a mano, R15).
 - Quota: `putFile` rifiuta solo con gancio, flag acceso, 100 % e
   tolleranza scaduta; la tolleranza parte al primo 100 % e si azzera sotto;
   i cinque siti di upload propagano l'errore invece di ripiegare

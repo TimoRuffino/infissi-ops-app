@@ -485,6 +485,31 @@ export async function valutaAbbonamento(
     });
   }
 
+  // R15: l'abbonamento è la fonte di verità. Un contratto `suspended` o
+  // `cancelled` con l'azienda ATTIVA è una coppia incoerente, e il giro
+  // successivo la rimette in pari risospendendo col marcatore `abbonamento: `
+  // (R5). Ci si arriva per due strade, nessuna delle quali lascia un errore
+  // dietro di sé: `pnpm tenant stato --riattiva` dato a mano, e il ripristino
+  // archivi del WS3, che riapre il tenant che aveva sospeso mentre il worker,
+  // nello stesso giro, portava il contratto a `suspended` (allora `cambiaStato`
+  // salta `sospendi` perché il tenant non è attivo). Per riaprire davvero
+  // un'azienda insolvente servono un omaggio o una proroga, non questo comando.
+  // `cambiaStato(a, a.stato, …)` non registra un secondo `abbonamento_stato`
+  // (R6: `da === a`); la traccia di audit è l'evento `sospeso` del WS1. La
+  // guardia sul tenant attivo sta QUI, prima della scrittura della riga: un
+  // tenant sospeso da altri (il ripristino in corso, o l'operatore con un
+  // motivo suo) non si tocca, e non si riscrive nemmeno l'abbonamento.
+  if (a.stato === "suspended" || a.stato === "cancelled") {
+    if (repo.perId(tenantId)?.stato === "attivo") {
+      const motivo =
+        a.stato === "suspended"
+          ? "contratto sospeso, azienda risultava attiva"
+          : "contratto disdetto, azienda risultava attiva";
+      await cambiaStato(a, a.stato, motivo, SISTEMA);
+      return { transizione: a.stato, avviso: null };
+    }
+  }
+
   // Insoluto oltre la tolleranza: sola lettura.
   if (
     a.stato === "past_due" &&

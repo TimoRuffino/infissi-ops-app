@@ -1,6 +1,7 @@
 // server/abbonamenti/worker.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
+import { riattiva } from "../tenants/servizio";
 import { creaProva } from "./servizio";
 import {
   __timerAttivoPerTest,
@@ -82,6 +83,27 @@ describe("giroAbbonamenti", () => {
     expect(spia.mock.calls.some(args => String(args[0]).includes("tenant 1 "))).toBe(false);
     spia.mockRestore();
     expect(repo.abbonamentoDi(2)).toBeNull();
+  });
+
+  it("R15: un'azienda riaperta a mano col contratto sospeso torna in sola lettura al giro successivo", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, giorni(-40), attore); // prova finita a giorni(-10)
+    await giroAbbonamenti(T0); // insoluto
+    await giroAbbonamenti(giorni(8)); // tolleranza scaduta: sola lettura
+    expect(repo.abbonamentoDi(2)?.stato).toBe("suspended");
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+
+    // `pnpm tenant stato --riattiva` riapre l'azienda ma non paga il
+    // contratto: fino a qui il worker non la guardava nemmeno più (non era
+    // fra i `tenantsAttivi()`), da qui sì.
+    await riattiva(2, "riaperta a mano dall'operatore", attore);
+    expect(repo.perId(2)?.stato).toBe("attivo");
+
+    await giroAbbonamenti(giorni(9));
+
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toMatch(/^abbonamento: /);
+    expect(repo.abbonamentoDi(2)?.stato).toBe("suspended");
   });
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
-import { sospendi } from "../tenants/servizio";
+import { riattiva, sospendi } from "../tenants/servizio";
 import { getSediStore } from "../routers/sedi";
 import { GIORNI_PROVA, budgetTarsPredefinitoEur, eurInNano } from "./costanti";
 import {
@@ -129,6 +129,84 @@ describe("abbonamenti: stati e transizioni", () => {
     expect(repo.perId(2)?.motivoStato).toContain("insoluto");
     await concediOmaggio(2, { motivo: "riapertura", scadenza: null }, attore, giorni(38));
     expect(repo.perId(2)?.stato).toBe("attivo");
+  });
+
+  // ── R15: l'abbonamento è la fonte di verità ───────────────────────────
+  //
+  // Un contratto `suspended`/`cancelled` con l'azienda attiva è una coppia
+  // incoerente: il giro successivo la rimette in pari risospendendo. Per
+  // riaprire davvero si passa da un omaggio o da una proroga.
+
+  it("R15: contratto sospeso e azienda riattivata a mano — il giro la risospende col marcatore", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await valutaAbbonamento(2, giorni(30.1));
+    await valutaAbbonamento(2, giorni(37.2));
+    expect(repo.abbonamentoDi(2)?.stato).toBe("suspended");
+
+    // `pnpm tenant stato --riattiva`: riapre l'azienda e lascia il contratto
+    // sospeso (il motivo non porta il marcatore `abbonamento: `).
+    await riattiva(2, "riaperta a mano dall'operatore", attore);
+    expect(repo.perId(2)?.stato).toBe("attivo");
+    const statoPrima = (await repo.eventi(2)).filter(e => e.tipo === "abbonamento_stato").length;
+
+    expect(await valutaAbbonamento(2, giorni(37.3))).toEqual({ transizione: "suspended", avviso: null });
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toMatch(/^abbonamento: /);
+    const eventi = await repo.eventi(2);
+    // La traccia di audit è quella del WS1 (`sospendi`), non un secondo
+    // `abbonamento_stato`: lo stato del contratto non è cambiato (R6).
+    expect(eventi.at(-1)?.tipo).toBe("sospeso");
+    expect(eventi.filter(e => e.tipo === "abbonamento_stato")).toHaveLength(statoPrima);
+    expect(repo.abbonamentoDi(2)?.stato).toBe("suspended");
+  });
+
+  it("R15: contratto disdetto e azienda riattivata a mano — stessa risposta", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await impostaDisdetta(2, true, attore);
+    expect(await valutaAbbonamento(2, giorni(30.1))).toEqual({ transizione: "cancelled", avviso: null });
+    await riattiva(2, "riaperta a mano dall'operatore", attore);
+
+    expect(await valutaAbbonamento(2, giorni(31))).toEqual({ transizione: "cancelled", avviso: null });
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toMatch(/^abbonamento: /);
+    expect(repo.abbonamentoDi(2)?.stato).toBe("cancelled");
+  });
+
+  it("R15: un'azienda sospesa da altri (ripristino archivi del WS3) non viene toccata", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await valutaAbbonamento(2, giorni(30.1));
+    await valutaAbbonamento(2, giorni(37.2));
+    await riattiva(2, "riaperta a mano dall'operatore", attore);
+    // Il ripristino del WS3 sospende con un motivo suo: il giro degli
+    // abbonamenti non deve né disfarlo né riscriverlo.
+    await sospendi(2, "ripristino archivi in corso", attore);
+    // Un primo giro assorbe l'eventuale cambio mese, così la spia sotto
+    // vede solo ciò che deciderebbe questo ramo.
+    await valutaAbbonamento(2, giorni(37.3));
+    const eventiPrima = (await repo.eventi(2)).length;
+    const spia = vi.spyOn(repo, "salvaAbbonamento");
+
+    expect(await valutaAbbonamento(2, giorni(37.4))).toEqual({ transizione: null, avviso: null });
+
+    expect(spia).not.toHaveBeenCalled();
+    spia.mockRestore();
+    expect(repo.perId(2)?.motivoStato).toBe("ripristino archivi in corso");
+    expect(await repo.eventi(2)).toHaveLength(eventiPrima);
+  });
+
+  it("R15: il tenant 1 resta fuori anche con una riga di contratto incoerente", async () => {
+    const repo = getTenantRepository();
+    const uno = await assicuraAbbonamentoPredefinito(T0);
+    await repo.salvaAbbonamento({ ...uno, stato: "suspended" });
+    const eventiPrima = (await repo.eventi(1)).length;
+
+    expect(await valutaAbbonamento(1, giorni(1))).toEqual({ transizione: null, avviso: null });
+
+    expect(repo.perId(1)?.stato).toBe("attivo");
+    expect(await repo.eventi(1)).toHaveLength(eventiPrima);
   });
 
   it("la proroga di un omaggio scaduto torna prova paid senza omaggio e senza disdetta", async () => {

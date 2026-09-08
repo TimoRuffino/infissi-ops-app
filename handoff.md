@@ -28,8 +28,11 @@
 > e, dopo 7 giorni, a `suspended`, cioè alla **sola lettura** del WS1
 > (`motivoStato` = «abbonamento: …», il marcatore che distingue la chiusura
 > del dominio da una sospensione decisa a mano). Si riapre con `--omaggio` o
-> `--proroga`, **non** con `stato --riattiva`, che riaprirebbe l'azienda
-> lasciando il contratto sospeso.
+> `--proroga`, **non** con `stato --riattiva`: quella riapre l'azienda
+> lasciando il contratto sospeso, e il giro successivo del worker la
+> **risospende** (R15, «abbonamento: contratto sospeso, azienda risultava
+> attiva»). Una sospensione senza quel marcatore — la mano dell'operatore, o
+> il «ripristino archivi in corso» del WS3 — non viene invece toccata.
 > **Le due risorse misurate ora fermano.** Lo spazio: superata la quota, un
 > timbro `tenant_storage.soglia_100_dal` fa partire la tolleranza (7 giorni),
 > dopo la quale `putFile` rifiuta ogni caricamento nuovo con
