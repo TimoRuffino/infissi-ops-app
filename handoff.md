@@ -8,6 +8,22 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — il cerchio si chiude** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco E;
+> PRD §54.15). Sette voci: il **consuntivo di ieri** (quante proposte, quante
+> fatte); **quello che manca** (una commessa avanti senza un euro
+> incassato); **perché è ferma** (l'attesa ha un nome: due consegne da
+> Alias, o il documento del gate); le **garanzie in scadenza** entro due
+> mesi; il **confronto fra sedi**; **dodici proposte generate e sei
+> tenute**, scelte dall'ordinamento per posta in gioco; e l'analisi che
+> **non aspetta più l'orario** — si rifà quando un contatore che conta
+> peggiora (fonti mute, consegne in ritardo, discordanze critiche, ticket
+> urgenti, promesse scadute), con almeno mezz'ora fra due giri e solo in
+> peggioramento. Prompt `analisi-v18`. **Restano del piano**: il punto 30
+> (lato in uscita del fascicolo, decisione «tutti e due»), il punto 11
+> (bozze pronte da inviare a mano) e il punto 19 (l'analisi che indaga da
+> sola, decisione «senza tetto»).
+
 > **Novità 08/09/2026 (sera) — il mattino ricorda, avvisa e impara dal
 > correttivo** (piano `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`;
 > PRD §54.14). Le **memorie di sede** dettate in chat entrano in testa alla

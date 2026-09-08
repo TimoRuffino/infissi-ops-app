@@ -144,6 +144,34 @@ export async function generaAnalisiAzienda(input: {
         })),
       });
     }
+    // Il consuntivo di ieri (punto 6): quante proposte, quante fatte,
+    // quante scartate. Tars non chiudeva mai il cerchio.
+    const ieri = [...recenti]
+      .filter(r => r.giorno < giorno)
+      .sort((a, b) => b.giorno.localeCompare(a.giorno))[0];
+    if (ieri?.esito) {
+      const totali = ieri.esito.proposte.length;
+      const fatte = ieri.esito.proposte.filter(
+        p => p.esecuzione && p.esecuzione.stato !== "scartata"
+      ).length;
+      const buttate = ieri.esito.proposte.filter(
+        p => p.esecuzione?.stato === "scartata"
+      ).length;
+      if (totali > 0) {
+        fotografia.sezioni.push({
+          chiave: "consuntivo",
+          titolo: "Ieri (com'è andata l'analisi precedente)",
+          fatti: [
+            {
+              chiave: "consuntivo:ieri",
+              testo: `Analisi del ${ieri.giorno}: ${totali} proposte, ${fatte} eseguite, ${buttate} scartate, ${totali - fatte - buttate} lasciate lì.`,
+              entita: [],
+              link: null,
+            },
+          ],
+        });
+      }
+    }
     const riscontro = riscontroPerFonte(recenti);
     if (riscontro.length > 0) {
       fotografia.sezioni.push({
@@ -156,6 +184,39 @@ export async function generaAnalisiAzienda(input: {
           link: null,
         })),
       });
+    }
+    // Due sedi, due liste, nessun confronto (punto 15): la direzione vede
+    // due analisi e non sa quale delle due stia andando peggio.
+    const altreSedi = deps.sedi().filter(s => s !== input.sedeId);
+    if (altreSedi.length > 0) {
+      const confronti: string[] = [];
+      for (const altra of altreSedi.slice(0, 3)) {
+        const sua = await deps.repository.ultima(altra);
+        const suoi = sua?.esito?.contatori;
+        if (!suoi) continue;
+        const mie = fotografia.contatori;
+        const differenze = CONTATORI_CONFRONTO_SEDI.filter(
+          ([chiave]) =>
+            typeof mie[chiave] === "number" &&
+            typeof suoi[chiave] === "number" &&
+            mie[chiave] !== suoi[chiave]
+        ).map(([chiave, nome]) => `${nome} ${mie[chiave]} contro ${suoi[chiave]}`);
+        if (differenze.length > 0) {
+          confronti.push(`sede ${altra} (analisi del ${sua!.giorno}): ${differenze.join(", ")}`);
+        }
+      }
+      if (confronti.length > 0) {
+        fotografia.sezioni.push({
+          chiave: "confronto_sedi",
+          titolo: "Come sta l'altra sede (stessi conti, altro cantiere)",
+          fatti: confronti.map((testo, i) => ({
+            chiave: `confronto:${i}`,
+            testo,
+            entita: [],
+            link: null,
+          })),
+        });
+      }
     }
     const provider = deps.provider(input.sedeId);
     const esito = provider
@@ -200,8 +261,53 @@ export async function generaAnalisiAzienda(input: {
   }
 }
 
+/**
+ * I contatori che, se cambiano, meritano un'analisi nuova prima delle
+ * quattro ore: non lo stato del mondo, ma i fatti che cambiano cosa c'è da
+ * fare oggi (punto 5 del piano 08/09/2026 — «nessun evento la sveglia»).
+ */
+const CONTATORI_SVEGLIA: readonly string[] = [
+  "fontiCieche",
+  "merceInRitardo",
+  "discordanzeCritiche",
+  "ticketUrgenti",
+  "impegniScaduti",
+  "confermeOrdineDaArchiviareSubito",
+  "pronteAlPassoSuccessivo",
+];
+/** Almeno mezz'ora fra due analisi, anche quando il mondo cambia in fretta. */
+export const INTERVALLO_MINIMO_MS = 30 * 60 * 1000;
+
+/**
+ * Qualcosa è successo da quando l'analisi è stata fatta? Confronta i
+ * contatori di allora con quelli di adesso: se un fatto che conta è
+ * peggiorato, non si aspetta domani mattina.
+ */
+export function fattoNuovo(
+  esistente: RecordAnalisiAzienda,
+  contatoriOra: Record<string, number>
+): string | null {
+  const prima = esistente.esito?.contatori ?? {};
+  for (const chiave of CONTATORI_SVEGLIA) {
+    const adesso = contatoriOra[chiave];
+    const allora = prima[chiave];
+    if (typeof adesso !== "number" || typeof allora !== "number") continue;
+    if (adesso > allora) return chiave;
+  }
+  return null;
+}
+
 /** Dopo tante ore l'analisi di oggi è vecchia: si rifà (direzione 04/09: «non ne ho più ricevute di nuove»). */
 export const RIGENERA_DOPO_MS = 4 * 60 * 60 * 1000;
+
+/** I pochi numeri che ha senso mettere a confronto fra due sedi. */
+const CONTATORI_CONFRONTO_SEDI: ReadonlyArray<readonly [string, string]> = [
+  ["preventiviFermi7", "preventivi fermi"],
+  ["gateMancanti", "gate scoperti"],
+  ["merceInRitardo", "consegne in ritardo"],
+  ["piuLenteDelSolito", "lavori più lenti del solito"],
+  ["fattureNonCollegate", "fatture non collegate"],
+];
 /** Se tutte le proposte sono state gestite (eseguite o scartate), la prossima arriva dopo mezz'ora. */
 export const RIGENERA_SE_GESTITE_DOPO_MS = 30 * 60 * 1000;
 
@@ -235,8 +341,28 @@ export async function giroAnalisi(deps: DipendenzeAnalisi): Promise<{ generate: 
   for (const sedeId of deps.sedi()) {
     const esistente = await deps.repository.perGiorno(sedeId, giorno);
     if (esistente && !analisiDaRifare(esistente, adesso)) {
-      saltate.push(sedeId);
-      continue;
+      // Il tempo non basta più da solo: se un fatto che conta è peggiorato
+      // (una fonte muta, una consegna saltata, un ticket urgente), la
+      // rifacciamo subito — con almeno mezz'ora di distanza dalla scorsa.
+      const eta = adesso.getTime() - esistente.generataAt.getTime();
+      let sveglia: string | null = null;
+      if (eta >= INTERVALLO_MINIMO_MS) {
+        try {
+          const ora = await costruisciFotografia({
+            sedeId,
+            adesso,
+            deps: deps.fotografia,
+          });
+          sveglia = fattoNuovo(esistente, ora.contatori);
+        } catch {
+          sveglia = null;
+        }
+      }
+      if (!sveglia) {
+        saltate.push(sedeId);
+        continue;
+      }
+      console.info(`[tars] analisi sede ${sedeId} rifatta: «${sveglia}» è peggiorato`);
     }
     await generaAnalisiAzienda({ sedeId, richiestaDa: null, deps });
     generate.push(sedeId);

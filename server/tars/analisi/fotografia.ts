@@ -54,6 +54,7 @@ import { getClientiStore } from "../../routers/clienti";
 // Quello che la direzione ha detto a Tars in chat deve arrivare al mattino
 // dopo (punti 10 e 25 del piano): i due cervelli erano scollegati.
 import { memorieValide, type MemoriaTars } from "../memoria";
+import { getGaranzieStore } from "../../routers/garanzie";
 // Le soglie dalla storia dell'azienda, non inventate a mano (punto 17), e
 // la posta in gioco che ordina le proposte (punti 8 e 22).
 import {
@@ -222,6 +223,8 @@ export type DipendenzeFotografia = {
   filiInAttesa?: (sedeId: number, adesso: Date) => Promise<Filo[]>;
   /** Le convenzioni condivise che la direzione ha dettato a Tars in chat. */
   memorie?: (sedeId: number) => MemoriaTars[];
+  /** Garanzie con la loro data di scadenza. */
+  garanzie?: () => any[];
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -280,6 +283,7 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     // Perimetro «sede»: le convenzioni valide per tutti. Le memorie
     // personali restano della chat di chi le ha dettate.
     memorie: sedeId => memorieValide(sedeId, 0).filter(m => m.perimetro === "sede"),
+    garanzie: () => getGaranzieStore() as any[],
     filiInAttesa: async (sedeId, adesso) =>
       filiInAttesa(fili(await listComunicazioni({ sedeId, limit: 400 }), adesso)),
   };
@@ -1041,6 +1045,97 @@ export async function costruisciFotografia(input: {
     .proposteGateway()
     .filter(p => p.sedeId === sedeId && (p.stato === "proposta" || p.stato === "approvata"));
   contatori.proposteDocumentali = proposte.length;
+
+  // 8-bis. Quello che MANCA, non quello che c'è (punto 9 del piano
+  // 08/09/2026): il silenzio non entra in una fotografia fatta di elenchi.
+  const silenzi: FattoAnalisi[] = [];
+  const STATI_DOPO_FIRMA = new Set([
+    "fatture_pagamento",
+    "da_ordinare",
+    "produzione",
+    "ordini_ultimazione",
+    "attesa_posa",
+  ]);
+  for (const c of commesse) {
+    if (STATI_DOPO_FIRMA.has(c.stato) && Number(c.importoIncassato ?? 0) === 0) {
+      silenzi.push({
+        chiave: `commessa:${c.id}:senza_acconto`,
+        testo: `${etichettaCommessa(c)}: è in «${c.stato}» e non risulta incassato niente. O l'acconto non è arrivato, o non è stato registrato.`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      });
+    }
+  }
+  contatori.silenzi = silenzi.length;
+  sezioni.push({
+    chiave: "silenzi",
+    titolo: "Quello che manca (nessuno lo segnala perché non esiste)",
+    fatti: conResto(
+      silenzi.slice(0, GATE_MASSIMI),
+      silenzi.length,
+      "commesse avanti senza incassi registrati",
+      "/commesse"
+    ),
+  });
+
+  // 8-ter. Perché è ferma (punto 21): la causa, non solo il sintomo. Si
+  // incrocia la lentezza con quello che quella commessa sta aspettando.
+  const cause: FattoAnalisi[] = [];
+  for (const l of lente.slice(0, GATE_MASSIMI)) {
+    const c = commesse.find(x => x.id === l.commessaId);
+    if (!c) continue;
+    const merce = consegne.filter(x => x.commessa?.id === l.commessaId);
+    const gate = gateMancanti.find(g => g.c.id === l.commessaId);
+    const motivo =
+      merce.length > 0
+        ? `aspetta ${merce.length === 1 ? "una consegna" : `${merce.length} consegne`} da ${merce.map(m => m.fornitore).filter((v, i, a) => a.indexOf(v) === i).join(", ")}`
+        : gate
+          ? `manca il documento del gate (${gate.gate.mancano.join(" o ") || "documento di fase"})`
+          : null;
+    if (!motivo) continue;
+    cause.push({
+      chiave: `commessa:${l.commessaId}:causa`,
+      testo: `${etichettaCommessa(c)}: è ferma in «${l.stato}» da ${l.giorni} giorni perché ${motivo}. Non è dimenticanza: è un'attesa.`,
+      entita: [`commessa:${l.commessaId}`],
+      link: `/commesse/${l.commessaId}`,
+    });
+  }
+  sezioni.push({
+    chiave: "cause",
+    titolo: "Perché è ferma (l'attesa ha un nome)",
+    fatti: cause,
+  });
+
+  // 8-quater. Garanzie in scadenza (punto 14): dopo, il cliente paga.
+  const garanzie = (deps.garanzie ? deps.garanzie() : []).filter(
+    g => (g.sedeId ?? sedeId) === sedeId && g.stato !== "chiusa" && g.dataScadenza
+  );
+  const limiteGaranzie = new Date(adesso.getTime() + 60 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const oggiIso = adesso.toISOString().slice(0, 10);
+  const inScadenza = garanzie
+    .filter(g => g.dataScadenza >= oggiIso && g.dataScadenza <= limiteGaranzie)
+    .sort((a, b) => a.dataScadenza.localeCompare(b.dataScadenza));
+  contatori.garanzieInScadenza = inScadenza.length;
+  sezioni.push({
+    chiave: "garanzie",
+    titolo: "Garanzie che scadono entro due mesi (dopo, il cliente paga)",
+    fatti: conResto(
+      inScadenza.slice(0, GATE_MASSIMI).map(g => {
+        const c = commesse.find(x => x.id === g.commessaId);
+        return {
+          chiave: `garanzia:${g.id}`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${g.commessaId}`}: garanzia ${g.tipo} «${g.descrizione}» scade il ${g.dataScadenza}.`,
+          entita: c ? [`commessa:${c.id}`] : [],
+          link: c ? `/commesse/${c.id}` : "/commesse",
+        };
+      }),
+      inScadenza.length,
+      "garanzie in scadenza",
+      "/commesse"
+    ),
+  });
 
   // 9. Perimetro: i moduli senza dati esistono nel CRM ma non in questa
   // azienda. Dichiararli evita al modello di inventarci sopra rischi.

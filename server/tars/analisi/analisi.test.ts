@@ -235,8 +235,8 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v17: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v17");
+  it("analisi-v18: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v18");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);

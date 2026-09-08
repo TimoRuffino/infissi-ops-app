@@ -32,6 +32,10 @@ const MODELLO_ANALISI_DEFAULT = "gpt-5.6-sol";
 const SINTESI_MASSIMA = 900;
 const TESTO_MASSIMO = 400;
 const PUNTI_MASSIMI = 8;
+// Il modello ne propone fino a dodici e ne restano sei: la scelta la fa
+// l'ordinamento per posta in gioco, non l'autocensura del modello
+// (punto 13 del piano 08/09/2026).
+const PROPOSTE_GENERATE = 12;
 const PROPOSTE_MASSIME = 6;
 const DOMANDE_MASSIME = 3;
 
@@ -187,7 +191,7 @@ export function verificaEsito(
     .map((p, i) => ({ p, i, peso: pesoDi(p.entita) }))
     .sort((a, b) => b.peso - a.peso || a.i - b.i)
     .map(x => x.p)
-    .slice(0, PROPOSTE_MASSIME);
+    .slice(0, Math.min(PROPOSTE_MASSIME, PROPOSTE_GENERATE));
   const domande = grezzo.domande
     .map(d => pulisci(d, TESTO_MASSIMO))
     .filter(Boolean)
