@@ -24,7 +24,6 @@ import {
   Clock3,
   FileSearch,
   Loader2,
-  PanelRight,
   RefreshCw,
   Undo2,
 } from "lucide-react";
@@ -431,7 +430,8 @@ export type TarsThreadProps = {
   undoInCorso?: boolean;
   approvazioneInCorso?: boolean;
   onBack?: () => void;
-  onOpenContext?: () => void;
+  /** Riga di contesto sotto la testata: chi monta decide cosa mostrarci. */
+  barraContesto?: ReactNode;
   onRetry?: () => void;
   onUndo?: (richiesta: RichiestaUndoTars) => void;
   onApprova?: (richiesta: RichiestaApprovazioneTars) => void;
@@ -459,7 +459,7 @@ export default function TarsThread({
   undoInCorso = false,
   approvazioneInCorso = false,
   onBack,
-  onOpenContext,
+  barraContesto,
   onRetry,
   onUndo,
   onApprova,
@@ -496,20 +496,9 @@ export default function TarsThread({
               : etichettaStatoTars(statoAvatar)}
           </p>
         </div>
-        {onOpenContext && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-11 shrink-0 xl:hidden"
-            onClick={onOpenContext}
-            aria-label="Apri contesto operativo"
-            title="Contesto operativo"
-          >
-            <PanelRight className="size-5" />
-          </Button>
-        )}
       </header>
+
+      {barraContesto}
 
       {loading ? (
         <div

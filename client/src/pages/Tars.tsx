@@ -1,17 +1,14 @@
 import TarsAvatar, { type StatoTarsAvatar } from "@/components/tars/TarsAvatar";
-import {
-  SezioneAnalisiAzienda,
-  SintesiAnalisiAzienda,
-} from "@/components/tars/TarsAnalisiAzienda";
+import { SintesiAnalisiAzienda } from "@/components/tars/TarsAnalisiAzienda";
 import {
   TarsProposteBoard,
   useProposteTars,
 } from "@/components/tars/TarsProposteBoard";
 import { TarsRegistro } from "@/components/tars/TarsRegistro";
-import TarsContextPanel, {
+import TarsBarraContesto, {
   type BriefingOperativoTars,
   type ContestoOperativoTars,
-} from "@/components/tars/TarsContextPanel";
+} from "@/components/tars/TarsBarraContesto";
 import TarsConversationList, {
   type TarsConversationListProps,
 } from "@/components/tars/TarsConversationList";
@@ -60,6 +57,7 @@ import {
   deveInviareDaTastiera,
   selezioneDopoCambioArchivio,
   selezioneDopoRispostaInvio,
+  statoBriefing,
   unisciConversazioniSenzaDuplicati,
   unisciTurniConOttimistico,
   type ConversazioneTarsView,
@@ -204,28 +202,22 @@ function RiepilogoBriefing({
       </div>
     );
   }
-  if (briefing === null) {
+  const stato = statoBriefing(briefing);
+  if (stato === "non_disponibile") {
     return (
       <p className="text-xs leading-5 text-text-3">
         Il briefing operativo non è disponibile in questo momento.
       </p>
     );
   }
-
-  const vuotoBase =
-    briefing.promemoriaOggi.length === 0 && briefing.casiMiei.length === 0;
-  const vuotoCompleto =
-    vuotoBase &&
-    briefing.segnalazioni !== null &&
-    briefing.segnalazioni.length === 0;
-  if (vuotoCompleto) {
+  if (stato === "vuoto") {
     return (
       <p className="text-xs leading-5 text-text-3">
         Nessun promemoria, caso assegnato o segnale operativo da evidenziare.
       </p>
     );
   }
-  if (vuotoBase && briefing.segnalazioni === null) {
+  if (stato === "vuoto_segnalazioni_escluse") {
     return (
       <div className="space-y-1 text-xs leading-5 text-text-3">
         <p>Nessun promemoria o caso assegnato da evidenziare.</p>
@@ -236,7 +228,7 @@ function RiepilogoBriefing({
 
   return (
     <ul className="space-y-2 text-left text-xs text-text-2">
-      {briefing.promemoriaOggi.slice(0, 2).map(promemoria => (
+      {briefing!.promemoriaOggi.slice(0, 2).map(promemoria => (
         <li key={`promemoria-${promemoria.id}`} className="flex gap-2">
           <CalendarClock
             className="mt-0.5 size-4 shrink-0 text-text-3"
@@ -247,7 +239,7 @@ function RiepilogoBriefing({
           </span>
         </li>
       ))}
-      {briefing.casiMiei.slice(0, 2).map(caso => (
+      {briefing!.casiMiei.slice(0, 2).map(caso => (
         <li key={`caso-${caso.id}`} className="flex gap-2">
           <BriefcaseBusiness
             className="mt-0.5 size-4 shrink-0 text-text-3"
@@ -258,7 +250,7 @@ function RiepilogoBriefing({
           </span>
         </li>
       ))}
-      {briefing.segnalazioni?.slice(0, 2).map((segnalazione, index) => (
+      {briefing!.segnalazioni?.slice(0, 2).map((segnalazione, index) => (
         <li key={`segnalazione-${index}`} className="flex gap-2">
           <BellPlus
             className="mt-0.5 size-4 shrink-0 text-warning"
@@ -267,7 +259,7 @@ function RiepilogoBriefing({
           <span className="min-w-0 break-words">{segnalazione.titolo}</span>
         </li>
       ))}
-      {briefing.segnalazioni === null && (
+      {briefing!.segnalazioni === null && (
         <li className="text-text-3">Segnalazioni non incluse.</li>
       )}
     </ul>
@@ -464,7 +456,17 @@ export default function Tars() {
   const [listaMobileAperta, setListaMobileAperta] = useState(false);
   const [vista, setVista] = useState<VistaTars>("chat");
   const proposte = useProposteTars(puoUsareTars);
-  const [contestoMobileAperto, setContestoMobileAperto] = useState(false);
+  // La pagina si chiama «Centro decisionale»: se ci sono decisioni in
+  // attesa, apre su quelle invece che su una chat vuota. Una volta sola,
+  // alla prima risposta del server — dopo comanda chi clicca, e una
+  // proposta che arriva mentre si scrive non sposta la pagina sotto le
+  // mani.
+  const vistaScelta = useRef(false);
+  useEffect(() => {
+    if (vistaScelta.current || proposte.loading) return;
+    vistaScelta.current = true;
+    if (proposte.totale > 0) setVista("proposte");
+  }, [proposte.loading, proposte.totale]);
   const [bozze, setBozze] = useState<Record<string, string>>({});
   const [erroreInvio, setErroreInvio] = useState<ErroreInvio | null>(null);
   const [erroreGestione, setErroreGestione] = useState<string | null>(null);
@@ -1114,7 +1116,7 @@ export default function Tars() {
               }
               approvazioneInCorso={approva.isPending}
               onBack={() => setListaMobileAperta(true)}
-              onOpenContext={() => setContestoMobileAperto(true)}
+              barraContesto={<TarsBarraContesto contesto={contesto} />}
               onRetry={() => void turni.refetch()}
               onUndo={eseguiUndo}
               onApprova={eseguiApprovazione}
@@ -1210,22 +1212,6 @@ export default function Tars() {
           )}
         </div>
 
-        {vista === "chat" && (
-        <aside className="hidden h-full w-80 shrink-0 border-l border-border-soft xl:block 2xl:w-[21rem]">
-          <TarsContextPanel
-            analisi={<SezioneAnalisiAzienda onApriLink={apriRiferimento} />}
-            contesto={contesto}
-            briefing={briefing.data ?? null}
-            loading={stato.isFetching || briefing.isLoading}
-            error={briefing.error?.message ?? null}
-            onApriLink={apriRiferimento}
-            onRetry={() => {
-              void stato.refetch();
-              void briefing.refetch();
-            }}
-          />
-        </aside>
-        )}
         </div>
       </div>
 
@@ -1258,49 +1244,6 @@ export default function Tars() {
               {...listaProps}
             />
           </div>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet open={contestoMobileAperto} onOpenChange={setContestoMobileAperto}>
-        <SheetContent
-          side="right"
-          className="w-full max-w-none gap-0 p-0 motion-reduce:duration-0 sm:max-w-md xl:hidden [&>[data-slot=sheet-close]:last-child]:hidden"
-        >
-          <SheetHeader className="sr-only">
-            <SheetTitle>Contesto operativo</SheetTitle>
-            <SheetDescription>
-              Entità attiva e briefing della conversazione.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="absolute right-2 top-2 z-20">
-            <SheetClose asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="size-11 bg-card"
-                aria-label="Chiudi contesto operativo"
-                title="Chiudi"
-              >
-                <X aria-hidden="true" />
-              </Button>
-            </SheetClose>
-          </div>
-          <TarsContextPanel
-            analisi={<SezioneAnalisiAzienda onApriLink={apriRiferimento} />}
-            contesto={contesto}
-            briefing={briefing.data ?? null}
-            loading={stato.isFetching || briefing.isLoading}
-            error={briefing.error?.message ?? null}
-            onApriLink={link => {
-              setContestoMobileAperto(false);
-              navigate(link);
-            }}
-            onRetry={() => {
-              void stato.refetch();
-              void briefing.refetch();
-            }}
-          />
         </SheetContent>
       </Sheet>
 

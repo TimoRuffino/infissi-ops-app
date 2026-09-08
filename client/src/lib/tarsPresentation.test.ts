@@ -1,8 +1,8 @@
-import TarsContextPanel, {
-  type BriefingOperativoTars,
-} from "@/components/tars/TarsContextPanel";
+import TarsBarraContesto, {
+  type ContestoOperativoTars,
+} from "@/components/tars/TarsBarraContesto";
 import TarsThread, { type ChiaveUndoTars } from "@/components/tars/TarsThread";
-import type { TurnoTarsView } from "@/lib/tarsView";
+import { statoBriefing, type TurnoTarsView } from "@/lib/tarsView";
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -54,16 +54,14 @@ function renderThread(undoCompletati: readonly ChiaveUndoTars[] = []): string {
   );
 }
 
-const briefingVuoto: BriefingOperativoTars = {
+const briefingVuoto = {
   promemoriaOggi: [],
   casiMiei: [],
-  segnalazioni: [],
+  segnalazioni: [] as readonly unknown[] | null,
 };
 
-function renderContesto(briefing: BriefingOperativoTars | null): string {
-  return renderToStaticMarkup(
-    createElement(TarsContextPanel, { contesto: null, briefing })
-  );
+function renderBarra(contesto: ContestoOperativoTars | null): string {
+  return renderToStaticMarkup(createElement(TarsBarraContesto, { contesto }));
 }
 
 describe("presentazione thread Tars", () => {
@@ -162,42 +160,68 @@ describe("presentazione thread Tars", () => {
     expect(markup).toContain("Operatività ridotta");
   });
 
-  it("mantiene il trigger contesto fino al breakpoint del pannello persistente", () => {
+  it("mostra la riga di contesto subito sotto la testata, non dietro un bottone", () => {
     const markup = renderToStaticMarkup(
       createElement(TarsThread, {
         turni: [],
         statoAvatar: "disponibile",
-        onOpenContext: () => undefined,
+        barraContesto: createElement(TarsBarraContesto, {
+          contesto: {
+            superficie: "commessa",
+            entita: { tipo: "commessa", id: 184, etichetta: "COM-2026-184" },
+          },
+        }),
       })
     );
-    const trigger = markup.match(
-      /<button[^>]*aria-label="Apri contesto operativo"[^>]*>/
-    )?.[0];
 
-    expect(trigger).toBeDefined();
-    expect(trigger).toContain("xl:hidden");
-    expect(trigger).not.toContain("lg:hidden");
+    expect(markup).toContain("COM-2026-184");
+    // Il pannello laterale e il suo trigger non esistono più (PRD §62).
+    expect(markup).not.toContain("Apri contesto operativo");
   });
 });
 
-describe("stati briefing nel contesto Tars", () => {
-  it("presenta briefing null come non disponibile, non come vuoto", () => {
-    const markup = renderContesto(null);
-
-    expect(markup).toContain("Briefing non disponibile");
-    expect(markup).not.toContain("Nessun promemoria");
+describe("riga di contesto della conversazione", () => {
+  it("senza entità attiva non occupa spazio", () => {
+    expect(renderBarra(null)).toBe("");
   });
 
-  it("distingue segnalazioni omesse da un briefing genuinamente vuoto", () => {
-    const omesse = renderContesto({ ...briefingVuoto, segnalazioni: null });
-    expect(omesse).toContain("Nessun promemoria o caso assegnato");
-    expect(omesse).toContain("Segnalazioni non incluse");
-    expect(omesse).not.toContain("o segnale operativo");
+  it("dice su cosa si sta lavorando e i suoi dati brevi", () => {
+    const markup = renderBarra({
+      superficie: "commessa",
+      entita: { tipo: "commessa", id: 184, etichetta: "COM-2026-184 — Rossi" },
+      dettagli: [{ etichetta: "Stato", valore: "Produzione" }],
+    });
 
-    const vuoto = renderContesto(briefingVuoto);
-    expect(vuoto).toContain(
-      "Nessun promemoria, caso assegnato o segnale operativo"
+    expect(markup).toContain("Stai lavorando su:");
+    expect(markup).toContain("COM-2026-184 — Rossi");
+    expect(markup).toContain("Produzione");
+  });
+
+  it("senza etichetta ripiega su tipo e id, non su una stringa vuota", () => {
+    expect(
+      renderBarra({ superficie: null, entita: { tipo: "cliente", id: 51 } })
+    ).toContain("cliente #51");
+  });
+});
+
+describe("stati del briefing", () => {
+  it("un briefing mai arrivato non è un briefing vuoto", () => {
+    expect(statoBriefing(null)).toBe("non_disponibile");
+    expect(statoBriefing(briefingVuoto)).toBe("vuoto");
+  });
+
+  it("distingue le segnalazioni omesse da un briefing genuinamente vuoto", () => {
+    expect(statoBriefing({ ...briefingVuoto, segnalazioni: null })).toBe(
+      "vuoto_segnalazioni_escluse"
     );
-    expect(vuoto).not.toContain("Segnalazioni non incluse");
+  });
+
+  it("basta una voce qualsiasi perché il briefing sia pieno", () => {
+    expect(
+      statoBriefing({ ...briefingVuoto, casiMiei: [{ id: 1 }] })
+    ).toBe("pieno");
+    expect(
+      statoBriefing({ ...briefingVuoto, segnalazioni: [{ titolo: "x" }] })
+    ).toBe("pieno");
   });
 });
