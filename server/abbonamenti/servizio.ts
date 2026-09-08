@@ -21,6 +21,7 @@ import {
   meseLocale,
 } from "./costanti";
 import type { Abbonamento, Attore, Omaggio, StatoAbbonamento } from "./tipi";
+import { providerCorrente, type EventoProvider } from "./provider";
 
 const MS_GIORNO = 86_400_000;
 
@@ -497,4 +498,80 @@ export async function valutaAbbonamento(
   }
 
   return { transizione: null, avviso: null };
+}
+
+/**
+ * Punto di ingresso del provider di pagamento (spec §5): un checkout o un
+ * webhook futuro normalizzano il proprio evento in `EventoProvider` e lo
+ * passano qui, sempre nella stessa forma qualunque sia il provider dietro.
+ * Idempotente per `evento.id`: un webhook che ripete la consegna (comune,
+ * mai garantita "exactly once") trova già il marcatore `provider_evento`
+ * negli ultimi 500 eventi del tenant e non applica nulla una seconda volta.
+ * L'attore è lo script del provider corrente (`script:provider:<nome>`),
+ * così il registro distingue un pagamento verificato dal provider da un
+ * omaggio o una proroga concessi a mano. Il tenant 1 non ha un provider:
+ * nessun evento può toccarlo.
+ */
+export async function applicaEventoProvider(
+  eventoProvider: EventoProvider,
+  adesso: Date
+): Promise<"applicato" | "duplicato"> {
+  nonIlTenant1(eventoProvider.tenantId);
+  const repo = getTenantRepository();
+  const attore: Attore = { tipo: "script", nome: `provider:${providerCorrente().nome}` };
+
+  const recenti = await repo.eventi(eventoProvider.tenantId, { ultimi: 500 });
+  const duplicato = recenti.some(
+    e =>
+      e.tipo === "abbonamento_modificato" &&
+      e.dettagli?.campo === "provider_evento" &&
+      e.dettagli?.evento === eventoProvider.id
+  );
+  if (duplicato) return "duplicato";
+
+  const a = esistente(eventoProvider.tenantId);
+
+  if (eventoProvider.tipo === "pagamento_riuscito") {
+    const periodo = eventoProvider.periodo;
+    const providerRef = { ...(a.providerRef ?? {}), ultimoEvento: eventoProvider.id };
+    // Senza periodo (evento minimale) non si inventano date: si sblocca
+    // l'abbonamento e si segna il pagamento, il resto arriva con l'evento
+    // che porta davvero il periodo.
+    const extra: Partial<Abbonamento> = periodo
+      ? {
+          tipo: "paid",
+          periodicita: eventoProvider.periodicita ?? a.periodicita ?? "monthly",
+          inizioPeriodo: periodo.inizio,
+          finePeriodo: periodo.fine,
+          prossimoRinnovo: periodo.fine,
+          insolutoDal: null,
+          omaggio: null,
+          providerRef,
+        }
+      : { tipo: "paid", providerRef };
+    await cambiaStato(a, "active", "pagamento verificato", attore, extra);
+  } else if (eventoProvider.tipo === "pagamento_fallito") {
+    // Già past_due o suspended: la tolleranza (o la sola lettura) sta già
+    // correndo dalla prima volta, un secondo fallimento non la riavvia.
+    // Solo il marcatore in fondo registra che l'evento è arrivato.
+    if (a.stato === "active" || a.stato === "trialing") {
+      await cambiaStato(a, "past_due", "pagamento fallito", attore, { insolutoDal: adesso });
+    }
+  } else if (eventoProvider.tipo === "disdetta") {
+    await modifica(
+      a,
+      "disdettaAFinePeriodo",
+      a.disdettaAFinePeriodo,
+      true,
+      { disdettaAFinePeriodo: true },
+      attore
+    );
+  }
+
+  await evento(eventoProvider.tenantId, "abbonamento_modificato", attore, {
+    campo: "provider_evento",
+    evento: eventoProvider.id,
+    tipo: eventoProvider.tipo,
+  });
+  return "applicato";
 }
