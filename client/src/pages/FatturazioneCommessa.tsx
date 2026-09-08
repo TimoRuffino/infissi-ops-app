@@ -318,6 +318,15 @@ export default function FatturazioneCommessa() {
       `Limiti: limite ${formatCent(computoQ.data.computo.limiteCent)}`
     );
   }
+  // Già fatturata da fuori (08/09/2026): lo si dice su ogni passo, non solo sull'ultimo.
+  if (record?.fatturaFic) {
+    const data = new Date(`${record.fatturaFic.data}T12:00:00`).toLocaleDateString("it-IT");
+    riepilogo.push(
+      `Già fatturata su Fatture in Cloud: n. ${record.fatturaFic.numero} del ${data}${
+        record.fatturaFic.lordoCent != null ? `, ${formatCent(record.fatturaFic.lordoCent)}` : ""
+      }`
+    );
+  }
 
   const ultimo = indice === ORDINE_PASSI.length - 1;
   const fatto = record?.passi[corrente] === "fatto";

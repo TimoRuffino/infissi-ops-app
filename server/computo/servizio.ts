@@ -137,6 +137,26 @@ export async function correggiVoce(input: {
 }
 
 /**
+ * Cancella tutti i computi della commessa (08/09/2026, «devo poter eliminare
+ * i limiti già fatti»): il passo Limiti torna «da fare», il gate sulla
+ * transizione torna a chiedere il computo, una bozza di fattura resta ma
+ * senza limiti da controllare (`computo_assente`). Contratto e correzioni a
+ * mano restano: si ricalcola quando serve. NOT_FOUND se la commessa non è
+ * di questa sede (la decide `leggiContratto`, come per il calcolo).
+ */
+export async function eliminaComputi(input: {
+  sedeId: number;
+  commessaId: number;
+  actorUserId: number | null;
+}): Promise<{ eliminati: number }> {
+  const { contratto } = await leggiContratto(input.sedeId, input.commessaId);
+  const commessaEsiste = contratto != null || (await getComputiRepository().ultimoIntestazione(input.sedeId, input.commessaId)) != null;
+  if (!commessaEsiste) return { eliminati: 0 };
+  const eliminati = await getComputiRepository().elimina(input.sedeId, input.commessaId);
+  return { eliminati };
+}
+
+/**
  * «È ancora valido?» è una domanda sulla sola intestazione: hash delle righe,
  * hash dei parametri, esito. Le voci non entrano nel giudizio, quindi il
  * predicato non le fa nemmeno leggere.

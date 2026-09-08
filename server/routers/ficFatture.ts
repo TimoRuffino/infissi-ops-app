@@ -121,6 +121,22 @@ export type FatturaFic = {
   pdfSync: PdfSyncFic;
 };
 
+/**
+ * Le fatture FiC che rendono una commessa «già fatturata» (08/09/2026): le
+ * fatture (non le note di credito) collegate alla commessa, della sede, non
+ * ignorate. Un solo posto per la regola: l'elenco «da fatturare» la usa per
+ * escludere, il passo Fattura per chiudersi, il tab Fattura per dirlo.
+ */
+export function fattureFicCollegate(sedeId: number, commessaId: number): FatturaFic[] {
+  return ficFatture.filter(
+    f =>
+      (f.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
+      f.commessaId === commessaId &&
+      f.tipo === "invoice" &&
+      !f.ignorata
+  );
+}
+
 function legacyRateSourceKey(
   documentoId: number,
   rata: Partial<RataFic>,

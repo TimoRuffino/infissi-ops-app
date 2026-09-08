@@ -3,7 +3,7 @@ import { OPZIONI_COMPUTO_DEFAULT } from "@shared/limiti/tipi";
 import { _resetContrattiRepositoryForTests } from "../contratti/repository";
 import { leggiContratto, salvaContratto } from "../contratti/servizio";
 import { _resetComputiRepositoryForTests } from "./repository";
-import { computoValido, correggiVoce, eseguiComputo, ultimoComputo } from "./servizio";
+import { computoValido, correggiVoce, eliminaComputi, eseguiComputo, ultimoComputo } from "./servizio";
 import { creaCommessa } from "../routers/commesse";
 import { getClientiStore } from "../routers/clienti";
 import type { TrpcContext } from "../_core/context";
@@ -150,5 +150,28 @@ describe("correzioni a mano del computo (08/09/2026)", () => {
     expect(esito.avvertenze.some(a => a.includes("Le righe sono cambiate") && a.includes("dei_riga_1"))).toBe(true);
     expect(esito.contratto.opzioniComputo.correzioni).toHaveLength(1);
     expect((await ultimoComputo(SEDE, commessaId)).motivo).toMatch(/righe/i);
+  });
+});
+
+describe("eliminaComputi (08/09/2026)", () => {
+  beforeEach(() => {
+    _resetContrattiRepositoryForTests();
+    _resetComputiRepositoryForTests();
+  });
+
+  it("cancella i computi della commessa: il giudizio torna «nessun computo», il contratto resta e si ricalcola", async () => {
+    const commessaId = await commessaConContratto();
+    await eseguiComputo({ sedeId: SEDE, commessaId, actorUserId: 5 });
+    await eseguiComputo({ sedeId: SEDE, commessaId, actorUserId: 5 });
+    expect(await eliminaComputi({ sedeId: SEDE, commessaId, actorUserId: 5 })).toEqual({ eliminati: 2 });
+    const dopo = await ultimoComputo(SEDE, commessaId);
+    expect(dopo.computo).toBeNull();
+    expect(dopo.motivo).toBe("Nessun computo eseguito.");
+    expect((await leggiContratto(SEDE, commessaId)).contratto).not.toBeNull();
+    const rifatto = await eseguiComputo({ sedeId: SEDE, commessaId, actorUserId: 5 });
+    expect(rifatto.esito).toBe("ok");
+    // Un'altra sede o una commessa inesistente non trovano nulla da cancellare.
+    expect(await eliminaComputi({ sedeId: 2, commessaId, actorUserId: 5 })).toEqual({ eliminati: 0 });
+    expect(await eliminaComputi({ sedeId: SEDE, commessaId: 424242, actorUserId: 5 })).toEqual({ eliminati: 0 });
   });
 });

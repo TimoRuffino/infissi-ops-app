@@ -4298,6 +4298,18 @@ produzione: Integrazioni → Fatture in Cloud → «Ri-autorizza con permessi di
 scrittura», poi Contabilità → Fatturazione → «Verifica permessi». Non
 verificabile in demo. PRD 5.70.
 
+**Limiti eliminabili e fattura FiC collegata = già fatturata (08/09/2026,
+direzione).** `computo.elimina` + «Elimina» nel tab Limiti (tutti i computi
+della commessa, cascata sulle voci; contratto e correzioni restano).
+`fattureFicCollegate(sedeId, commessaId)` in `routers/ficFatture.ts` è la
+regola unica (fatture, non note, sede, non ignorate): elenco `/fatturazione`
+(che già escludeva), `calcolaPassi` (`fattureFic` → passo Fattura fatto),
+record dei passi (`fatturaFic`), `fatture.perCommessa` (`fattureFic`) e tab
+Fattura (avviso, niente bozza dai limiti, percorso interno nascosto).
+Sonda read-only prod: 7 commesse su 13 «da fatturare» con FiC collegata,
+già fuori dall'elenco; il buco era passo e tab. PRD 5.71. Verifica browser
+non eseguita.
+
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la
 commessa (`origine: "libera"`, colonna `fatture.origine` con default
