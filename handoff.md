@@ -571,6 +571,17 @@
 > «Riguarda questo messaggio» nel banner Tars
 > (`tars.smistamentoRiesamina`, esisteva già lato server, mancava il tasto).
 >
+> **08/09/2026 (sera) — «Le commesse vanno tenute aggiornate».** Tars non
+> proponeva mai un avanzamento di stato perché la fotografia dell'analisi
+> conosceva solo i gate MANCANTI: il documento già arrivato non era un
+> fatto. Aggiunta la sezione «Pronte per il passo successivo» in
+> `server/tars/analisi/fotografia.ts` (gate soddisfatto + stato successivo
+> dalla macchina a stati; fuori gli stati senza gate e il passo verso
+> `archiviata`) e la regola nel prompt (`analisi-v10`): lì la proposta è
+> `transizione_adiacente_commessa`, che era già fra le azioni eseguibili.
+> L'analisi si rigenera al cambio di versione del prompt, quindi le proposte
+> nuove arrivano col giro successivo.
+>
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
 > unexpected error occurred», React #185 «Maximum update depth exceeded».

@@ -176,11 +176,67 @@ describe("fotografia", () => {
     expect(f.contatori.casiAperti).toBe(0);
     expect(f.contatori.commesseAttive).toBe(2);
   });
+
+  it("una commessa che ha già il documento del gate è «pronta per il passo successivo»", async () => {
+    // Il caso della direzione (08/09/2026): la fattura è collegata e la
+    // commessa resta in «fatture_pagamento». Prima la fotografia diceva
+    // solo che cosa MANCA, quindi Tars non proponeva mai il passaggio.
+    const f = await costruisciFotografia({
+      sedeId: SEDE,
+      adesso: ADESSO,
+      deps: depsFotografia({
+        commesse: () => [
+          {
+            id: 7,
+            sedeId: SEDE,
+            codice: "COM-2026-007",
+            cliente: "Sica Mario",
+            stato: "fatture_pagamento",
+            priorita: "media",
+            updatedAt: giorniFa(4),
+          },
+        ],
+        attivita: () => ({ giorni: 4, fonte: "documento" }),
+        gate: () => ({ ok: true, mancano: ["Fattura"] }),
+        confermeMancanti: async () => [],
+      }),
+    });
+    expect(f.contatori.pronteAlPassoSuccessivo).toBe(1);
+    const pronte = f.sezioni.find(s => s.chiave === "pronte")!;
+    expect(pronte.fatti[0].testo).toContain("COM-2026-007");
+    expect(pronte.fatti[0].testo).toContain("Fattura");
+    expect(pronte.fatti[0].testo).toContain("da_ordinare");
+    expect(pronte.fatti[0].entita).toContain("commessa:7");
+  });
+
+  it("negli stati senza gate documentale non promette passi: «pronta» non vorrebbe dire niente", async () => {
+    const f = await costruisciFotografia({
+      sedeId: SEDE,
+      adesso: ADESSO,
+      deps: depsFotografia({
+        commesse: () => [
+          {
+            id: 8,
+            sedeId: SEDE,
+            codice: "COM-2026-008",
+            cliente: "Senza Gate",
+            stato: "produzione",
+            priorita: "media",
+            updatedAt: giorniFa(2),
+          },
+        ],
+        attivita: () => ({ giorni: 2, fonte: "documento" }),
+        gate: () => ({ ok: true, mancano: [] }),
+        confermeMancanti: async () => [],
+      }),
+    });
+    expect(f.contatori.pronteAlPassoSuccessivo).toBe(0);
+  });
 });
 
 describe("prompt", () => {
-  it("analisi-v9: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v9");
+  it("analisi-v10: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v10");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
