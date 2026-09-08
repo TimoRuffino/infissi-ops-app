@@ -15,6 +15,7 @@ import {
   AZIONI_SUGGERITE,
   URGENZE,
   type CandidatoCollegamento,
+  type ImpegnoLetto,
   type SegnaliMittente,
 } from "./types";
 
@@ -70,6 +71,22 @@ const schemaEsitoModello = z
           .strict()
       )
       .max(40),
+    // Gli impegni presi a parole (punto 28). Facoltativo: le analisi
+    // salvate prima dell'08/09/2026 non ce l'hanno, e devono continuare a
+    // rileggersi senza errori.
+    impegni: z
+      .array(
+        z
+          .object({
+            chi: z.enum(["noi", "loro"]),
+            cosa: z.string().min(1).max(200),
+            entro: z.string().max(30),
+            frase: z.string().max(300),
+          })
+          .strict()
+      )
+      .max(6)
+      .default([]),
   })
   .strict();
 
@@ -88,6 +105,7 @@ export const SCHEMA_JSON_SMISTAMENTO: Record<string, unknown> = {
     "istruzione",
     "collegamento",
     "allegati",
+    "impegni",
   ],
   properties: {
     categoria: { type: "string", enum: [...CATEGORIE_COMUNICAZIONE] },
@@ -105,6 +123,25 @@ export const SCHEMA_JSON_SMISTAMENTO: Record<string, unknown> = {
         id: { type: "integer" },
         confidenza: { type: "string", enum: [...CONFIDENZE] },
         motivo: { type: "string" },
+      },
+    },
+    // Punto 28 del piano 08/09/2026: gli impegni presi a parole. Il CRM
+    // registra i fatti e getta le promesse, che sono il modo in cui il
+    // lavoro funziona davvero.
+    impegni: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["chi", "cosa", "entro", "frase"],
+        properties: {
+          chi: { type: "string", enum: ["noi", "loro"] },
+          cosa: { type: "string" },
+          // Data ISO quando il testo la dice; stringa vuota se non c'è.
+          entro: { type: "string" },
+          // La frase originale, copiata: è la prova.
+          frase: { type: "string" },
+        },
       },
     },
     allegati: {
@@ -206,6 +243,8 @@ export type EsitoAnalisi = {
     archiviareSecondoModello: boolean;
     motivo: string;
   }>;
+  /** Le promesse dette a parole, ripulite e con la data verificata. */
+  impegni: ImpegnoLetto[];
   avvertenze: string[];
 };
 
@@ -266,6 +305,17 @@ function verifica(
     istruzione: senzaImportiEuro(grezzo.istruzione).slice(0, 400),
     collegamento,
     allegati,
+    // Un impegno senza una data non è un impegno: è un'intenzione, e non
+    // deve diventare un promemoria (punto 28 del piano 08/09/2026).
+    impegni: (grezzo.impegni ?? [])
+      .filter(i => /^\d{4}-\d{2}-\d{2}$/.test(i.entro) && !Number.isNaN(Date.parse(i.entro)))
+      .map(i => ({
+        chi: i.chi,
+        cosa: senzaImportiEuro(i.cosa).slice(0, 200),
+        entro: i.entro,
+        frase: senzaImportiEuro(i.frase).slice(0, 300),
+      }))
+      .slice(0, 3),
     avvertenze,
   };
 }
@@ -365,6 +415,8 @@ export function analisiDeterministica(input: InputAnalisi): EsitoAnalisi {
   return {
     fonte: "deterministico",
     modello: null,
+    // Senza modello non si leggono promesse: servirebbe capire il testo.
+    impegni: [],
     categoria: filtro.categoria,
     urgenza: filtro.categoria === "nuovo_lead" ? "alta" : "normale",
     riepilogo,

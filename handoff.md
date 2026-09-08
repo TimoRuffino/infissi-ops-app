@@ -8,6 +8,20 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — la posta diventa memoria** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco G
+> parte 1; PRD §54.13). Le **promesse dette a parole** nei messaggi
+> («ti mando le misure lunedì») ora si estraggono nello stesso giro in cui
+> Tars legge il messaggio, con la frase originale come prova, e si contano
+> quando scadono; solo impegni espliciti e con una data, mai un'intenzione
+> vaga. `VERSIONE_SMISTAMENTO` a 1.4.0, prompt `smistamento-v3`: i record
+> vecchi si riesaminano da soli. E il **filo della conversazione**, derivato
+> senza colonne nuove da controparte + oggetto normalizzato, dice chi ha già
+> scritto più volte senza risposta e da quanto aspetta — funziona anche
+> sull'archivio. **Manca del blocco G**: il lato in uscita del fascicolo
+> (punto 30, decisione D5 «tutti e due»: invio dal CRM e cattura dalla posta
+> inviata). Prompt analisi `analisi-v16`.
+
 > **Novità 08/09/2026 (sera) — Tars conosce il mestiere** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco C;
 > PRD §54.12). Le soglie non sono più numeri scelti a mano: la **mediana**

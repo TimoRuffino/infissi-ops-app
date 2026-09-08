@@ -26,6 +26,10 @@ import { sezioneSmistamento } from "../briefing";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
 import { repositoryOsservazioniCorrente } from "../proattivita/repository";
 import { smistamentoAttivo } from "../smistamento/worker";
+// Le promesse dette a parole e il filo delle conversazioni (punti 28 e 27).
+import { impegniDiSede, testoImpegno, type ImpegnoInScadenza } from "../smistamento/impegni";
+import { fili, filiInAttesa, type Filo } from "../../comunicazioni/filo";
+import { listComunicazioni } from "../../comunicazioni/comunicazioni";
 import { tarsAttivo } from "../../platform/interruttori";
 import { ultimaComunicazionePerCommessa } from "../../comunicazioni/comunicazioni";
 import { ultimaAttivitaCommessa } from "../../commesse/attivita";
@@ -205,6 +209,10 @@ export type DipendenzeFotografia = {
   ) => { mediane: Map<string, MedianaStato>; lente: CommessaLenta[] };
   /** Residuo e margine per commessa: le cifre restano fuori dal prompt. */
   posta?: (sedeId: number) => Map<number, PostaCommessa>;
+  /** Le promesse lette nei messaggi, scadute o in scadenza. */
+  impegni?: (sedeId: number, adesso: Date) => Promise<ImpegnoInScadenza[]>;
+  /** I fili di conversazione che aspettano una risposta. */
+  filiInAttesa?: (sedeId: number, adesso: Date) => Promise<Filo[]>;
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -259,6 +267,9 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     documentiDi: commessaId => getDocumentiDiCommessa(commessaId),
     tempi: (sedeId, adesso) => commesseLenteDiSede({ sedeId, adesso }),
     posta: sedeId => postaInGiocoDiSede({ sedeId }),
+    impegni: (sedeId, adesso) => impegniDiSede({ sedeId, adesso }),
+    filiInAttesa: async (sedeId, adesso) =>
+      filiInAttesa(fili(await listComunicazioni({ sedeId, limit: 400 }), adesso)),
   };
 }
 
@@ -916,6 +927,60 @@ export async function costruisciFotografia(input: {
               }),
           ]
         : [],
+  });
+
+  // 7-bis. Le promesse dette a parole (punto 28 del piano 08/09/2026).
+  const impegni = deps.impegni
+    ? await tenta(() => deps.impegni!(sedeId, adesso), [] as ImpegnoInScadenza[])
+    : [];
+  contatori.impegniScaduti = impegni.filter(i => i.scaduto).length;
+  contatori.impegniInScadenza = impegni.filter(i => !i.scaduto).length;
+  sezioni.push({
+    chiave: "impegni",
+    titolo: "Promesse dette nei messaggi (scadute e in scadenza)",
+    fatti: conResto(
+      impegni.slice(0, GATE_MASSIMI).map(i => ({
+        chiave: `impegno:${i.comunicazioneId}:${i.entro}`,
+        testo: testoImpegno(i),
+        entita: [
+          `comunicazione:${i.comunicazioneId}`,
+          ...(i.commessaId ? [`commessa:${i.commessaId}`] : []),
+        ],
+        link: i.commessaId ? `/commesse/${i.commessaId}` : "/messaggi/email",
+        // Letta dal testo di un messaggio: la frase originale è lì accanto.
+        fiducia: "letta" as FiduciaFatto,
+      })),
+      impegni.length,
+      "promesse in scadenza",
+      "/messaggi/email"
+    ),
+  });
+
+  // 7-ter. Il filo della conversazione (punto 27): chi ha ripetuto, e da
+  // quanto aspetta. Un messaggio isolato non lo dice.
+  const attesa = deps.filiInAttesa
+    ? await tenta(() => deps.filiInAttesa!(sedeId, adesso), [] as Filo[])
+    : [];
+  contatori.conversazioniInAttesa = attesa.length;
+  contatori.conversazioniConInsistenza = attesa.filter(f => f.insistenze >= 2).length;
+  sezioni.push({
+    chiave: "conversazioni",
+    titolo: "Conversazioni in attesa (chi ha già chiesto più volte)",
+    fatti: conResto(
+      attesa.slice(0, GATE_MASSIMI).map(f => ({
+        chiave: `filo:${f.chiave}`,
+        testo: `${f.nome ?? f.controparte} (${f.canale}) su «${f.oggetto}»: ${
+          f.insistenze > 1 ? `ha scritto ${f.insistenze} volte senza risposta` : "aspetta una risposta"
+        }${f.giorniInAttesa != null ? ` da ${f.giorniInAttesa} giorni` : ""}${
+          f.ultimaRisposta ? "" : "; non gli abbiamo mai risposto su questo filo"
+        }.`,
+        entita: f.commessaId ? [`commessa:${f.commessaId}`] : [],
+        link: f.commessaId ? `/commesse/${f.commessaId}` : "/messaggi/email",
+      })),
+      attesa.length,
+      "conversazioni in attesa",
+      "/messaggi/email"
+    ),
   });
 
   // 8. Proposte in attesa (gateway documentale).
