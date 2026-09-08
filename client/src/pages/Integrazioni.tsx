@@ -57,6 +57,7 @@ import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
 import { SchedaIntegrazione } from "@/integrazioni/SchedaIntegrazione";
 import { useIntegrazioni } from "@/integrazioni/useIntegrazioni";
+import { PercorsoAttivazione } from "@/integrazioni/PercorsoAttivazione";
 import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
 import FatturazioneConfigPanel from "@/components/fattura/FatturazioneConfigPanel";
 
@@ -135,11 +136,15 @@ export default function Integrazioni() {
   // `permessoNegato` dentro ogni pannello restano come difesa in profondità.
   // Non è una capability e non va usato per decidere cosa può essere scritto.
   const canManage = isDirezione(user);
+  const [, vaiA] = useLocation();
   // La cornice unica (WS5): lo stato lo conosce il server, e ogni scheda lo
   // racconta con le stesse parole. `stato()` non chiama nessun fornitore,
   // quindi questo elenco non costa una chiamata esterna per pannello.
   const { stati, avvia } = useIntegrazioni();
   const statoDi = (chiave: string) => stati.find(s => s.chiave === chiave);
+  // Modalità attivazione: la stessa pagina, ordinata. Nessuna rotta nuova.
+  const attivazione =
+    new URLSearchParams(window.location.search).get("attivazione") === "1";
   const collega = async (chiave: string) => {
     const esito = await avvia.mutateAsync({ chiave: chiave as never });
     if (esito.tipo === "url") window.location.href = esito.url;
@@ -155,6 +160,10 @@ export default function Integrazioni() {
   const fatturazioneAttiva = Boolean(
     interruttori.data?.fatturazione && interruttori.data?.limiti
   );
+
+  if (attivazione) {
+    return <PercorsoAttivazione onFine={() => vaiA("/")} />;
+  }
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
