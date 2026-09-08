@@ -220,4 +220,24 @@ describe("tenantsRouter", () => {
       tolleranzaGiorni: 7,
     });
   });
+
+  it("consumi: extraEur è null quando il tenant non ha abbonamento", async () => {
+    // Tenant 2 senza abbonamento — extraEur deve essere null, non 0
+    const consumi = await tenantsRouter.createCaller(context(2)).consumi();
+    expect(consumi.tars).toMatchObject({
+      percentuale: null,
+      budgetEur: null,
+      extraEur: null, // non 0
+    });
+  });
+
+  it("consumi: extraEur è 0 quando il tenant ha abbonamento ma nessun extra questo mese", async () => {
+    // Tenant 2 con abbonamento ma senza extra: extraEur = 0
+    await creaProva(2, T0, attore); // budget predefinito 25 €/mese
+    const consumi = await tenantsRouter.createCaller(context(2)).consumi();
+    expect(consumi.tars).toMatchObject({
+      budgetEur: 25,
+      extraEur: 0, // abbonamento c'è ma nessun extra
+    });
+  });
 });

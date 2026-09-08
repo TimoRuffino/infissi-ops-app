@@ -9,7 +9,8 @@ import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants
 import { applicaSoglie } from "../tenants/storage";
 import type { StatoStorage } from "../tenants/tipi";
 import { MESSAGGI_ABBONAMENTO, meseLocale, TOLLERANZA_PREDEFINITA_GIORNI } from "./costanti";
-import { bloccoStorage, politicaTarsAzienda, sogliaTars, verificaCaricamento } from "./quota";
+import * as notificheModule from "./notifiche";
+import { azzeraMemoriaAvvisiPerTest, bloccoStorage, politicaTarsAzienda, sogliaTars, verificaCaricamento } from "./quota";
 import { creaProva } from "./servizio";
 import type { Abbonamento } from "./tipi";
 
@@ -240,6 +241,42 @@ describe("verificaCaricamento", () => {
 
     expect(esito).toEqual({ messaggio: MESSAGGI_ABBONAMENTO.spazioEsaurito(2) });
     expect(eventiSpy).toHaveBeenCalled();
+  });
+
+  it("avvisaConsumi: memo aggiunto solo quando notificaAzienda restituisce > 0", async () => {
+    // Azzera il memo prima di iniziare
+    azzeraMemoriaAvvisiPerTest();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 4, slug: "test-memo", nome: "Test Memo" });
+    await creaProva(4, T0, attore);
+    await repo.impostaQuotaStorage(4, 1000);
+    // Storage già al 85% per trigger notificaAzienda (soglia 80%)
+    await repo.aggiornaStorage(4, 850, 5);
+
+    // Primo caricamento: notificaAzienda torna 0 (fallita), la chiave NON va nel memo
+    const notificaSpy = vi.spyOn(notificheModule, "notificaAzienda")
+      .mockResolvedValueOnce(0); // fallita, non creata
+    await verificaCaricamento(4, 10, T0);
+
+    // Secondo caricamento stesso giorno: notificaAzienda torna 0 di nuovo.
+    // Se il memo fosse stato aggiunto al primo giro, questa chiamata saltarebbe
+    // la notifica (early return dalla chiave nel memo). Con memo vuoto, tenta ancora.
+    notificaSpy.mockResolvedValueOnce(0);
+    await verificaCaricamento(4, 10, T0);
+    expect(notificaSpy).toHaveBeenCalledTimes(2);
+
+    // Terzo caricamento: questa volta notificaAzienda torna 1 (successo),
+    // il memo ora contiene la chiave
+    notificaSpy.mockResolvedValueOnce(1);
+    await verificaCaricamento(4, 10, T0);
+    expect(notificaSpy).toHaveBeenCalledTimes(3);
+
+    // Quarto caricamento: memo non vuoto per questa chiave, early return, nessuna nuova chiamata
+    notificaSpy.mockResolvedValueOnce(1);
+    await verificaCaricamento(4, 10, T0);
+    expect(notificaSpy).toHaveBeenCalledTimes(3);
+
+    vi.restoreAllMocks();
   });
 });
 

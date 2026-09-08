@@ -63,8 +63,12 @@ async function avvisaConsumi(input: {
     giornoDegliAvvisi = oggi;
   }
   if (avvisiDelGiorno.has(input.chiave)) return;
-  avvisiDelGiorno.add(input.chiave);
-  await notificaAzienda(input);
+  // Una notifica non consegnata (es. transiente) deve essere ritentata
+  // al prossimo upload, quindi il memo non va registrato prima del successo.
+  const risultato = await notificaAzienda(input);
+  if (risultato > 0) {
+    avvisiDelGiorno.add(input.chiave);
+  }
 }
 
 // Fix round 1 (R11): tenant visti bloccati in QUESTO processo. Serve solo a
@@ -175,7 +179,10 @@ export async function verificaCaricamento(
   // cui non c'è ancora nulla da deduplicare né da sbloccare. Costa una
   // lettura in memoria per l'azienda tranquilla (`avvisiDelGiorno`), non un
   // giro di database.
-  await avvisaConsumiStorage(tenantId, stato, { bloccato, bloccoDal }, adesso);
+  // Un upload non paga la consegna di una notifica: R13
+  void avvisaConsumiStorage(tenantId, stato, { bloccato, bloccoDal }, adesso).catch(e =>
+    console.warn("[abbonamenti] notifica consumi storage non consegnata:", e instanceof Error ? e.message : e)
+  );
 
   // Fix round 1 (R11): `repo.eventi` è un giro DB in più (~147ms, la voce di
   // costo dominante qui) ad OGNI caricamento — inutile per un'azienda

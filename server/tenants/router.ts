@@ -141,12 +141,16 @@ export const tenantsRouter = router({
     const vedeGliImporti = ruoli.includes(RUOLO_PROPRIETARIO) || ruoli.includes("direzione");
 
     const mese = meseLocale(adesso);
-    const extraNano =
-      abbonamento && abbonamento.extraTarsMese === mese ? Math.max(0, abbonamento.extraTarsNano) : 0;
+    const extraNano: number | null =
+      abbonamento == null
+        ? null
+        : abbonamento.extraTarsMese === mese
+          ? Math.max(0, abbonamento.extraTarsNano)
+          : 0;
     // Nessun tetto per azienda (tenant 1, piano senza budget): niente
     // percentuale da mostrare — e nessuna somma da chiedere al ledger.
     const tettoNano =
-      abbonamento?.budgetTarsNanoMese == null ? null : abbonamento.budgetTarsNanoMese + extraNano;
+      abbonamento?.budgetTarsNanoMese == null ? null : abbonamento.budgetTarsNanoMese + (extraNano ?? 0);
     // Il ledger dei costi vive su PostgreSQL: senza database (sviluppo) la
     // lettura lancia. Una scheda che non sa dire la percentuale la dà `null`
     // — «non lo so» — invece di far fallire tutta la query o, peggio, di
@@ -183,7 +187,7 @@ export const tenantsRouter = router({
           vedeGliImporti && abbonamento?.budgetTarsNanoMese != null
             ? euro(abbonamento.budgetTarsNanoMese)
             : null,
-        extraEur: vedeGliImporti ? euro(extraNano) : null,
+        extraEur: vedeGliImporti && extraNano != null ? euro(extraNano) : null,
         bloccoDal: abbonamento?.tarsSoglia100Dal
           ? new Date(abbonamento.tarsSoglia100Dal.getTime() + tolleranzaTarsGiorni * MS_GIORNO)
           : null,
