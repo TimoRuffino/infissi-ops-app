@@ -26,12 +26,12 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     // parallelo (senza, i DROP di qui cadrebbero in mezzo alle sue prove).
     riservata = await sql.reserve();
     await riservata`SELECT pg_advisory_lock(${LOCK_TENANT_PG})`;
-    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     resetTenantRepositoryForTesting();
   });
 
   afterAll(async () => {
-    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     if (riservata) {
       await riservata`SELECT pg_advisory_unlock(${LOCK_TENANT_PG})`;
       riservata.release();
@@ -117,7 +117,7 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
   });
 
   it("con creaSchema:false lo script non esegue DDL: si ferma se le tabelle mancano e non ricrea il trigger", async () => {
-    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     const soloLettura = createPostgresTenantRepository(sql, { creaSchema: false });
     await expect(soloLettura.caricaCache()).rejects.toThrow(/control plane del tenant assenti/);
     expect((await sql`SELECT to_regclass('tenants') AS t`)[0].t).toBeNull();
@@ -182,8 +182,85 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     expect(c.tipo).toBe("ricalcola_storage");
   });
 
+  it("abbonamenti su Postgres: upsert intero con date e JSON, cache, soglia_100 dello storage, comando nuovo, schema idempotente", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    await repo.assicuraTenantPredefinito();
+    expect(repo.abbonamentoDi(1)).toBeNull();
+    const ora = new Date("2026-09-08T10:00:00Z");
+    // Tenant inesistente: niente riga in `tenants`, la FK di Postgres rifiuta
+    // l'INSERT (23503) e viene tradotta nello stesso messaggio della guardia in memoria.
+    await expect(
+      repo.salvaAbbonamento({
+        tenantId: 999999, tipo: "paid", periodicita: "monthly", stato: "active",
+        inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+        budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+        tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+        tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+        insolutoDal: null, provider: "nessuno", providerRef: null, omaggio: null,
+        createdAt: ora, updatedAt: ora,
+      })
+    ).rejects.toThrow(/tenant 999999 inesistente/);
+    const salvato = await repo.salvaAbbonamento({
+      tenantId: 1, tipo: "complimentary", periodicita: null, stato: "active",
+      inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+      budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+      tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+      tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+      insolutoDal: null, provider: "nessuno", providerRef: { note: "seed" },
+      omaggio: { motivo: "proprietaria", attore: "boot", dataIso: ora.toISOString(), scadenzaIso: null },
+      createdAt: ora, updatedAt: ora,
+    });
+    expect(salvato.stato).toBe("active");
+    expect(salvato.omaggio?.motivo).toBe("proprietaria");
+    expect(salvato.inizioPeriodo.toISOString()).toBe(ora.toISOString());
+    expect(repo.abbonamentoDi(1)?.providerRef).toEqual({ note: "seed" });
+
+    // Upsert che cambia stato: stessa chiave primaria, nessuna riga in più.
+    const aggiornato = await repo.salvaAbbonamento({ ...salvato, stato: "suspended", insolutoDal: ora });
+    expect(repo.abbonamentoDi(1)?.stato).toBe("suspended");
+    expect(aggiornato.updatedAt.getTime()).toBeGreaterThanOrEqual(salvato.updatedAt.getTime());
+    expect(aggiornato.createdAt.toISOString()).toBe(salvato.createdAt.toISOString());
+    const righe = await sql`SELECT COUNT(*)::int AS n FROM abbonamenti`;
+    expect(righe[0].n).toBe(1);
+
+    // caricaCache() su un repository nuovo: la cache degli abbonamenti si
+    // ricostruisce da zero, come quella dei tenant.
+    resetTenantRepositoryForTesting();
+    const repo2 = getTenantRepository();
+    await repo2.caricaCache();
+    expect(repo2.abbonamentoDi(1)?.stato).toBe("suspended");
+    expect(repo2.abbonamenti().map(a => a.tenantId)).toEqual([1]);
+
+    // Soglia 100 dello storage: impostata PRIMA di ogni delta, su un tenant
+    // fresco — il tenant 1 in questo file ha già una riga `tenant_storage`
+    // dal test precedente. Qui la riga non esiste ancora: `impostaSoglia100Storage`
+    // la crea da sé (stesso ON CONFLICT di `impostaSogliaAvvisata`); un delta
+    // successivo non la tocca; si riarma a null.
+    const tenantStorage = await repo2.inserisci({ slug: "abbonamenti-soglia100", nome: "Soglia100 Srl" });
+    expect(await repo2.storageDi(tenantStorage.id)).toBeNull();
+    await repo2.impostaSoglia100Storage(tenantStorage.id, ora);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal?.toISOString()).toBe(ora.toISOString());
+    await repo2.aggiornaStorage(tenantStorage.id, 10, 1);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal?.toISOString()).toBe(ora.toISOString());
+    await repo2.impostaSoglia100Storage(tenantStorage.id, null);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal).toBeNull();
+
+    // Il CHECK di tenant_comandi accetta già il tipo nuovo.
+    const comando = await repo2.accodaComando({ tipo: "imposta_abbonamento", tenantId: 1, payload: { tipo: "paid" }, richiestoDa: "test" });
+    expect(comando.tipo).toBe("imposta_abbonamento");
+
+    // Idempotenza dello schema: un secondo ensureSchema (repository fresco,
+    // quindi non memoizzato) non fallisce — la guardia sul CHECK trova già
+    // `imposta_abbonamento` e salta l'ALTER.
+    resetTenantRepositoryForTesting();
+    const repo3 = getTenantRepository();
+    await expect(repo3.ensureSchema()).resolves.toBeUndefined();
+  });
+
   it("lo schema del WS3 è idempotente anche sopra uno schema del WS2 (CHECK vecchio a terra)", async () => {
-    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
       stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')), motivo_stato TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;

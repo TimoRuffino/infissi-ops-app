@@ -177,4 +177,50 @@ describe("repository tenant in memoria", () => {
     expect(await repo.pulisciStateScaduti()).toBe(2);
     vi.useRealTimers();
   });
+
+  it("abbonamenti: upsert intero, cache, soglia_100 dello storage", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    expect(repo.abbonamentoDi(1)).toBeNull();
+    const ora = new Date("2026-09-08T10:00:00Z");
+    const a = await repo.salvaAbbonamento({
+      tenantId: 1, tipo: "complimentary", periodicita: null, stato: "active",
+      inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+      budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+      tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+      tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+      insolutoDal: null, provider: "nessuno", providerRef: null,
+      omaggio: { motivo: "proprietaria", attore: "boot", dataIso: ora.toISOString(), scadenzaIso: null },
+      createdAt: ora, updatedAt: ora,
+    });
+    expect(a.stato).toBe("active");
+    expect(repo.abbonamentoDi(1)?.omaggio?.motivo).toBe("proprietaria");
+    const b = await repo.salvaAbbonamento({ ...a, stato: "suspended", insolutoDal: ora });
+    expect(repo.abbonamentoDi(1)?.stato).toBe("suspended");
+    expect(b.updatedAt.getTime()).toBeGreaterThanOrEqual(a.updatedAt.getTime());
+    expect(repo.abbonamenti().map(x => x.tenantId)).toEqual([1]);
+    await repo.aggiornaStorage(1, 10, 1);
+    await repo.impostaSoglia100Storage(1, ora);
+    expect((await repo.storageDi(1))?.soglia100Dal?.toISOString()).toBe(ora.toISOString());
+    await repo.impostaSoglia100Storage(1, null);
+    expect((await repo.storageDi(1))?.soglia100Dal).toBeNull();
+  });
+
+  // Postgres lo fa via la FK verso `tenants` (23503, vedi repository.pg.test.ts);
+  // qui non c'è una FK, quindi la guardia è a mano — stesso messaggio.
+  it("abbonamenti: rifiuta la scrittura se il tenant non esiste", async () => {
+    const repo = getTenantRepository();
+    const ora = new Date("2026-09-08T10:00:00Z");
+    await expect(
+      repo.salvaAbbonamento({
+        tenantId: 999, tipo: "paid", periodicita: "monthly", stato: "active",
+        inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+        budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+        tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+        tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+        insolutoDal: null, provider: "nessuno", providerRef: null, omaggio: null,
+        createdAt: ora, updatedAt: ora,
+      })
+    ).rejects.toThrow(/tenant 999 inesistente/);
+  });
 });

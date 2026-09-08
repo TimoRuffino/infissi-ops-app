@@ -19,9 +19,10 @@ describe("confine del tenant", () => {
 
   // WS3: `tenant_storage` inizia comunque per "tenant" (già coperta), ma
   // `oauth_state` no — va nominata a parte perché la guardia resti vera anche
-  // per lei (control plane del tenant, spec WS3 §5).
-  it("INSERT INTO tenant* e oauth_state compare solo nel repository", () => {
-    const scrittori = PRODUZIONE.filter(f => /INSERT INTO (tenant|oauth_state)/.test(testo(f))).map(relativo);
+  // per lei (control plane del tenant, spec WS3 §5). WS4: stessa ragione per
+  // `abbonamenti`.
+  it("INSERT INTO tenant* e oauth_state/abbonamenti compare solo nel repository", () => {
+    const scrittori = PRODUZIONE.filter(f => /INSERT INTO (tenant|oauth_state|abbonamenti)/.test(testo(f))).map(relativo);
     expect(scrittori).toEqual([join("server", "tenants", "repository.ts")]);
   });
 

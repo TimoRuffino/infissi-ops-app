@@ -311,6 +311,14 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         });
         return { tenantId: id, ...esito };
       }
+      case "imposta_abbonamento":
+        // Il tipo esiste già nel control plane (WS4 T1, spec §3); il gestore
+        // arriva con il dominio degli abbonamenti (server/abbonamenti/, WS4
+        // successivo). Nessuno lo accoda ancora: se capitasse, fallisce
+        // rumorosamente invece di restituire `undefined` in silenzio, e il
+        // `catch` qui sotto lo registra come `comando_fallito`, come ogni
+        // altro errore di questa funzione.
+        throw new Error("comando imposta_abbonamento non ancora gestito");
     }
   } catch (e) {
     const tenantId = comando.tenantId ?? getTenantRepository().perSlug(String((comando.payload as any)?.slug ?? ""))?.id;

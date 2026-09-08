@@ -14,6 +14,7 @@ import {
   TTL_STATE_OAUTH_MS,
 } from "./costanti";
 import type {
+  Abbonamento,
   StateOAuth,
   StatoStorage,
   StatoTenant,
@@ -97,6 +98,19 @@ export type TenantRepository = {
   impostaStorage(tenantId: number, valori: { bytes: number; file: number }): Promise<StatoStorage>;
   impostaSogliaAvvisata(tenantId: number, soglia: 0 | 50 | 80 | 100): Promise<void>;
   impostaQuotaStorage(tenantId: number, quotaBytes: number): Promise<TenantRecord>;
+  /**
+   * Da quando la quota storage è al 100 % ininterrottamente (WS4, spec §6:
+   * quota che blocca dopo la tolleranza). `null` la riarma (sotto il 100 %,
+   * o appena il blocco viene tolto a mano).
+   */
+  impostaSoglia100Storage(tenantId: number, dal: Date | null): Promise<void>;
+
+  // ── Abbonamenti (WS4 §3) ────────────────────────────────────────────────
+  /** Dalla cache in memoria, caricata da `caricaCache` (come `perId`). */
+  abbonamentoDi(tenantId: number): Abbonamento | null;
+  abbonamenti(): Abbonamento[];
+  /** Upsert intero sulla riga: `updated_at = NOW()`, `created_at` invariato. */
+  salvaAbbonamento(abbonamento: Abbonamento): Promise<Abbonamento>;
 
   // ── `state` OAuth (WS3 §5) ──────────────────────────────────────────────
   emettiStateOAuth(input: {
@@ -151,12 +165,13 @@ function createMemoryTenantRepository(): TenantRepository {
   const rigaStorage = (tenantId: number): StatoStorage => {
     let s = storage.get(tenantId);
     if (!s) {
-      s = { tenantId, bytes: 0, file: 0, quotaBytes: quotaDi(tenantId), sogliaAvvisata: 0, ricalcolatoIl: null, aggiornatoIl: new Date() };
+      s = { tenantId, bytes: 0, file: 0, quotaBytes: quotaDi(tenantId), sogliaAvvisata: 0, ricalcolatoIl: null, aggiornatoIl: new Date(), soglia100Dal: null };
       storage.set(tenantId, s);
     }
     s.quotaBytes = quotaDi(tenantId);
     return s;
   };
+  const abbonamentiMem = new Map<number, Abbonamento>();
 
   const repo: TenantRepository = {
     async ensureSchema() {},
@@ -297,6 +312,21 @@ function createMemoryTenantRepository(): TenantRepository {
       t.updatedAt = new Date();
       return clone(t);
     },
+    async impostaSoglia100Storage(tenantId, dal) {
+      rigaStorage(tenantId).soglia100Dal = dal;
+    },
+    abbonamentoDi: id => clone(abbonamentiMem.get(id) ?? null),
+    abbonamenti: () => [...abbonamentiMem.values()].sort((a, b) => a.tenantId - b.tenantId).map(clone),
+    async salvaAbbonamento(a) {
+      if (!tenants.some(t => t.id === a.tenantId)) throw new Error(`tenant ${a.tenantId} inesistente`);
+      const salvato: Abbonamento = {
+        ...clone(a),
+        createdAt: abbonamentiMem.get(a.tenantId)?.createdAt ?? a.createdAt,
+        updatedAt: new Date(),
+      };
+      abbonamentiMem.set(a.tenantId, salvato);
+      return clone(salvato);
+    },
     async emettiStateOAuth(input) {
       const state = randomBytes(24).toString("base64url");
       states.set(state, { state, ...input, payload: clone(input.payload), scadeIl: new Date(Date.now() + TTL_STATE_OAUTH_MS), consumatoIl: null });
@@ -333,6 +363,7 @@ export function createPostgresTenantRepository(
   opzioni: OpzioniRepositoryPostgres = {}
 ): TenantRepository {
   const cache = new Map<number, TenantRecord>();
+  const cacheAbbonamenti = new Map<number, Abbonamento>();
   let schemaPromise: Promise<void> | null = null;
 
   const rigaTenant = (r: any): TenantRecord => ({
@@ -374,6 +405,31 @@ export function createPostgresTenantRepository(
     sogliaAvvisata: Number(r.soglia_avvisata) as StatoStorage["sogliaAvvisata"],
     ricalcolatoIl: r.ricalcolato_il ? new Date(r.ricalcolato_il) : null,
     aggiornatoIl: new Date(r.aggiornato_il),
+    soglia100Dal: r.soglia_100_dal ? new Date(r.soglia_100_dal) : null,
+  });
+  const rigaAbbonamento = (r: any): Abbonamento => ({
+    tenantId: Number(r.tenant_id),
+    tipo: r.tipo,
+    periodicita: r.periodicita ?? null,
+    stato: r.stato,
+    inizioPeriodo: new Date(r.inizio_periodo),
+    finePeriodo: r.fine_periodo ? new Date(r.fine_periodo) : null,
+    prossimoRinnovo: r.prossimo_rinnovo ? new Date(r.prossimo_rinnovo) : null,
+    disdettaAFinePeriodo: Boolean(r.disdetta_a_fine_periodo),
+    budgetTarsNanoMese: r.budget_tars_nano_mese == null ? null : Number(r.budget_tars_nano_mese),
+    extraTarsNano: Number(r.extra_tars_nano ?? 0),
+    extraTarsMese: r.extra_tars_mese ?? null,
+    tolleranzaStorageGiorni: Number(r.tolleranza_storage_giorni),
+    tolleranzaTarsGiorni: Number(r.tolleranza_tars_giorni),
+    tarsSogliaAvvisata: Number(r.tars_soglia_avvisata) as Abbonamento["tarsSogliaAvvisata"],
+    tarsSogliaMese: r.tars_soglia_mese ?? null,
+    tarsSoglia100Dal: r.tars_soglia_100_dal ? new Date(r.tars_soglia_100_dal) : null,
+    insolutoDal: r.insoluto_dal ? new Date(r.insoluto_dal) : null,
+    provider: r.provider ?? "nessuno",
+    providerRef: r.provider_ref ?? null,
+    omaggio: r.omaggio ?? null,
+    createdAt: new Date(r.created_at),
+    updatedAt: new Date(r.updated_at),
   });
   const rigaState = (r: any): StateOAuth => ({
     state: r.state,
@@ -399,9 +455,9 @@ export function createPostgresTenantRepository(
     const rows = await sql`SELECT to_regclass('tenants') AS tenants,
       to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi,
       to_regclass('tenant_sedi') AS sedi, to_regclass('tenant_storage') AS storage,
-      to_regclass('oauth_state') AS oauth`;
+      to_regclass('oauth_state') AS oauth, to_regclass('abbonamenti') AS abbonamenti`;
     const r = rows[0];
-    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi || !r?.storage || !r?.oauth) {
+    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi || !r?.storage || !r?.oauth || !r?.abbonamenti) {
       throw new Error(MESSAGGI.schemaAssente);
     }
   };
@@ -439,7 +495,7 @@ export function createPostgresTenantRepository(
           FOR EACH ROW EXECUTE FUNCTION tenant_eventi_solo_insert()`;
         await tx`CREATE TABLE IF NOT EXISTS tenant_comandi (
           id BIGSERIAL PRIMARY KEY,
-          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi')),
+          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento')),
           tenant_id BIGINT,
           payload JSONB NOT NULL,
           stato TEXT NOT NULL DEFAULT 'in_attesa' CHECK (stato IN ('in_attesa','eseguito','errore')),
@@ -476,6 +532,10 @@ export function createPostgresTenantRepository(
           ricalcolato_il TIMESTAMPTZ,
           aggiornato_il TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Quota che blocca (WS4, spec §6): da quando la quota è al 100 %
+        // ininterrottamente, per contare la tolleranza prima del blocco.
+        // Colonna additiva su una tabella già a terra dal WS3.
+        await tx`ALTER TABLE tenant_storage ADD COLUMN IF NOT EXISTS soglia_100_dal TIMESTAMPTZ`;
         // `state` OAuth persistiti (spec §5): una replica sola oggi, ma una
         // mappa in memoria muore a ogni deploy e non sa di quale azienda è.
         await tx`CREATE TABLE IF NOT EXISTS oauth_state (
@@ -489,23 +549,50 @@ export function createPostgresTenantRepository(
           consumato_il TIMESTAMPTZ
         )`;
         await tx`CREATE INDEX IF NOT EXISTS oauth_state_scade_idx ON oauth_state (scade_il)`;
+        // Abbonamento dell'azienda (WS4, spec §3): una riga per tenant. La
+        // quota storage resta su `tenants.storage_quota_bytes` (WS3):
+        // l'abbonamento non la duplica.
+        await tx`CREATE TABLE IF NOT EXISTS abbonamenti (
+          tenant_id BIGINT PRIMARY KEY REFERENCES tenants(id),
+          tipo TEXT NOT NULL CHECK (tipo IN ('paid','complimentary')),
+          periodicita TEXT CHECK (periodicita IN ('monthly','yearly')),
+          stato TEXT NOT NULL CHECK (stato IN ('trialing','active','past_due','grace','suspended','cancelled')),
+          inizio_periodo TIMESTAMPTZ NOT NULL,
+          fine_periodo TIMESTAMPTZ,
+          prossimo_rinnovo TIMESTAMPTZ,
+          disdetta_a_fine_periodo BOOLEAN NOT NULL DEFAULT FALSE,
+          budget_tars_nano_mese BIGINT,
+          extra_tars_nano BIGINT NOT NULL DEFAULT 0,
+          extra_tars_mese TEXT,
+          tolleranza_storage_giorni INTEGER NOT NULL DEFAULT 7,
+          tolleranza_tars_giorni INTEGER NOT NULL DEFAULT 7,
+          tars_soglia_avvisata INTEGER NOT NULL DEFAULT 0,
+          tars_soglia_mese TEXT,
+          tars_soglia_100_dal TIMESTAMPTZ,
+          insoluto_dal TIMESTAMPTZ,
+          provider TEXT NOT NULL DEFAULT 'nessuno',
+          provider_ref JSONB,
+          omaggio JSONB,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`;
         // Tipi di comando nuovi: il CHECK di `tenant_comandi` è nato nel WS1 con
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
         //
-        // Si rifà SOLO se serve (fix wave finale): `DROP` + `ADD CONSTRAINT`
-        // prende un lock ACCESS EXCLUSIVE su `tenant_comandi` e rivalida
-        // tutte le righe — a ogni boot, anche quando il vincolo è già quello
-        // giusto. Si guarda prima com'è fatto: se nomina già
-        // `ripristina_archivi` (l'ultimo dei sette tipi) non si tocca niente.
+        // Si rifà SOLO se serve (fix wave finale, esteso dal WS4): `DROP` +
+        // `ADD CONSTRAINT` prende un lock ACCESS EXCLUSIVE su `tenant_comandi`
+        // e rivalida tutte le righe — a ogni boot, anche quando il vincolo è
+        // già quello giusto. Si guarda prima com'è fatto: se nomina già
+        // `imposta_abbonamento` (l'ultimo degli otto tipi) non si tocca niente.
         const [vincoloTipo] = await tx<{ definizione: string }[]>`
           SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
            WHERE conname = 'tenant_comandi_tipo_check'
              AND conrelid = 'tenant_comandi'::regclass`;
-        if (!vincoloTipo?.definizione?.includes("ripristina_archivi")) {
+        if (!vincoloTipo?.definizione?.includes("imposta_abbonamento")) {
           await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
           await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
-            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi'))`;
+            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento'))`;
         }
       })
       .then(() => undefined);
@@ -525,6 +612,9 @@ export function createPostgresTenantRepository(
       const rows = await sql`SELECT * FROM tenants ORDER BY id`;
       cache.clear();
       for (const r of rows) cache.set(Number(r.id), rigaTenant(r));
+      const righeAbbonamenti = await sql`SELECT * FROM abbonamenti ORDER BY tenant_id`;
+      cacheAbbonamenti.clear();
+      for (const r of righeAbbonamenti) cacheAbbonamenti.set(Number(r.tenant_id), rigaAbbonamento(r));
     },
     tutti: () => [...cache.values()].sort((a, b) => a.id - b.id).map(clone),
     perId: id => {
@@ -535,6 +625,11 @@ export function createPostgresTenantRepository(
       for (const t of cache.values()) if (t.slug === slug) return clone(t);
       return null;
     },
+    abbonamentoDi: tenantId => {
+      const a = cacheAbbonamenti.get(tenantId);
+      return a ? clone(a) : null;
+    },
+    abbonamenti: () => [...cacheAbbonamenti.values()].sort((a, b) => a.tenantId - b.tenantId).map(clone),
     async inserisci(input) {
       await ensureSchema();
       if (repo.perSlug(input.slug)) throw new Error(`slug già usato: ${input.slug}`);
@@ -687,6 +782,54 @@ export function createPostgresTenantRepository(
       const rows = await sql`UPDATE tenants SET storage_quota_bytes = ${quotaBytes}, updated_at = NOW() WHERE id = ${tenantId} RETURNING *`;
       if (!rows.length) throw new Error(`tenant ${tenantId} inesistente`);
       return memorizza(rigaTenant(rows[0]));
+    },
+    async impostaSoglia100Storage(tenantId, dal) {
+      await ensureSchema();
+      // ON CONFLICT: come `impostaSogliaAvvisata`, la riga può non esistere ancora.
+      await sql`INSERT INTO tenant_storage (tenant_id, soglia_100_dal) VALUES (${tenantId}, ${dal})
+        ON CONFLICT (tenant_id) DO UPDATE SET soglia_100_dal = EXCLUDED.soglia_100_dal, aggiornato_il = NOW()`;
+    },
+    async salvaAbbonamento(a) {
+      await ensureSchema();
+      const providerRef = a.providerRef ? sql.json(a.providerRef as any) : null;
+      const omaggio = a.omaggio ? sql.json(a.omaggio as any) : null;
+      let rows;
+      try {
+        // `created_at` non compare nel DO UPDATE SET: un conflitto conserva la
+        // riga esistente (come la cache in memoria), solo `updated_at` cambia
+        // sempre, con NOW() sia all'inserimento sia all'aggiornamento.
+        rows = await sql`INSERT INTO abbonamenti (
+            tenant_id, tipo, periodicita, stato, inizio_periodo, fine_periodo, prossimo_rinnovo,
+            disdetta_a_fine_periodo, budget_tars_nano_mese, extra_tars_nano, extra_tars_mese,
+            tolleranza_storage_giorni, tolleranza_tars_giorni, tars_soglia_avvisata, tars_soglia_mese,
+            tars_soglia_100_dal, insoluto_dal, provider, provider_ref, omaggio, created_at, updated_at
+          ) VALUES (
+            ${a.tenantId}, ${a.tipo}, ${a.periodicita}, ${a.stato}, ${a.inizioPeriodo}, ${a.finePeriodo}, ${a.prossimoRinnovo},
+            ${a.disdettaAFinePeriodo}, ${a.budgetTarsNanoMese}, ${a.extraTarsNano}, ${a.extraTarsMese},
+            ${a.tolleranzaStorageGiorni}, ${a.tolleranzaTarsGiorni}, ${a.tarsSogliaAvvisata}, ${a.tarsSogliaMese},
+            ${a.tarsSoglia100Dal}, ${a.insolutoDal}, ${a.provider}, ${providerRef}, ${omaggio}, ${a.createdAt}, NOW()
+          )
+          ON CONFLICT (tenant_id) DO UPDATE SET
+            tipo = EXCLUDED.tipo, periodicita = EXCLUDED.periodicita, stato = EXCLUDED.stato,
+            inizio_periodo = EXCLUDED.inizio_periodo, fine_periodo = EXCLUDED.fine_periodo,
+            prossimo_rinnovo = EXCLUDED.prossimo_rinnovo, disdetta_a_fine_periodo = EXCLUDED.disdetta_a_fine_periodo,
+            budget_tars_nano_mese = EXCLUDED.budget_tars_nano_mese, extra_tars_nano = EXCLUDED.extra_tars_nano,
+            extra_tars_mese = EXCLUDED.extra_tars_mese, tolleranza_storage_giorni = EXCLUDED.tolleranza_storage_giorni,
+            tolleranza_tars_giorni = EXCLUDED.tolleranza_tars_giorni, tars_soglia_avvisata = EXCLUDED.tars_soglia_avvisata,
+            tars_soglia_mese = EXCLUDED.tars_soglia_mese, tars_soglia_100_dal = EXCLUDED.tars_soglia_100_dal,
+            insoluto_dal = EXCLUDED.insoluto_dal, provider = EXCLUDED.provider, provider_ref = EXCLUDED.provider_ref,
+            omaggio = EXCLUDED.omaggio, updated_at = NOW()
+          RETURNING *`;
+      } catch (e) {
+        // FK verso `tenants`: stesso messaggio della guardia esistente in memoria.
+        if ((e as { code?: string } | undefined)?.code === "23503") {
+          throw new Error(`tenant ${a.tenantId} inesistente`);
+        }
+        throw e;
+      }
+      const salvato = rigaAbbonamento(rows[0]);
+      cacheAbbonamenti.set(salvato.tenantId, salvato);
+      return clone(salvato);
     },
     async emettiStateOAuth(input) {
       await ensureSchema();
