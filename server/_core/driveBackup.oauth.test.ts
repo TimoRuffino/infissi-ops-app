@@ -86,6 +86,6 @@ describe("backup per azienda", () => {
 
   it("la cartella radice è per azienda: Ruffino Group tiene la sua", () => {
     expect(nomeCartellaRadice(1)).toBe("Backup CRM Ruffino");
-    expect(nomeCartellaRadice(2)).toBe("Backup Wyndor — Acme Infissi");
+    expect(nomeCartellaRadice(2)).toBe("Backup Wyndoor — Acme Infissi");
   });
 });

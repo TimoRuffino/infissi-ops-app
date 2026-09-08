@@ -1,8 +1,8 @@
 /**
- * Geometria condivisa del marchio Wyndor.
+ * Geometria condivisa del marchio Wyndoor.
  *
  * Il segno normativo (l'anta fissa più l'anta in apertura, vedi
- * client/src/components/brand/WyndorMark.tsx e client/public/favicon.svg)
+ * client/src/components/brand/WyndoorMark.tsx e client/public/favicon.svg)
  * vive in un riquadro 82×90 — più alto che largo — ancorato a (9, 5) nel
  * sistema di coordinate del tracciato: `viewBox="9 5 82 90"`.
  *

@@ -329,15 +329,27 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
     expect(esito.proposta.stato).toBe("applicata");
   });
 
+  /** Una posa prima della consegna del PDF (24/09/2026) e oltre i sette giorni. */
+  function dataPosaNonImminente(): string {
+    const fraOttoGiorni = new Date(Date.now() + 8 * 86_400_000);
+    const primaDellaConsegna = new Date("2026-09-23T12:00:00");
+    const scelta = fraOttoGiorni < primaDellaConsegna ? fraOttoGiorni : primaDellaConsegna;
+    return scelta.toISOString().slice(0, 10);
+  }
+
   it("applica SOLO la data di consegna: pianificazione, commessa e righe restano intatte", async () => {
     const { commessa, ordine, documento } = await casoConferma();
     const admin = direzione();
     // Posa pianificata PRIMA della nuova consegna: il conflitto che NON
     // deve essere risolto in automatico.
+    // La posa sta prima della consegna confermata (24/09/2026) e a più di
+    // una settimana da oggi: il segnale dev'essere «alta», non «critica».
+    // Con una data fissa il test cambiava esito da solo al passare dei
+    // giorni (08/09/2026).
     const posa = await admin.interventi.create({
       commessaId: commessa.id,
       tipo: "posa",
-      dataPianificata: "2026-09-15",
+      dataPianificata: dataPosaNonImminente(),
     });
     const proposta = await generaProposta(ordine.id, documento.id);
     await admin.proposte.approva({ id: proposta.id });
@@ -355,7 +367,7 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
 
     const esito = await admin.proposte.applica({ id: proposta.id });
     expect(esito.proposta.stato).toBe("applicata");
-    expect(esito.avvisoPosa).toContain("2026-09-15");
+    expect(esito.avvisoPosa).toContain(dataPosaNonImminente());
     expect(esito.avvisoPosa).toContain("Nessuna data di posa è stata modificata");
 
     const ordineDopo: any = getOrdineFornitoreById(ordine.id)!.ordine;
@@ -386,7 +398,7 @@ describe("proposte documentali — approval gateway sul flusso reale", () => {
     );
     expect(segnale).toBeDefined();
     expect(segnale!.summary).toContain(ordine.codiceOrdine);
-    expect(segnale!.summary).toContain("2026-09-15");
+    expect(segnale!.summary).toContain(dataPosaNonImminente());
     expect(segnale!.summary).toContain(documento.nome);
     expect(segnale!.priority).toBe("alta");
     expect(segnale!.actionLabel).toBe("Rivedi la pianificazione della posa");

@@ -434,7 +434,7 @@ describe("route migrate alla grammatica Modular Control", () => {
     expect(source).toMatch(/from "@\/lib\/preventivatori"/);
     expect(source).not.toMatch(/"\/preventivatori\/fivizzanese\/persiane"/);
     // Un prodotto senza calcolatore è informazione passiva, non un bottone.
-    expect(source).toMatch(/Non disponibile in Wyndor/);
+    expect(source).toMatch(/Non disponibile in Wyndoor/);
     expect(source).not.toMatch(/In sviluppo/);
     // L'unica superficie focale è quella dei preventivatori pronti.
     expect(source.match(/tone="focal"/g)?.length).toBe(1);

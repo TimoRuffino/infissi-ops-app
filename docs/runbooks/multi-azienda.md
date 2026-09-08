@@ -414,7 +414,7 @@ stesso, senza DDL.
   Drive di un'altra. Ruffino Group non cambia nulla di quello che fa oggi.
 - Cartella radice: il tenant 1 tiene **«Backup CRM Ruffino»** (invariata: è
   la chiave con cui si ritrovano i backup già fatti); ogni altra azienda ha
-  **«Backup Wyndor — `<nome azienda>`»**, trovata o creata al primo backup.
+  **«Backup Wyndoor — `<nome azienda>`»**, trovata o creata al primo backup.
   Dentro, una cartella `Backup CRM <AAAA-MM-GG>` per notte.
 - L'albero contiene **solo** l'azienda del contesto: `database/<nome>.json`
   col nome dello store (mai la chiave `tenant:<id>:…`), sedi e utenti
@@ -570,7 +570,7 @@ sessione**, non dell'installazione.
 6. **Prima azienda 2 in staging**, non in produzione: `pnpm tenant crea …`;
    entra il proprietario; collega il Drive **dell'azienda** da Integrazioni;
    lancia un backup a mano e verifica sul suo Drive la cartella «Backup
-   Wyndor — `<nome azienda>`»; poi `pnpm tenant ripristina --slug=<slug>
+   Wyndoor — `<nome azienda>`»; poi `pnpm tenant ripristina --slug=<slug>
    --backup=<data> --prova --attendi` e leggi l'esito.
 7. Solo dopo, **la stessa sequenza in produzione**. Dal WS3 una seconda
    azienda in produzione è ammessa: la regola del WS2 decade qui.

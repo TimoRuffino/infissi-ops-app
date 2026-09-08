@@ -58,7 +58,7 @@ export function routePresentation(
 ): RoutePresentation {
   return (
     ROUTE_PRESENTATION[route.path] ?? {
-      section: "Wyndor",
+      section: "Wyndoor",
       title: route.target,
     }
   );

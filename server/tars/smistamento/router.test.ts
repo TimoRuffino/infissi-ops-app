@@ -353,7 +353,9 @@ async function rispostaGiaPartita(mittente: string, quando: Date) {
 }
 
 describe("tars.briefing — da rispondere", () => {
-  const BASE = new Date("2026-09-01T09:00:00.000Z");
+  // Il briefing guarda gli ultimi sette giorni: con una data fissa questi
+  // test scadevano da soli (08/09/2026). Si parte da ieri.
+  const BASE = new Date(Date.now() - 86_400_000);
   /** i-esima comunicazione: più è alto l'indice, più è recente. */
   const quando = (i: number) => new Date(BASE.getTime() + i * 60_000);
 

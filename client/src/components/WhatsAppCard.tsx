@@ -147,6 +147,22 @@ export default function WhatsAppCard() {
     },
     onError: (e) => toast.error(e.message),
   });
+  // I media arrivati prima che il CRM li conservasse: Meta li tiene circa
+  // trenta giorni, quindi è una finestra che si chiude da sola (08/09/2026).
+  const conservaMedia = trpc.mail.whatsapp.conservaMediaArretrati.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.daSalvare === 0
+          ? "Nessun media arretrato: hanno già tutti i byte."
+          : `${r.salvati} media conservati su ${r.daSalvare}` +
+            (r.errori > 0 ? `, ${r.errori} non più su Meta` : "") +
+            (r.senzaCasella > 0 ? `, ${r.senzaCasella} da un numero non più configurato` : "") +
+            "."
+      );
+      invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
   const remove = trpc.mail.whatsapp.delete.useMutation({
     onSuccess: () => {
       toast.success("Numero rimosso");
@@ -713,6 +729,31 @@ export default function WhatsAppCard() {
                       <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                     )}
                     Richiedi ora
+                  </Button>
+                </div>
+              )}
+
+              {c.attiva && (
+                <div className="flex flex-wrap items-start justify-between gap-2 rounded-md border bg-muted/35 p-2.5 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">Media arretrati</p>
+                    <p className="text-muted-foreground">
+                      Le foto e i file arrivati prima che il CRM li conservasse si
+                      possono ancora scaricare da Meta, che li tiene circa trenta
+                      giorni. Passata quella finestra non tornano.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0"
+                    disabled={conservaMedia.isPending}
+                    onClick={() => conservaMedia.mutate({ limite: 200 })}
+                  >
+                    {conservaMedia.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                    )}
+                    Conserva ora
                   </Button>
                 </div>
               )}

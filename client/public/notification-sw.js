@@ -7,12 +7,12 @@ self.addEventListener("push", event => {
   }
   if (!payload || !Number.isInteger(payload.notificationId)) return;
   event.waitUntil(
-    self.registration.showNotification(payload.title || "Wyndor", {
+    self.registration.showNotification(payload.title || "Wyndoor", {
       body: payload.genericBody || "Hai un nuovo aggiornamento da gestire.",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       data: { link: payload.link || "/notifiche" },
-      tag: `wyndor-notification-${payload.notificationId}`,
+      tag: `wyndoor-notification-${payload.notificationId}`,
       renotify: false,
     })
   );

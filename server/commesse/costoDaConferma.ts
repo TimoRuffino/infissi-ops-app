@@ -300,11 +300,21 @@ export function riferimentiDellaCommessa(commessa: any): RiferimentiCommessa {
   };
 }
 
+/**
+ * Il numero d'ordine si legge anche nel nome del file, ma dev'essere il
+ * nome che il file aveva quando è arrivato: dall'08/09/2026 nel fascicolo
+ * sta il nome per tipo («Conferma ordine fornitore Rossi 2026-09-08.pdf»),
+ * che di numeri d'ordine non ne porta.
+ */
+function nomeDiOrigine(documento: Documento): string {
+  return documento.nomeOriginale ?? documento.nome;
+}
+
 function riferimentiDiDocumento(documento: Documento): string[] {
   return (
     documento.letturaCosto?.riferimenti ??
     riferimentiOrdineDocumento({
-      nomeFile: documento.nome,
+      nomeFile: nomeDiOrigine(documento),
       riferimentoOrdine: documento.letturaCosto?.numeroOrdine ?? null,
     })
   );
@@ -591,7 +601,7 @@ export async function registraCostoDaConferma(input: {
       tentativi: esito === "errore" ? tentativi + 1 : tentativi,
       costoId: null,
       merce: null,
-      riferimenti: riferimentiOrdineDocumento({ nomeFile: documento.nome }),
+      riferimenti: riferimentiOrdineDocumento({ nomeFile: nomeDiOrigine(documento) }),
     });
     return base(documento, esito, motivo);
   };
@@ -663,7 +673,9 @@ export async function registraCostoDaConferma(input: {
     normalizzaFornitore(mittente?.nome ?? null, mittente?.email) ||
     null;
   const riferimenti = riferimentiOrdineDocumento({
-    nomeFile: raw.nome,
+    // Il numero d'ordine sta nel nome che il fornitore ha dato al file,
+    // non in quello che gli abbiamo dato noi archiviandolo.
+    nomeFile: nomeDiOrigine(documento),
     riferimentoOrdine: estrazione.riferimentoOrdine?.valore ?? null,
     numeroConferma: estrazione.numeroConferma?.valore ?? null,
   });

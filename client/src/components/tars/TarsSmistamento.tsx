@@ -13,6 +13,7 @@ import {
   Link2,
   Loader2,
   MessageCircleReply,
+  RefreshCw,
   X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -67,6 +68,33 @@ export function useDecisioneSmistamento(onDeciso?: () => void) {
 }
 
 /** Banner nel lettore messaggi: riepilogo, proposta e allegati archiviati. */
+/**
+ * «Riguarda questo messaggio» (08/09/2026): un messaggio già smistato non
+ * torna in coda da solo, quindi quando la lettura migliora — o quando
+ * qualcosa non ha funzionato — lo si fa riguardare a mano. Rilegge gli
+ * allegati, ricerca la commessa e archivia quello che riconosce.
+ */
+function useRiesame() {
+  const utils = trpc.useUtils();
+  return trpc.tars.smistamentoRiesamina.useMutation({
+    onSuccess: esito => {
+      void utils.tars.invalidate();
+      void utils.mail.invalidate();
+      void utils.preventiviContratti.invalidate();
+      toast.success(
+        esito.archiviati > 0
+          ? `Riletto: ${esito.archiviati} ${esito.archiviati === 1 ? "allegato archiviato" : "allegati archiviati"} nel fascicolo.`
+          : esito.collegamentoCerto
+            ? "Riletto: messaggio collegato alla commessa."
+            : esito.propostaStato === "aperta"
+              ? "Riletto: c'è una proposta da confermare."
+              : "Riletto: non ha trovato di quale commessa è."
+      );
+    },
+    onError: e => toast.error(e.message ?? "Rilettura non riuscita"),
+  });
+}
+
 export function TarsSmistamentoBanner({
   comunicazioneId,
   abilitato,
@@ -79,6 +107,7 @@ export function TarsSmistamentoBanner({
     { enabled: abilitato, retry: false, staleTime: 30_000 }
   );
   const decidi = useDecisioneSmistamento();
+  const riesame = useRiesame();
   if (!abilitato || !esito.data?.esito) return null;
   const s = esito.data.esito;
   const proposta =
@@ -193,6 +222,24 @@ export function TarsSmistamentoBanner({
           Smistamento non riuscito: {esito.data.ultimoErrore ?? "errore"}
         </p>
       )}
+      <div className="flex min-w-0 items-center justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="min-h-11"
+          disabled={riesame.isPending}
+          title="Rilegge gli allegati e riprova a collegare e archiviare"
+          onClick={() => riesame.mutate({ comunicazioneId })}
+        >
+          {riesame.isPending ? (
+            <Loader2 className="size-4 motion-safe:animate-spin" />
+          ) : (
+            <RefreshCw className="size-4" />
+          )}
+          Riguarda questo messaggio
+        </Button>
+      </div>
     </section>
   );
 }

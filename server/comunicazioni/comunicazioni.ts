@@ -666,6 +666,51 @@ export async function setStatoComunicazione(
   return rows.length > 0;
 }
 
+/**
+ * Conserva i byte di un allegato: dal 08/09/2026 i media WhatsApp vengono
+ * scaricati da Meta e messi nello storage come già si fa con la posta.
+ * Senza questo, l'anteprima di una foto o di un PDF mandato dal cliente
+ * dura ~30 giorni — poi Meta lo scarta e nel CRM resta solo il nome.
+ *
+ * Aggiorna una sola voce dell'array `allegati`, per indice: due download
+ * paralleli sulla stessa comunicazione non si sovrascrivono a vicenda.
+ */
+export async function setStorageKeyAllegato(input: {
+  id: number;
+  sedeId: number;
+  allegatoIndex: number;
+  storageKey: string;
+  size?: number;
+}): Promise<boolean> {
+  if (!kvSql) {
+    const r = memRows.find(x => x.id === input.id && x.sedeId === input.sedeId);
+    const allegato = r?.allegati?.[input.allegatoIndex];
+    if (!allegato) return false;
+    allegato.storageKey = input.storageKey;
+    if (input.size != null) allegato.size = input.size;
+    return true;
+  }
+  await ensureComunicazioniSchema();
+  const percorso = String(input.allegatoIndex);
+  const rows = await kvSql`
+    UPDATE comunicazioni SET
+      allegati = jsonb_set(
+        jsonb_set(
+          COALESCE(allegati, '[]'::jsonb),
+          ARRAY[${percorso}, 'storageKey'],
+          to_jsonb(${input.storageKey}::text),
+          true
+        ),
+        ARRAY[${percorso}, 'size'],
+        to_jsonb(${input.size ?? null}::int),
+        ${input.size != null}
+      )
+    WHERE id = ${input.id} AND sede_id = ${input.sedeId}
+      AND jsonb_array_length(COALESCE(allegati, '[]'::jsonb)) > ${input.allegatoIndex}
+    RETURNING id`;
+  return rows.length > 0;
+}
+
 export async function setClassificazioneComunicazione(
   id: number,
   sedeId: number,

@@ -63,7 +63,12 @@ export type OrigineDocumento = (typeof ORIGINI_DOCUMENTO)[number];
 // planimetria — e "Altro" li rendeva tutti indistinguibili al momento di
 // ritrovarli.
 // La lista vive in /shared: server e client ne usano una sola.
-import { DOC_TIPI, DOC_TIPO_LABEL, type DocTipo } from "@shared/docTipi";
+import {
+  DOC_TIPI,
+  DOC_TIPO_LABEL,
+  nomeDocumentoDaTipo,
+  type DocTipo,
+} from "@shared/docTipi";
 export { DOC_TIPI, DOC_TIPO_LABEL };
 export type { DocTipo };
 
@@ -81,6 +86,13 @@ export type Documento = {
   storageKey?: string | null;
   checksum?: string | null; // sha256 hex of the raw bytes
   note: string | null;
+  /**
+   * Il nome che il file aveva prima della rinomina per tipo (08/09/2026).
+   * Serve a due cose: ritrovare l'originale («si chiamava
+   * Ordini_di_Vendi_1601814(1).pdf») e riconoscere i duplicati, perché le
+   * euristiche del dedup ragionano sul nome del file in arrivo.
+   */
+  nomeOriginale?: string | null;
   statoAtUpload: string | null; // commessa.stato at time of upload (for gates)
   createdBy: number | null;
   createdAt: Date;
@@ -151,6 +163,8 @@ const _documentiStore = persistedStore<Documento>(
       if ((d as any).origine === undefined) (d as any).origine = origineDaRecord(d);
       // Anteprime delle evidenze: nessuna finché qualcuno non le rende.
       if ((d as any).anteprime === undefined) (d as any).anteprime = null;
+      // Prima della rinomina per tipo il nome nel fascicolo ERA l'originale.
+      if ((d as any).nomeOriginale === undefined) (d as any).nomeOriginale = null;
     }
   }
 );
@@ -260,23 +274,6 @@ export function decodificaBase64Upload(b64: string): Buffer {
 
 // Build the stored filename from the chosen document TYPE (not the board
 // stato): "{Tipo label} {cliente}.{ext}". Preserves the original extension.
-function buildNomeFromTipo(
-  originalName: string,
-  tipo: DocTipo,
-  cliente?: string | null
-): string {
-  const dotIdx = originalName.lastIndexOf(".");
-  const ext = dotIdx > 0 ? originalName.slice(dotIdx) : "";
-  const label = DOC_TIPO_LABEL[tipo] ?? "Documento";
-  const who = (cliente ?? "").trim();
-  const stem = who ? `${label} ${who}` : label;
-  // Strip characters that are awkward in filenames.
-  const safe = stem
-    .replace(/[\\/:*?"<>|]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return `${safe}${ext}`;
-}
 
 // If `name` already exists among the commessa's documenti, return it with a
 // numeric suffix before the extension ("foo.pdf" → "foo (2).pdf") that makes
@@ -326,19 +323,12 @@ export const REQUIRED_DOC_TIPI_PER_STATO: Record<string, DocTipo[]> = {
 
 // Tipi il cui nome non va riscritto automaticamente all'upload.
 //
-// L'auto-rename "{Tipo} {cliente}.pdf" è utile sui documenti di commessa, che
-// sono uno per tipo. Su un documento d'identità è dannoso: in una commessa
-// ce ne sono due o tre — intestatario, coniuge, delegato — e schiacciarli
-// tutti su "Documento d'identità Rossi Mario" li rende indistinguibili, con
-// un " (2)" appiccicato a decidere chi è chi.
-export const DOC_TIPI_NOME_ORIGINALE: readonly DocTipo[] = [
-  "documento_identita",
-  "visura",
-  "planimetria",
-  "certificazione",
-  "foto",
-  "altro",
-];
+// Dall'08/09/2026 la rinomina vale per TUTTI i tipi, perché il nome porta
+// anche la data: due documenti d'identità o due foto dello stesso giorno si
+// distinguono con il «(2)» di `dedupeName`, gli altri si ordinano da soli.
+// Prima esisteva qui una lista di tipi esentati (identità, visura,
+// planimetria, certificazione, foto, altro), tolta con la decisione della
+// direzione sul nome «Tipo cliente data».
 
 // Cascade for commesse.delete — removes the documents AND their storage
 // bytes when the parent commessa is hard-deleted.
@@ -437,13 +427,17 @@ export function trovaDuplicatoNelFascicolo(
   file: { checksum: string; nome: string; size: number }
 ): Documento | null {
   const nome = nomeSenzaProgressivo(file.nome);
+  // Il confronto è sul nome che il file aveva quando è arrivato: dal
+  // 08/09/2026 nel fascicolo sta il nome per tipo, e paragonarlo a un
+  // «Ordini_di_Vendi_1601814(1).pdf» non troverebbe mai niente.
+  const nomeDiOrigine = (d: Documento) => nomeSenzaProgressivo(d.nomeOriginale ?? d.nome);
   return (
     documenti.find(
       d =>
         d.commessaId === commessaId &&
         (d.checksum
           ? d.checksum === file.checksum
-          : d.size === file.size && nomeSenzaProgressivo(d.nome) === nome)
+          : d.size === file.size && nomeDiOrigine(d) === nome)
     ) ??
     // Byte diversi ma stesso file RIMANDATO: il portale del fornitore
     // riesporta la stessa conferma e il client la salva come «… (2).pdf»
@@ -456,7 +450,7 @@ export function trovaDuplicatoNelFascicolo(
       ? documenti.find(
           d =>
             d.commessaId === commessaId &&
-            nomeSenzaProgressivo(d.nome) === nome &&
+            nomeDiOrigine(d) === nome &&
             d.size > 0 &&
             Math.abs(d.size - file.size) <= Math.max(2048, d.size * 0.02)
         )
@@ -510,6 +504,10 @@ export async function archiviaAllegatoComunicazione(args: {
   vietaRiassegnazione?: boolean;
   /** Chi archivia: a mano dai Messaggi (default), Tars, lo smistamento, la regola automatica. */
   origine?: OrigineDocumento;
+  /** La data del messaggio: entra nel nome del file (§19.5). */
+  dataDocumento?: Date | string | null;
+  /** Tiene il nome originale dell'allegato invece di quello del tipo. */
+  keepNome?: boolean;
 }): Promise<Documento> {
   if (Buffer.isBuffer(args.buffer)) {
     validaAllegatoFascicolo(args.buffer, args.mimeType);
@@ -551,7 +549,14 @@ export async function archiviaAllegatoComunicazione(args: {
     }
 
     const id = existing?.id ?? _documentiStore.prossimoId();
-    const nome = dedupeName(args.nome, args.commessaId, existing?.id);
+    // Il nome lo decide il tipo (con la data del messaggio), come per i
+    // caricamenti a mano: un allegato non deve entrare nel fascicolo con
+    // «Ordini_di_Vendi_1601814(1).pdf».
+    const nomeDalTipo =
+      args.keepNome || args.tipo === "altro"
+        ? args.nome
+        : nomeDocumentoDaTipo(args.nome, args.tipo, commessa.cliente, args.dataDocumento);
+    const nome = dedupeName(nomeDalTipo, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
     const oldSize = existing?.size ?? null;
     const documento: Documento = existing
@@ -571,6 +576,7 @@ export async function archiviaAllegatoComunicazione(args: {
 
     documento.commessaId = args.commessaId;
     documento.nome = nome;
+    documento.nomeOriginale = nomeDalTipo === args.nome ? null : args.nome;
     documento.tipo = args.tipo;
     documento.mimeType = args.mimeType;
     documento.size = bytes.length;
@@ -1071,6 +1077,8 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
   buffer: Buffer;
   note?: string;
   keepNome?: boolean;
+  /** La data che finisce nel nome: quella del documento, non del caricamento. */
+  dataDocumento?: Date | string | null;
   sedeId: number | null;
   createdBy: number | null;
   dataBase64Fallback?: string;
@@ -1079,9 +1087,9 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
 
   validaUploadManualeFascicolo(input.buffer.length, input.mimeType);
   const baseNome =
-    input.keepNome || DOC_TIPI_NOME_ORIGINALE.includes(input.tipo)
+    input.keepNome || input.tipo === "altro"
       ? input.nome
-      : buildNomeFromTipo(input.nome, input.tipo, commessa.cliente);
+      : nomeDocumentoDaTipo(input.nome, input.tipo, commessa.cliente, input.dataDocumento);
   const nome = dedupeName(baseNome, input.commessaId);
   const doc: Documento = {
     id: _documentiStore.prossimoId(),
@@ -1091,6 +1099,7 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
     mimeType: input.mimeType,
     size: input.buffer.length,
     note: input.note ?? null,
+    nomeOriginale: baseNome === input.nome ? null : input.nome,
     statoAtUpload: commessa.stato ?? null,
     createdBy: input.createdBy,
     createdAt: new Date(),

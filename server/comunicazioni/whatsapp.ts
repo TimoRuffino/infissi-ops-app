@@ -20,11 +20,14 @@ import { normalizzaTelefono } from "@shared/telefono";
 import {
   insertComunicazione,
   massimoCasellaIdWhatsApp,
+  setStorageKeyAllegato,
   trovaCasellaWhatsAppStorica,
   type Allegato,
+  type Comunicazione,
   type NuovaComunicazione,
   collegamentoManualeWhatsApp,
 } from "./comunicazioni";
+import { putFile, storageDurevole } from "../_core/fileStorage";
 import { matchComunicazione } from "./match";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
@@ -904,7 +907,120 @@ async function registraMessaggio(
   };
 
   const inserita = await insertComunicazione(nuova);
+  if (inserita) {
+    // I byte si conservano SUBITO: Meta scarta i media dopo circa trenta
+    // giorni e da lì in poi di una foto resta solo il nome. Fuori dal
+    // percorso del webhook, che deve rispondere in fretta.
+    void conservaMediaWhatsApp(inserita, config).catch(errore => {
+      console.warn(
+        "[whatsapp-media] conservazione fallita " +
+          JSON.stringify({
+            comunicazioneId: inserita.id,
+            message: errore instanceof Error ? errore.message.slice(0, 160) : "unknown",
+          })
+      );
+    });
+  }
   return inserita != null;
+}
+
+/** Il tetto di un media conservato: come per la posta. */
+const MAX_MEDIA_BYTE = 15 * 1024 * 1024;
+
+export type DipendenzeMediaWhatsApp = {
+  scarica: (config: ConfigWhatsApp, mediaId: string) => Promise<{ buffer: Buffer; mimeType: string }>;
+  salva: (input: {
+    casellaId: number;
+    comunicazioneId: number;
+    nome: string;
+    buffer: Buffer;
+    mimeType: string;
+  }) => Promise<{ storageKey: string }>;
+  registra: typeof setStorageKeyAllegato;
+  durevole: () => boolean;
+};
+
+function dipendenzeMediaReali(): DipendenzeMediaWhatsApp {
+  return {
+    scarica: (config, mediaId) => scaricaMedia(config, mediaId),
+    salva: async input => {
+      const { storageKey } = await putFile(
+        "comunicazioni",
+        input.casellaId,
+        input.comunicazioneId,
+        input.nome,
+        input.buffer,
+        input.mimeType
+      );
+      return { storageKey };
+    },
+    registra: setStorageKeyAllegato,
+    durevole: storageDurevole,
+  };
+}
+
+/**
+ * Porta i media di un messaggio WhatsApp dentro lo storage (08/09/2026,
+ * mandato della direzione: «devo poter vedere l'anteprima dei file inviati
+ * su whatsapp»). Prima esisteva solo il `mediaId`: l'allegato si andava a
+ * riprendere da Meta a ogni apertura, e dopo un mese non c'era più.
+ *
+ * Un media che non si scarica non ferma gli altri e non fa fallire il
+ * messaggio: la conversazione vale più dell'allegato.
+ */
+export async function conservaMediaWhatsApp(
+  comunicazione: Comunicazione,
+  config: ConfigWhatsApp,
+  deps: Partial<DipendenzeMediaWhatsApp> = {}
+): Promise<{ salvati: number; saltati: number; errori: number }> {
+  const d = { ...dipendenzeMediaReali(), ...deps };
+  const esito = { salvati: 0, saltati: 0, errori: 0 };
+  if (!d.durevole()) {
+    esito.saltati = comunicazione.allegati.length;
+    return esito;
+  }
+  for (const [indice, allegato] of comunicazione.allegati.entries()) {
+    if (allegato.storageKey || !allegato.mediaId) {
+      esito.saltati += 1;
+      continue;
+    }
+    try {
+      const media = await d.scarica(config, allegato.mediaId);
+      if (media.buffer.length === 0 || media.buffer.length > MAX_MEDIA_BYTE) {
+        esito.saltati += 1;
+        continue;
+      }
+      const { storageKey } = await d.salva({
+        casellaId: comunicazione.casellaId,
+        comunicazioneId: comunicazione.id,
+        nome: allegato.nome,
+        buffer: media.buffer,
+        mimeType: allegato.mimeType || media.mimeType,
+      });
+      await d.registra({
+        id: comunicazione.id,
+        sedeId: comunicazione.sedeId,
+        allegatoIndex: indice,
+        storageKey,
+        size: media.buffer.length,
+      });
+      // Anche l'oggetto in mano a chi ha chiamato resta aggiornato.
+      allegato.storageKey = storageKey;
+      allegato.size = media.buffer.length;
+      esito.salvati += 1;
+    } catch (errore) {
+      esito.errori += 1;
+      console.warn(
+        "[whatsapp-media] allegato non conservato " +
+          JSON.stringify({
+            comunicazioneId: comunicazione.id,
+            allegatoIndex: indice,
+            message: errore instanceof Error ? errore.message.slice(0, 160) : "unknown",
+          })
+      );
+    }
+  }
+  return esito;
 }
 
 /**
