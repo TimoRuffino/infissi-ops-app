@@ -8,6 +8,7 @@ import {
   nextQueueAdvance,
   nextReclamoAdvance,
   nextRifacimentoAdvance,
+  ordinaTicketPerCoda,
   ticketMatchesQueueFilter,
   warrantyExpiryLabel,
   warrantyExpiryTone,
@@ -92,6 +93,40 @@ describe("ticketMatchesQueueFilter", () => {
         { stato: "aperto", search: "vetro" }
       )
     ).toBe(false);
+  });
+});
+
+describe("ordinaTicketPerCoda", () => {
+  it("manda i chiusi in fondo e lascia davanti gli attivi", () => {
+    const coda = [
+      { id: 1, stato: "chiuso" },
+      { id: 2, stato: "aperto" },
+      { id: 3, stato: "chiuso" },
+      { id: 4, stato: "in_lavorazione" },
+    ];
+
+    expect(ordinaTicketPerCoda(coda).map(t => t.id)).toEqual([2, 4, 1, 3]);
+  });
+
+  it("non riordina dentro il gruppo: resta l'ordine del server", () => {
+    const coda = [
+      { id: 1, stato: "assegnato" },
+      { id: 2, stato: "aperto" },
+      { id: 3, stato: "chiuso" },
+      { id: 4, stato: "chiuso" },
+    ];
+
+    expect(ordinaTicketPerCoda(coda).map(t => t.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("non tocca l'elenco ricevuto", () => {
+    const coda = [
+      { id: 1, stato: "chiuso" },
+      { id: 2, stato: "aperto" },
+    ];
+    ordinaTicketPerCoda(coda);
+
+    expect(coda.map(t => t.id)).toEqual([1, 2]);
   });
 });
 
