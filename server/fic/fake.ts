@@ -59,6 +59,12 @@ export function creaClientFicFinto(
         ? copione.creaDocumento(ctx, documento, opzioni)
         : nonPrevisto("creaDocumento");
     },
+    async modificaDocumento(ctx, documentId, documento) {
+      registra("modificaDocumento", String(documentId), { documentId, documento });
+      return copione.modificaDocumento
+        ? copione.modificaDocumento(ctx, documentId, documento)
+        : nonPrevisto("modificaDocumento");
+    },
     async leggiDocumento(ctx, documentId) {
       registra("leggiDocumento", String(documentId), { documentId });
       return copione.leggiDocumento

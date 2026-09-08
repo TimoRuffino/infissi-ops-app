@@ -75,14 +75,20 @@ export function tonoPasso(
  * `contratto`) — capacità che esisteva prima di questo piano e che nessun
  * ruling toglie di proposito. Quando il primo passo non concluso è
  * `documenti`, `contratto` resta comunque raggiungibile; `limiti` e
- * `fattura` restano bloccati finché `contratto` non è `fatto`.
+ * `fattura` restano bloccati finché `contratto` non è `fatto` — salvo una
+ * fattura annullata da vedere ed eliminare (`annullate`, dal server).
  */
 export function passoRaggiungibile(
   passi: Record<PassoFatturazione, EsitoPasso>,
-  passo: PassoFatturazione
+  passo: PassoFatturazione,
+  annullate = 0
 ): boolean {
   const esito = passi[passo];
   if (esito === "fatto" || esito === "in_corso") return true;
+  // Una fattura annullata non fa avanzare il passo, ma resta da vedere e da
+  // eliminare (08/09/2026): senza questo, su una commessa senza contratto
+  // l'annullata sparirebbe dietro un passo chiuso.
+  if (passo === "fattura" && annullate > 0 && esito !== "non_disponibile") return true;
   const primoNonFatto = ORDINE_PASSI.find(p => passi[p] !== "fatto");
   if (passo === primoNonFatto) return true;
   return primoNonFatto === "documenti" && passo === "contratto";
@@ -106,9 +112,10 @@ export function passoDallaQuery(search: string): PassoFatturazione | null {
 export function passoIniziale(
   passi: Record<PassoFatturazione, EsitoPasso>,
   prossimoPasso: PassoFatturazione | null,
-  richiesto: PassoFatturazione | null
+  richiesto: PassoFatturazione | null,
+  annullate = 0
 ): PassoFatturazione {
-  if (richiesto != null && passoRaggiungibile(passi, richiesto)) {
+  if (richiesto != null && passoRaggiungibile(passi, richiesto, annullate)) {
     return richiesto;
   }
   return prossimoPasso ?? ORDINE_PASSI[ORDINE_PASSI.length - 1];

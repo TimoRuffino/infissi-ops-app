@@ -12,9 +12,11 @@ import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { FileText, FlaskConical, Plus, ReceiptText, Trash2 } from "lucide-react";
 
+import { fatturaModificabile } from "@shared/fatturazione/tipi";
 import { trpc } from "@/lib/trpc";
 import {
   badgeStatoFattura,
+  fatturaEliminabile,
   passiFattura,
   riepilogoControlli,
   VARIANTE_BADGE,
@@ -66,6 +68,13 @@ export default function FatturaTab({
   const [selezionata, setSelezionata] = useState<number | null>(null);
 
   const elenco = q.data?.fatture ?? [];
+  // Fatture FiC collegate (08/09/2026): la commessa è già fatturata da fuori.
+  // Si mostra la più recente; niente bozza dai limiti finché c'è.
+  const ficRecente = useMemo(() => {
+    const tutte = q.data?.fattureFic ?? [];
+    return [...tutte].sort((a, b) => a.data.localeCompare(b.data) || a.id - b.id).at(-1) ?? null;
+  }, [q.data?.fattureFic]);
+  const dataFic = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("it-IT");
 
   // Quale fattura si apre per prima: la bozza (il lavoro in corso), poi la
   // più recente ancora viva, infine l'ultima creata comunque sia finita.
@@ -91,9 +100,13 @@ export default function FatturaTab({
 
   // I controlli della bozza alimentano il passo «Controlli»: stessa query
   // dell'editor, quindi nessuna seconda richiesta.
+  // R46: la fattura resta modificabile finché allo SdI non è partita, non
+  // solo finché è bozza. `modificabile` decide sia quale vista si apre sia
+  // dove servono i controlli.
+  const modificabile = fattura != null && fatturaModificabile(fattura);
   const validazioni = trpc.fatture.validazioni.useQuery(
     { id: fattura?.id ?? 0 },
-    { enabled: !lettura && fattura?.stato === "bozza", retry: false }
+    { enabled: !lettura && modificabile, retry: false }
   );
 
   const crea = trpc.fatture.creaBozza.useMutation({
@@ -119,10 +132,18 @@ export default function FatturaTab({
     onError: e => toast.error(e.message),
   });
   // Cancellazione definitiva: solo bozze, annullate o emissioni ferme senza
-  // documento FiC (lo decide il server); conferma umana prima del click.
+  // documento FiC (lo decide il server); conferma umana prima del click. Il
+  // gesto arriva dal cestino dell'elenco, dall'editor della bozza e dalla
+  // vista dell'annullata (08/09/2026: l'elenco compare solo con due o più
+  // fatture, e con una sola annullata non c'era modo di cancellarla).
   const [daEliminare, setDaEliminare] = useState<number | null>(null);
   const elimina = trpc.fatture.elimina.useMutation({
     onSuccess: esito => {
+      // Via subito dalla cache: la tab non deve rileggere una fattura che
+      // non c'è più (NOT_FOUND) mentre aspetta l'elenco nuovo.
+      utils.fatture.perCommessa.setData({ commessaId }, vecchio =>
+        vecchio ? { ...vecchio, fatture: vecchio.fatture.filter(f => f.id !== esito.id) } : vecchio
+      );
       void utils.fatture.perCommessa.invalidate({ commessaId });
       void utils.fatturazioneGuidata.passi.invalidate({ commessaId: esito.commessaId });
       void utils.fatturazioneGuidata.daFare.invalidate();
@@ -164,6 +185,12 @@ export default function FatturaTab({
             </span>
             <span className="tabular-nums font-medium">{formatCent(fatturaLettura.totaleCent)}</span>
           </div>
+        ) : ficRecente ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
+            <Badge variant="success">Fatturata su Fatture in Cloud</Badge>
+            <span className="min-w-0 truncate">n. {ficRecente.numero} del {dataFic(ficRecente.data)}</span>
+            <span className="tabular-nums font-medium">{formatCent(ficRecente.lordoCent)}</span>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Nessuna fattura</p>
         )}
@@ -189,7 +216,7 @@ export default function FatturaTab({
       : null,
     fattura,
     controlli:
-      fattura?.stato === "bozza"
+      modificabile
         ? validazioni.data
           ? (() => {
               const r = riepilogoControlli(validazioni.data.controlli);
@@ -206,9 +233,9 @@ export default function FatturaTab({
 
   // Il server rifiuta una seconda fattura sulla commessa: finché ce n'è una
   // viva si passa dalla nota di credito, non da una bozza nuova.
-  const puoGenerare = elenco.every(
-    f => f.tipo !== "fattura" || f.stato === "annullata"
-  );
+  const puoGenerare =
+    ficRecente == null &&
+    elenco.every(f => f.tipo !== "fattura" || f.stato === "annullata");
   // Perché il pulsante è spento, detto a parole: prima si scopriva solo
   // dopo il click, con un errore. Finché contratto e computo non sono letti
   // il pulsante aspetta senza accusare nessuno.
@@ -251,7 +278,7 @@ export default function FatturaTab({
   // sia essa in modifica o in emesso, va nello stesso posto del contenitore
   // qui sotto.
   const editor =
-    fattura?.stato === "bozza" ? (
+    fattura && modificabile ? (
       <BozzaFatturaEditor
         key={fattura.id}
         commessaId={commessaId}
@@ -265,6 +292,7 @@ export default function FatturaTab({
           onCambiato?.();
         }}
         onCambiato={onCambiato}
+        onElimina={() => setDaEliminare(fattura.id)}
       />
     ) : fattura ? (
       <FatturaEmessaView
@@ -276,6 +304,7 @@ export default function FatturaTab({
         puoModificare={q.data.puoDraft}
         onApriFattura={setSelezionata}
         onCambiato={onCambiato}
+        onElimina={() => setDaEliminare(fattura.id)}
       />
     ) : null;
 
@@ -283,7 +312,19 @@ export default function FatturaTab({
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
     // spaziatura la porta la pagina.
     <div className={guidata ? "space-y-4 min-w-0" : "space-y-4 mt-4 min-w-0"}>
-      <FatturaPercorso passi={passiVisibili} onVai={vai} />
+      {/* Già fatturata da fuori: il percorso interno (bozza → SdI) non ha senso finché non nasce una fattura CRM. */}
+      {!(ficRecente && !fattura) && <FatturaPercorso passi={passiVisibili} onVai={vai} />}
+
+      {ficRecente && (
+        <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-success/40 bg-success-soft px-3 py-2 text-sm text-text-1">
+          <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
+          <span className="min-w-0">
+            <span className="font-semibold">Già fatturata su Fatture in Cloud:</span> n. {ficRecente.numero} del{" "}
+            {dataFic(ficRecente.data)} · {formatCent(ficRecente.lordoCent)}. La commessa conta come fatturata: nessuna
+            bozza dai limiti. Per un'altra fattura (acconto, lavori extra) usa la fattura libera.
+          </span>
+        </p>
+      )}
 
       {q.data.dryRun && (
         <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-text-1">
@@ -393,7 +434,7 @@ export default function FatturaTab({
                     {formatCent(f.totaleCent)}
                   </span>
                 </button>
-                {q.data.puoDraft && f.ficDocumentId == null && (f.stato === "bozza" || f.stato === "annullata" || f.stato === "in_emissione") && (
+                {q.data.puoDraft && fatturaEliminabile(f) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -428,7 +469,7 @@ export default function FatturaTab({
         open={daEliminare != null}
         onOpenChange={aperto => { if (!aperto) setDaEliminare(null); }}
         title="Eliminare definitivamente?"
-        description="La bozza sparisce dal CRM con righe, scadenze e cronologia. Non tocca Fatture in Cloud: si può eliminare solo ciò che non è mai uscito dal CRM."
+        description="Sparisce dal CRM per sempre, con righe, scadenze e cronologia. Non tocca Fatture in Cloud: si elimina solo ciò che non è mai uscito dal CRM (bozza, annullata, emissione ferma senza documento)."
         confirmLabel="Elimina"
         cancelLabel="Resta"
         busy={elimina.isPending}

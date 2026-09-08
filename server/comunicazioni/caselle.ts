@@ -22,6 +22,16 @@ export type Casella = {
   // Cifrata (formato "v1.…"). Mai esposta al client.
   passwordCifrata: string;
   cartella: string; // "INBOX"
+  /**
+   * Il lato in uscita del fascicolo (punto 30 del piano 08/09/2026): la
+   * cartella della posta INVIATA da leggere. `null` = spenta, ed è il
+   * valore di partenza per ogni casella esistente — leggere gli inviati
+   * cambia cosa entra nel CRM, e si accende una casella alla volta.
+   * Di norma «INBOX.Sent» su cPanel, «Sent» altrove.
+   */
+  cartellaInviati: string | null;
+  /** UID dell'ultimo messaggio letto nella cartella degli inviati. */
+  ultimoUidInviati: number | null;
   attiva: boolean;
   // Ingestione incrementale: UID dell'ultimo messaggio letto su questa
   // cartella. IMAP garantisce UID crescenti dentro una uidValidity: se il
@@ -42,6 +52,8 @@ const _store = persistedStore<Casella>("caselle_email", (items) => {
     if (c.cartella === undefined) c.cartella = "INBOX";
     if (c.messaggiImportati === undefined) c.messaggiImportati = 0;
     if (c.uidValidity === undefined) c.uidValidity = null;
+    if ((c as any).cartellaInviati === undefined) (c as any).cartellaInviati = null;
+    if ((c as any).ultimoUidInviati === undefined) (c as any).ultimoUidInviati = null;
   }
 });
 

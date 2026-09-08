@@ -29,9 +29,11 @@ import { creaCommessa, getCommessaById } from "../routers/commesse";
 import { getDocumentoRecordById } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
 import {
+  aggiornaDocumentoFic,
   costruisciClienteFic,
   costruisciDocumentoFic,
-  emettiFattura,
+  creaSuFic,
+  inviaAlloSdi,
   noteFattura,
   type DipendenzeEmissione, GIORNI_DOPPIONE, trovaDoppioneFic } from "./emissione";
 import {
@@ -251,6 +253,7 @@ function copioneFelice(f: Fattura, over: Copione = {}): Copione {
     leggiRigheDocumento: async () => [],
     creaCliente: async () => ({ id: FIC_ENTITY_NUOVO }),
     creaDocumento: async () => documentoFicDa(f),
+    leggiDocumento: async () => documentoFicDa(f, { ei_status: "not_sent" }),
     verificaXml: async () => ({ success: true, errori: [] }),
     inviaEInvoice: async () => ({
       name: "IT01234567890_00001.xml",
@@ -329,12 +332,12 @@ beforeEach(() => {
   }
 });
 
-describe("emettiFattura", () => {
-  it("(a) percorso felice in dry-run: cliente, documento, XML, invio, archivio, fascicolo e timeline", async () => {
-    const { fattura, commessaId, cliente } = await bozzaEmettibile();
+describe("creaSuFic", () => {
+  it("(a) percorso felice: cliente, documento, XML, archivio e timeline — senza toccare lo SdI", async () => {
+    const { fattura, cliente } = await bozzaEmettibile();
     const b = banco(copioneFelice(fattura));
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -349,21 +352,17 @@ describe("emettiFattura", () => {
       "cercaDocumenti",
       "creaDocumento",
       "verificaXml",
-      "inviaEInvoice",
       "scaricaXml",
       "scaricaPdf",
     ]);
     // Indici: cercaClienti, creaCliente, cercaDocumenti (anti-doppione), creaDocumento, verificaXml…
     expect(b.registro[4].body).toMatchObject({ documentId: FIC_DOCUMENT_ID });
-    expect(b.registro[5].body).toMatchObject({
-      opzioni: { dry_run: true },
-    });
     expect((b.registro[3].body as any).opzioni).toEqual({ fix_payments: true });
 
-    // Dry-run: la fattura resta «emessa» e porta il segno del giro di prova.
+    // Il primo gesto si ferma qui: su Fatture in Cloud, non allo SdI.
     const f = esito.fattura;
     expect(f.stato).toBe("emessa");
-    expect(f.inviataDryRun).toBe(true);
+    expect(f.inviataDryRun).toBe(false);
     expect(f.ficDocumentId).toBe(FIC_DOCUMENT_ID);
     expect(f.numero).toBe("127/2026");
     expect(f.data).toBe("2026-09-04");
@@ -388,23 +387,12 @@ describe("emettiFattura", () => {
     expect(f.xmlSha256).toBe(sha256Hex(XML_FINTO));
     expect(f.pdfStorageKey).toContain("fatture_pdf/");
 
-    // Documento nel fascicolo: soddisfa il gate «fattura» di fatture_pagamento.
-    expect(f.documentoId).not.toBeNull();
-    const documento = getDocumentoRecordById(f.documentoId!)!;
-    expect(documento).toMatchObject({
-      commessaId,
-      nome: "Fattura 127-2026.pdf",
-      tipo: "fattura",
-      mimeType: "application/pdf",
-      source: "crm",
-      sourceRef: `crm:fattura:${f.id}`,
-      origine: "automatico",
-      createdBy: ATTORE,
-    });
+    // Nel fascicolo non entra niente finché la fattura non è partita (R45).
+    expect(f.documentoId).toBeNull();
 
     // Timeline allineata al board con il nome dell'attore.
-    const commessa: any = getCommessaById(commessaId);
-    expect(b.timeline).toEqual([[commessaId, commessa.stato, "Timo Ruffino"]]);
+    const commessa: any = getCommessaById(f.commessaId);
+    expect(b.timeline).toEqual([[f.commessaId, commessa.stato, "Timo Ruffino"]]);
 
     // Eventi in ordine (i primi due vengono dalla bozza).
     expect(await tipiEvento(SEDE, f.id)).toEqual([
@@ -414,7 +402,6 @@ describe("emettiFattura", () => {
       "cliente_fic",
       "creata_fic",
       "xml_ok",
-      "inviata",
       "xml_archiviato",
       "pdf_archiviato",
     ]);
@@ -427,9 +414,6 @@ describe("emettiFattura", () => {
       numero: "127/2026",
       amount_gross: f.totaleCent / 100,
     });
-    expect((await evento(SEDE, f.id, "inviata")).payload).toMatchObject({
-      dryRun: true,
-    });
 
     expect(esito.passi.map(p => [p.passo, p.esito])).toEqual([
       ["validazione", "fatto"],
@@ -438,9 +422,8 @@ describe("emettiFattura", () => {
       ["documento_fic", "fatto"],
       ["confronto_totali", "fatto"],
       ["xml", "fatto"],
-      ["invio", "fatto"],
       ["archivio", "fatto"],
-      ["documento_fascicolo", "fatto"],
+      ["documento_fascicolo", "saltato"],
       ["timeline", "fatto"],
     ]);
   });
@@ -461,7 +444,7 @@ describe("emettiFattura", () => {
       { salvaFicEntityIdReale: true }
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -483,7 +466,7 @@ describe("emettiFattura", () => {
 
     // Seconda passata: lo snapshot ha già l'id, nessuna ricerca.
     const b2 = banco(copioneFelice(esito.fattura));
-    const ripresa = await emettiFattura({
+    const ripresa = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -491,8 +474,7 @@ describe("emettiFattura", () => {
       ...b2.dip,
     });
     // Ripetizione sicura: su una fattura già completa l'unica chiamata
-    // che resta è la riverifica dell'XML (una GET senza effetti: dopo un
-    // giro in dry-run l'invio vero non deve partire alla cieca).
+    // che resta è la riverifica dell'XML, una GET senza effetti.
     expect(metodi(b2.registro)).toEqual(["verificaXml"]);
     expect(ripresa.passi.map(p => [p.passo, p.esito])).toEqual([
       ["validazione", "saltato"],
@@ -500,7 +482,6 @@ describe("emettiFattura", () => {
       ["documento_fic", "saltato"],
       ["confronto_totali", "saltato"],
       ["xml", "fatto"],
-      ["invio", "saltato"],
       ["archivio", "saltato"],
       ["documento_fascicolo", "saltato"],
       ["timeline", "fatto"], // la timeline è idempotente per costruzione
@@ -520,7 +501,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const primo = await emettiFattura({
+    const primo = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -565,7 +546,7 @@ describe("emettiFattura", () => {
         leggiDocumento: async () => documentoFicDa(fattura),
       })
     );
-    const secondo = await emettiFattura({
+    const secondo = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -576,7 +557,6 @@ describe("emettiFattura", () => {
     expect(metodi(b2.registro)).toEqual([
       "leggiDocumento",
       "verificaXml",
-      "inviaEInvoice",
       "scaricaXml",
       "scaricaPdf",
     ]);
@@ -599,7 +579,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -617,29 +597,6 @@ describe("emettiFattura", () => {
     expect(esito.passi.at(-1)).toMatchObject({ passo: "xml", esito: "errore" });
   });
 
-  it("(e) dry-run spento: la fattura passa a «inviata»", async () => {
-    const { fattura } = await bozzaEmettibile();
-    const b = banco(copioneFelice(fattura), { dryRun: false });
-
-    const esito = await emettiFattura({
-      sedeId: SEDE,
-      id: fattura.id,
-      actorUserId: ATTORE,
-      revisione: fattura.revisione,
-      ...b.dip,
-    });
-
-    expect(esito.fattura.stato).toBe("inviata");
-    expect(esito.fattura.inviataDryRun).toBe(false);
-    expect(
-      b.registro.find(c => c.metodo === "inviaEInvoice")!.body
-    ).toMatchObject({ opzioni: { dry_run: false } });
-    expect((await evento(SEDE, fattura.id, "inviata")).payload).toMatchObject({
-      dryRun: false,
-      date: "2026-09-04",
-    });
-  });
-
   it("(f) archivio PDF fallito: la fattura resta emessa, l'errore è solo un evento", async () => {
     const { fattura } = await bozzaEmettibile();
     const b = banco(
@@ -650,7 +607,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -659,7 +616,7 @@ describe("emettiFattura", () => {
     });
 
     expect(esito.fattura.stato).toBe("emessa");
-    expect(esito.fattura.inviataDryRun).toBe(true);
+    expect(esito.fattura.inviataDryRun).toBe(false);
     expect(esito.fattura.xmlStorageKey).toContain("fatture_xml/");
     expect(esito.fattura.pdfStorageKey).toBeNull();
     expect(esito.fattura.documentoId).toBeNull();
@@ -668,9 +625,10 @@ describe("emettiFattura", () => {
       (await evento(SEDE, fattura.id, "pdf_archiviato")).payload
     ).toMatchObject({ errore: "Download PDF fattura fallito (HTTP 502)." });
     expect(esito.passi.find(p => p.passo === "archivio")!.esito).toBe("errore");
+    // Il fascicolo non c'entra col primo gesto: si salta comunque (R45).
     expect(
       esito.passi.find(p => p.passo === "documento_fascicolo")!.esito
-    ).toBe("errore");
+    ).toBe("saltato");
   });
 
   it("riarchivio riuscito dopo un fallimento del PDF azzera eiErrore", async () => {
@@ -682,7 +640,7 @@ describe("emettiFattura", () => {
         },
       })
     );
-    const primo = await emettiFattura({
+    const primo = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -694,7 +652,7 @@ describe("emettiFattura", () => {
     // Secondo giro con lo storage in salute: quello che era rimasto da
     // fare si fa, e l'errore del giro prima non deve sopravvivergli.
     const sano = banco(copioneFelice(primo.fattura));
-    const secondo = await emettiFattura({
+    const secondo = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -704,14 +662,14 @@ describe("emettiFattura", () => {
 
     expect(secondo.fattura.eiErrore).toBeNull();
     expect(secondo.fattura.pdfStorageKey).toContain("fatture_pdf/");
-    expect(secondo.fattura.documentoId).not.toBeNull();
+    expect(secondo.fattura.documentoId).toBeNull();
     expect(secondo.passi.find(p => p.passo === "archivio")).toMatchObject({
       esito: "fatto",
       dettaglio: "1 file archiviati",
     });
     expect(
       secondo.passi.find(p => p.passo === "documento_fascicolo")!.esito
-    ).toBe("fatto");
+    ).toBe("saltato");
     // L'XML era già a posto: non si riscarica.
     expect(metodi(sano.registro)).not.toContain("scaricaXml");
   });
@@ -728,7 +686,7 @@ describe("emettiFattura", () => {
     const b = banco(copioneFelice(fattura));
 
     await expect(
-      emettiFattura({
+      creaSuFic({
         sedeId: SEDE,
         id: fattura.id,
         actorUserId: ATTORE,
@@ -749,7 +707,7 @@ describe("emettiFattura", () => {
     const b = banco(copioneFelice(fattura));
 
     await expect(
-      emettiFattura({
+      creaSuFic({
         sedeId: SEDE,
         id: fattura.id,
         actorUserId: ATTORE,
@@ -806,7 +764,7 @@ describe("emettiFattura", () => {
     const cancello = cancelloContesto(2);
     const dip = { ...b.dip, contesto: cancello.contesto };
     const avvia = () =>
-      emettiFattura({
+      creaSuFic({
         sedeId: SEDE,
         id: fattura.id,
         actorUserId: ATTORE,
@@ -855,7 +813,7 @@ describe("emettiFattura", () => {
     const cancello = cancelloContesto(2);
     const dip = { ...b.dip, contesto: cancello.contesto };
     const avvia = () =>
-      emettiFattura({
+      creaSuFic({
         sedeId: SEDE,
         id: fattura.id,
         actorUserId: ATTORE,
@@ -888,7 +846,7 @@ describe("emettiFattura", () => {
     const b = banco(copioneFelice(fattura));
 
     await expect(
-      emettiFattura({
+      creaSuFic({
         sedeId: ALTRA_SEDE,
         id: fattura.id,
         actorUserId: ATTORE,
@@ -916,7 +874,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -967,7 +925,7 @@ describe("emettiFattura", () => {
         leggiDocumento: async () => documentoFicDa(fattura),
       })
     );
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1006,7 +964,7 @@ describe("emettiFattura", () => {
         },
       })
     );
-    const g1 = await emettiFattura({
+    const g1 = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1032,7 +990,7 @@ describe("emettiFattura", () => {
           documentoFicDa(fattura, { payments_list: unSoloPagamento }),
       })
     );
-    const g2 = await emettiFattura({
+    const g2 = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1041,7 +999,7 @@ describe("emettiFattura", () => {
     });
     expect(metodi(secondo.registro)).toContain("leggiDocumento");
     expect(g2.fattura.pdfStorageKey).toContain("fatture_pdf/");
-    expect(g2.fattura.documentoId).not.toBeNull();
+    expect(g2.fattura.documentoId).toBeNull();
     expect(g2.fattura.eiErrore).toContain("FiC ha restituito 1 scadenze");
     expect(g2.fattura.eiErrore).not.toContain("PDF non archiviato");
     expect(g2.passi.find(p => p.passo === "documento_fic")!.dettaglio).toBe(
@@ -1056,7 +1014,7 @@ describe("emettiFattura", () => {
         leggiDocumento: async () => documentoFicDa(fattura),
       })
     );
-    const g3 = await emettiFattura({
+    const g3 = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1073,7 +1031,7 @@ describe("emettiFattura", () => {
 
     // Giro 4: tutto appaiato, nessuna rilettura del documento.
     const quarto = banco(copioneFelice(g3.fattura));
-    const g4 = await emettiFattura({
+    const g4 = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1100,7 +1058,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1122,7 +1080,7 @@ describe("emettiFattura", () => {
     const capodanno = new Date("2026-12-31T23:30:00Z");
     const b = banco(copioneFelice(fattura));
 
-    await emettiFattura({
+    await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1150,7 +1108,7 @@ describe("emettiFattura", () => {
       })
     );
 
-    const esito = await emettiFattura({
+    const esito = await creaSuFic({
       sedeId: SEDE,
       id: fattura.id,
       actorUserId: ATTORE,
@@ -1166,6 +1124,344 @@ describe("emettiFattura", () => {
     expect(
       (await evento(SEDE, fattura.id, "cliente_fic")).payload
     ).toMatchObject({ creato: true });
+  });
+});
+
+// ── I due passi (08/09/2026) ────────────────────────────────────────────
+//
+// «Invia a Fatture in Cloud» crea il documento e si ferma. «Invia allo
+// SdI» è un secondo gesto, giorni dopo, e in mezzo c'è la finestra dei
+// dodici giorni in cui la fattura si può ancora correggere. Questi test
+// tengono separati i due effetti: il primo non deve spedire NIENTE.
+describe("i due passi: creaSuFic e inviaAlloSdi", () => {
+  it("creaSuFic non chiama mai inviaEInvoice e si ferma a «emessa»", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const b = banco(copioneFelice(fattura), { dryRun: false });
+
+    const esito = await creaSuFic({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: fattura.revisione,
+      ...b.dip,
+    });
+
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+    expect(esito.fattura.stato).toBe("emessa");
+    expect(esito.fattura.inviataDryRun).toBe(false);
+    expect(esito.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID);
+    // L'XML si verifica comunque: dice subito se il documento è malformato.
+    expect(metodi(b.registro)).toContain("verificaXml");
+    // L'archivio sì, il documento nel fascicolo no (R45).
+    expect(esito.fattura.xmlStorageKey).toContain("fatture_xml/");
+    expect(esito.fattura.documentoId).toBeNull();
+  });
+
+  it("inviaAlloSdi da «emessa» spedisce una volta sola e porta a «inviata»", async () => {
+    const { fattura, commessaId } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(copioneFelice(primo.fattura), { dryRun: false });
+    const esito = await inviaAlloSdi({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: primo.fattura.revisione,
+      ...b.dip,
+    });
+
+    expect(metodi(b.registro).filter(m => m === "inviaEInvoice")).toHaveLength(1);
+    expect(esito.fattura.stato).toBe("inviata");
+    expect(esito.fattura.inviataDryRun).toBe(false);
+    // Il documento del fascicolo nasce qui, non al primo passo.
+    expect(esito.fattura.documentoId).not.toBeNull();
+    expect(getDocumentoRecordById(esito.fattura.documentoId!)).toMatchObject({
+      commessaId,
+      tipo: "fattura",
+    });
+  });
+
+  it("inviaAlloSdi in dry-run lascia «emessa» e segna la prova", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(copioneFelice(primo.fattura), { dryRun: true });
+    const esito = await inviaAlloSdi({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione, ...b.dip,
+    });
+
+    expect(b.registro.find(c => c.metodo === "inviaEInvoice")!.body).toMatchObject({
+      opzioni: { dry_run: true },
+    });
+    expect(esito.fattura.stato).toBe("emessa");
+    expect(esito.fattura.inviataDryRun).toBe(true);
+  });
+
+  it("inviaAlloSdi su una bozza: PRECONDIZIONE e nessuna chiamata a Fatture in Cloud", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const b = banco(copioneFelice(fattura), { dryRun: false });
+
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip,
+      })
+    ).rejects.toThrow(/PRECONDIZIONE/);
+    expect(b.registro).toEqual([]);
+  });
+
+  it("inviaAlloSdi con una revisione superata: CONFLITTO prima di toccare Fatture in Cloud", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(copioneFelice(primo.fattura), { dryRun: false });
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE,
+        revisione: primo.fattura.revisione - 1,
+        ...b.dip,
+      })
+    ).rejects.toThrow(/CONFLITTO/);
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+  });
+
+  it("due inviaAlloSdi sovrapposti: la stessa fattura non parte due volte", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b1 = banco(copioneFelice(primo.fattura), { dryRun: false });
+    const b2 = banco(copioneFelice(primo.fattura), { dryRun: false });
+    const esiti = await Promise.allSettled([
+      inviaAlloSdi({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione, ...b1.dip }),
+      inviaAlloSdi({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione, ...b2.dip }),
+    ]);
+
+    const invii = [...metodi(b1.registro), ...metodi(b2.registro)].filter(m => m === "inviaEInvoice");
+    expect(invii).toHaveLength(1);
+    expect(esiti.filter(e => e.status === "rejected")).toHaveLength(1);
+  });
+
+  // R49: lo scostamento blocca l'invio, non la creazione. È l'invio l'atto
+  // irreversibile; fermare la creazione lascerebbe l'operatore senza il
+  // documento da guardare, che è il motivo per cui la finestra esiste.
+  it("totali diversi da quelli di FiC: l'invio si ferma e non spedisce", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione, ...b.dip,
+      })
+    ).rejects.toThrow(/SCOSTAMENTO_FIC/);
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+    expect(
+      (await repository.perId(SEDE, fattura.id))!.stato
+    ).toBe("emessa");
+  });
+
+  it("«Invia comunque» con un motivo supera lo scostamento e lo registra", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    const esito = await inviaAlloSdi({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: primo.fattura.revisione,
+      ignoraScostamento: true,
+      motivoScostamento: "la commercialista ha corretto l'IVA su FiC",
+      ...b.dip,
+    });
+
+    expect(esito.fattura.stato).toBe("inviata");
+    expect(metodi(b.registro)).toContain("inviaEInvoice");
+    const scavalco = await evento(SEDE, fattura.id, "scavalco_scostamento");
+    expect(scavalco.payload).toMatchObject({
+      motivo: "la commercialista ha corretto l'IVA su FiC",
+    });
+  });
+
+  it("«Invia comunque» senza motivo non passa", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione,
+        ignoraScostamento: true, motivoScostamento: "   ", ...b.dip,
+      })
+    ).rejects.toThrow(/VALIDAZIONE/);
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+  });
+
+  it("una fattura di un'altra sede non si spedisce: NOT_FOUND", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const b = banco(copioneFelice(fattura), { dryRun: false });
+    await expect(
+      inviaAlloSdi({ sedeId: ALTRA_SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip })
+    ).rejects.toThrow(/NOT_FOUND/);
+    expect(b.registro).toEqual([]);
+  });
+});
+
+// ── La sincronizzazione verso Fatture in Cloud (R47) ───────────────────
+describe("aggiornaDocumentoFic", () => {
+  async function emessa() {
+    const { fattura } = await bozzaEmettibile();
+    const esito = await creaSuFic({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+    // Il documento creato porta un `updated_at`: da lì parte il confronto.
+    return repository.aggiornaStato({
+      sedeId: SEDE,
+      id: fattura.id,
+      patch: { ficUpdatedAt: "2026-09-04 10:00:00" },
+      now: ora,
+    });
+  }
+
+  it("rilegge, confronta l'orologio e riscrive il documento", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-04 10:00:00" }),
+        modificaDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-08 11:22:33" }),
+      })
+    );
+
+    const esito = await aggiornaDocumentoFic({
+      sedeId: SEDE,
+      fattura: { ...f, note: "corretta" },
+      actorUserId: ATTORE,
+      ...b.dip,
+    });
+
+    expect(metodi(b.registro)).toEqual(["leggiDocumento", "modificaDocumento"]);
+    expect(esito.ficUpdatedAt).toBe("2026-09-08 11:22:33");
+    // Il corpo è il documento intero, ricostruito dalla fattura corretta.
+    const put = b.registro[1].body as any;
+    expect(put.documentId).toBe(FIC_DOCUMENT_ID);
+    expect(put.documento.notes).toContain("corretta");
+  });
+
+  it("se il documento è cambiato su Fatture in Cloud non lo si sovrascrive", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-07 18:00:00" }),
+      })
+    );
+
+    await expect(
+      aggiornaDocumentoFic({
+        sedeId: SEDE,
+        fattura: { ...f, note: "la mia versione" },
+        actorUserId: ATTORE,
+        ...b.dip,
+      })
+    ).rejects.toThrow(/CONFLITTO_FIC/);
+    expect(metodi(b.registro)).not.toContain("modificaDocumento");
+  });
+
+  it("una fattura già partita allo SdI non si riscrive più", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "sent", updatedAt: "2026-09-04 10:00:00" }),
+      })
+    );
+
+    await expect(
+      aggiornaDocumentoFic({
+        sedeId: SEDE,
+        fattura: { ...f, note: "tardi" },
+        actorUserId: ATTORE,
+        ...b.dip,
+      })
+    ).rejects.toThrow(/FATTURA_IMMUTABILE/);
+    expect(metodi(b.registro)).not.toContain("modificaDocumento");
+  });
+
+  // `ficUpdatedAt` nullo vuol dire «non l'ho mai letto»: si riallinea a
+  // quello di FiC invece di dichiarare un conflitto che non c'è.
+  it("senza un orologio nostro non c'è conflitto: si prende quello di FiC", async () => {
+    const f = await emessa();
+    const senzaOrologio = await repository.aggiornaStato({
+      sedeId: SEDE, id: f.id, patch: { ficUpdatedAt: null }, now: ora,
+    });
+    const b = banco(
+      copioneFelice(senzaOrologio, {
+        leggiDocumento: async () =>
+          documentoFicDa(senzaOrologio, { ei_status: "not_sent", updatedAt: "2026-09-07 18:00:00" }),
+        modificaDocumento: async () =>
+          documentoFicDa(senzaOrologio, { ei_status: "not_sent", updatedAt: "2026-09-08 09:00:00" }),
+      })
+    );
+
+    const esito = await aggiornaDocumentoFic({
+      sedeId: SEDE, fattura: senzaOrologio, actorUserId: ATTORE, ...b.dip,
+    });
+    expect(esito.ficUpdatedAt).toBe("2026-09-08 09:00:00");
   });
 });
 
@@ -1377,7 +1673,7 @@ describe("anti-doppione (studio 05/09/2026: commessa doppia dello stesso cliente
     const { fattura } = await bozzaEmettibile();
     const b = banco(copioneFelice(fattura, { cercaDocumenti: async () => [simile(fattura.totaleCent)] }));
     await expect(
-      emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip })
+      creaSuFic({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip })
     ).rejects.toThrow("DOPPIONE_FIC");
     const ferma = (await repository.perId(SEDE, fattura.id))!;
     expect(ferma.stato).toBe("in_emissione");
@@ -1385,7 +1681,7 @@ describe("anti-doppione (studio 05/09/2026: commessa doppia dello stesso cliente
     expect(ferma.eiErrore).toMatch(/^doppione_fic: DOPPIONE_FIC/);
     expect(metodi(b.registro)).not.toContain("creaDocumento");
 
-    const esito = await emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: ferma.revisione, ignoraDoppione: true, ...b.dip });
+    const esito = await creaSuFic({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: ferma.revisione, ignoraDoppione: true, ...b.dip });
     expect(esito.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID);
     expect(esito.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "saltato" });
     expect(metodi(b.registro)).toContain("creaDocumento");
@@ -1394,12 +1690,12 @@ describe("anti-doppione (studio 05/09/2026: commessa doppia dello stesso cliente
   it("senza fatture simili va avanti; se Fatture in Cloud non risponde il controllo si salta dichiarandolo", async () => {
     const { fattura } = await bozzaEmettibile();
     const ok = banco(copioneFelice(fattura, { cercaDocumenti: async () => [simile(fattura.totaleCent, { entityName: "Bianchi Anna" })] }));
-    const esito = await emettiFattura({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...ok.dip });
+    const esito = await creaSuFic({ sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...ok.dip });
     expect(esito.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "fatto" });
 
     const { fattura: seconda } = await bozzaEmettibile();
     const giu = banco(copioneFelice(seconda, { cercaDocumenti: async () => { throw new Error("HTTP 500"); } }));
-    const esito2 = await emettiFattura({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, revisione: seconda.revisione, ...giu.dip });
+    const esito2 = await creaSuFic({ sedeId: SEDE, id: seconda.id, actorUserId: ATTORE, revisione: seconda.revisione, ...giu.dip });
     expect(esito2.passi.find(p => p.passo === "doppione_fic")).toMatchObject({ esito: "saltato" });
     expect(esito2.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID);
   });

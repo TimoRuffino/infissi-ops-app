@@ -206,7 +206,9 @@ function RigaFattura({ f }: { f: any }) {
                 ? "Manuale"
                 : f.commessaMatch === "automatico_fattura"
                   ? "Commessa creata da FiC"
-                  : "Automatico"}
+                  : f.commessaMatch === "automatico_cliente"
+                    ? "Commessa del cliente"
+                    : "Automatico"}
             </Badge>
             <Badge
               variant="outline"
@@ -438,19 +440,46 @@ function Fatture({ anno, abilitata }: { anno: number; abilitata: boolean }) {
   // sopra quante ne creerebbe, e non parte insieme al riallineamento.
   const creaCommesse = trpc.ficFatture.creaCommesseMancanti.useMutation({
     onSuccess: r => {
-      toast.success(
-        r.create > 0
-          ? `${r.create} commesse create · ${r.pattuitiAggiornati} pattuiti aggiornati`
-          : "Nessuna commessa da creare"
-      );
+      const pezzi = [
+        r.create > 0 ? `${r.create} commesse create` : null,
+        // Una fattura del cliente che ha già una commessa viva ci finisce
+        // dentro invece di far nascere un doppione (08/09/2026).
+        r.collegateAlCliente > 0
+          ? `${r.collegateAlCliente} collegate a una commessa che c'era già`
+          : null,
+        r.pattuitiAggiornati > 0 ? `${r.pattuitiAggiornati} pattuiti aggiornati` : null,
+      ].filter(Boolean);
+      toast.success(pezzi.length > 0 ? pezzi.join(" · ") : "Nessuna commessa da creare");
       if (r.ambiguous > 0) {
         toast.warning(
-          `${r.ambiguous} fatture hanno più clienti possibili: vanno decise a mano.`
+          `${r.ambiguous} fatture restano da collegare a mano: più clienti o più commesse possibili.`
         );
       }
       invalidaTutto();
     },
     onError: e => toast.error(e.message),
+  });
+
+  // I doppioni già nati prima della correzione dell'08/09/2026: commesse
+  // create da una fattura mentre il cliente ne aveva già una viva. Si
+  // uniscono una alla volta, e la riga dice prima che cosa sposterà.
+  const doppioni = trpc.ficFatture.doppioni.useQuery(undefined, { retry: false });
+  const unisci = trpc.ficFatture.unisciDoppione.useMutation({
+    onSuccess: r => {
+      const pezzi = [
+        r.fattureSpostate > 0
+          ? `${r.fattureSpostate} ${r.fattureSpostate === 1 ? "fattura spostata" : "fatture spostate"}`
+          : null,
+        r.documentiSpostati > 0 ? `${r.documentiSpostati} documenti` : null,
+        r.comunicazioniSpostate > 0 ? `${r.comunicazioniSpostate} messaggi` : null,
+      ].filter(Boolean);
+      toast.success(
+        `Unita in ${r.sopravvive.codice ?? r.sopravvive.id}${pezzi.length > 0 ? `: ${pezzi.join(", ")}` : ""}.`
+      );
+      void doppioni.refetch();
+      invalidaTutto();
+    },
+    onError: e => toast.error(e.message ?? "Fusione non riuscita"),
   });
 
   const conteggi = Object.fromEntries(
@@ -592,6 +621,77 @@ function Fatture({ anno, abilitata }: { anno: number; abilitata: boolean }) {
           </Button>
         )}
       </div>
+
+      {/* Commesse doppie: nate da una fattura quando il cliente ne aveva
+          già una viva. Si uniscono una alla volta, mai in blocco: è una
+          cancellazione. */}
+      {(doppioni.data ?? []).length > 0 && (
+        <DataSurface density="compact" tone="sunken">
+          <div className="border-b border-border-soft px-3 py-2 sm:px-4">
+            <p className="text-sm font-semibold text-text-1">
+              {doppioni.data!.length === 1
+                ? "1 commessa doppia da unire"
+                : `${doppioni.data!.length} commesse doppie da unire`}
+            </p>
+            <p className="text-xs text-text-3">
+              Nate da una fattura quando il cliente aveva già un lavoro aperto. Unendo,
+              fatture, documenti e messaggi passano alla commessa che resta e la doppia
+              viene eliminata.
+            </p>
+          </div>
+          <ul className="min-w-0 divide-y divide-border-soft">
+            {doppioni.data!.map(d => (
+              <li
+                key={d.duplicata.id}
+                className="flex min-w-0 flex-wrap items-start justify-between gap-2 px-3 py-2.5 sm:px-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="min-w-0 text-sm text-text-1">
+                    <span className="codice-mono text-xs text-text-3">
+                      {d.duplicata.codice}
+                    </span>{" "}
+                    {d.duplicata.cliente} — nata da una fattura, in «{d.duplicata.stato}»
+                  </p>
+                  <p className="mt-0.5 text-xs text-text-2">
+                    va in{" "}
+                    <span className="codice-mono">{d.sopravvive.codice}</span> («
+                    {d.sopravvive.stato}»)
+                    {d.fatture.length > 0
+                      ? ` · ${d.fatture.length === 1 ? "1 fattura" : `${d.fatture.length} fatture`} (${d.fatture.map(f => f.numero).join(", ")})`
+                      : ""}
+                    {d.documenti > 0 ? ` · ${d.documenti} documenti` : ""}
+                    {d.comunicazioni > 0 ? ` · ${d.comunicazioni} messaggi` : ""}
+                  </p>
+                  {d.bloccanti.length > 0 && (
+                    <p className="mt-0.5 text-xs text-warning">
+                      Dentro c'è lavoro vero ({d.bloccanti.join(", ")}): guardala a mano.
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-10 shrink-0"
+                  disabled={d.bloccanti.length > 0 || unisci.isPending}
+                  onClick={() =>
+                    unisci.mutate({
+                      duplicataId: d.duplicata.id,
+                      sopravviveId: d.sopravvive.id,
+                    })
+                  }
+                >
+                  {unisci.isPending &&
+                  unisci.variables?.duplicataId === d.duplicata.id ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Unisci
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </DataSurface>
+      )}
 
       {/* Filtri come chip: si vede quanta coda c'è in ognuno senza aprirli. */}
       <div

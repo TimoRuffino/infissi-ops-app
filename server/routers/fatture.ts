@@ -17,10 +17,10 @@ import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
 import { getFile } from "../_core/fileStorage";
-import { contestoFicPerSede, emettiFattura } from "../fatture/emissione";
+import { aggiornaDocumentoFic, contestoFicPerSede, creaSuFic, inviaAlloSdi } from "../fatture/emissione";
 import { creaClientFicEmissione } from "../fic/emissione";
 import { classificaRigheFic, confrontaLati, latoCrm } from "../fatture/confronto";
-import { ficFatture } from "./ficFatture";
+import { fattureFicCollegate, ficFatture } from "./ficFatture";
 import { creaNotaCredito } from "../fatture/notaCredito";
 import { getFattureRepository } from "../fatture/repository";
 import { sdiDryRun } from "../fatture/dryRun";
@@ -102,6 +102,8 @@ const modificaBozzaSchema = z.object({
   diciture: z.array(z.enum(Object.keys(DICITURE) as [ChiaveDicitura, ...ChiaveDicitura[]])).max(20).optional(),
   intestazioneCantiere: z.string().trim().max(300).nullable().optional(),
   riequilibraBeniAMarkupCent: z.number().int().min(0).optional(),
+  // Markup scritto a mano (08/09/2026): un importo lo forza, `null` torna al calcolo.
+  markupForzatoCent: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   scavalcoLimiti: z
     .object({ attivo: z.boolean(), motivo: z.string().trim().max(300).nullable() })
     .optional(),
@@ -158,6 +160,11 @@ export const fattureRouter = router({
       ]);
       return {
         fatture: elenco.map(f => ({ ...f, righe: [], riepilogo: [], scadenze: [] })),
+        // Fatture FiC collegate (08/09/2026): la commessa è già fatturata da
+        // fuori; il tab lo dice e non propone la bozza dai limiti.
+        fattureFic: fattureFicCollegate(sedeId, input.commessaId).map(f => ({
+          id: f.id, numero: f.numero, data: f.data, lordoCent: Math.round(f.importoLordo * 100),
+        })),
         puoDraft: caps.has("fattura.draft"),
         puoEmettere: caps.has("fattura.emit"),
         puoNotaCredito: caps.has("fattura.credit_note"),
@@ -281,6 +288,11 @@ export const fattureRouter = router({
           revisione: input.revisione,
           actorUserId: ctx.user.id,
           modifica: input.modifica,
+          // R47: se la fattura è già su Fatture in Cloud, la modifica ci
+          // arriva prima di essere scritta qui. Iniettata e non importata
+          // dal servizio: `emissione.ts` importa da `servizio.ts`, e il
+          // contrario chiuderebbe un anello.
+          sincronizzaFic: aggiornaDocumentoFic,
         });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
@@ -347,7 +359,46 @@ export const fattureRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return await emettiFattura({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione, ignoraDoppione: input.ignoraDoppione === true });
+        return await creaSuFic({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione, ignoraDoppione: input.ignoraDoppione === true });
+      } catch (errore) {
+        erroreServizioComeTrpc(errore);
+      }
+    }),
+
+  // Secondo gesto (R44): il documento su Fatture in Cloud esiste già, qui
+  // parte davvero allo SdI. Stessa capability del primo — la decisione in
+  // chat è «A»: lo stesso operatore, un click dopo l'altro.
+  inviaSdi: procedura
+    .input(
+      z.object({
+        id: z.number().int(),
+        revisione: z.number().int(),
+        // «Invia comunque» sullo scostamento dai totali di FiC (R49): il
+        // motivo lo pretende il servizio, non solo il router.
+        ignoraScostamento: z.boolean().optional(),
+        motivoScostamento: z.string().trim().min(1).max(500).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("limiti");
+      const sedeId = sedeCorrente(ctx);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "fatture.inviaSdi",
+        capability: "fattura.emit",
+        resourceType: "fattura",
+        resource: { sedeId },
+        legacyAllowed: "capability",
+      });
+      try {
+        return await inviaAlloSdi({
+          sedeId,
+          id: input.id,
+          actorUserId: ctx.user.id,
+          revisione: input.revisione,
+          ignoraScostamento: input.ignoraScostamento === true,
+          motivoScostamento: input.motivoScostamento,
+        });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
       }
@@ -452,6 +503,8 @@ export const fattureRouter = router({
         stati: z.array(z.enum(STATI_FATTURA)).optional(),
         tipo: z.enum(TIPI_FATTURA).optional(),
         limite: z.number().int().min(1).max(200).optional(),
+        /** Solo quelle nella finestra: su Fatture in Cloud e non ancora spedite. */
+        daInviareSdi: z.boolean().optional(),
       })
     )
     .query(async ({ input, ctx }) => {
@@ -470,6 +523,7 @@ export const fattureRouter = router({
         stati: input.stati,
         tipo: input.tipo,
         limite: input.limite,
+        daInviareSdi: input.daInviareSdi,
       });
       return elenco.map(f => {
         const commessa: any = getCommessaById(f.commessaId);

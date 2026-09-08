@@ -10,7 +10,8 @@ import { useState } from "react";
 import { FileText } from "lucide-react";
 import { Link } from "wouter";
 
-import { STATI_FATTURA, TIPI_FATTURA } from "@shared/fatturazione/tipi";
+import { fatturaModificabile, STATI_FATTURA, TIPI_FATTURA } from "@shared/fatturazione/tipi";
+import { giorniPerInvioSdi, toniScadenzaSdi } from "@shared/fatturazione/scadenzaSdi";
 import type { StatoFattura, TipoFattura } from "@shared/fatturazione/tipi";
 import { hrefPasso } from "@/lib/fatturazioneView";
 import { badgeStatoFattura, VARIANTE_BADGE } from "@/lib/fatturaView";
@@ -38,6 +39,8 @@ import {
 } from "@/components/ui/table";
 
 const TUTTI = "tutti";
+/** Non è uno stato: è «cosa mi resta da spedire», che il server sa filtrare. */
+const DA_INVIARE = "da_inviare_sdi";
 
 const ETICHETTA_TIPO: Record<TipoFattura, string> = {
   fattura: "Fatture",
@@ -50,14 +53,42 @@ const LIMITE = 50;
 const fmtData = (iso: string | null) =>
   iso ? new Date(`${iso}T12:00:00`).toLocaleDateString("it-IT") : "—";
 
+/**
+ * Il contatore dei dodici giorni anche qui: la tab della commessa la apri
+ * solo se ti ricordi di aprirla, la Cassa la guardi comunque. Vale solo
+ * per le fatture ancora ferme su Fatture in Cloud.
+ */
+function contatoreSdi(f: {
+  stato: StatoFattura;
+  data: string | null;
+  eiStatusFic: string | null;
+  ficDocumentId: number | null;
+}) {
+  if (!fatturaModificabile(f) || f.stato !== "emessa" || f.ficDocumentId == null) {
+    return <span className="text-xs text-text-3">—</span>;
+  }
+  const giorni = giorniPerInvioSdi(f.data, new Date());
+  if (giorni == null) {
+    return <span className="text-xs text-text-3">Da inviare</span>;
+  }
+  const { tono, testo } = toniScadenzaSdi(giorni);
+  return <Badge variant={VARIANTE_BADGE[tono]}>{testo}</Badge>;
+}
+
 export default function FattureEmesseSezione() {
-  const [stato, setStato] = useState<StatoFattura | typeof TUTTI>(TUTTI);
+  const [stato, setStato] = useState<
+    StatoFattura | typeof TUTTI | typeof DA_INVIARE
+  >(TUTTI);
   const [tipo, setTipo] = useState<TipoFattura | typeof TUTTI>(TUTTI);
 
   const q = trpc.fatture.lista.useQuery(
     {
       limite: LIMITE,
-      ...(stato === TUTTI ? {} : { stati: [stato] }),
+      ...(stato === TUTTI
+        ? {}
+        : stato === DA_INVIARE
+          ? { daInviareSdi: true }
+          : { stati: [stato] }),
       ...(tipo === TUTTI ? {} : { tipo }),
     },
     { retry: false }
@@ -129,7 +160,9 @@ export default function FattureEmesseSezione() {
         <>
           <Select
             value={stato}
-            onValueChange={v => setStato(v as StatoFattura | typeof TUTTI)}
+            onValueChange={v =>
+              setStato(v as StatoFattura | typeof TUTTI | typeof DA_INVIARE)
+            }
           >
             <SelectTrigger
               className="min-h-11 w-full sm:w-52"
@@ -139,6 +172,7 @@ export default function FattureEmesseSezione() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={TUTTI}>Tutti gli stati</SelectItem>
+              <SelectItem value={DA_INVIARE}>Da inviare allo SdI</SelectItem>
               {STATI_FATTURA.map(s => (
                 <SelectItem key={s} value={s}>
                   {badgeStatoFattura(s, false).testo}
@@ -180,6 +214,7 @@ export default function FattureEmesseSezione() {
               <TableHead className="w-36">Commessa</TableHead>
               <TableHead className="w-32 text-right">Totale</TableHead>
               <TableHead className="w-56">Stato</TableHead>
+              <TableHead className="w-44">Invio allo SdI</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -234,6 +269,7 @@ export default function FattureEmesseSezione() {
                       )}
                     </span>
                   </TableCell>
+                  <TableCell>{contatoreSdi(f)}</TableCell>
                 </TableRow>
               );
             })}
@@ -266,6 +302,7 @@ export default function FattureEmesseSezione() {
                   {badge.testo}
                 </Badge>
                 {f.inviataDryRun && <Badge variant="warning">prova SdI</Badge>}
+                {contatoreSdi(f)}
                 <span className="tabular-nums text-xs text-text-3">
                   {fmtData(f.data)}
                 </span>

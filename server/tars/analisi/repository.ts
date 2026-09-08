@@ -20,6 +20,12 @@ export type RepositoryAnalisiAzienda = {
   /** Inserisce o sostituisce l'analisi del giorno per la sede. */
   salva(input: NuovaAnalisiAzienda): Promise<RecordAnalisiAzienda>;
   ultima(sedeId: number): Promise<RecordAnalisiAzienda | null>;
+  /**
+   * Le analisi della sede dal giorno indicato (compreso), dalla più recente.
+   * Serve a ricordare cosa è stato scartato e a misurare quali sezioni
+   * producono proposte accettate (punti 4 e 12 del piano 08/09/2026).
+   */
+  recenti(sedeId: number, daGiorno: string): Promise<RecordAnalisiAzienda[]>;
   perGiorno(sedeId: number, giorno: string): Promise<RecordAnalisiAzienda | null>;
   /** Riscrive l'esito (T3: l'esecuzione di una proposta si salva dentro). */
   aggiornaEsito(id: number, esito: EsitoAnalisiAzienda): Promise<void>;
@@ -78,6 +84,12 @@ export function creaRepositoryAnalisiMemoria(): RepositoryAnalisiAzienda {
     async ultima(sedeId) {
       const mie = righe.filter(r => r.sedeId === sedeId).sort((a, b) => b.giorno.localeCompare(a.giorno));
       return mie[0] ? { ...mie[0] } : null;
+    },
+    async recenti(sedeId, daGiorno) {
+      return righe
+        .filter(r => r.sedeId === sedeId && r.giorno >= daGiorno)
+        .sort((a, b) => b.giorno.localeCompare(a.giorno))
+        .map(r => ({ ...r }));
     },
     async perGiorno(sedeId, giorno) {
       const r = righe.find(x => x.sedeId === sedeId && x.giorno === giorno);
@@ -138,6 +150,13 @@ function creaRepositoryAnalisiPostgres(): RepositoryAnalisiAzienda {
       const [riga] = await sql`SELECT * FROM tars_analisi_azienda
         WHERE sede_id = ${sedeId} ORDER BY giorno DESC LIMIT 1`;
       return riga ? rigaDaDb(riga) : null;
+    },
+    async recenti(sedeId, daGiorno) {
+      await assicura();
+      const righe = await sql`SELECT * FROM tars_analisi_azienda
+        WHERE sede_id = ${sedeId} AND giorno >= ${daGiorno}
+        ORDER BY giorno DESC LIMIT 60`;
+      return righe.map(rigaDaDb);
     },
     async perGiorno(sedeId, giorno) {
       await assicura();

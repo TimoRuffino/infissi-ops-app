@@ -16,6 +16,7 @@ import {
   gruppoPerCategoria,
   gruppoPerOscurante,
   type CodiceOpera,
+  type CorrezioneVoce,
   type DetrazioneTipo,
   type EsitoComputo,
   type OpzioniComputo,
@@ -273,6 +274,65 @@ function deiRiga(r: RigaMotore, t: Tariffe, avvertenze: string[], n: number): De
   return { euro, codiceDei: applicato.codice, descrizione: applicato.nome, prezzoUnit: applicato.prezzo, unita: applicato.unita, dettaglio };
 }
 
+/**
+ * Il fattore della formula di una voce — installatori della posa, maggiorazione
+ * di piano del tiro, accessori e oscurante di una riga DEI — calcolato sugli
+ * input NON arrotondati e conservato nel dettaglio quando non vale 1: così
+ * una correzione a mano di quantità o prezzo rifà il conto esatto del foglio
+ * invece di ricavare il fattore da numeri già arrotondati. La parte fissa
+ * (`fisso`, pulizia) resta fuori dal fattore.
+ */
+function conFattore(dettaglio: VoceComputo["dettaglio"], euro: number, prezzo: number, quantita: number): VoceComputo["dettaglio"] {
+  const fisso = typeof dettaglio.fisso === "number" ? dettaglio.fisso : 0;
+  if (!(prezzo > 0) || !(quantita > 0)) return dettaglio;
+  const fattore = arrotonda((euro - fisso) / (prezzo * quantita), 6);
+  return fattore === 1 ? dettaglio : { ...dettaglio, fattore };
+}
+
+// Migliaia sempre separate: la regola italiana di Intl raggruppa solo da cinque
+// cifre, e «1314,00 €» accanto a «1.314,00 €» sembra un altro numero.
+const euroTesto = (cent: number) =>
+  `${(cent / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" as unknown as boolean })} €`;
+
+/**
+ * Una correzione a mano (08/09/2026, «devo poter modificare i limiti dal
+ * gestionale») su una voce già calcolata: la voce prende i valori forzati e
+ * conserva nel dettaglio quelli calcolati, così tab e stampa dicono entrambe
+ * le cose. Con quantità o prezzo cambiati il limite si ricalcola conservando
+ * il fattore della formula (`conFattore`: installatori, maggiorazione di
+ * piano, accessori di una riga DEI) e la parte fissa (pulizia): «8 ore invece
+ * di 6» vale quanto varrebbe nel foglio. Un
+ * limite forzato vince su tutto. Ogni correzione finisce nelle avvertenze:
+ * un numero che non è del motore va dichiarato.
+ */
+function applicaCorrezione(v: VoceComputo, c: CorrezioneVoce, avvertenze: string[]): void {
+  const calcolato = { quantita: v.quantita, prezzoUnitCent: v.prezzoUnitCent, limiteCent: v.limiteCent, inclusa: v.inclusa };
+  if (c.quantita != null) v.quantita = c.quantita;
+  if (c.prezzoUnitCent != null) v.prezzoUnitCent = c.prezzoUnitCent;
+  if (c.limiteCent != null) {
+    v.limiteCent = c.limiteCent;
+  } else if (c.quantita != null || c.prezzoUnitCent != null) {
+    const fisso = typeof v.dettaglio.fisso === "number" ? euroToCent(v.dettaglio.fisso) : 0;
+    const fattore = typeof v.dettaglio.fattore === "number" ? v.dettaglio.fattore : 1;
+    v.limiteCent = Math.max(0, Math.round(fisso + v.prezzoUnitCent * v.quantita * fattore));
+  }
+  if (c.inclusa != null) v.inclusa = c.inclusa;
+  const motivo = c.motivo?.trim() ?? "";
+  v.dettaglio = {
+    ...v.dettaglio,
+    correzione: motivo || "corretta a mano",
+    limiteForzato: c.limiteCent != null,
+    quantitaCalcolata: calcolato.quantita,
+    prezzoCalcolatoCent: calcolato.prezzoUnitCent,
+    limiteCalcolatoCent: calcolato.limiteCent,
+    inclusaCalcolata: calcolato.inclusa,
+  };
+  const inclusione = v.inclusa === calcolato.inclusa ? "" : v.inclusa ? ", inclusa nei totali" : ", esclusa dai totali";
+  avvertenze.push(
+    `«${v.descrizione}» corretta a mano: ${euroTesto(v.limiteCent)} (calcolato ${euroTesto(calcolato.limiteCent)})${inclusione}${motivo ? ` — ${motivo}` : ""}.`
+  );
+}
+
 export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariffe): EsitoMotore {
   const coeff = t.coefficienti;
   const a = aggrega(righe, coeff);
@@ -383,7 +443,8 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
     const v = voceOpera(t, codice);
     aggiungi({
       gruppo: v.gruppo, codice, descrizione: v.descrizione, codiceDei: v.codiceDei, unita: v.unita,
-      prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(quantita), limiteCent: euroToCent(Math.max(0, euro)), dettaglio,
+      prezzoUnitCent: euroToCent(v.prezzo), quantita: arrotonda(quantita), limiteCent: euroToCent(Math.max(0, euro)),
+      dettaglio: conFattore(dettaglio, euro, v.prezzo, quantita),
       inclusa: inclusa(codice), inCheck1: true, inCheck2: !v.esclusaDaCheck2,
     });
   };
@@ -431,14 +492,30 @@ export function calcolaLimiti(righe: RigaMotore[], p: ParametriMotore, t: Tariff
       gruppo: "prodotti", codice: `dei_riga_${iRiga}`, descrizione: `${r.descrizione} — ${d.descrizione}`, codiceDei: d.codiceDei,
       unita: d.unita === "cad" ? "cad" : d.unita === "m" ? "m" : "mq",
       prezzoUnitCent: euroToCent(d.prezzoUnit), quantita: d.dettaglio.mqFatturati as number,
-      limiteCent: euroToCent(d.euro), dettaglio: d.dettaglio, inclusa: true, inCheck1: false, inCheck2: true,
+      limiteCent: euroToCent(d.euro), dettaglio: conFattore(d.dettaglio, d.euro, d.prezzoUnit, d.dettaglio.mqFatturati as number),
+      inclusa: true, inCheck1: false, inCheck2: true,
     });
+  }
+
+  // ── Correzioni a mano (08/09/2026): dopo tutte le voci, prima dei totali ─
+  let deiRigaCorrette = false;
+  for (const c of p.opzioni.correzioni ?? []) {
+    const v = voci.find(x => x.codice === c.codice);
+    if (!v) {
+      avvertenze.push(`Correzione a mano su una voce che nel computo non c'è (${c.codice}): ignorata.`);
+      continue;
+    }
+    applicaCorrezione(v, c, avvertenze);
+    if (v.codice.startsWith("dei_riga_")) deiRigaCorrette = true;
   }
 
   // ── Totali (analisi §2.4) ────────────────────────────────────────────────
   const somma = (filtro: (v: VoceComputo) => boolean) => voci.filter(v => v.inclusa && filtro(v)).reduce((s, v) => s + v.limiteCent, 0);
   const check1Cent = somma(v => v.inCheck1);
-  const deiProdottiCent = deiProdotti == null ? null : euroToCent(deiProdotti);
+  // T6: gli euro sommati e arrotondati una volta sola, come il foglio. Con una
+  // voce DEI corretta a mano si sommano i centesimi delle voci: la correzione
+  // è già in centesimi e una voce esclusa non conta.
+  const deiProdottiCent = deiProdotti == null ? null : deiRigaCorrette ? somma(v => v.codice.startsWith("dei_riga_")) : euroToCent(deiProdotti);
   const check2Cent = deiProdottiCent == null ? null : deiProdottiCent + somma(v => v.inCheck2 && v.gruppo !== "prodotti");
   if (check2Cent == null) incompleto = true;
   const limiteCent = check2Cent == null ? check1Cent : Math.min(check1Cent, check2Cent);

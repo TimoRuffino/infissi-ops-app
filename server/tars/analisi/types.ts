@@ -4,10 +4,22 @@
 
 export const VERSIONE_ANALISI_AZIENDA = "1.2.0";
 
+/**
+ * Quanto è solido il fatto sotto una proposta (punto 23 del piano
+ * 08/09/2026): `certa` = dato del CRM; `letta` = un documento letto da una
+ * macchina, con riscontro; `da_verificare` = letto senza riscontro, o non
+ * letto affatto. Una lettura OCR al 60 % non deve avere lo stesso aspetto
+ * di una certezza.
+ */
+export const FIDUCIA_FATTO = ["certa", "letta", "da_verificare"] as const;
+export type FiduciaFatto = (typeof FIDUCIA_FATTO)[number];
+
 export type FattoAnalisi = {
   /** Chiave stabile del fatto (per i test e per il modello). */
   chiave: string;
   testo: string;
+  /** Assente = `certa`. */
+  fiducia?: FiduciaFatto;
   /** Riferimenti delle entità coinvolte: `commessa:12`, `caso:4`, … */
   entita: string[];
   link: string | null;
@@ -24,6 +36,13 @@ export type FotografiaAzienda = {
   generataIl: string;
   contatori: Record<string, number>;
   sezioni: SezioneFotografia[];
+  /**
+   * Quanto denaro è esposto dietro ogni riferimento (`commessa:12` → il
+   * residuo da incassare). Serve a ordinare le proposte per quanto costa
+   * ignorarle e **non entra nel testo che legge il modello**: gli importi
+   * restano fuori dal prompt (punto 22 del piano 08/09/2026).
+   */
+  postaInGioco?: Record<string, { residuo: number; marginePerc: number | null }>;
 };
 
 export const TIPI_PUNTO = ["rischio", "anomalia", "andamento", "opportunita"] as const;
@@ -58,12 +77,44 @@ export type EsecuzionePropostaAnalisi = {
 
 export type PropostaAnalisi = {
   testo: string;
+  /**
+   * La sezione della fotografia da cui nasce (`gate`, `conferme_ordine`,
+   * `magazzino`…). Dichiarata dal modello e verificata contro le sezioni
+   * vere: senza, non si può sapere quali fonti producono proposte che
+   * accetti e quali no (punto 12 del piano 08/09/2026).
+   */
+  fonte?: string | null;
   /** La frase da dire a Tars per farla eseguire (precompila la chat). */
   richiestaPerTars: string;
   entita: string[];
   link: string | null;
   /** null = la proposta si porta in chat; valorizzata = bottone Esegui. */
   azione: AzionePropostaAnalisi | null;
+  /**
+   * A chi tocca: derivato dalla sezione e dall'assegnatario, non scelto dal
+   * modello (punto 3 del piano 08/09/2026). `utenteId` per nome, `ruolo`
+   * per squadra; la direzione vede comunque tutto.
+   */
+  /** La più debole fra le fiducie dei fatti che la proposta cita. */
+  fiducia?: FiduciaFatto;
+  /**
+   * Il testo pronto da mandare, quando la proposta è un sollecito o una
+   * richiesta a qualcuno (punto 11 del piano 08/09/2026, decisione della
+   * direzione: Tars scrive, una persona legge e preme invia). Tars non
+   * invia niente: questa è una bozza da copiare.
+   */
+  bozza?: string | null;
+  /**
+   * Le cifre: le vede **solo la direzione** (decisione 08/09/2026), e
+   * `esitoVisibileA` le toglie a tutti gli altri. Il segnale «sotto
+   * margine» invece sta nella fotografia e lo legge chiunque.
+   */
+  economia?: { residuo: number; marginePerc: number | null } | null;
+  destinatario?: {
+    utenteId: number | null;
+    ruolo: "amministrazione" | "direzione" | null;
+    motivo: string;
+  } | null;
   esecuzione?: EsecuzionePropostaAnalisi | null;
 };
 

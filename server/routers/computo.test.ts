@@ -70,3 +70,23 @@ describe("router computo", () => {
     await expect(altra.computo.ultimo({ commessaId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("router computo — elimina (08/09/2026)", () => {
+  beforeEach(() => {
+    _resetContrattiRepositoryForTests();
+    _resetComputiRepositoryForTests();
+  });
+
+  it("chi calcola può eliminare; la squadra di posa no; da un'altra sede NOT_FOUND", async () => {
+    const commessaId = await commessaDiProva();
+    const commerciale = appRouter.createCaller(context(1, 31, ["commerciale"]));
+    await commerciale.contratti.salva({ commessaId, contratto, righe: [riga] });
+    await commerciale.computo.esegui({ commessaId });
+    const posa = appRouter.createCaller(context(1, 32, ["squadra_posa"]));
+    await expect(posa.computo.elimina({ commessaId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const altra = appRouter.createCaller(context(2, 33, ["direzione"]));
+    await expect(altra.computo.elimina({ commessaId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await commerciale.computo.elimina({ commessaId })).toEqual({ eliminati: 1 });
+    expect((await commerciale.computo.ultimo({ commessaId })).computo).toBeNull();
+  });
+});

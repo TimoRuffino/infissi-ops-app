@@ -41,10 +41,13 @@ export default function PassiFatturazione({
   passi,
   corrente,
   onVai,
+  annullate = 0,
 }: {
   passi: Record<PassoFatturazione, EsitoPasso>;
   corrente: PassoFatturazione;
   onVai: (passo: PassoFatturazione) => void;
+  /** Fatture annullate della commessa: tengono aperto il passo Fattura anche quando è «da fare» (v. `passoRaggiungibile`). */
+  annullate?: number;
 }) {
   return (
     <nav aria-label="Passi della fatturazione" className="min-w-0">
@@ -60,7 +63,7 @@ export default function PassiFatturazione({
           // che esce subito quando il passo richiesto è già quello attivo):
           // un pulsante disabilitato sotto `aria-current` sarebbe un punto
           // morto per chi naviga da tastiera.
-          const raggiungibile = attivo || passoRaggiungibile(passi, passo);
+          const raggiungibile = attivo || passoRaggiungibile(passi, passo, annullate);
           return (
             <li key={passo} className="min-w-0 shrink-0 snap-start">
               <button

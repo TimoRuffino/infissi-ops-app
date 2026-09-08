@@ -1,20 +1,26 @@
 // Tab «Limiti»: l'ultimo computo con esito, totali e voci raggruppate; ogni
 // voce spiega il proprio numero. «Ricalcola» quando righe o parametri sono
 // cambiati. Nessun calcolo qui: il server è l'unico confine.
+import { useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import type { VoceComputo } from "@shared/limiti/tipi";
 import { trpc } from "@/lib/trpc";
 import {
   badgeStato,
+  correzioneDi,
   formatCent,
   motivoSintetico,
   raggruppaVoci,
   spiegaVoce,
 } from "@/lib/limitiView";
+import CorreggiVoceDialog from "@/components/computo/CorreggiVoceDialog";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Calculator, Info, ReceiptText } from "lucide-react";
+import { AlertTriangle, Calculator, Info, Pencil, Printer, ReceiptText, Trash2 } from "lucide-react";
+import { hrefStampaLimiti } from "@/lib/limitiStampaView";
 
 const TONO: Record<"success" | "warning" | "muted", string> = {
   success: "text-success",
@@ -50,6 +56,23 @@ export default function LimitiTab({
       toast.success("Limiti ricalcolati");
       // Un computo valido con esito «ok» chiude il passo: la pagina guidata
       // rilegge e apre «Avanti».
+      onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
+  // La voce aperta nel dialog «Correggi la voce» (08/09/2026): hook prima
+  // delle uscite anticipate qui sotto (React #310).
+  const [daCorreggere, setDaCorreggere] = useState<VoceComputo | null>(null);
+  // Cancellazione dei computi (08/09/2026, «devo poter eliminare i limiti già
+  // fatti»): conferma umana, poi il passo torna «da fare».
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const elimina = trpc.computo.elimina.useMutation({
+    onSuccess: esito => {
+      utils.computo.ultimo.invalidate({ commessaId });
+      void utils.fatturazioneGuidata.passi.invalidate({ commessaId });
+      void utils.fatturazioneGuidata.daFare.invalidate();
+      setConfermaElimina(false);
+      toast.success(esito.eliminati > 0 ? "Limiti eliminati: si ricalcolano quando serve" : "Nessun computo da eliminare");
       onCambiato?.();
     },
     onError: e => toast.error(e.message),
@@ -115,17 +138,42 @@ export default function LimitiTab({
           {badge.testo}
         </Badge>
         {motivo && <span className="text-xs text-muted-foreground">{motivo}</span>}
+        {c && (
+          <Button
+            size="sm"
+            variant="outline"
+            className={guidata ? "ml-auto min-h-11" : "ml-auto h-7"}
+            aria-label="Stampa i limiti"
+            title="Stampa il computo dei limiti (si apre in una scheda nuova)"
+            onClick={() => window.open(hrefStampaLimiti(commessaId), "_blank", "noopener")}
+          >
+            <Printer className="h-3.5 w-3.5 mr-1" /> Stampa
+          </Button>
+        )}
         {stato.puoEseguire && (
           <Button
             size="sm"
             // Nel percorso guidato è il gesto principale del passo: target
             // touch pieno, non il pulsantino di una barra di tab.
-            className={guidata ? "ml-auto min-h-11" : "ml-auto h-7"}
+            className={`${c ? "" : "ml-auto "}${guidata ? "min-h-11" : "h-7"}`}
             disabled={esegui.isPending}
             onClick={() => esegui.mutate({ commessaId })}
           >
             <Calculator className="h-3.5 w-3.5 mr-1" />
             {c ? "Ricalcola" : "Calcola i limiti"}
+          </Button>
+        )}
+        {c && stato.puoEseguire && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={`${guidata ? "min-h-11" : "h-7"} text-danger hover:text-danger hover:bg-danger-soft`}
+            aria-label="Elimina i limiti calcolati"
+            title="Cancella i computi di questa commessa: il passo torna da fare"
+            disabled={elimina.isPending}
+            onClick={() => setConfermaElimina(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Elimina
           </Button>
         )}
       </div>
@@ -205,31 +253,51 @@ export default function LimitiTab({
                             non inclusa
                           </Badge>
                         )}
+                        {correzioneDi(v) && (
+                          <Badge variant="warning" className="h-4 px-1 text-[10px] shrink-0">
+                            corretta a mano
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {v.codiceDei ? `${v.codiceDei} ` : ""}
                         {spiegaVoce(v)}
                       </p>
                     </div>
-                    <Popover>
-                      <PopoverTrigger asChild>
+                    <div className="flex items-center gap-0.5">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label={`Perché ${v.descrizione}`}
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="text-xs space-y-1 w-64">
+                          {Object.entries(v.dettaglio).map(([k, val]) => (
+                            <p key={k}>
+                              <span className="text-muted-foreground">{k}:</span> {String(val)}
+                            </p>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                      {/* Correzione a mano: chi può calcolare i limiti può anche correggerli. */}
+                      {stato.puoEseguire && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          aria-label={`Perché ${v.descrizione}`}
+                          aria-label={`Correggi ${v.descrizione}`}
+                          title="Correggi a mano quantità, prezzo o limite"
+                          onClick={() => setDaCorreggere(v)}
                         >
-                          <Info className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="text-xs space-y-1 w-64">
-                        {Object.entries(v.dettaglio).map(([k, val]) => (
-                          <p key={k}>
-                            <span className="text-muted-foreground">{k}:</span> {String(val)}
-                          </p>
-                        ))}
-                      </PopoverContent>
-                    </Popover>
+                      )}
+                    </div>
                     <span className="tabular-nums font-medium">{formatCent(v.limiteCent)}</span>
                   </li>
                 ))}
@@ -241,6 +309,24 @@ export default function LimitiTab({
           </p>
         </>
       )}
+      <ConfirmDialog
+        open={confermaElimina}
+        onOpenChange={setConfermaElimina}
+        title="Eliminare i limiti calcolati?"
+        description="Tutti i computi di questa commessa spariscono: il passo Limiti torna da fare, il passaggio di stato torna a chiedere il computo e una bozza di fattura resta senza limiti da controllare. Contratto e correzioni a mano restano: si ricalcola quando serve."
+        confirmLabel="Elimina i limiti"
+        cancelLabel="Resta"
+        busy={elimina.isPending}
+        onConfirm={() => elimina.mutate({ commessaId })}
+      />
+      <CorreggiVoceDialog
+        commessaId={commessaId}
+        voce={daCorreggere}
+        onOpenChange={aperto => {
+          if (!aperto) setDaCorreggere(null);
+        }}
+        onSalvata={() => onCambiato?.()}
+      />
     </div>
   );
 }

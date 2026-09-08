@@ -12,6 +12,7 @@ import {
   FIC_SCOPES_SCRITTURA,
   handleFicOAuthCallback,
   issueFicOAuthState,
+  getCfg,
 } from "./fattureInCloud";
 
 function makeCtx(): TrpcContext {
@@ -209,7 +210,10 @@ describe("OAuth Fatture in Cloud", () => {
     expect(status.scopeScrittura).toBe(true);
   });
 
-  it("oauthStartUrl senza scrittura resta sullo scope di lettura", async () => {
+  it("oauthStartUrl senza scrittura resta sullo scope di lettura, a consenso mai dato", async () => {
+    // Il test precedente ha lasciato il consenso di scrittura salvato: da lì
+    // un avvio senza argomento lo terrebbe (08/09/2026). Qui si parte da zero.
+    getCfg(1).scopeScrittura = false;
     const { url } = await appRouter
       .createCaller(makeCtx())
       .fattureInCloud.oauthStartUrl();
@@ -234,6 +238,20 @@ describe("OAuth Fatture in Cloud", () => {
       .createCaller(makeCtx())
       .fattureInCloud.status();
     expect(status.scopeScrittura).toBe(false);
+  });
+
+  it("oauthStartUrl senza dirlo NON retrocede un consenso di scrittura già dato (08/09/2026)", async () => {
+    getCfg(1).scopeScrittura = true;
+    try {
+      const { url } = await appRouter.createCaller(makeCtx()).fattureInCloud.oauthStartUrl();
+      expect(new URL(url).searchParams.get("scope")).toBe(FIC_SCOPES_SCRITTURA);
+      const { url: esplicita } = await appRouter
+        .createCaller(makeCtx())
+        .fattureInCloud.oauthStartUrl({ scrittura: false });
+      expect(new URL(esplicita).searchParams.get("scope")).toBe(FIC_SCOPES_LETTURA);
+    } finally {
+      getCfg(1).scopeScrittura = false;
+    }
   });
 
   it("disconnectOAuth azzera anche scopeScrittura, non solo la connessione", async () => {

@@ -9,6 +9,7 @@ import {
   badgeStatoFattura,
   DICITURE_SELEZIONABILI,
   etichettaTabFattura,
+  fatturaEliminabile,
   ibanSembraValido,
   indicatoreLimite,
   nomeFileFattura,
@@ -262,9 +263,11 @@ describe("fatturaView", () => {
     ]);
   });
 
-  it("riepilogoView su una fattura libera si ferma al totale: niente markup né Δ pattuito (07/09/2026)", () => {
-    const righe = riepilogoView({ ...fatturaCaso127, deltaPattuitoCent: 500 }, { libera: true });
-    expect(righe.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale"]);
+  it("riepilogoView su una fattura libera si ferma al totale: mai il Δ pattuito, il markup solo se scritto a mano (07-08/09/2026)", () => {
+    const senza = riepilogoView({ ...fatturaCaso127, markupCent: 0, deltaPattuitoCent: 500 }, { libera: true });
+    expect(senza.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale"]);
+    const aMano = riepilogoView({ ...fatturaCaso127, deltaPattuitoCent: 500 }, { libera: true });
+    expect(aMano.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale", "Markup"]);
   });
 
   it("riepilogoView aggiunge «Δ pattuito» con tono attenzione solo se il delta non è zero", () => {
@@ -345,6 +348,15 @@ describe("fatturaView", () => {
         { stato: "scartata", tipo: "nota_credito", inviataDryRun: false },
       ])
     ).toBe("Fattura !");
+  });
+
+  it("fatturaEliminabile: solo ciò che non è mai uscito dal CRM, mai con un documento FiC (08/09/2026)", () => {
+    expect(fatturaEliminabile({ stato: "bozza", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "annullata", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "in_emissione", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "in_emissione", ficDocumentId: 42 })).toBe(false);
+    expect(fatturaEliminabile({ stato: "emessa", ficDocumentId: null })).toBe(false);
+    expect(fatturaEliminabile({ stato: "consegnata", ficDocumentId: 42 })).toBe(false);
   });
 
   it("nomeFileFattura sostituisce lo slash del numero e gestisce la bozza", () => {
@@ -474,6 +486,74 @@ describe("passiFattura", () => {
     expect(p[5]).toMatchObject({ stato: "attesa", dettaglio: "Prova: non spedita davvero" });
   });
 
+  // I due passi (08/09/2026): fra il documento su FiC e l'invio allo SdI
+  // ci sono dodici giorni, e il passo li conta.
+  it("emessa e non ancora spedita: il passo SdI conta i giorni che restano", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[4]).toMatchObject({ stato: "fatto", dettaglio: "N. 127/2026" });
+    expect(p[5]).toMatchObject({
+      stato: "corrente",
+      dettaglio: "11 giorni per l'invio allo SdI",
+    });
+  });
+
+  // Nella finestra la fattura è ancora correggibile: dire «chiusa» sarebbe
+  // falso, e chi legge crederebbe di non poterci più mettere mano.
+  it("nella finestra il passo Bozza non si dichiara chiuso", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[2].dettaglio).toBe("Correggibile fino all'invio");
+  });
+
+  it("dopo l'invio la bozza è chiusa davvero", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "inviata", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[2].dettaglio).toBe("Chiusa con l'emissione");
+  });
+
+  it("scaduta: il passo lo dice, ma non si blocca — inviare tardi resta meglio che non inviare", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-19T12:00:00Z")
+    );
+    expect(p[5]).toMatchObject({ stato: "corrente", dettaglio: "Scaduta da 3 giorni" });
+  });
+
+  it("senza data non si inventa un contatore", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: null },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[5]).toMatchObject({ stato: "corrente", dettaglio: "In attesa dell'invio" });
+  });
+
   it("consegnata: tutto fatto", () => {
     const p = passiFattura({
       ...base,
@@ -561,5 +641,13 @@ describe("descriviEvento", () => {
   it("non più di quattro pezzi: la riga deve restare una riga", () => {
     const r = descriviEvento({ a: 1, b: 2, c: 3, d: 4, e: 5 });
     expect(r.split(" · ")).toHaveLength(4);
+  });
+});
+
+describe("riepilogoView — markup scritto a mano (08/09/2026)", () => {
+  it("su una libera il markup si vede solo quando non è zero, senza Δ pattuito", () => {
+    const base = { riepilogo: [], imponibileCent: 120000, ivaCent: 24000, totaleCent: 144000, deltaPattuitoCent: 0, pattuitoCent: 120000, pattuitoTipo: "imponibile" as const };
+    expect(riepilogoView({ ...base, markupCent: 20000 }, { libera: true }).map(r => r.etichetta)).toEqual(["IVA", "Totale", "Markup"]);
+    expect(riepilogoView({ ...base, markupCent: 0 }, { libera: true }).map(r => r.etichetta)).toEqual(["IVA", "Totale"]);
   });
 });

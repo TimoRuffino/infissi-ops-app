@@ -321,17 +321,33 @@ export async function salvaContratto(input: {
   }
 
   const precedente = await getContrattiRepository().getContratto(input.sedeId, input.commessaId);
+  // Le correzioni a mano del computo (08/09/2026) si gestiscono solo dal tab
+  // Limiti (`computo.correggiVoce`): un salvataggio del contratto le conserva
+  // sempre, qualunque cosa mandi il client. Se cambiano le righe, quelle per
+  // riga (dei_riga_n, controtelaio_n) possono puntare a un'altra riga: lo si
+  // dice, non si cancella nulla in silenzio.
+  const correzioni = precedente?.opzioniComputo.correzioni ?? [];
+  const hashRigheNuovo = hashRighe(righePersist);
+  if (precedente && precedente.hashRighe !== hashRigheNuovo) {
+    const perRiga = correzioni.filter(c => /^(dei_riga|controtelaio)_\d+$/.test(c.codice)).map(c => c.codice);
+    if (perRiga.length > 0) {
+      avvertenze.push(
+        `Le righe sono cambiate: controlla nel computo le correzioni a mano sulle voci per riga (${perRiga.join(", ")}).`
+      );
+    }
+  }
   const contrattoPersist = {
     commessaId: input.commessaId,
     sedeId: input.sedeId,
     ...parametri,
+    opzioniComputo: { ...parametri.opzioniComputo, correzioni },
     // Il prezzo della posa segue l'interruttore, non il client: un contratto
     // senza posa non deve mai portare in giro un prezzo posa ormai stantio.
     posaCent: parametri.posaInclusa ? parametri.posaCent : null,
     zonaClimatica: zona,
     codiceIstat,
     detrazionePct: pct,
-    hashRighe: hashRighe(righePersist),
+    hashRighe: hashRigheNuovo,
     hashParametri: "",
     createdBy: precedente?.createdBy ?? input.actorUserId,
     updatedBy: input.actorUserId,

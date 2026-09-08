@@ -11,7 +11,9 @@ import type { DocTipo } from "../../routers/preventiviContratti";
 // 1.1.0 (02/09): clienti interni esclusi dai candidati, prompt v2. Le
 // proposte APERTE di una versione precedente vengono ri-esaminate dal
 // worker: un errore sistematico non resta in coda a chi decide.
-export const VERSIONE_SMISTAMENTO = "1.3.0";
+// 1.4.0 (08/09/2026): gli impegni letti dal testo entrano nell'esito, e i
+// record delle versioni precedenti si riesaminano per estrarli.
+export const VERSIONE_SMISTAMENTO = "1.4.0";
 
 export const URGENZE = ["bassa", "normale", "alta", "critica"] as const;
 export type UrgenzaSmistamento = (typeof URGENZE)[number];
@@ -75,10 +77,26 @@ export type EsitoSmistamento = {
   istruzione: string;
   collegamento: CollegamentoSmistamento;
   allegati: PianoAllegato[];
+  /**
+   * Le promesse dette a parole nel messaggio (punto 28 del piano
+   * 08/09/2026): chi, cosa, entro quando, e la frase originale come prova.
+   * Facoltativo: gli esiti salvati prima non ce l'hanno.
+   */
+  impegni?: ImpegnoLetto[];
   /** Documenti effettivamente creati nel fascicolo (idempotenti per sourceRef). */
   archiviati: Array<{ indice: number; documentoId: number; tipo: DocTipo }>;
   candidati: CandidatoCollegamento[];
   segnali: SegnaliMittente;
+};
+
+/** Un impegno preso a parole: il CRM non lo registrava da nessuna parte. */
+export type ImpegnoLetto = {
+  chi: "noi" | "loro";
+  cosa: string;
+  /** `AAAA-MM-GG`, oppure stringa vuota quando il testo non lo dice. */
+  entro: string;
+  /** La frase originale, copiata dal messaggio. */
+  frase: string;
 };
 
 export type StatoSmistamento = "analizzata" | "errore" | "saltata";

@@ -137,7 +137,7 @@ export default function FatturazioneCommessa() {
   // in mano si resta sul richiesto o sul primo passo: non c'è altro da cui
   // decidere.
   const corrente: PassoFatturazione = record
-    ? passoIniziale(record.passi, record.prossimoPasso, passoUrl)
+    ? passoIniziale(record.passi, record.prossimoPasso, passoUrl, record.annullate)
     : (passoUrl ?? ORDINE_PASSI[0]);
   const indice = ORDINE_PASSI.indexOf(corrente);
 
@@ -318,6 +318,15 @@ export default function FatturazioneCommessa() {
       `Limiti: limite ${formatCent(computoQ.data.computo.limiteCent)}`
     );
   }
+  // Già fatturata da fuori (08/09/2026): lo si dice su ogni passo, non solo sull'ultimo.
+  if (record?.fatturaFic) {
+    const data = new Date(`${record.fatturaFic.data}T12:00:00`).toLocaleDateString("it-IT");
+    riepilogo.push(
+      `Già fatturata su Fatture in Cloud: n. ${record.fatturaFic.numero} del ${data}${
+        record.fatturaFic.lordoCent != null ? `, ${formatCent(record.fatturaFic.lordoCent)}` : ""
+      }`
+    );
+  }
 
   const ultimo = indice === ORDINE_PASSI.length - 1;
   const fatto = record?.passi[corrente] === "fatto";
@@ -376,6 +385,7 @@ export default function FatturazioneCommessa() {
               passi={record.passi}
               corrente={corrente}
               onVai={vai}
+              annullate={record.annullate}
             />
 
             {riepilogo.length > 0 && (

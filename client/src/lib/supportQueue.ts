@@ -179,6 +179,19 @@ function normalizza(valore: string): string {
   return valore.trim().toLocaleLowerCase("it-IT");
 }
 
+/**
+ * Ordine di lettura della coda: i chiusi in fondo, perché su «tutti» il
+ * lavoro da fare non deve finire sotto ai ticket già risolti. Dentro ogni
+ * gruppo resta l'ordine ricevuto dal server (più recenti prima): l'helper è
+ * stabile e non riordina per data per conto suo.
+ */
+export function ordinaTicketPerCoda<T extends { stato: string }>(
+  ticket: ReadonlyArray<T>
+): T[] {
+  const chiuso = (t: T) => (t.stato === "chiuso" ? 1 : 0);
+  return [...ticket].sort((a, b) => chiuso(a) - chiuso(b));
+}
+
 export function ticketMatchesQueueFilter(
   ticket: SupportQueueTicket,
   filter: SupportQueueFilter

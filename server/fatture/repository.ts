@@ -15,6 +15,7 @@
 // arriva.
 import { kvSql } from "../_core/persistence";
 import {
+  EI_NON_PARTITA,
   FATTURAZIONE_CONFIG_DEFAULT,
   type Aliquota,
   type ClienteSnapshot,
@@ -48,6 +49,7 @@ export type PatchBozza = Partial<
     | "totaleCent"
     | "deltaPattuitoCent"
     | "markupCent"
+    | "markupForzatoCent"
     | "stornoCent"
     | "computoId"
     | "hashRighe"
@@ -57,6 +59,13 @@ export type PatchBozza = Partial<
     | "pattuitoTipo"
     | "detrazioneTipo"
     | "clienteSnapshot"
+    // Modifica nella finestra fra FiC e SdI: l'orologio di Fatture in
+    // Cloud si riscrive col PUT, e l'archivio di prima descrive un
+    // documento che non esiste più.
+    | "ficUpdatedAt"
+    | "xmlStorageKey"
+    | "xmlSha256"
+    | "pdfStorageKey"
   >
 >;
 
@@ -73,6 +82,7 @@ export type PatchStato = Partial<
     | "xmlSha256"
     | "documentoId"
     | "eiStatusFic"
+    | "ficUpdatedAt"
     | "eiErrore"
     | "inviataDryRun"
     | "emessaDa"
@@ -103,6 +113,12 @@ export type FiltroFatture = {
   stati?: StatoFattura[];
   tipo?: TipoFattura;
   limite?: number;
+  /**
+   * Solo le fatture nella finestra fra Fatture in Cloud e SdI: create là,
+   * non ancora spedite. Il filtro sta nel server perché col tetto di righe
+   * un filtro a valle conterebbe le fatture sbagliate.
+   */
+  daInviareSdi?: boolean;
 };
 
 export type FattureRepository = {
@@ -232,6 +248,8 @@ export function createMemoryFattureRepository(): FattureRepository {
       const f: Fattura = {
         ...conSnapshot(clona(fattura)),
         origine: fattura.origine ?? "contratto",
+        markupForzatoCent: fattura.markupForzatoCent ?? null,
+        ficUpdatedAt: fattura.ficUpdatedAt ?? null,
         id,
         revisione: 1,
         createdAt: now,
@@ -285,10 +303,14 @@ export function createMemoryFattureRepository(): FattureRepository {
         .sort((a, b) => b.id - a.id)
         .map(f => ({ ...clona(f), righe: [], riepilogo: [], scadenze: [] }));
     },
-    async lista({ sedeId, stati, tipo, limite }) {
+    async lista({ sedeId, stati, tipo, limite, daInviareSdi }) {
       return [...fatture.values()]
         .filter(
           f =>
+            (!daInviareSdi ||
+              (f.stato === "emessa" &&
+                f.ficDocumentId != null &&
+                EI_NON_PARTITA.has(f.eiStatusFic ?? ""))) &&
             f.sedeId === sedeId &&
             (!stati || stati.includes(f.stato)) &&
             (!tipo || f.tipo === tipo)
@@ -302,7 +324,7 @@ export function createMemoryFattureRepository(): FattureRepository {
         .filter(
           f =>
             f.ficDocumentId != null &&
-            (f.stato === "inviata" || (f.stato === "emessa" && f.inviataDryRun))
+            (f.stato === "inviata" || f.stato === "emessa")
         )
         .map(f => ({
           id: f.id,
@@ -416,6 +438,7 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     totaleCent: Number(row.totale_cent),
     deltaPattuitoCent: Number(row.delta_pattuito_cent),
     markupCent: Number(row.markup_cent),
+    markupForzatoCent: row.markup_forzato_cent == null ? null : Number(row.markup_forzato_cent),
     stornoCent: Number(row.storno_cent),
     diciture: Array.isArray(row.diciture) ? row.diciture : [],
     note: row.note ?? null,
@@ -426,6 +449,7 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     xmlSha256: row.xml_sha256 ?? null,
     documentoId: row.documento_id == null ? null : Number(row.documento_id),
     eiStatusFic: row.ei_status_fic ?? null,
+    ficUpdatedAt: row.fic_updated_at ?? null,
     eiErrore: row.ei_errore ?? null,
     inviataDryRun: Boolean(row.inviata_dry_run),
     scavalcoLimiti: Boolean(row.scavalco_limiti),
@@ -650,6 +674,11 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         )`;
         // Fatture libere (07/09/2026): la colonna nasce con il default per le righe già scritte.
         await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'contratto'`;
+        // Markup scritto a mano (08/09/2026): null = calcolato dal risolutore.
+        await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS markup_forzato_cent BIGINT`;
+        // Fattura in due passi (08/09/2026): l'orologio di Fatture in Cloud.
+        // TEXT e non TIMESTAMPTZ di proposito — v. `Fattura.ficUpdatedAt`.
+        await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS fic_updated_at TEXT`;
         await tx`CREATE INDEX IF NOT EXISTS fatture_sede_commessa_idx ON fatture (sede_id, commessa_id, id DESC)`;
         await tx`CREATE UNIQUE INDEX IF NOT EXISTS fatture_fic_document_idx ON fatture (sede_id, fic_document_id) WHERE fic_document_id IS NOT NULL`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_righe (
@@ -744,7 +773,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             diciture, note, intestazione_cantiere, detrazione_tipo,
             pdf_storage_key, xml_storage_key, xml_sha256, documento_id,
             ei_status_fic, ei_errore, inviata_dry_run, scavalco_limiti, scavalco_motivo,
-            created_by, emessa_da, emessa_at, revisione, created_at, updated_at, origine
+            created_by, emessa_da, emessa_at, revisione, created_at, updated_at, origine, markup_forzato_cent
           ) VALUES (
             ${f.sedeId}, ${f.commessaId}, ${f.computoId}, ${f.hashRighe}, ${f.tipo}, ${f.notaCreditoDi}, ${f.stato},
             ${f.ficDocumentId}, ${f.numero}, ${f.data},
@@ -754,7 +783,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             ${tx.json(f.diciture as any)}, ${f.note}, ${f.intestazioneCantiere}, ${f.detrazioneTipo},
             ${f.pdfStorageKey}, ${f.xmlStorageKey}, ${f.xmlSha256}, ${f.documentoId},
             ${f.eiStatusFic}, ${f.eiErrore}, ${f.inviataDryRun}, ${f.scavalcoLimiti}, ${f.scavalcoMotivo},
-            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}, ${f.origine ?? "contratto"}
+            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}, ${f.origine ?? "contratto"}, ${f.markupForzatoCent ?? null}
           ) RETURNING *`;
         const id = Number(rows[0].id);
         // Una fattura nuova non ha scadenze precedenti da conservare.
@@ -838,15 +867,21 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         ORDER BY id DESC`;
       return rows.map(row => rowToFattura(row, [], [], []));
     },
-    async lista({ sedeId, stati, tipo, limite }) {
+    async lista({ sedeId, stati, tipo, limite, daInviareSdi }) {
       await ensureSchema();
       const statiFiltro = stati ?? [];
+      const nonPartita = [...EI_NON_PARTITA].filter(Boolean);
       // Una sola query su `fatture`, nessun join alle righe: le liste non
       // le mostrano, e leggerle per ogni riga sarebbe uno spreco puro.
       const rows = await sql`SELECT * FROM fatture
         WHERE sede_id = ${sedeId}
           AND (${statiFiltro.length === 0} OR stato IN ${sql(statiFiltro)})
           AND (${tipo === undefined} OR tipo = ${tipo ?? null})
+          AND (${daInviareSdi !== true} OR (
+            stato = 'emessa'
+            AND fic_document_id IS NOT NULL
+            AND (ei_status_fic IS NULL OR ei_status_fic IN ${sql(nonPartita)})
+          ))
         ORDER BY id DESC
         LIMIT ${limite ?? 200}`;
       return rows.map(row => rowToFattura(row, [], [], []));
@@ -855,7 +890,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       await ensureSchema();
       const rows = await sql`SELECT id, sede_id, fic_document_id, stato, inviata_dry_run FROM fatture
         WHERE fic_document_id IS NOT NULL
-          AND (stato = 'inviata' OR (stato = 'emessa' AND inviata_dry_run))`;
+          AND stato IN ('inviata', 'emessa')`;
       return rows.map(row => ({
         id: Number(row.id),
         sedeId: Number(row.sede_id),
@@ -893,6 +928,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const deltaPattuitoCent =
           patch.deltaPattuitoCent === undefined ? corrente.deltaPattuitoCent : patch.deltaPattuitoCent;
         const markupCent = patch.markupCent === undefined ? corrente.markupCent : patch.markupCent;
+        const markupForzatoCent =
+          patch.markupForzatoCent === undefined ? corrente.markupForzatoCent : patch.markupForzatoCent;
         const stornoCent = patch.stornoCent === undefined ? corrente.stornoCent : patch.stornoCent;
         const computoId = patch.computoId === undefined ? corrente.computoId : patch.computoId;
         const hashRighe = patch.hashRighe === undefined ? corrente.hashRighe : patch.hashRighe;
@@ -903,15 +940,22 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const detrazioneTipo = patch.detrazioneTipo === undefined ? corrente.detrazioneTipo : patch.detrazioneTipo;
         const clienteSnapshot =
           patch.clienteSnapshot === undefined ? corrente.clienteSnapshot : patch.clienteSnapshot;
+        const ficUpdatedAt = patch.ficUpdatedAt === undefined ? corrente.ficUpdatedAt : patch.ficUpdatedAt;
+        const xmlStorageKey = patch.xmlStorageKey === undefined ? corrente.xmlStorageKey : patch.xmlStorageKey;
+        const xmlSha256 = patch.xmlSha256 === undefined ? corrente.xmlSha256 : patch.xmlSha256;
+        const pdfStorageKey = patch.pdfStorageKey === undefined ? corrente.pdfStorageKey : patch.pdfStorageKey;
 
         const rows = await tx`UPDATE fatture SET
             diciture = ${tx.json(diciture as any)}, note = ${note}, intestazione_cantiere = ${intestazioneCantiere},
             imponibile_cent = ${imponibileCent}, iva_cent = ${ivaCent}, totale_cent = ${totaleCent},
             delta_pattuito_cent = ${deltaPattuitoCent}, markup_cent = ${markupCent}, storno_cent = ${stornoCent},
+            markup_forzato_cent = ${markupForzatoCent},
             computo_id = ${computoId}, hash_righe = ${hashRighe}, scavalco_limiti = ${scavalcoLimiti},
             scavalco_motivo = ${scavalcoMotivo}, pattuito_cent = ${pattuitoCent}, pattuito_tipo = ${pattuitoTipo},
             detrazione_tipo = ${detrazioneTipo},
             cliente_snapshot = ${clienteSnapshot == null ? null : tx.json(clienteSnapshot as any)},
+            fic_updated_at = ${ficUpdatedAt}, xml_storage_key = ${xmlStorageKey},
+            xml_sha256 = ${xmlSha256}, pdf_storage_key = ${pdfStorageKey},
             revisione = revisione + 1, updated_at = ${now}
           WHERE id = ${id} AND sede_id = ${sedeId} AND revisione = ${revisioneAttesa}
           RETURNING *`;
@@ -972,6 +1016,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         if (patch.documentoId !== undefined) colonne.documento_id = patch.documentoId;
         if (patch.eiStatusFic !== undefined) colonne.ei_status_fic = patch.eiStatusFic;
         if (patch.eiErrore !== undefined) colonne.ei_errore = patch.eiErrore;
+        if (patch.ficUpdatedAt !== undefined) colonne.fic_updated_at = patch.ficUpdatedAt;
         if (patch.inviataDryRun !== undefined) colonne.inviata_dry_run = patch.inviataDryRun;
         if (patch.emessaDa !== undefined) colonne.emessa_da = patch.emessaDa;
         if (patch.emessaAt !== undefined) colonne.emessa_at = patch.emessaAt;

@@ -189,6 +189,14 @@ describe("passoRaggiungibile", () => {
     };
     expect(passoRaggiungibile(passi, "fattura")).toBe(true);
   });
+
+  it("il passo Fattura resta raggiungibile con la sola fattura annullata (da vedere e da eliminare), non a flag spento (08/09/2026)", () => {
+    const passi = passiTutti("da_fare");
+    expect(passoRaggiungibile(passi, "fattura", 1)).toBe(true);
+    expect(passoRaggiungibile(passi, "fattura", 0)).toBe(false);
+    expect(passoRaggiungibile({ ...passi, fattura: "non_disponibile" }, "fattura", 1)).toBe(false);
+    expect(passoRaggiungibile(passi, "limiti", 1)).toBe(false);
+  });
 });
 
 describe("passoDallaQuery", () => {
@@ -227,6 +235,12 @@ describe("passoIniziale", () => {
   it("apre «contratto» via query anche a fascicolo vuoto, con «documenti» l'unico passo non concluso", () => {
     const passi = passiTutti("da_fare");
     expect(passoIniziale(passi, "documenti", "contratto")).toBe("contratto");
+  });
+
+  it("con la sola fattura annullata, «fattura» chiesta via query resta (08/09/2026)", () => {
+    const passi = passiTutti("da_fare");
+    expect(passoIniziale(passi, "documenti", "fattura", 1)).toBe("fattura");
+    expect(passoIniziale(passi, "documenti", "fattura")).toBe("documenti");
   });
 
   it("ripiega sul prossimo passo quando il richiesto non è raggiungibile (P4-R8)", () => {

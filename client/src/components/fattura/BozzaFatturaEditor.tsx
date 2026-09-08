@@ -23,11 +23,13 @@ import type { AppRouter } from "../../../../server/routers";
 import { trpc } from "@/lib/trpc";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
 import type { ClienteSnapshot, RigaFattura } from "@shared/fatturazione/tipi";
+import { GIORNI_INVIO_SDI, giorniPerInvioSdi, toniScadenzaSdi } from "@shared/fatturazione/scadenzaSdi";
 import {
   azionePerControllo,
   DICITURE_SELEZIONABILI,
   ETICHETTA_DICITURA,
   ETICHETTA_TIPO_RIGA,
+  fatturaEliminabile,
   indicatoreLimite,
   raggruppaRighe,
   riepilogoControlli,
@@ -51,6 +53,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -232,6 +235,7 @@ export default function BozzaFatturaEditor({
   dryRun,
   onAnnullata,
   onCambiato,
+  onElimina,
 }: {
   commessaId: number;
   fatturaId: number;
@@ -248,6 +252,12 @@ export default function BozzaFatturaEditor({
    * passa già da `onAnnullata`. Assente: nessuno ascolta, niente cambia.
    */
   onCambiato?: () => void;
+  /**
+   * Cancellazione definitiva della bozza (08/09/2026): la conferma e la
+   * chiamata al server stanno nel tab Fattura, che poi sceglie cosa
+   * mostrare. Assente: resta solo «Annulla bozza».
+   */
+  onElimina?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
@@ -277,7 +287,16 @@ export default function BozzaFatturaEditor({
   const [nuovaRiga, setNuovaRiga] = useState<RigaAggiunta | null>(null);
   const [dialogoRiequilibrio, setDialogoRiequilibrio] = useState(false);
   const [markupTesto, setMarkupTesto] = useState("0,00");
+  // Markup scritto a mano (08/09/2026): `markupAMano` dice se il campo vale
+  // un importo forzato o mostra quello calcolato dal server.
+  const [markupAMano, setMarkupAMano] = useState(false);
+  const [markupTestoAMano, setMarkupTestoAMano] = useState("0,00");
   const [confermaEmissione, setConfermaEmissione] = useState(false);
+  // Secondo gesto: l'invio allo SdI, e il suo scavalco quando i totali di
+  // Fatture in Cloud non sono più i nostri (R49).
+  const [confermaSdi, setConfermaSdi] = useState(false);
+  const [scostamento, setScostamento] = useState<string | null>(null);
+  const [motivoScostamento, setMotivoScostamento] = useState("");
   const [confermaRigenera, setConfermaRigenera] = useState(false);
   const [confermaAnnulla, setConfermaAnnulla] = useState(false);
   // Confronto con la fattura vera (studio 05/09): hook PRIMA delle uscite
@@ -312,6 +331,8 @@ export default function BozzaFatturaEditor({
     setScavalco({ attivo: f.scavalcoLimiti, motivo: f.scavalcoMotivo ?? "" });
     setAnagrafica(anagraficaDaSnapshot(f.clienteSnapshot));
     setDetrazione(f.detrazioneTipo);
+    setMarkupAMano(f.markupForzatoCent != null);
+    setMarkupTestoAMano(formatEuro((f.markupForzatoCent ?? f.markupCent) / 100));
   }, [dettaglio.data, sporco]);
 
   function ricarica(): void {
@@ -376,6 +397,38 @@ export default function BozzaFatturaEditor({
     onError: segnalaErrore,
   });
 
+  const inviaSdi = trpc.fatture.inviaSdi.useMutation({
+    onSuccess: esito => {
+      ricarica();
+      onCambiato?.();
+      setScostamento(null);
+      setMotivoScostamento("");
+      const falliti = esito.passi.filter(p => p.esito === "errore");
+      if (falliti.length === 0) {
+        toast.success(
+          esito.fattura.stato === "inviata"
+            ? `Fattura ${esito.fattura.numero ?? ""} inviata allo SdI`.trim()
+            : "Invio di prova eseguito: allo SdI non è partito niente"
+        );
+      } else {
+        falliti.forEach(p =>
+          toast.error(
+            `${ETICHETTA_PASSO[p.passo] ?? p.passo}: ${p.dettaglio ?? "passo non riuscito"}`
+          )
+        );
+      }
+    },
+    onError: e => {
+      // Lo scostamento non è un guasto: è una decisione da prendere. Si
+      // apre il riquadro col motivo invece di un errore e basta.
+      if (e.message.includes("SCOSTAMENTO_FIC")) {
+        setScostamento(e.message.replace(/^.*SCOSTAMENTO_FIC:\s*/, ""));
+        return;
+      }
+      segnalaErrore(e);
+    },
+  });
+
   const annulla = trpc.fatture.annullaBozza.useMutation({
     onSuccess: () => {
       ricarica();
@@ -410,7 +463,13 @@ export default function BozzaFatturaEditor({
     salva.isPending ||
     rigenera.isPending ||
     emetti.isPending ||
+    inviaSdi.isPending ||
     annulla.isPending;
+  // Il documento su Fatture in Cloud esiste già: siamo nella finestra dei
+  // dodici giorni, e il gesto che resta è l'invio allo SdI.
+  const suFic = f.stato === "emessa" && f.ficDocumentId != null;
+  const giorniSdi = suFic ? giorniPerInvioSdi(f.data, new Date()) : null;
+  const scadenza = giorniSdi == null ? null : toniScadenzaSdi(giorniSdi);
   const haBeniSignificativi = f.righe.some(
     r => r.tipo === "bene" && r.beneSignificativo && !r.derivata
   );
@@ -551,6 +610,14 @@ export default function BozzaFatturaEditor({
         motivo: scavalco.motivo.trim() || null,
       };
     }
+    // Markup scritto a mano (08/09/2026): un importo quando è a mano e diverso
+    // da quello salvato; `null` quando si torna al calcolo.
+    if (markupAMano) {
+      const cent = centDaTesto(markupTestoAMano);
+      if (cent != null && cent !== f.markupForzatoCent) modifica.markupForzatoCent = cent;
+    } else if (f.markupForzatoCent != null) {
+      modifica.markupForzatoCent = null;
+    }
     // Anagrafica: solo i campi cambiati; i campi opzionali vuoti vanno a null.
     const base = anagraficaDaSnapshot(f.clienteSnapshot);
     const cambiati = CAMPI_ANAGRAFICA.filter(c => anagrafica[c] !== base[c]);
@@ -612,6 +679,42 @@ export default function BozzaFatturaEditor({
     <div className="space-y-4 mt-4 min-w-0">
       <div className="grid gap-4 min-w-0 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-5 min-w-0">
+          {/* La finestra fra Fatture in Cloud e SdI: il documento c'è già,
+              numerato, e non è partito. Qui si dice cosa manca e quanto
+              tempo resta — è il pezzo che l'operatore guarda per primo. */}
+          {suFic && (
+            <div
+              className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius-control)] border px-3 py-2 text-sm ${
+                scadenza?.tono === "errore"
+                  ? "border-danger/40 bg-danger-soft"
+                  : scadenza?.tono === "attenzione"
+                    ? "border-warning/40 bg-warning-soft"
+                    : "border-border-soft bg-surface-sunken"
+              }`}
+            >
+              <span className="font-semibold text-text-1">
+                Su Fatture in Cloud{f.numero ? `, n. ${f.numero}` : ""}
+              </span>
+              <span className="text-text-2">
+                Non è ancora partita allo SdI: puoi correggerla, qui o su
+                Fatture in Cloud.
+              </span>
+              {scadenza && (
+                <Badge
+                  variant={
+                    scadenza.tono === "errore"
+                      ? "danger"
+                      : scadenza.tono === "attenzione"
+                        ? "warning"
+                        : "outline"
+                  }
+                >
+                  {scadenza.testo}
+                </Badge>
+              )}
+            </div>
+          )}
+
           {/* Cosa blocca l'emissione, in testa e non a margine: è l'unica
               cosa che l'operatore deve sistemare per andare avanti. */}
           <div id="fattura-controlli" className="scroll-mt-24 min-w-0">
@@ -707,9 +810,13 @@ export default function BozzaFatturaEditor({
                                 <Badge
                                   variant="outline"
                                   className="ml-2 align-middle"
-                                  title="La calcola il sistema: si rifà a ogni salvataggio, non si modifica a mano."
+                                  title={
+                                    r.tipo === "markup" && f.markupForzatoCent != null
+                                      ? "Markup scritto a mano: vale l'importo indicato, il totale lo segue."
+                                      : "La calcola il sistema: si rifà a ogni salvataggio, non si modifica a mano."
+                                  }
                                 >
-                                  calcolata
+                                  {r.tipo === "markup" && f.markupForzatoCent != null ? "a mano" : "calcolata"}
                                 </Badge>
                               )}
                             </TableCell>
@@ -769,9 +876,13 @@ export default function BozzaFatturaEditor({
                             <Badge
                               variant="outline"
                               className="shrink-0"
-                              title="La calcola il sistema: si rifà a ogni salvataggio."
+                              title={
+                                r.tipo === "markup" && f.markupForzatoCent != null
+                                  ? "Markup scritto a mano: vale l'importo indicato."
+                                  : "La calcola il sistema: si rifà a ogni salvataggio."
+                              }
                             >
-                              calcolata
+                              {r.tipo === "markup" && f.markupForzatoCent != null ? "a mano" : "calcolata"}
                             </Badge>
                           )}
                           {campi.rimozione}
@@ -872,7 +983,7 @@ export default function BozzaFatturaEditor({
                 disabled={!haBeniSignificativi || inCorso || f.origine === "libera"}
                 title={
                   f.origine === "libera"
-                    ? "Su una fattura libera il markup è sempre zero: il totale sono le righe."
+                    ? "Su una fattura libera non c'è un pattuito da tenere: il markup si scrive a mano qui accanto."
                     : haBeniSignificativi
                       ? undefined
                       : "Senza beni significativi non c'è nulla da riequilibrare."
@@ -884,6 +995,55 @@ export default function BozzaFatturaEditor({
               >
                 <Scale className="h-4 w-4 mr-1" /> Riequilibra i beni
               </Button>
+              {/* Markup scritto a mano (08/09/2026): cambia il totale, non il
+                  pattuito — lo scarto lo dice «Δ pattuito» nel riepilogo. */}
+              <div className="flex items-center gap-2 min-w-0">
+                <Label htmlFor="markup-a-mano" className="text-xs text-text-3 whitespace-nowrap">
+                  Markup
+                </Label>
+                <Input
+                  id="markup-a-mano"
+                  inputMode="decimal"
+                  className="h-9 w-32 text-right tabular-nums"
+                  aria-label="Markup, scritto a mano se cambiato"
+                  disabled={!puoModificare || inCorso}
+                  value={markupAMano ? markupTestoAMano : formatEuro(f.markupCent / 100)}
+                  onChange={e => {
+                    tocca();
+                    setMarkupAMano(true);
+                    setMarkupTestoAMano(e.target.value);
+                  }}
+                  onBlur={() => {
+                    if (markupAMano) {
+                      setMarkupTestoAMano(formatEuro((centDaTesto(markupTestoAMano) ?? f.markupCent) / 100));
+                    }
+                  }}
+                />
+                <Badge
+                  variant={markupAMano ? "warning" : "outline"}
+                  title={
+                    markupAMano
+                      ? "Scritto a mano: il totale segue, lo scarto dal pattuito è nel riepilogo (Δ pattuito). Per tenere il pattuito, scala i beni con «Riequilibra»."
+                      : "Calcolato dal sistema: prestazione − altri beni − servizi. Scrivi un importo per forzarlo."
+                  }
+                >
+                  {markupAMano ? "a mano" : "calcolato"}
+                </Badge>
+                {markupAMano && puoModificare && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    disabled={inCorso}
+                    onClick={() => {
+                      tocca();
+                      setMarkupAMano(false);
+                    }}
+                  >
+                    Torna al calcolo
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           </div>
@@ -1247,7 +1407,13 @@ export default function BozzaFatturaEditor({
         dirty={sporco}
         status={
           <>
-            {sporco ? "Modifiche non salvate." : "Bozza allineata al server."}
+            {sporco
+              ? suFic
+                ? "Modifiche non salvate: il salvataggio le porta anche su Fatture in Cloud."
+                : "Modifiche non salvate."
+              : suFic
+                ? "Allineata a Fatture in Cloud."
+                : "Bozza allineata al server."}
             {sporco && scadenzeToccate && (
               <>
                 {" "}
@@ -1261,14 +1427,32 @@ export default function BozzaFatturaEditor({
         }
         destructive={
           puoModificare ? (
-            <Button
-              variant="ghost"
-              className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
-              disabled={inCorso}
-              onClick={() => setConfermaAnnulla(true)}
-            >
-              Annulla bozza
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+              {/* Con un numero già uscito da Fatture in Cloud non si
+                  annulla: si storna con una nota di credito. */}
+              {!suFic && (
+                <Button
+                  variant="ghost"
+                  className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
+                  disabled={inCorso}
+                  onClick={() => setConfermaAnnulla(true)}
+                >
+                  Annulla bozza
+                </Button>
+              )}
+              {/* Cancellazione definitiva: stessa regola del server, conferma nel tab Fattura. */}
+              {onElimina && fatturaEliminabile({ stato: f.stato, ficDocumentId: f.ficDocumentId }) && (
+                <Button
+                  variant="ghost"
+                  className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
+                  disabled={inCorso}
+                  onClick={onElimina}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" aria-hidden="true" />
+                  Elimina bozza
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
         secondary={
@@ -1281,7 +1465,7 @@ export default function BozzaFatturaEditor({
             >
               <Printer className="h-4 w-4 mr-1" /> Stampa
             </Button>
-            {puoModificare && f.tipo !== "nota_credito" && f.origine !== "libera" && (
+            {puoModificare && !suFic && f.tipo !== "nota_credito" && f.origine !== "libera" && (
               <Button
                 variant="outline"
                 className="h-11 sm:h-10"
@@ -1298,13 +1482,33 @@ export default function BozzaFatturaEditor({
                 onClick={() => invia()}
               >
                 <Save className="h-4 w-4 mr-1" />
-                {salva.isPending ? "Salvataggio…" : "Salva bozza"}
+                {salva.isPending
+                  ? "Salvataggio…"
+                  : suFic
+                    ? "Salva e aggiorna su FiC"
+                    : "Salva bozza"}
               </Button>
             )}
           </>
         }
         primary={
-          puoEmettere ? (
+          !puoEmettere ? (
+            <span className="text-xs text-text-3">
+              L'emissione richiede il permesso di emettere fatture.
+            </span>
+          ) : suFic ? (
+            // Secondo gesto. Non chiede i controlli della bozza: il
+            // documento su FiC esiste già e li ha superati alla creazione.
+            <Button
+              className="h-11 sm:h-10"
+              disabled={sporco || inCorso}
+              title={sporco ? "Salva le correzioni prima di spedire." : undefined}
+              onClick={() => setConfermaSdi(true)}
+            >
+              <Send className="h-4 w-4 mr-1" />
+              {inviaSdi.isPending ? "Invio…" : "Invia allo SdI"}
+            </Button>
+          ) : (
             <Button
               className="h-11 sm:h-10"
               disabled={!emettibile || sporco || inCorso}
@@ -1319,12 +1523,8 @@ export default function BozzaFatturaEditor({
               }
               onClick={() => setConfermaEmissione(true)}
             >
-              <Send className="h-4 w-4 mr-1" /> Emetti
+              <Send className="h-4 w-4 mr-1" /> Invia a Fatture in Cloud
             </Button>
-          ) : (
-            <span className="text-xs text-text-3">
-              L'emissione richiede il permesso di emettere fatture.
-            </span>
           )
         }
       />
@@ -1492,22 +1692,96 @@ export default function BozzaFatturaEditor({
       <ConfirmDialog
         open={confermaEmissione}
         onOpenChange={setConfermaEmissione}
-        title="Emetti la fattura su Fatture in Cloud"
-        description={`${
-          dryRun
-            ? "Invio allo SdI in prova: il documento sarà numerato da FiC ma non spedito."
-            : "Invio reale allo SdI: il documento parte davvero."
-        } Totale ${formatCent(f.totaleCent)}${
+        title="Manda la fattura a Fatture in Cloud"
+        description={`Il documento viene creato e numerato da Fatture in Cloud. Allo SdI non parte niente: quello è un secondo passo, e hai ${GIORNI_INVIO_SDI} giorni per farlo. Totale ${formatCent(f.totaleCent)}${
           f.clienteSnapshot ? ` · ${f.clienteSnapshot.nome}` : ""
         }.`}
-        destructive={!dryRun}
-        confirmLabel="Emetti"
+        confirmLabel="Manda a Fatture in Cloud"
         busy={emetti.isPending}
         onConfirm={() => {
           setConfermaEmissione(false);
           emetti.mutate({ id: fatturaId, revisione: f.revisione });
         }}
       />
+
+      <ConfirmDialog
+        open={confermaSdi}
+        onOpenChange={setConfermaSdi}
+        title="Invia la fattura allo SdI"
+        description={`${
+          dryRun
+            ? "Invio in prova: allo SdI non parte niente."
+            : "Da qui non si torna indietro: una fattura allo SdI si corregge solo con una nota di credito."
+        } ${f.numero ? `N. ${f.numero} · ` : ""}${formatCent(f.totaleCent)}${
+          f.clienteSnapshot ? ` · ${f.clienteSnapshot.nome}` : ""
+        }.`}
+        destructive={!dryRun}
+        confirmLabel="Invia allo SdI"
+        busy={inviaSdi.isPending}
+        onConfirm={() => {
+          setConfermaSdi(false);
+          inviaSdi.mutate({ id: fatturaId, revisione: f.revisione });
+        }}
+      />
+
+      {/* Scostamento dai totali di Fatture in Cloud (R49): non un errore da
+          leggere, una decisione da prendere — con un motivo che resta
+          scritto nella cronologia della fattura. */}
+      <Dialog
+        open={scostamento != null}
+        onOpenChange={aperto => {
+          if (!aperto) {
+            setScostamento(null);
+            setMotivoScostamento("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>I totali non corrispondono</DialogTitle>
+            <DialogDescription>{scostamento}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="motivo-scostamento" className="text-sm">
+              Perché la mandi lo stesso
+            </Label>
+            <Textarea
+              id="motivo-scostamento"
+              rows={3}
+              value={motivoScostamento}
+              onChange={e => setMotivoScostamento(e.target.value)}
+              placeholder="Es. la commercialista ha corretto l'IVA direttamente su Fatture in Cloud."
+            />
+            <p className="text-xs text-text-3">
+              Resta scritto nella cronologia della fattura.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setScostamento(null);
+                setMotivoScostamento("");
+              }}
+            >
+              Annulla
+            </Button>
+            <Button
+              disabled={motivoScostamento.trim() === "" || inviaSdi.isPending}
+              onClick={() =>
+                inviaSdi.mutate({
+                  id: fatturaId,
+                  revisione: f.revisione,
+                  ignoraScostamento: true,
+                  motivoScostamento: motivoScostamento.trim(),
+                })
+              }
+            >
+              Invia comunque
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={confermaRigenera}

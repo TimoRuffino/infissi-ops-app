@@ -66,6 +66,23 @@ describe("repository fatture (memoria)", () => {
     expect(await repo.eventi(2, f.id)).toEqual([]);
   });
 
+  // Fattura in due passi (08/09/2026): `emessa` non è più uno stato di
+  // passaggio ma la finestra in cui la fattura sta su FiC senza essere
+  // partita. La sonda deve guardarla anche senza dry-run, o una modifica
+  // fatta dentro Fatture in Cloud non arriverebbe mai al CRM.
+  it("daSondare prende anche le emesse non spedite, senza dry-run", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({ sedeId: 1, id: f.id, patch: { stato: "emessa", ficDocumentId: 7001, eiStatusFic: "not_sent", inviataDryRun: false }, now: ora });
+    expect((await repo.daSondare()).map(x => x.id)).toEqual([f.id]);
+  });
+
+  it("ficUpdatedAt: si scrive con aggiornaStato e sopravvive alla rilettura", async () => {
+    const f = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    expect(f.ficUpdatedAt).toBeNull();
+    await repo.aggiornaStato({ sedeId: 1, id: f.id, patch: { ficUpdatedAt: "2026-09-08 11:22:33" }, now: ora });
+    expect((await repo.perId(1, f.id))?.ficUpdatedAt).toBe("2026-09-08 11:22:33");
+  });
+
   // Ruling R37: la mappa CRM↔FiC del sync non ha un tetto di 200 righe.
   it("perFicDocumentIds legge per id, senza limite e isolando la sede", async () => {
     const ids: number[] = [];
@@ -131,6 +148,28 @@ describe("repository fatture (memoria)", () => {
       sedeId: 1, id: f.id, patch: { clienteSnapshot: storico as typeof clienteSnapshot }, now: ora,
     });
     expect(dopoStato.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
+  });
+
+  // §7.2: la Cassa deve poter chiedere «cosa mi resta da spedire». Il
+  // filtro sta nel server, non nel client: col tetto di 50 righe un
+  // filtro a valle conterebbe le fatture sbagliate.
+  it("lista sa chiedere solo le fatture da inviare allo SdI", async () => {
+    const daInviare = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({
+      sedeId: 1, id: daInviare.id,
+      patch: { stato: "emessa", ficDocumentId: 11, eiStatusFic: "not_sent" }, now: ora,
+    });
+    const partita = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({
+      sedeId: 1, id: partita.id,
+      patch: { stato: "emessa", ficDocumentId: 12, eiStatusFic: "sent" }, now: ora,
+    });
+    await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+
+    const lista = await repo.lista({ sedeId: 1, daInviareSdi: true });
+    expect(lista.map(f => f.id)).toEqual([daInviare.id]);
+    // Nella sede sbagliata non esiste.
+    expect(await repo.lista({ sedeId: 2, daInviareSdi: true })).toEqual([]);
   });
 
   it("lista filtra per stato e tipo, più recente prima", async () => {

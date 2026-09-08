@@ -46,6 +46,7 @@ const Economia = lazy(() => import("./pages/Economia"));
 const Fatturazione = lazy(() => import("./pages/Fatturazione"));
 const FatturazioneCommessa = lazy(() => import("./pages/FatturazioneCommessa"));
 const FatturaStampa = lazy(() => import("./pages/FatturaStampa"));
+const LimitiStampa = lazy(() => import("./pages/LimitiStampa"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
 const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
 const Notifiche = lazy(() => import("./pages/Notifiche"));
@@ -99,6 +100,15 @@ function Router() {
         {() => (
           <Suspense fallback={<RouteLoading />}>
             <FatturaStampa />
+          </Suspense>
+        )}
+      </Route>
+      {/* Stampa dei limiti di spesa della commessa: stessa forma della
+          stampa fattura (07/09/2026). */}
+      <Route path="/commesse/:id/limiti/stampa">
+        {() => (
+          <Suspense fallback={<RouteLoading />}>
+            <LimitiStampa />
           </Suspense>
         )}
       </Route>

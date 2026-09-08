@@ -233,13 +233,13 @@ export function bilancia(input: { righe: RigaFatturaInput[]; pattuitoCent: numbe
   return { righe, avvertenze };
 }
 
-export function ricalcola(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile" }): { righe: RigaFatturaInput[]; esito: EsitoRisolutore } {
+export function ricalcola(input: { righe: RigaFatturaInput[]; pattuitoCent: number; pattuitoTipo: "lordo" | "imponibile"; markupForzatoCent?: number | null }): { righe: RigaFatturaInput[]; esito: EsitoRisolutore } {
   const fisse = input.righe.filter(r => !r.derivata);
   const beni = fisse.filter(r => r.tipo === "bene");
   const B = beni.filter(r => r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const N = beni.filter(r => !r.beneSignificativo).reduce((s, r) => s + r.importoCent, 0);
   const S = fisse.filter(r => r.tipo === "servizio").reduce((s, r) => s + r.importoCent, 0);
-  const esito = risolvi({ pattuitoCent: input.pattuitoCent, pattuitoTipo: input.pattuitoTipo, beniSignificativiCent: B, beniAltriCent: N, serviziCent: S });
+  const esito = risolvi({ pattuitoCent: input.pattuitoCent, pattuitoTipo: input.pattuitoTipo, beniSignificativiCent: B, beniAltriCent: N, serviziCent: S, markupForzatoCent: input.markupForzatoCent ?? null });
 
   const markup = { ...rigaBase("markup", DICITURE.markup, esito.markupCent, 10), derivata: true };
   const storno = { ...rigaBase("storno_bs", DICITURE.storno_bs, -esito.stornoCent, 22), derivata: true };

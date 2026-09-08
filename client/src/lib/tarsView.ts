@@ -206,3 +206,32 @@ export function deveInviareDaTastiera(evento: {
 }): boolean {
   return evento.key === "Enter" && !evento.shiftKey && !evento.isComposing;
 }
+
+/**
+ * Il briefing ha tre stati che si somigliano e vogliono parole diverse:
+ * non è arrivato, è arrivato vuoto, è arrivato vuoto ma senza la parte
+ * delle segnalazioni. Dire «nessun promemoria» quando il briefing non è
+ * mai arrivato è una bugia tranquillizzante, ed è la ragione per cui
+ * questa scelta sta qui, provata, invece che dentro un ternario annidato.
+ */
+export type StatoBriefing =
+  | "non_disponibile"
+  | "vuoto"
+  | "vuoto_segnalazioni_escluse"
+  | "pieno";
+
+export function statoBriefing(
+  briefing: {
+    promemoriaOggi: readonly unknown[];
+    casiMiei: readonly unknown[];
+    segnalazioni: readonly unknown[] | null;
+  } | null
+): StatoBriefing {
+  if (briefing === null) return "non_disponibile";
+  const conRoba =
+    briefing.promemoriaOggi.length > 0 ||
+    briefing.casiMiei.length > 0 ||
+    (briefing.segnalazioni?.length ?? 0) > 0;
+  if (conRoba) return "pieno";
+  return briefing.segnalazioni === null ? "vuoto_segnalazioni_escluse" : "vuoto";
+}

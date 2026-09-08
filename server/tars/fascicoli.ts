@@ -9,7 +9,8 @@
 // versioni osservate non coincidono più con le correnti; su errore si
 // serve l'ultima versione valida marcata stale (mai per azioni).
 
-import { ETICHETTA_STATO_FATTURA, type Fattura } from "@shared/fatturazione/tipi";
+import { ETICHETTA_STATO_FATTURA, fatturaModificabile, type Fattura } from "@shared/fatturazione/tipi";
+import { giorniPerInvioSdi } from "@shared/fatturazione/scadenzaSdi";
 import { fatturePerCommessa } from "../fatture/servizio";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getCommessaById, STATI_COMMESSA } from "../routers/commesse";
@@ -84,9 +85,21 @@ export function azzeraFascicoliPerTest(): void {
  * non porta economia (Ruling R31): qui si dice che c'è qualcosa da
  * guardare, il dettaglio si legge nella tab Fattura.
  */
-function codaSdiEAvviso(f: Fattura): string {
+function codaSdiEAvviso(f: Fattura, oggi: Date = new Date()): string {
   let coda = "";
   if (f.inviataDryRun) coda += " · prova SdI";
+  // Il contatore dei dodici giorni (§7.3): il fascicolo è dove Tars
+  // guarda, e una fattura ferma su Fatture in Cloud è lavoro non finito.
+  // Giorni, mai importi.
+  if (fatturaModificabile(f) && f.stato === "emessa" && f.ficDocumentId != null) {
+    const giorni = giorniPerInvioSdi(f.data, oggi);
+    if (giorni != null) {
+      coda +=
+        giorni < 0
+          ? ` · Scaduta da ${Math.abs(giorni)} ${Math.abs(giorni) === 1 ? "giorno" : "giorni"} per lo SdI`
+          : ` · ${giorni} ${giorni === 1 ? "giorno" : "giorni"} per lo SdI`;
+    }
+  }
   if (f.eiErrore) coda += " · avviso: esito SdI/FiC da verificare nella tab Fattura";
   return coda;
 }

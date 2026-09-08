@@ -11,6 +11,7 @@ import type {
   TipoRiga,
 } from "@shared/fatturazione/tipi";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
+import { giorniPerInvioSdi, toniScadenzaSdi } from "@shared/fatturazione/scadenzaSdi";
 import { formatCent } from "./limitiView";
 
 type Tono = "neutro" | "ok" | "attenzione" | "errore";
@@ -53,6 +54,23 @@ export const VARIANTE_BADGE = {
   attenzione: "warning",
   errore: "danger",
 } as const;
+
+/**
+ * Ciò che si cancella per sempre: la stessa regola di `eliminaBozza` in
+ * server/fatture/servizio.ts — una fattura mai uscita dal CRM (bozza,
+ * annullata, emissione ferma prima del documento su Fatture in Cloud).
+ * Con un documento creato non si cancella: si corregge con la nota di
+ * credito. Il permesso (`fattura.draft`) lo decide chi monta il componente.
+ */
+export function fatturaEliminabile(f: {
+  stato: StatoFattura;
+  ficDocumentId: number | null;
+}): boolean {
+  return (
+    f.ficDocumentId == null &&
+    (f.stato === "bozza" || f.stato === "annullata" || f.stato === "in_emissione")
+  );
+}
 
 export type GruppoRigheView = {
   chiave: "beni" | "servizi" | "derivate" | "note";
@@ -196,7 +214,19 @@ export function riepilogoView(
 
   righe.push({ etichetta: "IVA", valore: formatCent(f.ivaCent) });
   righe.push({ etichetta: "Totale", valore: formatCent(f.totaleCent) });
-  if (opzioni?.libera) return righe;
+  if (opzioni?.libera) {
+    // Su una libera il markup è zero salvo quando è scritto a mano
+    // (08/09/2026): allora si vede; il Δ no, perché il pattuito segue righe
+    // e markup.
+    if (f.markupCent !== 0) {
+      righe.push({
+        etichetta: "Markup",
+        valore: formatCent(f.markupCent),
+        ...(f.markupCent < 0 ? { tono: "errore" as const } : {}),
+      });
+    }
+    return righe;
+  }
   righe.push({
     etichetta: "Markup",
     valore: formatCent(f.markupCent),
@@ -334,7 +364,10 @@ export type IngressoPassi = {
   /** `null` finché la query non ha risposto: il passo resta «attesa». */
   contratto: { presente: boolean; righe: number } | null;
   computo: { eseguito: boolean; valido: boolean } | null;
-  fattura: Pick<Fattura, "stato" | "tipo" | "inviataDryRun" | "numero"> | null;
+  fattura: Pick<
+    Fattura,
+    "stato" | "tipo" | "inviataDryRun" | "numero" | "data"
+  > | null;
   /** Esito dei controlli della bozza; `null` quando non è ancora arrivato. */
   controlli: { errori: number; avvisi: number } | null;
 };
@@ -348,12 +381,18 @@ const STATI_USCITA: ReadonlySet<StatoFattura> = new Set([
   "mancata_consegna",
 ]);
 
-export function passiFattura(i: IngressoPassi): PassoFattura[] {
+export function passiFattura(
+  i: IngressoPassi,
+  oggi: Date = new Date()
+): PassoFattura[] {
   const contrattoOk = i.contratto?.presente === true;
   const computoOk = i.computo?.valido === true;
   const f = i.fattura;
   const bozza = f?.stato === "bozza";
   const uscita = f != null && STATI_USCITA.has(f.stato);
+  // Nella finestra fra Fatture in Cloud e SdI la fattura è su FiC ma si
+  // corregge ancora: dire che la bozza è «chiusa» sarebbe falso.
+  const nellaFinestra = f != null && f.stato === "emessa" && !f.inviataDryRun;
 
   const contratto: PassoFattura = {
     chiave: "contratto",
@@ -403,7 +442,9 @@ export function passiFattura(i: IngressoPassi): PassoFattura[] {
           ? "corrente"
           : "da_fare",
     dettaglio: uscita
-      ? "Chiusa con l'emissione"
+      ? nellaFinestra
+        ? "Correggibile fino all'invio"
+        : "Chiusa con l'emissione"
       : bozza
         ? "In revisione"
         : contrattoOk && computoOk
@@ -476,7 +517,12 @@ export function passiFattura(i: IngressoPassi): PassoFattura[] {
           : f.stato === "emessa"
             ? f.inviataDryRun
               ? "Prova: non spedita davvero"
-              : "In attesa dell'invio"
+              : // I dodici giorni: finché la fattura è su Fatture in Cloud e
+                // non è partita, il passo dice quanto tempo resta. Senza
+                // data non si inventa un conto.
+                (giorni => (giorni == null ? "In attesa dell'invio" : toniScadenzaSdi(giorni).testo))(
+                  giorniPerInvioSdi(f.data, oggi)
+                )
             : badgeStatoFattura(f.stato, f.inviataDryRun).testo,
   };
 

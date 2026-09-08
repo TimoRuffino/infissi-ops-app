@@ -25,7 +25,7 @@ import { creaCommessa } from "../routers/commesse";
 import { getDocumentoRecordById } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
 import type { TrpcContext } from "../_core/context";
-import { emettiFattura, type DipendenzeEmissione } from "./emissione";
+import { creaSuFic, inviaAlloSdi, type DipendenzeEmissione } from "./emissione";
 import { creaNotaCredito } from "./notaCredito";
 import { createMemoryFattureRepository, type FattureRepository } from "./repository";
 import { aggiornaBozza, creaBozza } from "./servizio";
@@ -214,6 +214,7 @@ function copioneFelice(f: Fattura, ficDocumentId: number, over: Copione = {}): C
     cercaClienti: async () => [],
     creaCliente: async () => ({ id: FIC_ENTITY_NUOVO }),
     creaDocumento: async () => documentoFicDa(f, ficDocumentId),
+    leggiDocumento: async () => documentoFicDa(f, ficDocumentId, { ei_status: "not_sent" }),
     verificaXml: async () => ({ success: true, errori: [] }),
     inviaEInvoice: async () => ({ name: "IT01234567890_00001.xml", date: "2026-09-04" }),
     scaricaXml: async () => XML_FINTO,
@@ -690,14 +691,14 @@ describe("creaNotaCredito", () => {
   });
 });
 
-describe("nota di credito attraverso emettiFattura", () => {
+describe("nota di credito attraverso i due passi", () => {
   it("creaDocumento riceve type «credit_note» e il fascicolo registra tipo «nota_credito»", async () => {
     // Detrazione «ristrutturazione»: prova che la nota (Ruling R15, salta
     // cantiere/dicitura del bonifico) attraversa davvero l'emissione anche
     // quando l'origine ha la detrazione — non solo nel caso senza.
     const { fattura: bozzaOrigine } = await bozzaEmettibile({ detrazioneTipo: "ristrutturazione" });
     const bancoOrigine = banco(copioneFelice(bozzaOrigine, FIC_DOCUMENT_ID_FATTURA));
-    const esitoOrigine = await emettiFattura({
+    const esitoOrigine = await creaSuFic({
       sedeId: SEDE,
       id: bozzaOrigine.id,
       actorUserId: ATTORE,
@@ -718,7 +719,7 @@ describe("nota di credito attraverso emettiFattura", () => {
     expect(nota.tipo).toBe("nota_credito");
 
     const bancoNota = banco(copioneFelice(nota, FIC_DOCUMENT_ID_NOTA));
-    const esitoNota = await emettiFattura({
+    const esitoNota = await creaSuFic({
       sedeId: SEDE,
       id: nota.id,
       actorUserId: ATTORE,
@@ -730,9 +731,18 @@ describe("nota di credito attraverso emettiFattura", () => {
     expect((creaDocumento.body as any).documento.type).toBe("credit_note");
     expect(esitoNota.fattura.stato).toBe("emessa");
     expect(esitoNota.fattura.ficDocumentId).toBe(FIC_DOCUMENT_ID_NOTA);
+    // Il fascicolo aspetta il secondo gesto (R45).
+    expect(esitoNota.fattura.documentoId).toBeNull();
 
-    expect(esitoNota.fattura.documentoId).not.toBeNull();
-    const documento = getDocumentoRecordById(esitoNota.fattura.documentoId!)!;
+    const inviata = await inviaAlloSdi({
+      sedeId: SEDE,
+      id: nota.id,
+      actorUserId: ATTORE,
+      revisione: esitoNota.fattura.revisione,
+      ...banco(copioneFelice(nota, FIC_DOCUMENT_ID_NOTA)).dip,
+    });
+    expect(inviata.fattura.documentoId).not.toBeNull();
+    const documento = getDocumentoRecordById(inviata.fattura.documentoId!)!;
     expect(documento.tipo).toBe("nota_credito");
     expect(documento.nome).toContain("Nota di credito");
   });

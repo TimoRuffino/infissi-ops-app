@@ -93,7 +93,7 @@ describe("identita e collegamento persistito FIC", () => {
     expect(list.find(item => item.id === fattura.id)?.commessaId).toBeNull();
   });
 
-  it("crea una commessa propria invece di riusarne una solo per identita fiscale", async () => {
+  it("una commessa viva del cliente si riusa: il collegamento automatico non basta, la creazione sì", async () => {
     const sedeId = 121;
     const caller = appRouter.createCaller(makeCtx(sedeId));
     const cliente = await caller.clienti.create({
@@ -117,15 +117,27 @@ describe("identita e collegamento persistito FIC", () => {
       item => item.sedeId === sedeId && item.id === 121_001
     )!;
 
+    // Il collegamento automatico resta severo: senza il codice commessa nel
+    // testo non lega niente, e va bene così.
     expect(result).toEqual({ collegate: 0, ambigue: 0, incerte: 0 });
     expect(fattura.commessaId).toBeNull();
-    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(1);
-    expect(fattura.commessaId).not.toBe(commessa.id);
-    expect(fattura.commessaMatch).toBe("automatico_fattura");
+    // La creazione invece guarda il cliente: fino al 08/09/2026 faceva
+    // nascere una commessa nuova «per non fidarsi dell'identità fiscale», e
+    // il risultato erano due lavori per lo stesso cliente. La direzione ha
+    // deciso il contrario; il rischio di prima (più lavori aperti) è coperto
+    // dal caso «due commesse vive», dove non si indovina.
+    const esito = await creaCommesseDaFattureFic(sedeId);
+    expect(esito).toMatchObject({ create: 0, collegateAlCliente: 1 });
+    expect(fattura.commessaId).toBe(commessa.id);
+    expect(fattura.commessaMatch).toBe("automatico_cliente");
     expect(fattura.collegataAMano).toBe(false);
   });
 
-  it("crea tre commesse distinte per tre fatture dello stesso cliente ed e idempotente", async () => {
+  it("tre fatture dello stesso cliente fanno UNA commessa: le altre si attaccano a quella", async () => {
+    // Prima ne nascevano tre, una per fattura. Mandato della direzione
+    // (08/09/2026): «nonostante ci fosse già una commessa riferimento Sica
+    // ne ha creata una nuova, non va bene». La prima fattura crea il
+    // lavoro, le altre ci finiscono dentro.
     const sedeId = 123;
     const caller = appRouter.createCaller(makeCtx(sedeId));
     const cliente = await caller.clienti.create({
@@ -135,12 +147,59 @@ describe("identita e collegamento persistito FIC", () => {
       clienteNome: "Tre Fatture Mario", clienteVat: "IT12300000001",
     })), sedeId);
 
-    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(3);
+    const esito = await creaCommesseDaFattureFic(sedeId);
+    expect(esito.create).toBe(1);
+    expect(esito.collegateAlCliente).toBe(2);
     const create = (await caller.commesse.list({ archived: "all" }))
-      .filter((c: any) => c.clienteId === cliente.id && c.ficSourceRef);
-    expect(create).toHaveLength(3);
-    expect(new Set(create.map((c: any) => c.ficSourceRef)).size).toBe(3);
-    expect((await creaCommesseDaFattureFic(sedeId)).create).toBe(0);
+      .filter((c: any) => c.clienteId === cliente.id);
+    expect(create).toHaveLength(1);
+    const secondoGiro = await creaCommesseDaFattureFic(sedeId);
+    expect(secondoGiro.create).toBe(0);
+    expect(secondoGiro.collegateAlCliente).toBe(0);
+  });
+
+  it("il cliente ha già una commessa viva: la fattura ci entra, non ne nasce un'altra", async () => {
+    // Il caso Sica: commessa aperta nel CRM, fattura fatta su Fatture in
+    // Cloud senza il codice commessa nel testo.
+    const sedeId = 133;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Mario", cognome: "Sica", partitaIva: "IT13300000001",
+    });
+    const commessa = await caller.commesse.create({ clienteId: cliente.id });
+    upsertFatture(
+      [fatturaBase(133_001, { clienteNome: "Sica Mario", clienteVat: "IT13300000001" })],
+      sedeId
+    );
+
+    const esito = await creaCommesseDaFattureFic(sedeId);
+    expect(esito).toMatchObject({ create: 0, collegateAlCliente: 1 });
+    const fattura = ficFatture.find(f => f.sedeId === sedeId && f.id === 133_001)!;
+    expect(fattura.commessaId).toBe(commessa.id);
+    expect(fattura.commessaMatch).toBe("automatico_cliente");
+    expect(
+      (await caller.commesse.list({ archived: "all" })).filter(
+        (c: any) => c.clienteId === cliente.id
+      )
+    ).toHaveLength(1);
+  });
+
+  it("con due commesse vive non indovina: la fattura resta da collegare", async () => {
+    const sedeId = 134;
+    const caller = appRouter.createCaller(makeCtx(sedeId));
+    const cliente = await caller.clienti.create({
+      nome: "Due", cognome: "Lavori", partitaIva: "IT13400000001",
+    });
+    await caller.commesse.create({ clienteId: cliente.id });
+    await caller.commesse.create({ clienteId: cliente.id });
+    upsertFatture(
+      [fatturaBase(134_001, { clienteNome: "Lavori Due", clienteVat: "IT13400000001" })],
+      sedeId
+    );
+
+    const esito = await creaCommesseDaFattureFic(sedeId);
+    expect(esito).toMatchObject({ create: 0, collegateAlCliente: 0, ambiguous: 1 });
+    expect(ficFatture.find(f => f.sedeId === sedeId && f.id === 134_001)!.commessaId).toBeNull();
   });
 
   it("non collega per importo quando il cliente ha piu commesse", async () => {

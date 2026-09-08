@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GruppoVoce, VoceComputo } from "@shared/limiti/tipi";
 import {
   badgeStato,
+  correzioneDi,
   etichettaGruppo,
   etichettaTabLimiti,
   formatCent,
@@ -196,5 +197,24 @@ describe("limitiView", () => {
     expect(formatCent(null)).toBe("—");
     expect(formatCent(undefined)).toBe("—");
     expect(formatCent(0)).toBe("€ 0,00");
+  });
+});
+
+describe("limitiView — correzioni a mano (08/09/2026)", () => {
+  it("una voce corretta lo dice col valore calcolato, e `correzioneDi` legge il dettaglio", () => {
+    const corretta = voce("opere", "posa", 60000, {
+      quantita: 10,
+      prezzoUnitCent: 3000,
+      dettaglio: {
+        ore: 6, correzione: "due squadre", limiteForzato: false, quantitaCalcolata: 6,
+        prezzoCalcolatoCent: 3000, limiteCalcolatoCent: 36000, inclusaCalcolata: true,
+      },
+    });
+    expect(spiegaVoce(corretta)).toBe("10 h × € 30,00 · corretta a mano (calcolato € 360,00)");
+    expect(correzioneDi(corretta)).toEqual({
+      motivo: "due squadre", limiteForzato: false, quantitaCalcolata: 6,
+      prezzoCalcolatoCent: 3000, limiteCalcolatoCent: 36000, inclusaCalcolata: true,
+    });
+    expect(correzioneDi(voce("opere", "posa", 36000))).toBeNull();
   });
 });

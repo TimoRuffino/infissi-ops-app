@@ -142,6 +142,14 @@ export function getCfg(sedeId: number | null): FicConfig {
   return c;
 }
 
+/**
+ * La configurazione di una sede, SENZA crearla: `getCfg` scrive una riga
+ * nuova quando manca, e una fotografia in sola lettura non deve farlo.
+ */
+export function ficConfigDiSede(sedeId: number | null): FicConfig | null {
+  return cfgRows.find(x => x.sedeId === (sedeId ?? DEFAULT_SEDE_ID)) ?? null;
+}
+
 function assertChiaveCifratura() {
   if (!secretBoxConfigured()) {
     throw new TRPCError({
@@ -1238,7 +1246,13 @@ export const fattureInCloudRouter = router({
       const redirectUri =
         process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
         `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
-      const scrittura = input?.scrittura ?? false;
+      // Un ricollegamento avviato senza dirlo («Ricollega account», «Ricollega e
+      // aggiorna permessi») non deve retrocedere un consenso di scrittura già
+      // dato: il token nuovo nascerebbe di sola lettura e il badge tornerebbe
+      // «non autorizzati» (visto in produzione, 08/09/2026). Chi non lo ha mai
+      // chiesto continua a partire in sola lettura.
+      const scrittura = input?.scrittura ?? (getCfg(ctx.sedeId).scopeScrittura ?? false);
+      // WS3: lo `state` è persistito in `oauth_state` (legato ad azienda, sede e utente).
       const state = await issueFicOAuthState(
         ctx.sedeId ?? DEFAULT_SEDE_ID,
         redirectUri,

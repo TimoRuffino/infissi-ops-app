@@ -214,6 +214,10 @@ export const mailRouter = router({
           attiva: false,
           ultimoUid: null,
           uidValidity: null,
+          // Il lato in uscita nasce spento: si accende una casella alla
+          // volta, quando la direzione lo decide (punto 30).
+          cartellaInviati: null,
+          ultimoUidInviati: null,
           ultimaSync: null,
           ultimoErrore: null,
           messaggiImportati: 0,
@@ -238,6 +242,10 @@ export const mailRouter = router({
           // solo se cambia anche la cartella, non da sola.
           password: z.string().min(1).max(500).optional(),
           cartella: z.string().min(1).max(100).optional(),
+          // Il lato in uscita del fascicolo (punto 30 del piano
+          // 08/09/2026): la cartella della posta inviata da leggere.
+          // Stringa vuota o null = spenta. Su cPanel di norma «INBOX.Sent».
+          cartellaInviati: z.string().max(100).nullable().optional(),
           attiva: z.boolean().optional(),
         })
       )
@@ -257,6 +265,14 @@ export const mailRouter = router({
           // Cartella diversa = UID di un altro spazio: si riparte.
           c.ultimoUid = null;
           c.uidValidity = null;
+        }
+        if (input.cartellaInviati !== undefined) {
+          const nuova = input.cartellaInviati?.trim() || null;
+          if (nuova !== c.cartellaInviati) {
+            c.cartellaInviati = nuova;
+            // Altra cartella, altri UID: il segnalibro degli inviati riparte.
+            c.ultimoUidInviati = null;
+          }
         }
         if (input.attiva !== undefined) c.attiva = input.attiva;
         c.updatedAt = new Date();
