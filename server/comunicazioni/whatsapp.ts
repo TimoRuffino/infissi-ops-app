@@ -212,6 +212,67 @@ export function getAppWhatsApp(sedeId: number | null): AppWhatsApp {
   return a;
 }
 
+/**
+ * Le credenziali dell'app Meta sono della PIATTAFORMA, non del cliente
+ * (WS5, spec §4.5).
+ *
+ * Il commento sopra difendeva un'app per sede perché «obbligare due sedi a
+ * condividere app id, config id e app secret significherebbe obbligarle a
+ * condividere il portfolio». Nel modello Tech Provider non regge: l'app non
+ * possiede il portfolio, lo ONBOARDA. Una sola app fa l'Embedded Signup di
+ * quanti portfolio si vuole, e ciascuno resta del suo cliente.
+ *
+ * Il record per sede resta come OVERRIDE e vince: è la via di fuga il giorno
+ * in cui l'app di piattaforma venisse limitata da Meta.
+ */
+function daPiattaforma(): { appId: string; configId: string; appSecret: string } {
+  return {
+    appId: process.env.WHATSAPP_APP_ID?.trim() ?? "",
+    configId: process.env.WHATSAPP_CONFIG_ID?.trim() ?? "",
+    appSecret: process.env.WHATSAPP_APP_SECRET?.trim() ?? "",
+  };
+}
+
+/**
+ * L'app effettiva della sede: override dove c'è, piattaforma dove manca.
+ *
+ * Sapere SE un segreto esiste è gratis; LEGGERLO costa
+ * `MAIL_ENCRYPTION_KEY`. Tenerli separati serve perché lo stato di un
+ * collegamento non deve morire per una chiave che non c'entra: il pannello
+ * dice «pronta» anche su un'installazione dove la chiave manca, e a
+ * fallire è semmai il collegamento, con il suo messaggio.
+ */
+export function appEffettiva(sedeId: number | null): {
+  appId: string;
+  configId: string;
+  appSecretConfigurato: boolean;
+  /** Il segreto in chiaro, risolto al momento dell'uso. `null` se assente o illeggibile. */
+  leggiAppSecret: () => string | null;
+  verifyToken: string;
+} {
+  const a = getAppWhatsApp(sedeId);
+  const p = daPiattaforma();
+  return {
+    appId: a.appId || p.appId,
+    configId: a.configId || p.configId,
+    appSecretConfigurato: !!(a.appSecretCifrato || p.appSecret),
+    leggiAppSecret: () => {
+      // L'override della sede vince, e va decifrato. Il segreto di
+      // piattaforma arriva già in chiaro dall'ambiente: non passa da un
+      // giro cifra-e-decifra che servirebbe solo a poter fallire.
+      if (a.appSecretCifrato) {
+        try {
+          return decryptSecret(a.appSecretCifrato);
+        } catch {
+          return null;
+        }
+      }
+      return p.appSecret || null;
+    },
+    verifyToken: a.verifyToken,
+  };
+}
+
 /** Tutte le app configurate, per il webhook: l'endpoint è uno per tutte. */
 export function tutteLeAppWhatsApp(): AppWhatsApp[] {
   return _appStore.items;
@@ -221,13 +282,13 @@ export const saveAppWhatsApp = () => _appStore.save();
 
 /** Vista sicura: l'app secret non esce mai. */
 export function appPubblica(sedeId: number | null) {
-  const a = getAppWhatsApp(sedeId);
+  const a = appEffettiva(sedeId);
   return {
     appId: a.appId,
     configId: a.configId,
-    appSecretConfigurato: !!a.appSecretCifrato,
+    appSecretConfigurato: a.appSecretConfigurato,
     verifyToken: a.verifyToken,
-    pronta: !!a.appId && !!a.configId && !!a.appSecretCifrato,
+    pronta: !!a.appId && !!a.configId && a.appSecretConfigurato,
   };
 }
 
@@ -268,7 +329,7 @@ export function configPubblica(c: ConfigWhatsApp) {
     // L'app secret può stare sul numero (configurazione a mano) o a livello
     // di app (Embedded Signup): per la UI conta che ce ne sia uno.
     appSecretConfigurato:
-      !!appSecretCifrato || !!getAppWhatsApp(c.sedeId).appSecretCifrato,
+      !!appSecretCifrato || appEffettiva(c.sedeId).appSecretConfigurato,
   };
 }
 
@@ -277,13 +338,14 @@ export function configPubblica(c: ConfigWhatsApp) {
  * quello dell'app. Con l'Embedded Signup i numeri non ne hanno uno proprio.
  */
 export function appSecretPer(c: ConfigWhatsApp): string | null {
-  const cifrato = c.appSecretCifrato || getAppWhatsApp(c.sedeId).appSecretCifrato;
-  if (!cifrato) return null;
-  try {
-    return decryptSecret(cifrato);
-  } catch {
-    return null;
+  if (c.appSecretCifrato) {
+    try {
+      return decryptSecret(c.appSecretCifrato);
+    } catch {
+      return null;
+    }
   }
+  return appEffettiva(c.sedeId).leggiAppSecret();
 }
 
 // ── Verifica della firma ────────────────────────────────────────────────────
@@ -341,15 +403,16 @@ export function verifyTokenValido(token: string): boolean {
 
 /** code → business access token (di sistema, non scade). */
 async function scambiaCode(code: string, sedeId: number): Promise<string> {
-  const app = getAppWhatsApp(sedeId);
-  if (!app.appId || !app.appSecretCifrato) {
+  const app = appEffettiva(sedeId);
+  const segreto = app.appSecretConfigurato ? app.leggiAppSecret() : null;
+  if (!app.appId || !segreto) {
     throw new Error(
       "Configurazione dell'app Meta incompleta: servono App ID e App secret."
     );
   }
   const params = new URLSearchParams({
     client_id: app.appId,
-    client_secret: decryptSecret(app.appSecretCifrato),
+    client_secret: segreto,
     code,
   });
   const res = await fetch(`${GRAPH}/oauth/access_token?${params}`);
