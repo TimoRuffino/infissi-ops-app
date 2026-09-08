@@ -48,6 +48,18 @@ export function azzeraMemoriaAvvisiPerTest(): void {
   giornoDegliAvvisi = "";
 }
 
+/**
+ * Solo per i test, come sopra: i due insiemi «visti bloccati» (storage e
+ * Tars) vivono nel modulo e sopravvivono ai casi dello stesso file. Senza
+ * questo azzeramento un'azienda bloccata da un caso resta «da sbloccare» per
+ * i successivi, che finiscono per leggere la cronologia senza volerlo.
+ * Definita sotto i due `Set`, che sono dichiarati più giù.
+ */
+export function azzeraMemoriaBlocchiPerTest(): void {
+  bloccatiVisti.clear();
+  bloccatiTars.clear();
+}
+
 async function avvisaConsumi(input: {
   tenantId: number;
   tipo: TipoNotificaAzienda;
@@ -331,7 +343,13 @@ export function politicaTarsAzienda(): PoliticaTarsAzienda {
     async limite(tenantId, adesso) {
       const abbonamento = abbonamentoConBudget(tenantId);
       if (!abbonamento) return { limiteNano: null, bloccante: false };
-      const blocco = bloccoDa(abbonamento);
+      // Cintura e bretelle sul cambio mese: il reset vero lo fa
+      // `dopoPrenotazione` (azzera timbro e soglie alla prima chiamata del
+      // mese nuovo), ma finché quella non riesce un `tarsSoglia100Dal` armato
+      // a fine mese blocherebbe un budget appena rinnovato. Il timbro vale
+      // solo per il mese in cui è stato messo — `tarsSogliaMese` lo dice.
+      const timbroDelMese = abbonamento.tarsSogliaMese === meseLocale(adesso);
+      const blocco = timbroDelMese ? bloccoDa(abbonamento) : null;
       return {
         limiteNano: tettoDelMese(abbonamento, adesso),
         // Prima della tolleranza il tetto conta e avvisa, non blocca: chi ha

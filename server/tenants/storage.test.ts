@@ -81,6 +81,17 @@ describe("contabile dello storage", () => {
     expect((await repo.storageDi(2))?.soglia100Dal).toBeNull();
   });
 
+  // Ogni funzione che decide sul tempo riceve `adesso`: qui il timbro è
+  // l'inizio della tolleranza del WS4, e un ricalcolo o un test devono poter
+  // dire da quando.
+  it("applicaSoglie timbra soglia100Dal con l'istante ricevuto, non con l'orologio", async () => {
+    const repo = getTenantRepository();
+    const adesso = new Date("2026-09-08T09:00:00Z");
+    const stato = await repo.aggiornaStorage(2, 1000, 1); // 100 %
+    await applicaSoglie(stato, "sistema", adesso);
+    expect((await repo.storageDi(2))?.soglia100Dal?.toISOString()).toBe(adesso.toISOString());
+  });
+
   it("ricalcolaStorage somma size registrate e head delle anteprime, timbra e avvisa", async () => {
     // Mai `__resetPersistenzaPerTest()` in un file che importa i router: azzera
     // le famiglie registrate all'import. Si registra il tenant 2 e si puliscono gli array.

@@ -96,12 +96,11 @@ Registro completo, con implementer, reviewer e commit:
 | R17 | la migrazione dei record legacy (`fileStorageMigrate.ts`) rispetta il blocco della quota e si ferma alla prima `ErroreQuotaStorage`, con il messaggio una volta sola in `errori` e `interrotta: "quota"` nel rapporto | sposta ogni file con `putFile`, quindi il gancio la rifiuta: contare N `falliti` silenziosi la faceva sembrare «quasi riuscita» e ripartire uguale la volta dopo. `dataBase64` non si tocca mai: si cancella solo dopo una scrittura verificata | una run che sembra un elenco di guasti invece di un blocco solo; nessun byte a rischio in nessuno dei due casi |
 
 **Ancora aperti**, minori accettati dalle revisioni per task e registrati nel
-progress — alla chiusura del Task 9 non era stata fatta una revisione
-dell'intero branch, quindi nessuno di questi è passato da una fix wave finale.
-*Dominio:* `limite()` della politica Tars non applica il cambio di mese, quindi
-un `bloccante` armato a fine mese resta armato al primo del mese finché
-`dopoPrenotazione` non riesce (serve la guardia `tarsSogliaMese !== meseLocale
-→ bloccante: false`); una politica che lanciasse **in modo sincrono**
+progress; la revisione dell'intero branch e la fix wave finale ne hanno chiusi
+tre — la guardia del cambio mese in `limite()`, l'`adesso` iniettato in
+`applicaSoglie` e l'hook di azzeramento dei due insiemi «visti bloccati» — e
+questi sono quelli che restano.
+*Dominio:* una politica che lanciasse **in modo sincrono**
 sfuggirebbe al `.catch()` dei due punti del governor (igiene di contratto, oggi
 la sola implementazione è `async`); la finestra «ultimi 50 eventi» è condivisa
 da più famiglie di eventi e un tipo ad alta frequenza la renderebbe stretta;
@@ -120,8 +119,7 @@ dica «precondizione»; il testo che l'utente legge resta però quello giusto.
 *Notifiche:* il ripiego sulla prima sede attiva può scrivere una notifica su
 una sede che il destinatario non legge (prescritto dalla spec); titolo e corpo
 si costruiscono anche quando il memo del giorno li scarterà. *Test:*
-`bloccatiVisti` e `bloccatiTars` non hanno un hook di azzeramento (ce l'ha solo
-`avvisiDelGiorno`); nessun test di una proroga che riattiva un tenant sospeso
+nessun test di una proroga che riattiva un tenant sospeso
 (il ramo è condiviso con l'omaggio, che invece è provato); l'asserzione su
 `updatedAt` del repository non è stretta; non c'è un `CHECK` su
 `tars_soglia_avvisata` (come `sogliaAvvisata` del WS3). *CLI e scheda:*

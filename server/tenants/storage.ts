@@ -31,7 +31,11 @@ export function sogliaRaggiunta(bytes: number, quotaBytes: number): SogliaStorag
  * riarma, così un'azienda che libera spazio e lo riempie di nuovo riceve
  * un nuovo avviso.
  */
-export async function applicaSoglie(stato: StatoStorage, attore = "sistema"): Promise<SogliaStorage | null> {
+export async function applicaSoglie(
+  stato: StatoStorage,
+  attore = "sistema",
+  adesso = new Date()
+): Promise<SogliaStorage | null> {
   const repo = getTenantRepository();
   const raggiunta = sogliaRaggiunta(stato.bytes, stato.quotaBytes);
   // WS4 (quota che blocca, spec §6): la tolleranza dopo il 100 % si conta da
@@ -40,7 +44,7 @@ export async function applicaSoglie(stato: StatoStorage, attore = "sistema"): Pr
   // `storage_sbloccato` lo registra `quota.ts` quando rileva il cambio (solo
   // se l'azienda era davvero bloccata), non qui.
   if (raggiunta === 100 && !stato.soglia100Dal) {
-    await repo.impostaSoglia100Storage(stato.tenantId, new Date());
+    await repo.impostaSoglia100Storage(stato.tenantId, adesso);
   }
   if (raggiunta < 100 && stato.soglia100Dal) {
     await repo.impostaSoglia100Storage(stato.tenantId, null);

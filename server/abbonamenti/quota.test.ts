@@ -10,7 +10,14 @@ import { applicaSoglie } from "../tenants/storage";
 import type { StatoStorage } from "../tenants/tipi";
 import { MESSAGGI_ABBONAMENTO, meseLocale, TOLLERANZA_PREDEFINITA_GIORNI } from "./costanti";
 import * as notificheModule from "./notifiche";
-import { azzeraMemoriaAvvisiPerTest, bloccoStorage, politicaTarsAzienda, sogliaTars, verificaCaricamento } from "./quota";
+import {
+  azzeraMemoriaAvvisiPerTest,
+  azzeraMemoriaBlocchiPerTest,
+  bloccoStorage,
+  politicaTarsAzienda,
+  sogliaTars,
+  verificaCaricamento,
+} from "./quota";
 import { creaProva } from "./servizio";
 import type { Abbonamento } from "./tipi";
 
@@ -112,14 +119,15 @@ describe("bloccoStorage (puro)", () => {
 describe("verificaCaricamento", () => {
   beforeEach(async () => {
     delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    azzeraMemoriaBlocchiPerTest();
     resetTenantRepositoryForTesting();
     const repo = getTenantRepository();
     await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
     await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
-    // Tenant 3: riservato ai test R11 sulle letture (spy), mai bloccato
-    // altrove nel file — `bloccatiVisti` è un Set di modulo che sopravvive
-    // fra i test di questo file, quindi un id condiviso con un test che
-    // blocca e non sblocca falserebbe il conteggio delle letture.
+    // Tenant 3: usato dai test R11 sulle letture (spy). `bloccatiVisti` è un
+    // Set di modulo che sopravvivrebbe fra i test di questo file — lo azzera
+    // il `beforeEach` qui sopra — quindi un id già bloccato da un altro caso
+    // non falsa più il conteggio delle letture.
     await repo.inserisci({ id: 3, slug: "terza-r11", nome: "Terza R11" });
   });
 
@@ -269,6 +277,28 @@ describe("verificaCaricamento", () => {
     expect((await repo.eventi(1)).filter(e => e.tipo === "storage_soglia")).toHaveLength(1);
   });
 
+  it("azzeraMemoriaBlocchiPerTest dimentica i bloccati: nessuna lettura di eventi al giro dopo", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const repo = getTenantRepository();
+    await creaProva(3, T0, attore);
+    await repo.impostaQuotaStorage(3, 2 * GB);
+    await applicaSoglie(await repo.aggiornaStorage(3, 2 * GB, 1));
+
+    const dopoTolleranza = giorni(8);
+    vi.setSystemTime(dopoTolleranza);
+    expect(await verificaCaricamento(3, 10, dopoTolleranza)).not.toBeNull(); // ora è fra i `bloccatiVisti`
+
+    // L'azienda torna al 25 %: senza l'azzeramento il Set ricorderebbe il
+    // blocco e il giro successivo leggerebbe la cronologia per lo sblocco.
+    await applicaSoglie(await repo.aggiornaStorage(3, -(1.5 * GB), 0));
+    azzeraMemoriaBlocchiPerTest();
+
+    const eventiSpy = vi.spyOn(repo, "eventi");
+    expect(await verificaCaricamento(3, 10, dopoTolleranza)).toBeNull();
+    expect(eventiSpy).not.toHaveBeenCalled();
+    eventiSpy.mockRestore();
+  });
+
   it("avvisaConsumi: memo aggiunto solo quando notificaAzienda restituisce > 0", async () => {
     // Azzera il memo prima di iniziare
     azzeraMemoriaAvvisiPerTest();
@@ -339,6 +369,7 @@ describe("politicaTarsAzienda — limite", () => {
 
   beforeEach(async () => {
     delete process.env.FLAG_MULTI_AZIENDA;
+    azzeraMemoriaBlocchiPerTest();
     resetTenantRepositoryForTesting();
     const repo = getTenantRepository();
     await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
@@ -381,9 +412,13 @@ describe("politicaTarsAzienda — limite", () => {
   });
 
   it("bloccante solo OLTRE la tolleranza dal primo 100 %", async () => {
+    // `tarsSogliaMese` accompagna sempre il timbro: è `dopoPrenotazione` a
+    // scriverli insieme, e senza di lui la guardia del cambio mese (sotto)
+    // scarterebbe il timbro come stantio.
     await salva(2, {
       budgetTarsNanoMese: BUDGET,
       tolleranzaTarsGiorni: 7,
+      tarsSogliaMese: meseLocale(T0),
       tarsSoglia100Dal: giorni(-3),
     });
     expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: BUDGET, bloccante: false });
@@ -391,9 +426,27 @@ describe("politicaTarsAzienda — limite", () => {
     await salva(2, {
       budgetTarsNanoMese: BUDGET,
       tolleranzaTarsGiorni: 7,
+      tarsSogliaMese: meseLocale(T0),
       tarsSoglia100Dal: giorni(-8),
     });
     expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: BUDGET, bloccante: true });
+  });
+
+  // Cintura e bretelle: il reset vero lo fa `dopoPrenotazione` alla prima
+  // chiamata del mese nuovo, ma finché non riesce un `bloccante` armato a
+  // fine mese resterebbe armato sul budget appena rinnovato.
+  it("un timbro del mese scorso non blocca il mese nuovo", async () => {
+    await salva(2, {
+      budgetTarsNanoMese: BUDGET,
+      tolleranzaTarsGiorni: 7,
+      tarsSogliaMese: meseLocale(T0),
+      tarsSoglia100Dal: giorni(-8),
+    });
+    const primoDelMese = new Date("2026-10-01T09:00:00Z");
+    expect(await politicaTarsAzienda().limite(2, primoDelMese)).toEqual({
+      limiteNano: BUDGET,
+      bloccante: false,
+    });
   });
 });
 
@@ -423,6 +476,7 @@ describe("politicaTarsAzienda — dopoPrenotazione", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ now: T0, toFake: ["Date"] });
     delete process.env.FLAG_MULTI_AZIENDA;
+    azzeraMemoriaBlocchiPerTest();
     resetTenantRepositoryForTesting();
     const repo = getTenantRepository();
     await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
