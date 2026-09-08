@@ -57,6 +57,10 @@ export type CommessaMatchFic =
   // Aggancio deterministico su telefono, email, nome, indirizzo o identità
   // fiscale — la regola corrente (`ficMatch.ts`).
   | "automatico_segnali"
+  // Il cliente della fattura ha UNA sola commessa viva: è quella (08/09/2026,
+  // direzione: «l'ho fatta su Fatture in Cloud e nonostante ci fosse già una
+  // commessa riferimento Sica ne ha creata una nuova»).
+  | "automatico_cliente"
   | "automatico_fattura"
   // L'id del documento FiC coincide con una fattura già emessa dal CRM
   // (piano 2, fatturazione dal contratto): nasce collegata, salta il match
@@ -635,11 +639,14 @@ export function collegaFattureAutomatiche(sedeId: number): {
 export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
   create: number;
   existing: number;
+  /** Collegate a una commessa viva del cliente invece di crearne una nuova. */
+  collegateAlCliente: number;
   ambiguous: number;
   skipped: number;
 }> {
   let create = 0;
   let existing = 0;
+  let collegateAlCliente = 0;
   let ambiguous = 0;
   let skipped = 0;
   for (const fattura of ficFatture) {
@@ -690,6 +697,30 @@ export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
       });
     }
     fattura.clienteId = cliente.id;
+    // Una commessa nuova solo se il cliente non ne ha già una viva: creare
+    // il doppione di un lavoro in corso è peggio che lasciare la fattura
+    // scollegata (direzione 08/09/2026). Con più commesse vive non si
+    // indovina: la fattura resta da collegare e decide una persona.
+    const vive = getCommesseStore().filter(
+      (c: any) =>
+        (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
+        c.clienteId === cliente.id &&
+        !c.archivedAt &&
+        c.stato !== "archiviata"
+    );
+    if (vive.length === 1) {
+      fattura.commessaId = vive[0].id;
+      fattura.commessaMatch = "automatico_cliente";
+      fattura.collegataAMano = false;
+      fattura.pdfSync.stato = "in_attesa";
+      fattura.aggiornataAt = new Date();
+      collegateAlCliente++;
+      continue;
+    }
+    if (vive.length > 1) {
+      ambiguous++;
+      continue;
+    }
     const risultato = await createCommessaFromFic({
       sedeId,
       fatturaId: fattura.id,
@@ -708,8 +739,8 @@ export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
     if (risultato.creata) create++;
     else existing++;
   }
-  if (create > 0 || existing > 0) saveFicFatture();
-  return { create, existing, ambiguous, skipped };
+  if (create > 0 || existing > 0 || collegateAlCliente > 0) saveFicFatture();
+  return { create, existing, collegateAlCliente, ambiguous, skipped };
 }
 
 /**

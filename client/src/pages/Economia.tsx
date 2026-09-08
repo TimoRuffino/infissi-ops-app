@@ -206,7 +206,9 @@ function RigaFattura({ f }: { f: any }) {
                 ? "Manuale"
                 : f.commessaMatch === "automatico_fattura"
                   ? "Commessa creata da FiC"
-                  : "Automatico"}
+                  : f.commessaMatch === "automatico_cliente"
+                    ? "Commessa del cliente"
+                    : "Automatico"}
             </Badge>
             <Badge
               variant="outline"
@@ -438,14 +440,19 @@ function Fatture({ anno, abilitata }: { anno: number; abilitata: boolean }) {
   // sopra quante ne creerebbe, e non parte insieme al riallineamento.
   const creaCommesse = trpc.ficFatture.creaCommesseMancanti.useMutation({
     onSuccess: r => {
-      toast.success(
-        r.create > 0
-          ? `${r.create} commesse create · ${r.pattuitiAggiornati} pattuiti aggiornati`
-          : "Nessuna commessa da creare"
-      );
+      const pezzi = [
+        r.create > 0 ? `${r.create} commesse create` : null,
+        // Una fattura del cliente che ha già una commessa viva ci finisce
+        // dentro invece di far nascere un doppione (08/09/2026).
+        r.collegateAlCliente > 0
+          ? `${r.collegateAlCliente} collegate a una commessa che c'era già`
+          : null,
+        r.pattuitiAggiornati > 0 ? `${r.pattuitiAggiornati} pattuiti aggiornati` : null,
+      ].filter(Boolean);
+      toast.success(pezzi.length > 0 ? pezzi.join(" · ") : "Nessuna commessa da creare");
       if (r.ambiguous > 0) {
         toast.warning(
-          `${r.ambiguous} fatture hanno più clienti possibili: vanno decise a mano.`
+          `${r.ambiguous} fatture restano da collegare a mano: più clienti o più commesse possibili.`
         );
       }
       invalidaTutto();
