@@ -412,6 +412,85 @@ describe("aggiornaStatoFattura", () => {
     expect(esito.fattura.eiErrore).toBeNull();
   });
 
+  // §5.3: la seconda direzione. Una modifica fatta DENTRO Fatture in Cloud
+  // deve arrivare al CRM da sola, senza che nessuno prema niente.
+  describe("modifica fatta su Fatture in Cloud", () => {
+    const archivioFinto = {
+      putFile: async (collection: string, _p: number, _r: number, nome: string) => ({
+        storageKey: `${collection}/${nome}-nuovo`,
+        checksum: "checksum-finto",
+      }),
+    } as any;
+
+    async function sonda(f: Fattura, updatedAtDiFic: string | null, over: Record<string, unknown> = {}) {
+      const registro: ChiamataFic[] = [];
+      const client = creaClientFicFinto(
+        {
+          leggiDocumento: async () =>
+            documentoFicDa({ ei_status: "not_sent", updatedAt: updatedAtDiFic, ...over }),
+          scaricaXml: async () => Buffer.from("<xml/>", "utf-8"),
+          scaricaPdf: async () => Buffer.from("%PDF-1.4 finto\n%%EOF\n", "utf-8"),
+        },
+        registro
+      );
+      const esito = await aggiornaStatoFattura({
+        sedeId: SEDE,
+        id: f.id,
+        actorUserId: ATTORE,
+        repository,
+        now: () => ora,
+        client,
+        contesto: contestoFinto,
+        storage: archivioFinto,
+      });
+      return { esito, registro };
+    }
+
+    it("l'orologio di FiC è avanzato: evento, file riscaricati, orologio riallineato", async () => {
+      const f = await creaFatturaInviata({
+        stato: "emessa",
+        eiStatusFic: "not_sent",
+        ficUpdatedAt: "2026-09-04 10:00:00",
+      } as any);
+
+      const { esito, registro } = await sonda(f, "2026-09-07 18:00:00");
+
+      expect((await repository.eventi(SEDE, f.id)).map(e => e.tipo)).toContain("modificata_fic");
+      expect(esito.fattura.ficUpdatedAt).toBe("2026-09-07 18:00:00");
+      // L'archivio di prima descriveva un documento che non esiste più.
+      expect(registro.map(c => c.metodo)).toEqual(["leggiDocumento", "scaricaXml", "scaricaPdf"]);
+      expect(esito.fattura.xmlStorageKey).toContain("-nuovo");
+      expect(esito.fattura.pdfStorageKey).toContain("-nuovo");
+    });
+
+    it("l'orologio è fermo: niente evento e niente da riscaricare", async () => {
+      const f = await creaFatturaInviata({
+        stato: "emessa",
+        eiStatusFic: "not_sent",
+        ficUpdatedAt: "2026-09-04 10:00:00",
+      } as any);
+
+      const { esito, registro } = await sonda(f, "2026-09-04 10:00:00");
+
+      expect((await repository.eventi(SEDE, f.id)).map(e => e.tipo)).not.toContain("modificata_fic");
+      expect(registro.map(c => c.metodo)).toEqual(["leggiDocumento"]);
+      expect(esito.fattura.xmlStorageKey).toBe(f.xmlStorageKey);
+    });
+
+    it("i totali cambiati di là si vedono in eiErrore, senza toccare le nostre righe", async () => {
+      const f = await creaFatturaInviata({
+        stato: "emessa",
+        eiStatusFic: "not_sent",
+        ficUpdatedAt: "2026-09-04 10:00:00",
+      } as any);
+
+      const { esito } = await sonda(f, "2026-09-07 18:00:00", { amount_gross: 15999.99 });
+
+      expect(esito.fattura.eiErrore).toContain("Totali FiC diversi dai nostri");
+      expect(esito.fattura.totaleCent).toBe(f.totaleCent);
+    });
+  });
+
   it("solo l'XML manca: basta che uno dei due sia null per ritentare l'archivio", async () => {
     const XML_FINTO = Buffer.from("<xml/>", "utf-8");
     // pdfStorageKey e documentoId restano quelli (già presenti) di

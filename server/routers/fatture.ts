@@ -364,7 +364,16 @@ export const fattureRouter = router({
   // parte davvero allo SdI. Stessa capability del primo — la decisione in
   // chat è «A»: lo stesso operatore, un click dopo l'altro.
   inviaSdi: procedura
-    .input(z.object({ id: z.number().int(), revisione: z.number().int() }))
+    .input(
+      z.object({
+        id: z.number().int(),
+        revisione: z.number().int(),
+        // «Invia comunque» sullo scostamento dai totali di FiC (R49): il
+        // motivo lo pretende il servizio, non solo il router.
+        ignoraScostamento: z.boolean().optional(),
+        motivoScostamento: z.string().trim().min(1).max(500).optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       assicuraInterruttore("limiti");
       const sedeId = sedeCorrente(ctx);
@@ -377,7 +386,14 @@ export const fattureRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return await inviaAlloSdi({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione });
+        return await inviaAlloSdi({
+          sedeId,
+          id: input.id,
+          actorUserId: ctx.user.id,
+          revisione: input.revisione,
+          ignoraScostamento: input.ignoraScostamento === true,
+          motivoScostamento: input.motivoScostamento,
+        });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
       }

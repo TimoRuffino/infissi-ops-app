@@ -1252,6 +1252,100 @@ describe("i due passi: creaSuFic e inviaAlloSdi", () => {
     expect(esiti.filter(e => e.status === "rejected")).toHaveLength(1);
   });
 
+  // R49: lo scostamento blocca l'invio, non la creazione. È l'invio l'atto
+  // irreversibile; fermare la creazione lascerebbe l'operatore senza il
+  // documento da guardare, che è il motivo per cui la finestra esiste.
+  it("totali diversi da quelli di FiC: l'invio si ferma e non spedisce", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione, ...b.dip,
+      })
+    ).rejects.toThrow(/SCOSTAMENTO_FIC/);
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+    expect(
+      (await repository.perId(SEDE, fattura.id))!.stato
+    ).toBe("emessa");
+  });
+
+  it("«Invia comunque» con un motivo supera lo scostamento e lo registra", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    const esito = await inviaAlloSdi({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: primo.fattura.revisione,
+      ignoraScostamento: true,
+      motivoScostamento: "la commercialista ha corretto l'IVA su FiC",
+      ...b.dip,
+    });
+
+    expect(esito.fattura.stato).toBe("inviata");
+    expect(metodi(b.registro)).toContain("inviaEInvoice");
+    const scavalco = await evento(SEDE, fattura.id, "scavalco_scostamento");
+    expect(scavalco.payload).toMatchObject({
+      motivo: "la commercialista ha corretto l'IVA su FiC",
+    });
+  });
+
+  it("«Invia comunque» senza motivo non passa", async () => {
+    const { fattura } = await bozzaEmettibile();
+    const primo = await creaSuFic({
+      sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+    const b = banco(
+      copioneFelice(primo.fattura, {
+        leggiDocumento: async () =>
+          documentoFicDa(primo.fattura, {
+            ei_status: "not_sent",
+            amount_gross: primo.fattura.totaleCent / 100 + 25,
+          }),
+      }),
+      { dryRun: false }
+    );
+
+    await expect(
+      inviaAlloSdi({
+        sedeId: SEDE, id: fattura.id, actorUserId: ATTORE, revisione: primo.fattura.revisione,
+        ignoraScostamento: true, motivoScostamento: "   ", ...b.dip,
+      })
+    ).rejects.toThrow(/VALIDAZIONE/);
+    expect(metodi(b.registro)).not.toContain("inviaEInvoice");
+  });
+
   it("una fattura di un'altra sede non si spedisce: NOT_FOUND", async () => {
     const { fattura } = await bozzaEmettibile();
     const b = banco(copioneFelice(fattura), { dryRun: false });

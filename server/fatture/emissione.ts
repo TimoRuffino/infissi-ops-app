@@ -136,6 +136,51 @@ const STATI_INVIABILI = new Set<Fattura["stato"]>(["emessa", "inviata"]);
 /** Scarto ammesso per campo nel confronto con i totali di Fatture in Cloud. */
 const TOLLERANZA_CENT = 1;
 
+export type ScostamentoTotali = {
+  nostri: { imponibileCent: number; ivaCent: number; totaleCent: number };
+  fic: { imponibileCent: number; ivaCent: number; totaleCent: number };
+  testo: string;
+};
+
+/**
+ * I nostri totali contro quelli del documento su Fatture in Cloud, al cent
+ * di tolleranza. `null` quando coincidono. Puro: nessuna scrittura,
+ * nessuna decisione su cosa farne — chi chiama sceglie se fermarsi
+ * (creazione e invio) o solo dirlo (sonda).
+ */
+export function scostamentoTotali(
+  fattura: Pick<Fattura, "imponibileCent" | "ivaCent" | "totaleCent">,
+  documento: Pick<DocumentoFicCreato, "amount_net" | "amount_vat" | "amount_gross">
+): ScostamentoTotali | null {
+  const fic = {
+    imponibileCent: Math.round(documento.amount_net * 100),
+    ivaCent: Math.round(documento.amount_vat * 100),
+    totaleCent: Math.round(documento.amount_gross * 100),
+  };
+  const nostri = {
+    imponibileCent: fattura.imponibileCent,
+    ivaCent: fattura.ivaCent,
+    totaleCent: fattura.totaleCent,
+  };
+  const scarto = (a: number, b: number) => Math.abs(a - b) > TOLLERANZA_CENT;
+  if (
+    !scarto(fic.imponibileCent, nostri.imponibileCent) &&
+    !scarto(fic.ivaCent, nostri.ivaCent) &&
+    !scarto(fic.totaleCent, nostri.totaleCent)
+  ) {
+    return null;
+  }
+  return {
+    nostri,
+    fic,
+    testo:
+      `Totali FiC diversi dai nostri: imponibile ${centToEuro(fic.imponibileCent)} ` +
+      `contro ${centToEuro(nostri.imponibileCent)}, IVA ${centToEuro(fic.ivaCent)} ` +
+      `contro ${centToEuro(nostri.ivaCent)}, totale ${centToEuro(fic.totaleCent)} ` +
+      `contro ${centToEuro(nostri.totaleCent)}.`,
+  };
+}
+
 export function repo(dip?: DipendenzeEmissione): FattureRepository {
   return dip?.repository ?? getFattureRepository();
 }
@@ -727,28 +772,9 @@ export async function creaSuFic(
   if (!confrontoDaFare) {
     segna("confronto_totali", "saltato", `stato «${fattura.stato}»`);
   } else {
-    const doc = documento!;
-    const fic = {
-      imponibileCent: Math.round(doc.amount_net * 100),
-      ivaCent: Math.round(doc.amount_vat * 100),
-      totaleCent: Math.round(doc.amount_gross * 100),
-    };
-    const nostri = {
-      imponibileCent: fattura.imponibileCent,
-      ivaCent: fattura.ivaCent,
-      totaleCent: fattura.totaleCent,
-    };
-    const scarto = (a: number, b: number) => Math.abs(a - b) > TOLLERANZA_CENT;
-    if (
-      scarto(fic.imponibileCent, nostri.imponibileCent) ||
-      scarto(fic.ivaCent, nostri.ivaCent) ||
-      scarto(fic.totaleCent, nostri.totaleCent)
-    ) {
-      const testo =
-        `Totali FiC diversi dai nostri: imponibile ${centToEuro(fic.imponibileCent)} ` +
-        `contro ${centToEuro(nostri.imponibileCent)}, IVA ${centToEuro(fic.ivaCent)} ` +
-        `contro ${centToEuro(nostri.ivaCent)}, totale ${centToEuro(fic.totaleCent)} ` +
-        `contro ${centToEuro(nostri.totaleCent)}.`;
+    const scostamento = scostamentoTotali(fattura, documento!);
+    if (scostamento) {
+      const { nostri, fic, testo } = scostamento;
       fattura = await repository.aggiornaStato({
         sedeId: input.sedeId,
         id: fattura.id,
@@ -917,6 +943,10 @@ export async function inviaAlloSdi(
     id: number;
     actorUserId: number | null;
     revisione: number;
+    /** «Invia comunque»: l'operatore accetta che i totali di FiC non siano i nostri. */
+    ignoraScostamento?: boolean;
+    /** Obbligatorio con `ignoraScostamento`: un registro senza motivo non spiega niente. */
+    motivoScostamento?: string;
   } & DipendenzeEmissione
 ): Promise<{ fattura: Fattura; passi: EsitoPasso[] }> {
   const repository = repo(input);
@@ -1024,6 +1054,40 @@ export async function inviaAlloSdi(
     now,
   });
   segna("documento_fic", "fatto", `riletto (#${ficDocumentId})`);
+
+  // ── confronto dei totali ──────────────────────────────────────────────
+  // R49: qui blocca, alla creazione no. È l'invio l'atto irreversibile.
+  const scostamento = scostamentoTotali(fattura, documento);
+  if (scostamento && !input.ignoraScostamento) {
+    fattura = await repository.aggiornaStato({
+      sedeId: input.sedeId,
+      id: fattura.id,
+      patch: { eiErrore: scostamento.testo },
+      now,
+    });
+    await eventoDi("errore_totali", {
+      nostri: scostamento.nostri,
+      fic: scostamento.fic,
+    });
+    segna("confronto_totali", "errore", scostamento.testo);
+    throw new Error(`SCOSTAMENTO_FIC: ${scostamento.testo}`);
+  }
+  if (scostamento) {
+    const motivo = (input.motivoScostamento ?? "").trim();
+    if (!motivo) {
+      throw new Error(
+        "VALIDAZIONE: indica il motivo per cui la fattura parte lo stesso con totali diversi da quelli di Fatture in Cloud."
+      );
+    }
+    await eventoDi("scavalco_scostamento", {
+      motivo,
+      nostri: scostamento.nostri,
+      fic: scostamento.fic,
+    });
+    segna("confronto_totali", "saltato", `scavalcato: ${motivo}`);
+  } else {
+    segna("confronto_totali", "fatto");
+  }
 
   // ── verifica dell'XML ─────────────────────────────────────────────────
   if (fattura.stato === "inviata") {

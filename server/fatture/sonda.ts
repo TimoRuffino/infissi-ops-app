@@ -19,6 +19,7 @@ import {
   contestoFicPerSede,
   messaggio,
   repo,
+  scostamentoTotali,
   type DipendenzeEmissione,
 } from "./emissione";
 
@@ -111,14 +112,43 @@ export async function aggiornaStatoFattura(
     eiErroreSdi = await client.motivoScarto(ctx, fattura.ficDocumentId);
   }
 
+  // La seconda direzione del sync (§5.3): se l'orologio di Fatture in
+  // Cloud è avanzato, di là qualcuno ha messo mano al documento. Le nostre
+  // righe NON si toccano (R48) — restano il documento del «perché» — ma
+  // l'archivio va rifatto e lo scostamento va detto.
+  const modificataDiLa =
+    fattura.ficUpdatedAt != null &&
+    documento.updatedAt != null &&
+    documento.updatedAt !== fattura.ficUpdatedAt;
+
   fattura = await repository.aggiornaStato({
     sedeId: input.sedeId,
     id: fattura.id,
-    patch: cambiato
-      ? { eiStatusFic: eiStatus, stato: mappa.stato! }
-      : { eiStatusFic: eiStatus },
+    patch: {
+      ...(cambiato
+        ? { eiStatusFic: eiStatus, stato: mappa.stato! }
+        : { eiStatusFic: eiStatus }),
+      ficUpdatedAt: documento.updatedAt,
+      ...(modificataDiLa
+        ? { xmlStorageKey: null, xmlSha256: null, pdfStorageKey: null }
+        : {}),
+    },
     now,
   });
+
+  const scostamento = scostamentoTotali(fattura, documento);
+  if (modificataDiLa) {
+    await repository.appendEvento({
+      fatturaId: fattura.id,
+      sedeId: input.sedeId,
+      tipo: "modificata_fic",
+      payload: {
+        ficUpdatedAt: documento.updatedAt,
+        ...(scostamento ? { nostri: scostamento.nostri, fic: scostamento.fic } : {}),
+      },
+      actorUserId: input.actorUserId,
+    });
+  }
 
   if (cambiato) {
     await repository.appendEvento({
@@ -153,7 +183,9 @@ export async function aggiornaStatoFattura(
     id: fattura.id,
     patch: {
       eiErrore:
-        [eiErroreSdi, ...problemiArchivio].filter(Boolean).join(" ") || null,
+        [eiErroreSdi, scostamento?.testo ?? null, ...problemiArchivio]
+          .filter(Boolean)
+          .join(" ") || null,
     },
     now,
   });
