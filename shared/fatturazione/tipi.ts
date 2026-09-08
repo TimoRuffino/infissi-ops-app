@@ -244,7 +244,7 @@ export const FATTURAZIONE_CONFIG_DEFAULT = {
  * documento allo SdI è già stato consegnato o ci sta andando, e da lì si
  * corregge solo con una nota di credito.
  */
-const EI_NON_PARTITA: ReadonlySet<string> = new Set(["", "not_sent", "missing"]);
+export const EI_NON_PARTITA: ReadonlySet<string> = new Set(["", "not_sent", "missing"]);
 
 /**
  * Fino a dove si può correggere (R46, 08/09/2026). Prima erano gli stati:

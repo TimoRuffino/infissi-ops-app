@@ -15,6 +15,7 @@
 // arriva.
 import { kvSql } from "../_core/persistence";
 import {
+  EI_NON_PARTITA,
   FATTURAZIONE_CONFIG_DEFAULT,
   type Aliquota,
   type ClienteSnapshot,
@@ -112,6 +113,12 @@ export type FiltroFatture = {
   stati?: StatoFattura[];
   tipo?: TipoFattura;
   limite?: number;
+  /**
+   * Solo le fatture nella finestra fra Fatture in Cloud e SdI: create là,
+   * non ancora spedite. Il filtro sta nel server perché col tetto di righe
+   * un filtro a valle conterebbe le fatture sbagliate.
+   */
+  daInviareSdi?: boolean;
 };
 
 export type FattureRepository = {
@@ -296,10 +303,14 @@ export function createMemoryFattureRepository(): FattureRepository {
         .sort((a, b) => b.id - a.id)
         .map(f => ({ ...clona(f), righe: [], riepilogo: [], scadenze: [] }));
     },
-    async lista({ sedeId, stati, tipo, limite }) {
+    async lista({ sedeId, stati, tipo, limite, daInviareSdi }) {
       return [...fatture.values()]
         .filter(
           f =>
+            (!daInviareSdi ||
+              (f.stato === "emessa" &&
+                f.ficDocumentId != null &&
+                EI_NON_PARTITA.has(f.eiStatusFic ?? ""))) &&
             f.sedeId === sedeId &&
             (!stati || stati.includes(f.stato)) &&
             (!tipo || f.tipo === tipo)
@@ -856,15 +867,21 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         ORDER BY id DESC`;
       return rows.map(row => rowToFattura(row, [], [], []));
     },
-    async lista({ sedeId, stati, tipo, limite }) {
+    async lista({ sedeId, stati, tipo, limite, daInviareSdi }) {
       await ensureSchema();
       const statiFiltro = stati ?? [];
+      const nonPartita = [...EI_NON_PARTITA].filter(Boolean);
       // Una sola query su `fatture`, nessun join alle righe: le liste non
       // le mostrano, e leggerle per ogni riga sarebbe uno spreco puro.
       const rows = await sql`SELECT * FROM fatture
         WHERE sede_id = ${sedeId}
           AND (${statiFiltro.length === 0} OR stato IN ${sql(statiFiltro)})
           AND (${tipo === undefined} OR tipo = ${tipo ?? null})
+          AND (${daInviareSdi !== true} OR (
+            stato = 'emessa'
+            AND fic_document_id IS NOT NULL
+            AND (ei_status_fic IS NULL OR ei_status_fic IN ${sql(nonPartita)})
+          ))
         ORDER BY id DESC
         LIMIT ${limite ?? 200}`;
       return rows.map(row => rowToFattura(row, [], [], []));

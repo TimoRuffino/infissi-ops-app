@@ -498,6 +498,8 @@ export const fattureRouter = router({
         stati: z.array(z.enum(STATI_FATTURA)).optional(),
         tipo: z.enum(TIPI_FATTURA).optional(),
         limite: z.number().int().min(1).max(200).optional(),
+        /** Solo quelle nella finestra: su Fatture in Cloud e non ancora spedite. */
+        daInviareSdi: z.boolean().optional(),
       })
     )
     .query(async ({ input, ctx }) => {
@@ -516,6 +518,7 @@ export const fattureRouter = router({
         stati: input.stati,
         tipo: input.tipo,
         limite: input.limite,
+        daInviareSdi: input.daInviareSdi,
       });
       return elenco.map(f => {
         const commessa: any = getCommessaById(f.commessaId);

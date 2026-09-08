@@ -556,6 +556,26 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
   // confronto dei totali — ci finiscono dentro gli importi. Il fascicolo
   // sta al pavimento `commessa.read`: la coda avviso è una frase FISSA
   // che rimanda alla tab Fattura, mai il messaggio vero.
+  // §7.3: il contatore anche qui, perché il fascicolo è dove Tars guarda.
+  // Nessun importo: solo quanti giorni restano.
+  it("Caso 1-bis: una fattura ferma su FiC porta i giorni che restano, senza importi", async () => {
+    process.env.FLAG_FATTURAZIONE = "on";
+    process.env.FLAG_LIMITI = "on";
+    const { fattura, commessaId } = await bozzaFatturabile(SEDE);
+    const esito = await emettiInDryRun(fattura, SEDE);
+    // La data del documento finto è il 04/09: a metà settembre ne restano pochi.
+    await getFattureRepository().aggiornaStato({
+      sedeId: SEDE,
+      id: esito.fattura.id,
+      patch: { eiStatusFic: "not_sent", eiErrore: null },
+      now: ORA_FATTURE,
+    });
+
+    const f = await fascicoloCommessa({ sedeId: SEDE, commessaId });
+    expect(f!.fatturazione[0]).toMatch(/giorn[oi] per lo SdI|Scaduta da/);
+    expect(JSON.stringify(f!.fatturazione)).not.toContain("€");
+  });
+
   it("Caso 6 (anti-leak): un eiErrore con dentro un importo non arriva mai nel fascicolo", async () => {
     process.env.FLAG_FATTURAZIONE = "on";
     process.env.FLAG_LIMITI = "on";

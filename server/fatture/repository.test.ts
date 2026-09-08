@@ -150,6 +150,28 @@ describe("repository fatture (memoria)", () => {
     expect(dopoStato.clienteSnapshot?.praticaEdilizia).toBe("nessuna");
   });
 
+  // §7.2: la Cassa deve poter chiedere «cosa mi resta da spedire». Il
+  // filtro sta nel server, non nel client: col tetto di 50 righe un
+  // filtro a valle conterebbe le fatture sbagliate.
+  it("lista sa chiedere solo le fatture da inviare allo SdI", async () => {
+    const daInviare = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({
+      sedeId: 1, id: daInviare.id,
+      patch: { stato: "emessa", ficDocumentId: 11, eiStatusFic: "not_sent" }, now: ora,
+    });
+    const partita = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+    await repo.aggiornaStato({
+      sedeId: 1, id: partita.id,
+      patch: { stato: "emessa", ficDocumentId: 12, eiStatusFic: "sent" }, now: ora,
+    });
+    await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
+
+    const lista = await repo.lista({ sedeId: 1, daInviareSdi: true });
+    expect(lista.map(f => f.id)).toEqual([daInviare.id]);
+    // Nella sede sbagliata non esiste.
+    expect(await repo.lista({ sedeId: 2, daInviareSdi: true })).toEqual([]);
+  });
+
   it("lista filtra per stato e tipo, più recente prima", async () => {
     const a = await repo.crea({ fattura: fattura(), righe: [], riepilogo: [], scadenze: [], now: ora });
     const b = await repo.crea({ fattura: { ...fattura(), tipo: "nota_credito", notaCreditoDi: a.id }, righe: [], riepilogo: [], scadenze: [], now: new Date(ora.getTime() + 1000) });
