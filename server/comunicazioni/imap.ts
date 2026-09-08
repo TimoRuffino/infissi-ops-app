@@ -178,8 +178,11 @@ async function elaboraMessaggio(params: {
   clienti: any[];
   commesse: any[];
   durevole: boolean;
+  /** "out" per la cartella degli inviati: il fascicolo ha due lati. */
+  direzione?: "in" | "out";
 }): Promise<boolean> {
   const { casella, uid, clienti, commesse, durevole } = params;
+  const direzione = params.direzione ?? "in";
   const parsed: any = await simpleParser(params.source);
   const mittente = parsed.from?.value?.[0]?.address?.toLowerCase() ?? "";
   const oggetto = (parsed.subject ?? "").toString();
@@ -217,7 +220,20 @@ async function elaboraMessaggio(params: {
     allegati.push(record);
   }
 
-  const match = matchComunicazione({ mittente, oggetto, testo, clienti, commesse });
+  // In uscita il mittente siamo noi: la controparte da riconoscere è il
+  // destinatario, altrimenti ogni messaggio inviato si collegherebbe a
+  // nessuno (o peggio, a noi stessi).
+  const controparte =
+    direzione === "out"
+      ? (indirizzi(parsed.to)[0] ?? mittente)
+      : mittente;
+  const match = matchComunicazione({
+    mittente: controparte,
+    oggetto,
+    testo,
+    clienti,
+    commesse,
+  });
   const receivedAt =
     parsed.date ?? params.internalDate ?? new Date();
 
@@ -227,7 +243,7 @@ async function elaboraMessaggio(params: {
     messageId,
     uid,
     canale: "email",
-    direzione: "in",
+    direzione,
     mittente,
     mittenteNome: parsed.from?.value?.[0]?.name ?? null,
     destinatari: [...indirizzi(parsed.to), ...indirizzi(parsed.cc)],
@@ -238,8 +254,10 @@ async function elaboraMessaggio(params: {
     commessaId: match.commessaId,
     matchConfidenza: match.confidenza,
     matchMotivo: match.motivo,
-    stato: "nuova",
-    tarsAnalizzata: èStorica(receivedAt),
+    // Un messaggio partito da noi non è lavoro in arrivo: entra già
+    // gestito, e serve come memoria di cosa è stato mandato a chi.
+    stato: direzione === "out" ? "gestita" : "nuova",
+    tarsAnalizzata: direzione === "out" || èStorica(receivedAt),
     segnaliFiltro: {
       spamStatus: headerTesto(parsed, "x-spam-status"),
       spamFlag: headerTesto(parsed, "x-spam-flag"),
@@ -356,6 +374,77 @@ export async function sincronizzaCasella(casella: Casella): Promise<EsitoSync> {
           e?.message ?? e
         );
         esito.saltate++;
+      }
+    }
+
+    // ── Il lato in uscita del fascicolo (punto 30 del piano 08/09/2026).
+    // Stessa connessione, stessa logica incrementale, altra cartella. Vive
+    // solo se la casella dichiara `cartellaInviati`: leggere gli inviati
+    // cambia cosa entra nel CRM, e si accende una casella alla volta.
+    if (casella.cartellaInviati) {
+      try {
+        const boxOut = await client.mailboxOpen(casella.cartellaInviati, {
+          readOnly: true,
+        });
+        const dopoOut = casella.ultimoUidInviati ?? null;
+        let rangeOut: string | number[];
+        if (dopoOut != null) {
+          rangeOut = `${dopoOut + 1}:*`;
+        } else {
+          const since = new Date(Date.now() - PRIMA_SYNC_GIORNI * 86_400_000);
+          const uids = await client.search({ since }, { uid: true });
+          rangeOut = (Array.isArray(uids) ? uids : [])
+            .sort((a, b) => a - b)
+            .slice(-MAX_BACKFILL);
+        }
+        let maxUidOut = dopoOut ?? 0;
+        let vistiOut = 0;
+        const daLeggereOut: Array<string | number[]> =
+          Array.isArray(rangeOut) && rangeOut.length === 0 ? [] : [rangeOut];
+        for (const r of daLeggereOut)
+          for await (const msg of client.fetch(
+            r as any,
+            { uid: true, source: true, envelope: true, internalDate: true },
+            { uid: true }
+          )) {
+            if (vistiOut >= MAX_PER_SYNC) break;
+            vistiOut++;
+            const uidOut = msg.uid ?? 0;
+            if (uidOut > maxUidOut) maxUidOut = uidOut;
+            if ((dopoOut != null && uidOut <= dopoOut) || !msg.source) {
+              esito.saltate++;
+              continue;
+            }
+            try {
+              const inserita = await elaboraMessaggio({
+                casella,
+                uid: uidOut,
+                source: msg.source,
+                internalDate: msg.internalDate ? new Date(msg.internalDate as any) : null,
+                clienti,
+                commesse,
+                durevole,
+                direzione: "out",
+              });
+              if (inserita) esito.importate++;
+              else esito.saltate++;
+            } catch (e: any) {
+              console.warn(
+                `[imap] inviato uid ${uidOut} non elaborato:`,
+                e?.message ?? e
+              );
+              esito.saltate++;
+            }
+          }
+        casella.ultimoUidInviati = maxUidOut > 0 ? maxUidOut : casella.ultimoUidInviati;
+        void boxOut;
+      } catch (e: any) {
+        // La cartella degli inviati che non si apre non deve far fallire
+        // la posta in arrivo: si annota e si va avanti.
+        console.warn(
+          `[imap] ${casella.indirizzo}: cartella inviati «${casella.cartellaInviati}» non leggibile:`,
+          e?.message ?? e
+        );
       }
     }
 

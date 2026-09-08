@@ -98,6 +98,13 @@ export type PropostaAnalisi = {
   /** La più debole fra le fiducie dei fatti che la proposta cita. */
   fiducia?: FiduciaFatto;
   /**
+   * Il testo pronto da mandare, quando la proposta è un sollecito o una
+   * richiesta a qualcuno (punto 11 del piano 08/09/2026, decisione della
+   * direzione: Tars scrive, una persona legge e preme invia). Tars non
+   * invia niente: questa è una bozza da copiare.
+   */
+  bozza?: string | null;
+  /**
    * Le cifre: le vede **solo la direzione** (decisione 08/09/2026), e
    * `esitoVisibileA` le toglie a tutti gli altri. Il segnale «sotto
    * margine» invece sta nella fotografia e lo legge chiunque.

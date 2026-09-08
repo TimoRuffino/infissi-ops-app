@@ -8,6 +8,22 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — il fascicolo prende il secondo lato** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punti 30 e
+> 11; PRD §54.16). La **posta inviata** entra nel CRM come quella in
+> arrivo: `Casella.cartellaInviati` (null = spenta) e `ultimoUidInviati`,
+> stessa connessione e stessa logica incrementale, messaggi con
+> `direzione: "out"`, controparte = destinatario, stato «gestita», fuori
+> dalla coda di smistamento. Un errore sulla cartella degli inviati non fa
+> fallire la posta in arrivo. **Parte spenta su ogni casella**: si accende
+> una alla volta da `mail.caselle.update` con `cartellaInviati` (di norma
+> «INBOX.Sent» su cPanel) — **da fare in produzione, casella per casella**.
+> L'**invio dal CRM** (l'altra metà della decisione D5) è progettato ma non
+> costruito: richiede credenziali SMTP, operazione esterna non eseguita. E
+> le **bozze**: una proposta che chiede qualcosa a qualcuno porta il testo
+> pronto, senza importi, da leggere e mandare a mano — Tars non invia
+> niente. Prompt `analisi-v19`.
+
 > **Novità 08/09/2026 (sera) — il cerchio si chiude** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco E;
 > PRD §54.15). Sette voci: il **consuntivo di ieri** (quante proposte, quante

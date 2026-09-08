@@ -61,6 +61,7 @@ const schemaEsitoModello = z.object({
         testo: z.string(),
         richiestaPerTars: z.string(),
         fonte: z.string().nullable().default(null),
+        bozza: z.string().max(1200).nullable().default(null),
         entita: z.array(z.string()),
         azione: z
           .object({ strumento: z.string(), input: z.string().max(2000) })
@@ -181,6 +182,9 @@ export function verificaEsito(
             : testo,
         richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
         fonte: verificaFonte(p.fonte),
+        // La bozza passa dallo stesso pavimento economico del resto: un
+        // importo inventato in un messaggio al cliente è peggio che altrove.
+        bozza: p.bozza?.trim() ? senzaImportiEuro(p.bozza).trim().slice(0, 1200) : null,
         fiducia,
         ...entita,
         azione: verificaAzione(p.azione),
