@@ -4,10 +4,10 @@ import * as persistenza from "../_core/persistence";
 // `avviaRicalcoloStorageIniziale` (Task 4) legge con `storeDi`.
 import "../routers";
 import { getSediStore } from "../routers/sedi";
-// WS4 (Task 3): `completaTenants` avvia il worker degli abbonamenti nel ramo
-// acceso — va fermato fra un test e l'altro come `fermaTenants` qui sotto,
-// altrimenti il suo intervallo (creato sotto i timer finti di un test) resta
-// vivo per i test successivi del file.
+// WS4 (Task 3 fix round 1, Ruling R7): `completaTenants` NON avvia più il
+// worker degli abbonamenti — parte solo dopo il `listen`, in
+// `_core/index.ts` (mai dal boot, testato in questo file). Il fermo resta
+// qui come rete di sicurezza pura, senza effetto pratico sui test sotto.
 import { fermaWorkerAbbonamenti } from "../abbonamenti/worker";
 import {
   avviaBackfillTabelleTenant,

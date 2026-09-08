@@ -96,8 +96,13 @@ describe("crea", () => {
     expect(getTenantRepository().perSlug("altra")).toBeNull();
   });
 
-  it("tenant esistente senza sedi: completa sede e proprietario, senza un secondo evento creato (Important 4)", async () => {
+  it("tenant esistente senza sedi: completa sede, proprietario e la prova mancante, senza un secondo evento creato (Important 4; Task 3 fix round 1, Ruling R8)", async () => {
     const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: in un repo appena azzerato il primo tenant
+    // creato prenderebbe proprio l'id 1 (il tenant "intoccabile"), come già
+    // annotato più sotto in questo file per `ripristina_archivi` e
+    // `imposta_abbonamento`.
+    await repo.assicuraTenantPredefinito();
     const preesistente = await repo.inserisci({ slug: "acme", nome: "Acme Infissi" });
     const esito = await crea(inputAcme(), script);
     expect(esito.creatoOra).toBe(false);
@@ -108,7 +113,12 @@ describe("crea", () => {
     expect(utente.tenantId).toBe(preesistente.id);
     const eventi = await repo.eventi(preesistente.id);
     // Nessun evento "creato": la riga tenant non è nata in questa chiamata.
-    expect(eventi.map(e => e.tipo)).toEqual(["proprietario_assegnato"]);
+    // "abbonamento_creato" invece sì: il tenant esisteva già ma senza una
+    // prova (mai passato da `crea` prima d'ora, inserito qui a mano) — `crea`
+    // la semina comunque, non solo per un tenant nuovo (R8: nessun tenant
+    // deve restare senza abbonamento).
+    expect(eventi.map(e => e.tipo)).toEqual(["abbonamento_creato", "proprietario_assegnato"]);
+    expect(repo.abbonamentoDi(preesistente.id)?.stato).toBe("trialing");
   });
 
   it("un commit fallito ripristina sedi e utenti spinti in questo giro; l'evento creato resta (Important 4)", async () => {
@@ -402,5 +412,115 @@ describe("eseguiComandiInAttesa", () => {
     });
     expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 1 });
     expect((await repo.comando(comando.id))?.esito).toMatchObject({ errore: expect.stringMatching(/non-esiste/) });
+  });
+
+  it("imposta_abbonamento: proroga, extra_tars, tolleranze, disdetta e budget_tars con eur null (Task 3 fix round 1, copertura comandi)", async () => {
+    const T0 = new Date("2026-09-08T09:00:00Z");
+    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: `proroga` e `disdetta` rifiutano il tenant 1
+    // (`nonIlTenant1`), e in un repo appena azzerato il primo tenant creato
+    // prenderebbe proprio quell'id, come già annotato più sopra in questo
+    // file.
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const proroga = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "proroga", slug: "acme", motivo: "cortesia", giorni: 10 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(proroga.id))?.stato).toBe("eseguito");
+    // La prova nasce con `finePeriodo` a T0+30gg (creaProva): è ancora nel
+    // futuro rispetto a T0, quindi "il più tardi fra fine e adesso" è la
+    // fine, e la proroga di 10 giorni si somma a quella (non a T0).
+    expect(repo.abbonamentoDi(tenant.id)?.finePeriodo?.toISOString()).toBe(
+      new Date(T0.getTime() + 40 * 86_400_000).toISOString()
+    );
+
+    const extraTars = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "extra_tars", slug: "acme", eur: 5 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(extraTars.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.extraTarsNano).toBe(eurInNano(5));
+
+    const tolleranze = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "tolleranze", slug: "acme", storage: 3, tars: 9 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(tolleranze.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)).toMatchObject({ tolleranzaStorageGiorni: 3, tolleranzaTarsGiorni: 9 });
+
+    const disdetta = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "disdetta", slug: "acme", disdetta: true },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(disdetta.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.disdettaAFinePeriodo).toBe(true);
+
+    const budgetNullo = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "budget_tars", slug: "acme", eur: null },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(budgetNullo.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.budgetTarsNanoMese).toBeNull();
+  });
+
+  it("creaProva fallita una volta: il comando crea finisce in errore col tenant senza abbonamento; lo stesso slug riparato al rilancio (Task 3 fix round 1, Ruling R8)", async () => {
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: come già annotato più sopra in questo file,
+    // altrimenti "acme" prenderebbe proprio quell'id in un repo azzerato.
+    await repo.assicuraTenantPredefinito();
+    vi.spyOn(repo, "salvaAbbonamento").mockRejectedValueOnce(new Error("guasto"));
+
+    const primo = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: inputAcme(),
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 1 });
+    expect((await repo.comando(primo.id))?.stato).toBe("errore");
+    const tenant = repo.perSlug("acme");
+    // La riga tenant resta (nasce PRIMA di `creaProva`): solo l'abbonamento
+    // manca, perché `salvaAbbonamento` è fallito proprio lì dentro.
+    expect(tenant).not.toBeNull();
+    expect(repo.abbonamentoDi(tenant!.id)).toBeNull();
+    expect((await repo.eventi(tenant!.id)).map(e => e.tipo)).toEqual(["creato", "comando_fallito"]);
+    // Il fallimento è avvenuto PRIMA della transazione di sede/utente: questo
+    // primo giro non ne ha creata nessuna.
+    expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
+    expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
+
+    // Rilancio dello stesso comando (stesso slug): `crea` è idempotente per
+    // slug, `creaProva` non è più fallita (la mock era "once") e ripara
+    // l'abbonamento mancante senza duplicare né la riga tenant né sede/utente.
+    const secondo = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: inputAcme(),
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(secondo.id))?.stato).toBe("eseguito");
+    expect(repo.perSlug("acme")?.id).toBe(tenant!.id);
+    expect(repo.abbonamentoDi(tenant!.id)?.stato).toBe("trialing");
+    expect(sedi.filter(s => s.tenantId === tenant!.id).length).toBe(1);
+    expect(utenti.filter((u: any) => u.tenantId === tenant!.id).length).toBe(1);
   });
 });

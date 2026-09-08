@@ -445,8 +445,9 @@ async function startServer() {
     // Il ledger dello storage (WS3) si popola in sottofondo, una volta per
     // azienda: dopo, lo tengono aggiornato put e delete.
     void avviaRicalcoloStorageIniziale(tenantIds);
-    // Il worker degli abbonamenti (WS4 §4.1): subito un giro, poi ogni 6 ore;
-    // a interruttore spento non fa nulla (se lo verifica da sé).
+    // Il worker degli abbonamenti parte QUI, dopo il listen (spec §4.1), mai
+    // dal boot: subito un giro, poi ogni 6 ore; a interruttore spento non fa
+    // nulla (se lo verifica da sé).
     avviaWorkerAbbonamenti();
   });
 }

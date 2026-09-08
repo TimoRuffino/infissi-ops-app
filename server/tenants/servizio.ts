@@ -90,16 +90,25 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
       attore: attoreTesto(attore),
       dettagli: { slug: input.slug, nome: input.nome },
     });
-    // Prova gratuita di 30 giorni (WS4 spec §4): un fatto del tenant tanto
-    // quanto l'evento appena sopra, quindi nasce qui e non dopo la
-    // transazione di sede/utente — se quella fallisse la prova resterebbe
-    // comunque. Import dinamico: `abbonamenti/servizio.ts` importa
-    // `sospendi`/`riattiva` da QUESTO file, e un import statico chiuderebbe
-    // il ciclo fra i due moduli (come `ripristina_archivi` più sotto).
-    const { creaProva } = await import("../abbonamenti/servizio");
-    await creaProva(tenant.id, new Date(), attore);
   }
   const tenantId = tenant.id;
+  // Prova gratuita di 30 giorni (WS4 spec §4), SEMPRE — anche per un tenant
+  // già esistente (comando `crea` idempotente per lo stesso slug), non solo
+  // per quello appena inserito qui sopra (Task 3 fix round 1, Ruling R8): un
+  // tenant non deve mai restare senza abbonamento. `creaProva` è idempotente
+  // (ritorna la riga esistente se c'è già), quindi se un giro precedente di
+  // `crea` fosse arrivato fin qui e avesse fallito PROPRIO su `creaProva`
+  // (es. un guasto del repository), rilanciare `crea` con lo stesso slug
+  // ripara l'abbonamento mancante senza duplicare nulla (né una seconda riga
+  // `tenants`, né una seconda sede o utente, che restano sotto la
+  // transazione qui sotto). Prima della transazione di sede/utente: se
+  // quella fallisse la prova resterebbe comunque, come l'evento `creato`
+  // sopra per un tenant nuovo. Import dinamico: `abbonamenti/servizio.ts`
+  // importa `sospendi`/`riattiva` da QUESTO file, e un import statico
+  // chiuderebbe il ciclo fra i due moduli (come `ripristina_archivi` più
+  // sotto).
+  const { creaProva } = await import("../abbonamenti/servizio");
+  await creaProva(tenantId, new Date(), attore);
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
   let utenteCreato = false;
   // Riferimenti a ciò che QUESTO giro spinge negli array vivi: se il commit
