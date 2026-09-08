@@ -321,6 +321,8 @@ describe("buildBackupTree per tenant (Task 10)", () => {
     expect(nomi).toContain("database/clienti.json");
     expect(nomi.some(n => n.startsWith("database/tenant:"))).toBe(false);
     expect(nomi).not.toContain("database/backup_log.json");
+    // Il refresh token cifrato del Drive non viaggia verso il Drive stesso.
+    expect(nomi).not.toContain("database/backup_oauth.json");
     expect(nomi.some(n => n.startsWith("Sede Sarzana/"))).toBe(false);
 
     const utentiJson = JSON.parse(

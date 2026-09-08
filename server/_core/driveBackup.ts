@@ -646,6 +646,39 @@ async function driveCreateFolder(
   return ((await res.json()) as any).id;
 }
 
+/**
+ * I figli di una cartella su Drive (WS3 §4.4, ripristino): la `q` è costruita
+ * come in `driveFindFolder`, ma qui serve la lista intera — i `<nome>.json`
+ * di `database/` — non il primo id. Passa da `driveFetch`, quindi eredita i
+ * ritentativi sui 429/503 di Drive.
+ */
+export async function driveElencaFigli(
+  token: string,
+  parentId: string,
+  filtro: { nome?: string; soloCartelle?: boolean } = {}
+): Promise<Array<{ id: string; name: string; mimeType: string }>> {
+  const parti = [`'${parentId}' in parents`, "trashed = false"];
+  if (filtro.nome) parti.push(`name = '${filtro.nome.replace(/'/g, "\\'")}'`);
+  if (filtro.soloCartelle) parti.push("mimeType = 'application/vnd.google-apps.folder'");
+  const q = encodeURIComponent(parti.join(" and "));
+  const res = await driveFetch(
+    `${DRIVE}/files?q=${q}&fields=files(id,name,mimeType)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+    { headers: { authorization: `Bearer ${token}` } },
+    "Elenco di una cartella su Drive"
+  );
+  return (((await res.json()) as any).files ?? []) as Array<{ id: string; name: string; mimeType: string }>;
+}
+
+/** Il contenuto di un dump `database/<nome>.json` del backup (WS3 §4.4). */
+export async function driveScaricaJson(token: string, fileId: string): Promise<unknown> {
+  const res = await driveFetch(
+    `${DRIVE}/files/${fileId}?alt=media&supportsAllDrives=true`,
+    { headers: { authorization: `Bearer ${token}` } },
+    "Scaricamento di un dump da Drive"
+  );
+  return res.json();
+}
+
 async function driveUploadFile(
   token: string,
   name: string,
@@ -1024,6 +1057,11 @@ export async function buildBackupTree(): Promise<{
   // racconta niente delle altre aziende.
   for (const [nome, items] of Object.entries(stores)) {
     if (nome === "backup_log") continue; // noise
+    // `backup_oauth` custodisce il refresh token cifrato del Drive
+    // dell'azienda: un segreto a riposo non parte per il Drive stesso, dove
+    // chiunque abbia accesso alla cartella lo leggerebbe. Il ripristino lo
+    // salta comunque (STORE_ESCLUSI_DAL_RIPRISTINO), quindi non manca a nessuno.
+    if (nome === "backup_oauth") continue;
     const value = nome === "utenti" ? items.map(sanitizeUtente) : items;
     files.push(jsonFile(["database"], `${nome}.json`, value));
   }

@@ -15,6 +15,7 @@ import "../routers";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+import { __impostaDriveRipristinoPerTest } from "./ripristino";
 import {
   allineaTenantPredefinito,
   assegnaProprietario,
@@ -281,6 +282,49 @@ describe("eseguiComandiInAttesa", () => {
       __impostaDriverPerTest(null);
       storeDi<any>(2, "preventivi_documenti").length = 0;
       storeDi<any>(2, "ticket_allegati").length = 0;
+    }
+  });
+
+  it("ripristina_archivi: il server esegue il ripristino dell'azienda e mette l'esito nel comando (Task 8)", async () => {
+    __registraTenantNotoPerTest(2);
+    const repo = getTenantRepository();
+    // Id 2 esplicito: il tenant 1 è Ruffino Group e il ripristino lo rifiuta
+    // senza `ancheTenant1` (in un repo appena azzerato il primo inserito
+    // prenderebbe proprio l'id 1).
+    const acme = await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    sedi.push({ id: 97720, tenantId: acme.id, nome: "Acme HQ", attiva: true } as any);
+    storeDi<any>(acme.id, "clienti").length = 0;
+    storeDi<any>(acme.id, "clienti").push({ id: 1, tenantId: acme.id, sedeId: 97720 });
+    // Nessun Drive nei test: il comando non riceve un `DriveRipristino`, lo
+    // prende da qui (l'unica iniezione, sotto NODE_ENV=test).
+    __impostaDriveRipristinoPerTest({
+      async cartellaBackup() { return { id: "idcartella", nome: "Backup CRM 2026-09-07" }; },
+      async dumpDisponibili() {
+        return [{ nome: "clienti", scarica: async () => [{ id: 9, tenantId: acme.id, sedeId: 97720 }] }];
+      },
+    });
+    try {
+      const comando = await repo.accodaComando({
+        tipo: "ripristina_archivi",
+        tenantId: acme.id,
+        payload: { slug: "acme", backup: "2026-09-07", solo: ["clienti"], scrivi: true },
+        richiestoDa: "script:tenant@test",
+      });
+      expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+      const eseguito = await repo.comando(comando.id);
+      expect(eseguito?.stato).toBe("eseguito");
+      expect(eseguito?.esito).toMatchObject({
+        tenantId: acme.id,
+        dryRun: false,
+        backup: { id: "idcartella", nome: "Backup CRM 2026-09-07" },
+        store: [{ nome: "clienti", prima: 1, dopo: 1, sostituito: true }],
+      });
+      expect(storeDi(acme.id, "clienti")).toEqual([{ id: 9, tenantId: acme.id, sedeId: 97720 }]);
+      expect(repo.perId(acme.id)?.stato).toBe("attivo");
+      expect((await repo.eventi(acme.id)).map(e => e.tipo)).toEqual(["sospeso", "riattivato", "archivi_ripristinati"]);
+    } finally {
+      __impostaDriveRipristinoPerTest(null);
+      storeDi<any>(acme.id, "clienti").length = 0;
     }
   });
 });

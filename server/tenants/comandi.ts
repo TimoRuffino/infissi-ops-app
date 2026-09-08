@@ -42,6 +42,19 @@ export const schemaPayloadProprietario = z.object({
 // (es. dal ciclo interno), lo slug serve solo quando arriva da `pnpm tenant`.
 export const schemaPayloadStorage = z.object({ slug });
 
+// `ripristina_archivi` (Task 8): `backup` è una data «AAAA-MM-GG» o l'id di
+// una cartella di Drive; `solo` limita gli store da sostituire (null = tutti
+// quelli del backup). `scrivi` distingue la prova (il server legge il Drive e
+// confronta, senza toccare nulla) dal ripristino vero — la prova la fa il
+// server perché è lui a parlare col Drive dell'azienda, non lo script.
+export const schemaPayloadRipristino = z.object({
+  slug,
+  backup: testo(120),
+  solo: z.array(z.string().trim().min(1)).nullable().optional(),
+  scrivi: z.boolean(),
+  ancheTenant1: z.boolean().optional(),
+});
+
 export function richiestoDa(): string {
   return `script:tenant@${hostname()}`;
 }

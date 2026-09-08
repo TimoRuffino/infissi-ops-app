@@ -10,6 +10,7 @@ import {
   impostaResolverTenant,
   istanziaStoresPerTenant,
   persistedStore,
+  sostituisciStore,
   storeDi,
   tenantsNoti,
   __resetPersistenzaPerTest,
@@ -169,6 +170,22 @@ describe("persistence per tenant", () => {
     await bootstrapAll({ tenantIds: [1] });
     expect(s.items).toEqual([{ id: 1 }]);
     expect(s.prossimoId()).toBe(2);
+  });
+
+  it("sostituisciStore rimpiazza gli item dell'istanza, alza il contatore degli id e rifiuta globali e sconosciuti", async () => {
+    const s = persistedStore<any>("da_ripristinare");
+    // `sedi` è globale ma la registra il router: qui, che i router non li
+    // importa, una famiglia globale qualsiasi prova la stessa cosa.
+    persistedStore<any>("globale_x", undefined, { ambito: "globale" });
+    await bootstrapAll({ tenantIds: [1, 2] });
+    tenant = 2;
+    s.items.push({ id: 3 });
+    await sostituisciStore(2, "da_ripristinare", [{ id: 10 }, { id: 11 }]);
+    expect(storeDi(2, "da_ripristinare")).toEqual([{ id: 10 }, { id: 11 }]);
+    expect(s.prossimoId()).toBe(12);
+    expect(storeDi(1, "da_ripristinare")).toEqual([]);
+    await expect(sostituisciStore(2, "globale_x", [])).rejects.toThrow(/globale/);
+    await expect(sostituisciStore(2, "inesistente", [])).rejects.toThrow(/sconosciuto/);
   });
 
   it("senza resolver: nei test ripiega sul tenant 1, fuori dai test è un errore", () => {

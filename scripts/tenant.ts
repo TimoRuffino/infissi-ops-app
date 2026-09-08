@@ -9,12 +9,20 @@
 //   pnpm tenant stato --slug=acme --sospendi|--riattiva --motivo="…" [--anche-tenant-1] [--scrivi] [--attendi]
 //   pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna|--revoca [--scrivi] [--attendi]
 //   pnpm tenant storage --slug=acme [--ricalcola] [--scrivi] [--attendi]
+//   pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=a,b] \
+//        --prova|--scrivi [--anche-tenant-1] [--attendi]
 //   pnpm tenant verifica [--json]
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
 // nascosto; viene hashata qui e mai scritta in chiaro. Senza --scrivi mostra
 // l'anteprima e non tocca nulla. Lo schema non lo tocca mai, nemmeno per
 // `elenco`: lo crea il server al boot; se manca, lo script si ferma.
+//
+// `ripristina` è l'unico sottocomando che accoda anche in prova: il Drive
+// dell'azienda lo legge il server (ha il token), non lo script, quindi la
+// prova è un comando `--prova` il cui esito (conteggi prima/dopo e anomalie)
+// si legge con `--attendi`. `--scrivi` è il ripristino vero: sospende
+// l'azienda, sostituisce gli archivi e la riattiva.
 //
 // `verifica` è l'eccezione (Task 13, design WS2 §7.2): sola lettura, gira
 // PRIMA di toccare il control plane del tenant e funziona anche se il WS1
@@ -51,6 +59,7 @@ import {
   richiestoDa,
   schemaPayloadCrea,
   schemaPayloadProprietario,
+  schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
 } from "../server/tenants/comandi";
@@ -72,7 +81,8 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
+  "ripristina --slug=<slug> --backup=<AAAA-MM-GG|folderId> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]. " +
   "Automazione: `pnpm --silent tenant verifica --json` oppure `npx tsx scripts/tenant.ts verifica --json` " +
   "(un `pnpm tenant verifica --json` semplice non è JSON valido su stdout: pnpm ci scrive intorno il banner " +
   "e, con anomalie, il trailer ELIFECYCLE). L'exit è 1 con anomalie in ogni forma: gestirlo sotto `set -e`.";
@@ -282,6 +292,23 @@ async function main(): Promise<number> {
     if (tipo === "sospendi" && t.id === TENANT_PREDEFINITO_ID && !flag.has("anche-tenant-1")) {
       throw new Error("Sospendere il tenant 1 mette Ruffino Group in sola lettura: aggiungi --anche-tenant-1 per confermare.");
     }
+  } else if (sotto === "ripristina") {
+    const slug = obbligatoria("slug");
+    const t = repo.perSlug(slug);
+    if (!t) throw new Error(`Tenant ${slug} inesistente`);
+    if (flag.has("prova") === flag.has("scrivi")) throw new Error("Indica --prova (solo lettura da Drive) oppure --scrivi (ripristino vero)");
+    if (t.id === TENANT_PREDEFINITO_ID && !flag.has("anche-tenant-1")) {
+      throw new Error("Ripristinare il tenant 1 sostituisce gli archivi di Ruffino Group: aggiungi --anche-tenant-1 per confermare.");
+    }
+    tipo = "ripristina_archivi";
+    tenantId = t.id;
+    payload = schemaPayloadRipristino.parse({
+      slug,
+      backup: obbligatoria("backup"),
+      solo: valori.solo ? valori.solo.split(",").map(s => s.trim()).filter(Boolean) : null,
+      scrivi: flag.has("scrivi"),
+      ancheTenant1: flag.has("anche-tenant-1"),
+    });
   } else if (sotto === "proprietario") {
     const slug = obbligatoria("slug");
     const t = repo.perSlug(slug);
@@ -296,7 +323,9 @@ async function main(): Promise<number> {
   }
 
   console.log(anteprima({ tipo, tenantId, payload }));
-  if (!flag.has("scrivi")) {
+  // `ripristina --prova` si accoda comunque: la prova la fa il server, che è
+  // l'unico a poter leggere il Drive dell'azienda (v. il commento in testa).
+  if (!flag.has("scrivi") && !(sotto === "ripristina" && flag.has("prova"))) {
     console.log("Anteprima: rilancia con --scrivi per accodare il comando.");
     return 0;
   }

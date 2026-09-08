@@ -7,7 +7,13 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
-import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato, schemaPayloadStorage } from "./comandi";
+import {
+  schemaPayloadCrea,
+  schemaPayloadProprietario,
+  schemaPayloadRipristino,
+  schemaPayloadStato,
+  schemaPayloadStorage,
+} from "./comandi";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
@@ -289,11 +295,22 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         const stato = await ricalcolaStorage(id, attoreTesto(attore));
         return { tenantId: id, bytes: stato.bytes, file: stato.file };
       }
-      // `ripristina_archivi` (Task 8/9) è ancora solo un tipo, accodabile ma
-      // non eseguibile: il control plane del WS3 (Task 2) nasce prima del
-      // servizio che lo gestisce davvero.
-      case "ripristina_archivi":
-        throw new Error(`comando ${comando.tipo} non ancora implementato`);
+      case "ripristina_archivi": {
+        const p = schemaPayloadRipristino.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        // Import dinamico: `ripristino.ts` importa `sospendi`/`riattiva` da
+        // qui, e un import statico chiuderebbe il ciclo fra i due moduli.
+        const { ripristinaArchivi } = await import("./ripristino");
+        const esito = await ripristinaArchivi({
+          tenantId: id,
+          backup: p.backup,
+          solo: p.solo ?? null,
+          scrivi: p.scrivi,
+          ancheTenant1: p.ancheTenant1,
+          attore,
+        });
+        return { tenantId: id, ...esito };
+      }
     }
   } catch (e) {
     const tenantId = comando.tenantId ?? getTenantRepository().perSlug(String((comando.payload as any)?.slug ?? ""))?.id;

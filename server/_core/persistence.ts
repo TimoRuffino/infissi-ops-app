@@ -243,6 +243,38 @@ export function storeDi<T = any>(tenantId: number, nome: string): T[] {
   return entry.items as T[];
 }
 
+/**
+ * Ripristino (WS3 §4.4): rimpiazza gli item dell'istanza di un tenant con
+ * quelli di un dump e scrive SUBITO il blob, fuori dal debounce. Non riesegue
+ * `onLoad`. Solo famiglie per tenant già caricate: le globali (sedi, utenti)
+ * non si ripristinano per azienda.
+ */
+export async function sostituisciStore(tenantId: number, nome: string, items: unknown[]): Promise<void> {
+  const f = famiglie.get(nome);
+  if (!f) throw new Error(`[persistence] store ${nome} sconosciuto`);
+  if (f.ambito === "globale") throw new Error(`[persistence] store ${nome} è globale: non si ripristina per tenant`);
+  const entry = f.istanze.get(tenantId);
+  if (!entry) throw new Error(`[persistence] store ${nome} non istanziato per il tenant ${tenantId}`);
+  // Un'istanza non ancora caricata ha un array vuoto che NON è lo stato del
+  // database: sovrascriverlo qui sarebbe la stessa perdita che `flushSave`
+  // impedisce rinviando i salvataggi finché il bootstrap non ha letto la riga.
+  if (!entry.loaded) throw new Error(`[persistence] store ${entry.key} non ancora caricato`);
+  // Sul posto, senza spread: un dump può portare decine di migliaia di record
+  // e `push(...items)` li passerebbe tutti come argomenti (stack overflow).
+  entry.items.length = 0;
+  for (const r of items) entry.items.push(r);
+  for (const r of entry.items) {
+    const id = (r as any)?.id;
+    if (typeof id === "number" && id > f.maxId) f.maxId = id;
+  }
+  // Il debounce in coda scriverebbe di nuovo lo stesso array un attimo dopo:
+  // inutile, e in un ripristino interrotto rimetterebbe in gioco una scrittura
+  // che nessuno si aspetta più.
+  const t = saveTimers.get(entry.key);
+  if (t) { clearTimeout(t); saveTimers.delete(entry.key); }
+  await flushSave(entry.key);
+}
+
 function proxyArray(f: Famiglia): any[] {
   // Il bersaglio è un array vuoto: Array.isArray(proxy) è vero e JSON.stringify
   // lo tratta da array. Ogni trap inoltra all'array reale del tenant corrente.
