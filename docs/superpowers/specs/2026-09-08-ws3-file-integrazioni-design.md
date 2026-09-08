@@ -1,6 +1,6 @@
 # WS3 — Prima azienda vera: file, backup, credenziali e guasti per tenant (spec tecnica)
 
-**Data:** 08/09/2026 · **Stato:** approvata in chat a sezioni dalla direzione (sei scelte + design in nove sezioni), nessun codice scritto · **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (§4.1, §12.4, §12.5, §13, §14.2 punti 5–6, §15, §16.5, §17 punto 3) · **Precedenti:** WS1 `2026-09-06-ws1-fondazione-tenant-design.md`, WS2 `2026-09-07-ws2-porta-aperta-design.md` (entrambi su `main` dall'08/09/2026, PR #3 e #5) · **Branch:** `feature/ws3-file-integrazioni`, da `main` @ `b77c9da`.
+**Data:** 08/09/2026 · **Stato:** approvata in chat a sezioni dalla direzione (sei scelte + design in nove sezioni) e **implementata** in 13 task sul branch `feature/ws3-file-integrazioni` (08/09/2026, `cea968e`…`c4efcd8`); non su `main`, non in produzione. Le decisioni prese durante l'esecuzione sono in §2-bis e le sezioni che ne sono cambiate sono già corrette · **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (§4.1, §12.4, §12.5, §13, §14.2 punti 5–6, §15, §16.5, §17 punto 3) · **Precedenti:** WS1 `2026-09-06-ws1-fondazione-tenant-design.md`, WS2 `2026-09-07-ws2-porta-aperta-design.md` (entrambi su `main` dall'08/09/2026, PR #3 e #5) · **Branch:** `feature/ws3-file-integrazioni`, da `main` @ `b77c9da`.
 
 > Con il WS2 gli archivi sono per azienda, ma file, backup, credenziali e
 > guasti sono ancora dell'installazione: per questo il runbook vieta una
@@ -55,6 +55,63 @@ come oggi, salvo le aggiunte additive di §11.
 | 4 | Ripristino | **Archivi via comando, provato**: `pnpm tenant ripristina` accoda un comando che il server esegue leggendo i dump dal Drive dell'azienda; i file non si ricaricano | solo procedura documentata; ripristino completo con i file |
 | 5 | Quota storage | **Conta e avvisa, non blocca**: ledger, soglie 50/80/100 % come eventi e query per il proprietario | blocco degli upload oltre il 100 % |
 | 6 | Deploy | WS1 e WS2 fusi in `main` dalla direzione l'08/09 (PR #3, PR #5); il WS3 parte da `main` | — |
+
+## 2-bis. Decisioni in corso d'opera (08/09/2026)
+
+Diciassette scelte prese mentre il piano veniva eseguito — due nella
+scansione pre-volo, quindici durante i 13 task — quando il codice vero ha
+contraddetto la lettera della spec o del piano. Ognuna è un emendamento a
+questo documento: le sezioni che ne sono cambiate sono già corrette qui
+sotto — la §4.4 in particolare (R11, R12, R13 e la forma vera della CLI).
+Registro completo, con implementer, reviewer e commit:
+`.superpowers/sdd/2026-09-08-ws3-file-integrazioni/progress.md`.
+
+| # | Che cosa | Perché | Costo se sbagliata |
+|---|---|---|---|
+| pre-1 | nei test che importano i router (anche di rimbalzo, via `driveBackup`/`tenants`/`giri`) non si chiama mai `__resetPersistenzaPerTest()`: si usa `__registraTenantNotoPerTest(n)` e si svuotano gli array; dove serve `loaded` (per `sostituisciStore`) un solo `bootstrapAll({ tenantIds })` in `beforeAll` | `__resetPersistenzaPerTest` fa `famiglie.clear()` e cancella le famiglie registrate all'import | test rossi per «store sconosciuto»; nessun danno al codice |
+| pre-2 | le `onLoad` che salvano lo store del tenant in caricamento avvolgono `save()` in `conTenant(meta.tenantId, …)` | il Proxy salva l'istanza del contesto, e il caricamento gira fuori da ogni contesto | il token cifrato non verrebbe persistito per i tenant ≥ 2 (o il salvataggio lancerebbe in modalità stretta) |
+| R1 | nel test in memoria `pulisciStateScaduti()` restituisce 2, non 1 | anche lo `state` `fic` già consumato ha lo stesso TTL: a +11 minuti è scaduto pure lui (l'aritmetica del piano era sbagliata) | nessuno: è un conteggio di prova |
+| R2 | `ALTER TABLE tenants ADD COLUMN … DEFAULT <quota>` si scrive con `tx.unsafe` e la costante inlinata, non con un parametro legato | Postgres non accetta un parametro legato nel DDL (pattern già in `tabelle.ts`) | DDL che fallisce al boot: lo prende il test pg |
+| R3 | `servizio.ts` riceve subito i due `case` `ricalcola_storage`/`ripristina_archivi` che lanciano «non ancora implementato»; i Task 4 e 8 li sostituiscono con la logica vera | tenere esaustivo — e quindi tipato — lo `switch` sui tipi di comando fin dal task che li introduce nello schema | un comando accodato prima dei Task 4/8 finisce in `errore` con un messaggio chiaro; nessun effetto |
+| R4 | il test pg del ledger fa le tre delta di segno diverso **in sequenza** (esito 25 determinato) e prova l'atomicità concorrente con tre delta positive (+10/+20/+5 → 35 in qualunque ordine) | la semantica resta quella della §3.2 (il ledger non scende sotto zero); era il test a pretendere un ordine che tre `INSERT`/`UPDATE` concorrenti non garantiscono | nessuno sul prodotto; un test rosso a intermittenza |
+| R5 | i 3 rossi di `server/tars/smistamento/router.test.ts` non sono una regressione del WS3: le fixture sono fissate al 01/09 e la finestra di `briefing.ts` guarda gli ultimi 7 giorni, scaduta l'08/09; rimedio minimo, fuori piano, con `vi.useFakeTimers` al 02/09 (come nel WS2 su `proposte.test.ts`) | un test che dipende dalla data di esecuzione fa sospettare del codice appena scritto | nessuno sul prodotto |
+| R6 | lo specchio su file `data/backup-oauth*.json` è **spento** con `NODE_ENV=test`, in lettura e in scrittura | un giro di `pnpm test` su un'installazione vera aveva letto il file buono, cifrato il token con la chiave di prova e riscritto: il token diventava illeggibile | nessuno: nessuna copertura persa |
+| R7 | `handleOAuthCallback` fallisce subito senza `MAIL_ENCRYPTION_KEY` invece di salvare il token in chiaro; `getConfig()` semina `folderId: ""` per i tenant ≠ 1 anche fuori da `onLoad`; fino al Task 7 lo scheduler notturno passa da `conTenant(1, …)` come ponte | un refresh token in chiaro salvato «per non bloccare l'utente» resterebbe lì; il ponte serviva a tenere verde il boot fra i due task | nessuno |
+| R8 | `sanitizeUtente` (albero del backup) toglie sia `password` — il campo vero dello store — sia `passwordHash`, il nome dell'input di `creaUtenteInterno` | il test del piano asseriva solo `passwordHash`: togliere entrambi è la scelta prudente | nessuno |
+| R9 | `backup_oauth` è escluso dal dump `database/` accanto a `backup_log` | non ha valore di ripristino (`STORE_ESCLUSI_DAL_RIPRISTINO` lo ignora) e un segreto a riposo non si copia su Drive nemmeno cifrato | nessuno |
+| R10 | `validaDump` non si ferma al primo difetto di un record: `{id:1, sedeId:99}` produce due anomalie (duplicato + sede); solo l'id non numerico interrompe l'esame di quel record | chi legge il rapporto della prova vuole sapere tutto quello che non torna, non una cosa sola; un record senza id non si può nemmeno nominare | nessuno |
+| R11 | con `--scrivi` e **nessuno** store da sostituire il ripristino rifiuta («Nessuno store da ripristinare») **prima** di sospendere l'azienda | sospendere e riattivare per non fare nulla è un fermo gratuito, e l'evento `archivi_ripristinati` racconterebbe un ripristino mai avvenuto | un evento vuoto e una sospensione inutile |
+| R12 | `sostituisciStore` scrive per una strada che **non inghiotte** l'errore: swap, cancellazione del timer e `INSERT` dentro `conStoreBloccati([chiave])`, errore propagato (nessun ri-accodamento); senza `DATABASE_URL` avvisa e basta | `flushSave` cattura l'errore dell'`INSERT` e ri-accoda: un ripristino fallito avrebbe riferito successo e riattivato l'azienda | un ripristino che dice «fatto» senza aver scritto niente |
+| R13 | l'esito del ripristino porta `avvertenze: string[]` con l'avviso fisso «gli archivi ripristinati non passano da `onLoad`: se il backup è di una versione più vecchia del codice, riavviare il server subito dopo»; il runbook lo ripete | i dump non passano da `onLoad` (§4.4 punto 5): default dei campi nuovi, backfill e migrazioni di forma non girano, e chi ripristina deve saperlo prima di scrivere | nessuno |
+| R14 | nel webhook l'ingestione di **ogni numero** è isolata (try/catch, log del solo numero, si continua), come `perOgniTenantAttivo` e `trovaNeiTenant` | un throw su un numero — per esempio `conTenantDellaSede` fail-closed su una sede sparita — perderebbe i messaggi degli altri numeri della stessa consegna, a cui Meta ha già ricevuto `200` | nessuno |
+| R15 | in `tars.ts` sei blocchi `catch` ricevono `if (errore instanceof TRPCError) throw errore;` (pattern già presente nel file) | senza, i `NOT_FOUND` appena introdotti sarebbero stati riavvolti in un 500 dal `catch` generico | nessuno |
+
+**Parcheggiati per la fix wave finale.** Minori accettati durante le
+revisioni e registrati nel progress, tutti verificati ancora aperti alla
+chiusura del WS3: `deleteFileQuiet` ha un solo `catch` per il `delete` e per
+la contabilità (il log dice «delete fallito» anche quando cede solo il
+conto); nessun test che `getFile`/`openFileReadStream` **lancino** senza
+tenant nel contesto (il caso della chiave altrui è invece coperto); nessun
+test dei rami «tenant inesistente» di `impostaQuotaStorage` e «state mai
+emesso» di `consumaStateOAuth`; attore `"sistema"` letterale invece di
+`attoreTesto`; `sogliaRaggiunta` dipende dall'ordine crescente di
+`SOGLIE_STORAGE` e il passaggio isolato all'80 % non è asserito; il wiring
+boot → `fileStorage` (contabile registrato in `preparaTenants`) non è
+provato end-to-end; il ramo `if (kvSql)` di `ricalcolaStorage` (allegati
+delle comunicazioni, `pdf/xml_storage_key`, tolleranza `42P01`) non è
+esercitato da nessun test pg; `driveBackup.ts` è arrivato a ~1450 righe e
+chiede l'estrazione di un `driveOAuth.ts`; la cache del token d'accesso per
+azienda non ha un test suo; `ATTESA_RITENTATIVO_MS` è un `let` in maiuscolo;
+i tre ritentativi notturni (20 minuti l'uno) sono sequenziali fra aziende,
+quindi un'azienda che fallisce ritarda le successive — da rivedere nel WS4
+se le aziende crescono; `driveElencaFigli` non pagina; i livelli 60/120
+minuti e il clamp dell'interruttore non sono asseriti, né due aziende
+sospese insieme; in `tars.ts` restano un `oppureNotFound(null)` usato come
+throw nudo (`:1037`) e un `catch` che non rilancia il `TRPCError` (`:410`,
+`comeErrore` lo trasformerebbe in un 500); la guardia strutturale dei «non
+trovato» copre solo `server/routers` (~40 siti analoghi vivono fuori);
+l'etichetta `costo-da-conferma` è condivisa da due chiamanti, quindi da un
+solo contatore dell'interruttore.
 
 ## 3. Storage per tenant
 
@@ -212,11 +269,16 @@ sempre da `resolveBackupFileData` (checksum SHA-256, `:811-833`).
 
 Comando del control plane `ripristina_archivi`, accodato da
 `pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=clienti,commesse] --prova|--scrivi [--anche-tenant-1] [--attendi]`
-ed eseguito dal server (unico scrittore, come nel WS1). Senza `--prova` né
-`--scrivi` lo script stampa l'anteprima del comando e non accoda nulla;
-`--prova` accoda la prova (il server legge Drive e riferisce, non scrive),
-`--scrivi` accoda il ripristino vero. In entrambi i casi `--attendi` stampa
-l'esito. Il server:
+ed eseguito dal server (unico scrittore, come nel WS1). **Uno fra `--prova` e
+`--scrivi` va indicato sempre** (esecuzione): senza, lo script si ferma con
+«Indica --prova (solo lettura da Drive) oppure --scrivi (ripristino vero)» e
+non accoda nulla — la prosa del piano diceva «anteprima», ma il codice
+rifiuta, ed è la scelta prudente per un comando che sostituisce archivi.
+`ripristina` è quindi l'unico sottocomando che accoda anche senza `--scrivi`:
+`--prova` accoda la prova (il server legge Drive e riferisce, non scrive) —
+il Drive dell'azienda lo legge il server, che ha il token, non lo script —
+mentre `--scrivi` accoda il ripristino vero. In entrambi i casi `--attendi`
+stampa l'esito. Il server:
 
 1. con l'OAuth dell'azienda trova sul suo Drive la cartella del backup
    indicato (`Backup CRM <data>` sotto la radice dell'azienda, oppure l'id
@@ -227,14 +289,19 @@ l'esito. Il server:
    scarta i nomi che non sono famiglie per tenant istanziate e gli store
    operativi del backup stesso (`backup_config`, `backup_oauth`,
    `backup_log`), e confronta i conteggi con gli archivi vivi;
-3. in prova si ferma qui e scrive l'esito (`dryRun: true`, conteggi
-   prima/dopo, anomalie) in `tenant_comandi.esito`;
-4. con `scrivi`: mette l'azienda in `sospeso` (motivo «ripristino archivi in
-   corso»), sostituisce gli archivi uno per uno con
+3. in prova si ferma qui e scrive l'esito in `tenant_comandi.esito`:
+   `dryRun: true`, conteggi prima/dopo, `anomalie` (note su ciò che non
+   verrà sostituito, difetti sui dump rotti) e `avvertenze` — fra cui quella
+   sull'`onLoad` del punto 5 (esecuzione, R13);
+4. con `scrivi`: se non c'è **niente** da sostituire rifiuta prima di
+   toccare qualsiasi cosa («Nessuno store da ripristinare», esecuzione,
+   R11); altrimenti mette l'azienda in `sospeso` (motivo «ripristino archivi
+   in corso»), sostituisce gli archivi uno per uno con
    `sostituisciStore(tenantId, nome, items)` (nuova funzione di
    `persistence.ts`: rimpiazza gli item dell'istanza, alza il contatore
-   degli id della famiglia e scrive subito il blob su `kv_store`, fuori dal
-   debounce), riattiva l'azienda, registra `tenant_eventi`
+   degli id della famiglia e scrive subito il blob su `kv_store` sotto il
+   lock della chiave, fuori dal debounce e **propagando** l'errore —
+   esecuzione, R12), riattiva l'azienda, registra `tenant_eventi`
    `archivi_ripristinati` con backup, store e conteggi; un errore a metà
    lascia l'azienda sospesa (l'esito e l'evento `comando_fallito` dicono
    quali store sono stati sostituiti; riattivazione con
@@ -267,9 +334,13 @@ CREATE TABLE IF NOT EXISTS oauth_state (
 `emettiStateOAuth({ tipo, tenantId, sedeId, utenteId, payload })` → `state`
 (24 byte casuali, scadenza 10 minuti); `consumaStateOAuth(state, tipo)`
 restituisce la riga una sola volta (`UPDATE … SET consumato_il = NOW() WHERE
-consumato_il IS NULL AND scade_il > NOW() RETURNING *`) o `null`; pulizia
-delle righe scadute al boot. Sostituisce `pendingFicStates`
-(`fattureInCloud.ts:177-208`) e le mappe di Drive. I callback
+consumato_il IS NULL AND scade_il > NOW() RETURNING *`) o `null`;
+`pulisciStateScaduti()` esiste sul repository ed è provato, ma **nessun
+percorso lo chiama al boot** (verificato alla chiusura del WS3): le righe
+scadute restano nella tabella, inerti — scadenza e consumo unico sono
+comunque garantiti in SQL. Da collegare nella fix wave.
+Sostituisce `pendingFicStates` (`fattureInCloud.ts:177-208`) e le mappe di
+Drive. I callback
 (`/api/oauth/fic/callback`, `/api/oauth/gdrive/callback`) ricavano azienda,
 sede e utente dallo `state` e girano in `conTenantDellaSede`/`conTenant`;
 `state` scaduto o sconosciuto → redirect con `?…=errore` e log, mai un

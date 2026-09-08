@@ -3,10 +3,82 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 07/09/2026<br>
+**Aggiornato:** 08/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 08/09/2026 — WS3 «file, backup, credenziali e guasti per
+> azienda»: su branch.** WS1 e WS2 sono stati fusi in `main` dalla direzione
+> l'08/09 (PR #3 e #5); da lì nasce `feature/ws3-file-integrazioni`, dove i
+> 13 task del piano
+> (`docs/superpowers/plans/2026-09-08-ws3-file-integrazioni.md`) sono
+> implementati e committati (`cea968e`…`c4efcd8`). **Nessun push, nessun
+> merge su `main` da qui, PR ancora da aprire**: il merge è una decisione
+> della direzione.
+> **Che cosa cambia.** I file **nuovi** nascono sotto `tenant/<id>/…` per
+> ogni azienda, tenant 1 compreso; le chiavi nude restano di Ruffino Group e
+> non si spostano, e in lettura una chiave di un'altra azienda torna `null`
+> («non trovato»). Un ledger `tenant_storage` conta byte e file per azienda —
+> aggiornato da `putFile`/`deleteFileQuiet`, rifatto su comando — e avvisa al
+> 50, 80 e 100 % di `tenants.storage_quota_bytes` (100 GiB) con l'evento
+> `storage_soglia`: **avvisa, non blocca**. `backup_config`, `backup_oauth` e
+> `backup_log` diventano store **per azienda** (i globali scendono a quattro:
+> `sedi`, `utenti`, i due flag di piattaforma): ogni azienda collega il
+> proprio Drive da Integrazioni, il refresh token vive **cifrato**
+> (`MAIL_ENCRYPTION_KEY`), la cartella radice è «Backup CRM Ruffino» per il
+> tenant 1 e «Backup Wyndor — `<nome azienda>`» per le altre, e l'albero
+> contiene solo l'azienda del contesto (`Utenti.json` per azienda: chiuso il
+> difetto lasciato dal WS2). Il giro notturno passa da `perOgniTenantAttivo`,
+> coi tre ritentativi per azienda; i ripieghi service account e disco locale
+> restano solo per Ruffino Group. Nuovo: il **ripristino degli archivi** dal
+> Drive dell'azienda come comando eseguito dal server, in prova e poi vero
+> (sospende l'azienda, sostituisce gli store, la riattiva); i file non si
+> ricaricano. Gli `state` OAuth (Drive e Fatture in Cloud) stanno in
+> `oauth_state`, legati ad azienda, sede e utente, e non muoiono più a ogni
+> deploy. Il webhook WhatsApp verifica la firma e poi instrada **per
+> `phone_number_id`** fra le aziende attive (numero sconosciuto → `200` e
+> log; l'errore di un numero non ferma gli altri). `perOgniTenantAttivo` ha
+> un interruttore per (worker, azienda): 3 errori consecutivi → 15, 30, 60,
+> 120 minuti di salto, eventi `worker_sospeso`/`worker_riarmato`, visibili in
+> `pnpm tenant elenco`. I **98** «non trovato» rimasti nei 19 router passano
+> a `recordOppureNotFound`/`oppureNotFound` (`NOT_FOUND` «Risorsa non
+> trovata.»), con guardia strutturale: il debito aperto dal WS2 è chiuso.
+> **Comandi nuovi:** `pnpm tenant storage --slug=… [--ricalcola --scrivi]` e
+> `pnpm tenant ripristina --slug=… --backup=<AAAA-MM-GG|folderId>
+> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]`; `pnpm tenant
+> elenco` mostra i worker sospesi. Lo script
+> `migrate-documents-to-storage.ts` accetta `--tenant=<id>` come gli altri —
+> con l'interruttore **spento** `--tenant=2` non fallisce, lavora sul tenant
+> 1 (è il resolver a decidere: scritto nel runbook).
+> **Rollback: un punto non additivo.** Il refresh token del Drive viene
+> cifrato al primo caricamento e il codice precedente non lo rilegge: tornare
+> al build di prima significa **ricollegare il Drive** di ogni azienda che lo
+> aveva collegato. Tutto il resto (chiavi col prefisso, `tenant_storage`,
+> `oauth_state`, `storage_quota_bytes`) è additivo e innocuo per il codice
+> vecchio.
+> **Decisioni d'esecuzione:** quindici più due pre-volo, registrate nella
+> spec `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
+> **§2-bis «Decisioni in corso d'opera»** (pre-1, pre-2, R1…R15) con motivo e
+> costo se sbagliate; registro esteso in
+> `.superpowers/sdd/2026-09-08-ws3-file-integrazioni/progress.md`. Le più
+> pesanti: `sostituisciStore` scrive sotto il lock e **propaga** l'errore —
+> senza, un ripristino fallito avrebbe riferito successo e riattivato
+> l'azienda (R12); il ripristino **rifiuta** quando non c'è niente da
+> sostituire, invece di fermare l'azienda per nulla (R11); gli archivi
+> ripristinati non passano da `onLoad`, quindi l'esito porta un'avvertenza e
+> il runbook chiede il riavvio se il backup è più vecchio del codice (R13);
+> lo specchio su file `data/backup-oauth*.json` è spento sotto test — un giro
+> di `pnpm test` aveva cifrato il token vero con la chiave di prova (R6).
+> **Verificato:** `pnpm check`, `pnpm test` (3114 test, suite intera verde —
+> in questa sessione sono passati anche i 3 casi «foto HEIC vera (sips)» che
+> altrove sono rossi per i binari della macchina) e `pnpm build`; test su
+> Postgres vero per ledger e ripristino (`--no-file-parallelism`); backup con
+> due aziende e Drive finti. **Non verificato:** nulla distribuito su
+> Railway, nessun collegamento OAuth reale di una seconda azienda, nessuna
+> verifica a schermo (il WS3 non tocca il client). Runbook:
+> `docs/runbooks/multi-azienda.md`, sezione «WS3 — file, backup, credenziali
+> e guasti per tenant». PRD §60.11 (v5.62). Voce 21 del debito aggiornata.
 
 > **Novità 07/09/2026 — il CRM si chiama Wyndor** (spec
 > `docs/superpowers/specs/2026-09-07-rebranding-wyndor-design.md`, piano
@@ -638,7 +710,29 @@ pnpm storage:migrate
 - La migrazione è idempotente, rileggibile e protetta dal requisito di un
   backup Drive riuscito nelle ultime 24 ore.
 
-La procedura completa R2 è in `docs/storage-r2.md`.
+**Dal WS3 (branch `feature/ws3-file-integrazioni`, non su `main`): file e
+backup sono per azienda.** I file nuovi nascono sotto `tenant/<id>/…` (ogni
+azienda, tenant 1 compreso); le chiavi nude restano quelle di Ruffino Group
+e una lettura fuori dalla propria azienda torna «non trovato». Un ledger
+`tenant_storage` conta byte e file per azienda e avvisa al 50, 80 e 100 %
+della quota (100 GiB di default) **senza bloccare** gli upload; si legge e
+si rifà con `pnpm tenant storage --slug=… [--ricalcola --scrivi]`. Il
+backup **non è più dell'installazione**: `backup_config`, `backup_oauth` e
+`backup_log` sono store per azienda, ogni azienda collega il proprio Drive
+da Integrazioni (refresh token cifrato con `MAIL_ENCRYPTION_KEY`), la
+cartella radice è «Backup CRM Ruffino» per il tenant 1 e «Backup Wyndor —
+`<nome azienda>`» per le altre, e l'albero contiene solo l'azienda del
+contesto — `Utenti.json` compreso. `backup_log` e `backup_oauth` non entrano
+nel dump. Il giro notturno passa per ogni azienda attiva, coi tre
+ritentativi per azienda; service account e disco locale restano ripieghi del
+solo tenant 1 (un'altra azienda senza OAuth fallisce e lo dice). Nuovo:
+`pnpm tenant ripristina` riporta gli **archivi** di un'azienda a un backup
+del suo Drive, prima in prova e poi davvero (i file non si ricaricano).
+**Attenzione al rollback:** la cifratura del refresh token è a senso unico,
+il codice precedente non lo rilegge e il Drive va ricollegato.
+
+La procedura completa R2 è in `docs/storage-r2.md`; la parte per azienda e
+l'ordine di rilascio sono in `docs/runbooks/multi-azienda.md`.
 
 ### Azione ancora necessaria in produzione
 
@@ -4390,8 +4484,8 @@ a vuoto e dice «57 saltati»).
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
-21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2
-    implementati su branch il 07/09, non su `main`.**
+21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2 su
+    `main` dall'08/09/2026, WS3 implementato su branch lo stesso giorno.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -4532,6 +4626,35 @@ a vuoto e dice «57 saltati»).
     **Ancora non fuso su `main`, non pushato**: la scelta fra merge diretto
     e PR è della direzione. Il gemello PDF del PRD
     (`PRD_infissi_ops_v4.pdf`) non è stato rigenerato in questa fusione.
+
+    **08/09/2026: WS1 e WS2 fusi in `main` (PR #3 e #5); WS3 codificato su
+    branch, PR da aprire.** Il branch `feature/ws3-file-integrazioni` nasce
+    da `main` dopo quelle due fusioni e porta i 13 task del piano
+    (`cea968e`…`c4efcd8`): chiavi dello storage col prefisso dell'azienda
+    (legacy intatte) e cintura in lettura, ledger `tenant_storage` con
+    soglie 50/80/100 % che **avvisano e non bloccano**, backup per azienda
+    sul Drive dell'azienda con refresh token cifrato e albero filtrato,
+    ripristino degli archivi come comando provato (`pnpm tenant
+    ripristina`), `state` OAuth in `oauth_state`, webhook WhatsApp
+    instradato per numero, interruttore per (worker, azienda) e i 98 «non
+    trovato» dei router portati a `NOT_FOUND`. Dei punti aperti elencati
+    sopra, il WS3 chiude **(8)** e **(9)**, la parte di **(7)** su chiavi e
+    conteggio dei byte — le cancellazioni restano quelle di oggi, nessuna
+    cascata nuova per allegati mail, `fatture_xml/pdf` e anteprime — e la
+    parte di **(10)** che riguarda l'isolamento del guasto (lease e
+    dead-letter restano aperti). Restano al WS4 **(11)** (budget Tars per
+    azienda: oggi i tetti sono somme globali in `tars_costi`, un'azienda può
+    esaurirli per tutte), la quota che blocca, gli abbonamenti e l'export;
+    **(12)–(16)** restano per WS4–WS6. Chiuso qui il debito lasciato dal
+    WS2 (i 96/98 «non trovato» a 500). **Rollback non del tutto additivo:**
+    il refresh token del Drive è cifrato a senso unico, tornare al build
+    precedente impone di ricollegare il Drive di ogni azienda. Le quindici
+    decisioni d'esecuzione (più due pre-volo) sono nella spec §2-bis; PRD
+    §60.11 (v5.62); runbook `docs/runbooks/multi-azienda.md`, sezione «WS3
+    — file, backup, credenziali e guasti per tenant». `pnpm
+    check`/`test`/`build` verdi (suite intera: 3114 test, HEIC compresi),
+    test su Postgres vero per ledger e ripristino; nulla distribuito su
+    Railway, nessuna verifica a schermo (il WS3 non tocca il client).
 
 ## 13. Cosa resta della piattaforma
 

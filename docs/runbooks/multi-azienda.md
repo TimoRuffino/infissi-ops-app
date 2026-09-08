@@ -1,21 +1,26 @@
-# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant)
+# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti)
 
-Spec: `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` e
-`docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` (le decisioni
-prese durante l'esecuzione del WS2 sono nella sua §2-bis).
+Spec: `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
+`docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` e
+`docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md` (le
+decisioni prese durante l'esecuzione di WS2 e WS3 sono nelle rispettive
+§2-bis).
 Modulo: `server/tenants/`. Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
 
 ## Cosa fa, in una riga
 Il tenant (azienda) esiste, è nel contesto di ogni richiesta, ha guardie e un
 ruolo Proprietario (WS1); ogni store JSONB ha un archivio per azienda e le
-tabelle SQL portano `tenant_id` (WS2, su branch). Ruffino Group è il tenant 1
-e tiene le chiavi di sempre.
+tabelle SQL portano `tenant_id` (WS2); i file, il backup sul Drive, le
+credenziali OAuth e i guasti dei worker sono per azienda, e il ripristino
+degli archivi è un comando provato (WS3, su branch). Ruffino Group è il
+tenant 1 e tiene le chiavi di sempre.
 
-> **Stato al 07/09/2026:** il WS1 è su `feature/ws1-fondazione-tenant` (PR #3
-> aperta verso `main`), il WS2 su `feature/ws2-porta-aperta`, nato dal
-> precedente. Nessuno dei due è su `main`, quindi **niente di tutto questo è
-> in produzione**. Le sezioni WS2 qui sotto valgono dal momento in cui il
-> branch viene distribuito.
+> **Stato al 08/09/2026:** WS1 e WS2 sono su `main` (PR #3 e #5, fuse
+> dalla direzione l'08/09), quindi distribuiti — Railway segue `main`;
+> l'accensione di `FLAG_MULTI_AZIENDA` in produzione resta una decisione
+> della direzione, e le sezioni sotto dicono in che ordine si fa. Il **WS3**
+> è su `feature/ws3-file-integrazioni` e **non è su `main`**: la sua sezione
+> vale dal momento in cui quel branch viene distribuito.
 
 ## Interruttore
 - `FLAG_MULTI_AZIENDA=off` (default in produzione): il CRM di oggi. Tabelle,
@@ -253,9 +258,12 @@ resta un passo della direzione, non dell'agente.
 6. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio; già fatta se il WS1
    era acceso. Poi **un nuovo login**: il contesto del tenant si costruisce
    alla sessione.
-7. **Nessun tenant 2 in produzione** finché il WS3 non separa storage,
-   backup e credenziali: è una regola di runbook, non un blocco del codice.
-   Il primo tenant 2 nasce **in staging**, con `pnpm tenant crea`.
+7. **Un tenant 2 in produzione solo dopo il WS3**, che separa storage,
+   backup e credenziali: con il solo WS2 la regola resta «nessun tenant 2 in
+   produzione» — è una regola di runbook, non un blocco del codice. Con il
+   WS3 distribuito il divieto decade e la seconda azienda si crea seguendo
+   «Produzione, in ordine (WS3)»; il primo tenant 2 nasce comunque **in
+   staging**, con `pnpm tenant crea`.
 
 **Rollback = redeploy del build precedente.** Non c'è nulla da ripristinare:
 le chiavi `tenant:n:*`, la tabella `tenant_sedi`, la colonna `tenant_id` e il
@@ -291,6 +299,335 @@ codice vecchio. Nessuna copia, nessuna rinomina, nessun cutover.
   processo** — con Meta e Google che riprovano, un ciclo di riavvii. Se una
   di queste righe si ripete, il servizio è comunque in piedi: guarda il
   messaggio, non i riavvii.
+
+## WS3 — file, backup, credenziali e guasti per tenant
+
+Spec: `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
+(le decisioni prese durante l'esecuzione sono nella sua §2-bis).
+
+> **Stato al 08/09/2026:** i 13 task del WS3 sono implementati e committati su
+> `feature/ws3-file-integrazioni` (da `cea968e` a `c4efcd8`), nato da `main`
+> @ `b77c9da`. Il branch **non è su `main`**, quindi **niente di questa
+> sezione è in produzione**: vale dal momento in cui il branch viene
+> distribuito. WS1 e WS2, invece, sono su `main` dall'08/09 (PR #3 e #5).
+
+Con il solo WS2 gli archivi sono per azienda, ma file, backup, credenziali e
+guasti sono ancora dell'installazione: per questo il runbook vietava una
+seconda azienda in produzione. Il WS3 toglie il divieto — ogni azienda ha i
+suoi file contati, il suo backup sul suo Drive con un ripristino provato, i
+suoi `state` OAuth, il suo instradamento dei webhook, e un guasto suo non
+ferma le altre.
+
+### Cosa fa il boot, in ordine (aggiunte del WS3)
+
+Sopra i sette passi della sezione WS2, il boot con questo codice fa anche:
+
+1. In `preparaTenants()`, insieme allo schema del control plane: la tabella
+   `tenant_storage` (il ledger dei byte per azienda), la tabella
+   `oauth_state` (gli `state` OAuth persistiti), la colonna
+   `tenants.storage_quota_bytes` (100 GiB di default) e il `CHECK` di
+   `tenant_comandi` allargato ai sette tipi di comando — i due nuovi sono
+   `ricalcola_storage` e `ripristina_archivi`. Subito dopo,
+   `impostaContabileStorage(creaContabileStorage())`: da qui in avanti ogni
+   `putFile` e ogni `deleteFileQuiet` aggiornano il ledger.
+2. In `bootstrapAll`, al caricamento di `backup_oauth`: il refresh token del
+   Drive viene **cifrato** con `MAIL_ENCRYPTION_KEY` e il campo in chiaro
+   sparisce dal blob e dallo specchio su file. **È a senso unico** (v.
+   «Backup per azienda»). Senza la chiave la riga resta in chiaro e il boot
+   lo dice: `[backup] tenant <id>: MAIL_ENCRYPTION_KEY assente, il refresh
+   token resta in chiaro`.
+3. **Dopo** `server.listen`, in sottofondo (accanto al backfill di
+   `tenant_id` del WS2): il ricalcolo iniziale del ledger, solo per le
+   aziende che non hanno ancora una riga in `tenant_storage`, una per volta.
+   Riga di log attesa:
+
+       [storage] ricalcolo iniziale tenant 1: 12043 file, 98123456789 byte in 61250 ms
+
+   Da lì in poi il ledger lo tengono aggiornato `putFile` e
+   `deleteFileQuiet`; il ricalcolo torna solo su comando.
+
+**Dal WS3 la sonda dello script chiede sei tabelle, non quattro**:
+`tenants`, `tenant_eventi`, `tenant_comandi`, `tenant_sedi` più
+`tenant_storage` e `oauth_state` (`verificaSchema`,
+`server/tenants/repository.ts`). Su un database dove gira il WS2 ma il WS3
+non ha ancora fatto boot, `elenco`, `crea`, `stato`, `proprietario`,
+`storage` e `ripristina` si fermano con «Tabelle del control plane del
+tenant assenti (tenants, tenant_eventi, tenant_comandi)…»: il messaggio ne
+nomina tre, ma a mancare sono le due nuove. Non è un guasto — deploy prima,
+script poi, anche fra WS2 e WS3. `verifica` resta l'eccezione: gira lo
+stesso, senza DDL.
+
+### File: chiavi, ledger, quota
+
+- I file **nuovi** nascono sotto `tenant/<id>/…`, per ogni azienda, **tenant
+  1 compreso**. Le chiavi **nude** sono quelle di Ruffino Group e restano
+  dove sono: nessuna migrazione fisica, nessuna rinomina (decisione 2 della
+  spec). `docs/storage-r2.md` racconta le chiavi in dettaglio.
+- In lettura c'è una cintura: `getFile` e `openFileReadStream` su una chiave
+  di un'altra azienda restituiscono `null` — per il chiamante è «non
+  trovato» — e lasciano nel log `[fileStorage] lettura rifiutata: chiave di
+  un'altra azienda`. Mai la chiave: direbbe l'id di un record altrui. Le
+  chiavi nude le legge solo il tenant 1.
+- Il ledger `tenant_storage` sale a ogni `putFile` e scende a ogni
+  `deleteFileQuiet`. Superata una soglia (50, 80, 100 % della quota) scrive
+  un evento `storage_soglia` in `tenant_eventi` con percentuale, byte e
+  quota, e non la ripete; si riarma scendendo sotto il 50 %.
+- **La quota non blocca niente** (decisione 5): conta e avvisa. Il default è
+  100 GiB per azienda (`tenants.storage_quota_bytes`).
+- La contabilità è best effort: un suo errore è un log
+  (`[fileStorage] contabilità non aggiornata (<id>): …`), mai un upload
+  rifiutato. Il ledger deriva dal vero e può quindi discostarsi: la fonte di
+  verità è il ricalcolo, su comando.
+- La query `tenants.storage` espone byte, file, quota, percentuale, soglia
+  avvisata e data dell'ultimo ricalcolo all'azienda della sessione. Nessuna
+  schermata la mostra ancora: il WS3 non tocca il client.
+
+### Comandi dell'operatore (aggiunte del WS3)
+
+    pnpm tenant storage --slug=ruffino-group
+    pnpm tenant storage --slug=acme --ricalcola --scrivi --attendi
+    pnpm tenant ripristina --slug=acme --backup=2026-09-07 --prova --attendi
+    pnpm tenant ripristina --slug=acme --backup=2026-09-07 --scrivi --attendi
+    pnpm tenant elenco
+
+- `storage` **senza** `--ricalcola` è sola lettura e non accoda niente:
+  stampa `<slug>: N file, M byte su Q (P %), soglia avvisata S %,
+  ricalcolato <ISO>`, oppure «nessun ledger ancora (il server lo calcola al
+  primo boot del WS3, oppure `--ricalcola --scrivi`)».
+- `storage --ricalcola` accoda il comando `ricalcola_storage` e vale la
+  regola di sempre: senza `--scrivi` è solo l'anteprima. Lo esegue il
+  server, che rilegge i documenti, gli allegati dei ticket, gli allegati
+  delle comunicazioni e — con una `HEAD` allo storage, perché la dimensione
+  non è registrata — le anteprime dei documenti e i PDF/XML delle fatture.
+  Su un archivio grosso costa: si lancia quando serve, non per abitudine.
+- `elenco` mostra ora, sotto ogni azienda, i worker sospesi
+  dall'interruttore per guasto:
+
+      2	acme	attivo	Acme Infissi
+        worker sospeso: backup fino a 2026-09-08T23:41:12.004Z (Drive 503)
+
+### Backup per azienda
+
+- Ogni azienda collega il **suo** Drive: Integrazioni → «Backup e storage» →
+  «Backup notturno su Google Drive» → collega l'account. Le procedure
+  `backup.*` agiscono sull'azienda della sessione: nessuna legge o scrive il
+  Drive di un'altra. Ruffino Group non cambia nulla di quello che fa oggi.
+- Cartella radice: il tenant 1 tiene **«Backup CRM Ruffino»** (invariata: è
+  la chiave con cui si ritrovano i backup già fatti); ogni altra azienda ha
+  **«Backup Wyndor — `<nome azienda>`»**, trovata o creata al primo backup.
+  Dentro, una cartella `Backup CRM <AAAA-MM-GG>` per notte.
+- L'albero contiene **solo** l'azienda del contesto: `database/<nome>.json`
+  col nome dello store (mai la chiave `tenant:<id>:…`), sedi e utenti
+  filtrati, `Utenti.json` di ogni sede coi soli utenti dell'azienda —
+  il difetto lasciato aperto dal WS2 è chiuso. `backup_log` e `backup_oauth`
+  non entrano nel dump: un segreto a riposo non si copia su Drive, nemmeno
+  cifrato.
+- Il giro notturno (00:00 Europe/Rome) resta uno e passa per ogni azienda
+  attiva che ha il backup abilitato nella **sua** configurazione; i tre
+  ritentativi a 20 minuti di distanza restano, per azienda.
+- **I ripieghi valgono solo per Ruffino Group**: service account e disco
+  locale del server sono del tenant 1. Un'altra azienda senza OAuth non
+  finisce da qualche altra parte: il backup fallisce e lo dice, «Account
+  Google non collegato: collega il Drive dell'azienda da Integrazioni →
+  Backup».
+- **Token cifrato e rollback a senso unico.** Al primo caricamento con
+  questo codice il refresh token viene cifrato con `MAIL_ENCRYPTION_KEY`; il
+  codice precedente legge solo il campo in chiaro, che non c'è più. Se si
+  torna al build precedente il backup Drive smette di funzionare finché non
+  si **ricollega il Drive** da Integrazioni, una volta per azienda. Nessun
+  dato perso, ma è l'unico punto non additivo del WS3: va messo nel piano di
+  rollback.
+- `MAIL_ENCRYPTION_KEY` deve essere già sul server quando si collega un
+  Drive: senza, il callback rifiuta prima di salvare («MAIL_ENCRYPTION_KEY
+  non configurata sul server: senza chiave il refresh token di Drive non può
+  essere salvato.») e il browser torna su `/integrazioni?gdrive=errore`.
+- Gli `state` OAuth di Drive e Fatture in Cloud non vivono più in una mappa
+  di processo: stanno in `oauth_state` (azienda, sede, utente, scadenza 10
+  minuti, consumo una tantum). Un deploy fra «collega» e il ritorno da
+  Google non invalida più il collegamento; uno `state` scaduto o già usato
+  porta a `/integrazioni?gdrive=errore` (o `?fic=errore`) con un log, e non
+  salva niente.
+
+### Ripristino degli archivi, passo per passo
+
+Il ripristino **sostituisce archivi interi**, non fonde niente: i record
+nati dopo il backup si perdono, ed è il senso dell'operazione. I file **non**
+si ricaricano — le `storageKey` restano valide nello storage, il Drive è la
+seconda copia. Il tenant 1 pretende `--anche-tenant-1`, come `sospendi`.
+
+1. **Prova.**
+
+       pnpm tenant ripristina --slug=acme --backup=2026-09-07 --prova --attendi
+
+   `ripristina` è l'unico sottocomando che accoda anche in prova: il Drive
+   dell'azienda lo legge il server, che ha il token, non lo script. Il
+   `--backup` è una data (`Backup CRM <data>` sotto la radice dell'azienda)
+   oppure l'id di una cartella. Con `--solo=clienti,commesse` si limita
+   l'elenco degli store. **Uno fra `--prova` e `--scrivi` va sempre
+   indicato**: senza, il comando si ferma con «Indica --prova (solo lettura
+   da Drive) oppure --scrivi (ripristino vero)» e non accoda nulla.
+2. **Leggi l'esito** (`--attendi` lo stampa; altrimenti sta in
+   `tenant_comandi.esito`): `dryRun`, la cartella trovata, `store[]` con
+   `nome`, `prima`, `dopo`, `sostituito`, le `anomalie` (le note dicono
+   perché un dump presente sul Drive non verrà sostituito, i difetti dicono
+   che il dump è rotto) e le `avvertenze`. Un dump difettoso fa fallire il
+   ripristino vero: si guarda qui prima di scrivere.
+3. **Scrivi**: stesso comando con `--scrivi` al posto di `--prova`. Il
+   server mette l'azienda in `sospeso` (motivo «ripristino archivi in
+   corso»), sostituisce gli store uno per uno scrivendo subito il blob sotto
+   il lock dello store, riattiva l'azienda — solo se era attiva prima: una
+   già sospesa resta sospesa — e registra l'evento `archivi_ripristinati`
+   con backup, store e conteggi.
+4. **Verifica**: `pnpm tenant elenco` (l'azienda deve essere `attivo`),
+   `pnpm --silent tenant verifica --json`, e un giro nell'app con un utente
+   di quell'azienda.
+5. **Riavvia il server se il backup è più vecchio del codice.** Gli archivi
+   ripristinati **non passano da `onLoad`**: default dei campi nuovi,
+   backfill e migrazioni di forma non girano. L'esito lo ripete
+   nell'avvertenza «Gli archivi ripristinati non passano da onLoad: se il
+   backup è di una versione più vecchia del codice, riavviare il server
+   subito dopo il ripristino.»
+6. **Se si interrompe a metà**, l'azienda **resta sospesa** di proposito
+   (metà archivio nuovo e metà vecchio non è uno stato in cui far rientrare
+   la gente): il messaggio dice quali store erano già stati sostituiti
+   («Ripristino interrotto dopo clienti, commesse: … (azienda lasciata
+   sospesa)»). Si verifica, poi si riattiva a mano:
+
+       pnpm tenant stato --slug=acme --riattiva --motivo="ripristino verificato" --scrivi
+
+Rifiuti previsti, tutti prima di toccare qualsiasi cosa: backup inesistente
+(«Backup 2026-09-07 non trovato sul Drive dell'azienda»), store chiesti che
+il backup non ha («Store richiesti assenti dal backup: …»), dump non valido
+(«Dump non valido: …»), niente da sostituire («Nessuno store da
+ripristinare» — succede con un `--solo` che nomina solo store esclusi).
+`backup_config`, `backup_oauth` e `backup_log` non si ripristinano mai:
+riscriverli con una fotografia vecchia scollegherebbe l'azienda dal Drive da
+cui sta ripristinando.
+
+### Webhook WhatsApp: prima la firma, poi il numero
+
+- L'ordine è: si verifica la **firma** provando i segreti di tutte le
+  aziende (senza leggere il payload), poi si decide il destinatario **per
+  `phone_number_id`**, cercandolo fra le aziende attive, e si ingerisce la
+  sola porzione del payload di quel numero nel contesto della sua sede. Con
+  l'Embedded Signup il segreto dell'app è uno per tutte: la firma non dice
+  più di chi è il messaggio, lo dice il numero.
+- Numero sconosciuto: `200` a Meta (nessun retry) e log
+  `[whatsapp-webhook] numero sconosciuto: <id>`.
+- L'errore di un numero non ferma gli altri numeri della stessa consegna.
+
+### Guasti isolati per azienda
+
+`perOgniTenantAttivo` tiene il conto degli errori per (worker, azienda):
+dopo 3 errori consecutivi quell'azienda viene saltata per 15 minuti, poi 30,
+60, 120 (tetto). Ogni sospensione scrive `[<etichetta>] tenant <id> sospeso
+per <min> min: <errore>` e un evento `worker_sospeso`; il primo giro
+riuscito riarma e registra `worker_riarmato`. Le altre aziende continuano a
+girare, e `pnpm tenant elenco` mostra chi è fermo e fino a quando. Nessuna
+coda nuova: la coda durevole degli eventi resta com'è.
+
+### Script di manutenzione: `--tenant`, e la trappola dell'interruttore
+
+`scripts/migrate-documents-to-storage.ts` accetta ora `--tenant=<id>`
+(default 1) come `pattuiti:reset` e `importa-clienti`, e gira dentro il
+contesto di quell'azienda; i file migrati da `dataBase64` ricevono la chiave
+col prefisso dell'azienda.
+
+    npx tsx scripts/migrate-documents-to-storage.ts --apply --tenant=2
+
+**Trappola da conoscere, comune a tutti gli script con `--tenant`:** con
+`FLAG_MULTI_AZIENDA` **spento** il resolver degli store risolve sempre il
+tenant 1, quindi `--tenant=2` **non fallisce** — lo script stampa
+`Tenant: 2` e lavora sull'archivio di Ruffino Group. È l'interruttore a
+decidere, non lo script. Prima di lavorare su un'altra azienda: verificare
+che l'interruttore sia acceso nell'ambiente in cui lo script gira. Restano
+tutti gli avvisi di prima, a partire da **mai contro un'istanza in
+esecuzione**.
+
+Il pannello dello storage della direzione (`fileStorage.status`,
+`fileStorage.migrate`) conta e migra ora i documenti **dell'azienda della
+sessione**, non dell'installazione.
+
+### Produzione, in ordine (WS3)
+
+1. **Backup Drive riuscito nelle 24 ore precedenti.** Prima del deploy: al
+   primo boot il codice cifra il refresh token (a senso unico) e ricalcola
+   il ledger.
+2. **Deploy a interruttore spento.** Nei log, in quest'ordine: nessun errore
+   `[tenants]`, `[backup]` o `[storage]`; il servizio che risponde; poi, in
+   sottofondo, `[storage] ricalcolo iniziale tenant 1: …`. Il primo boot non
+   riscrive tutti i blob come faceva il WS2 — l'unico riscritto è
+   `backup_oauth`, per cifrare il token: il lavoro pesante è il ricalcolo,
+   in sola lettura sugli archivi, che scrive solo `tenant_storage`.
+3. `pnpm --silent tenant verifica --json` — come nel WS2. Se dice «Tabelle
+   del control plane del tenant assenti…», il server non ha ancora fatto
+   boot con questa versione (la sonda ora ne chiede sei).
+4. `pnpm tenant storage --slug=ruffino-group`: deve stampare file e byte,
+   non «nessun ledger ancora». Se il ricalcolo iniziale è ancora in corso,
+   aspetta la riga di log del passo 2.
+5. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio, se non è già accesa;
+   poi un nuovo login.
+6. **Prima azienda 2 in staging**, non in produzione: `pnpm tenant crea …`;
+   entra il proprietario; collega il Drive **dell'azienda** da Integrazioni;
+   lancia un backup a mano e verifica sul suo Drive la cartella «Backup
+   Wyndor — `<nome azienda>`»; poi `pnpm tenant ripristina --slug=<slug>
+   --backup=<data> --prova --attendi` e leggi l'esito.
+7. Solo dopo, **la stessa sequenza in produzione**. Dal WS3 una seconda
+   azienda in produzione è ammessa: la regola del WS2 decade qui.
+
+**Rollback = redeploy del build precedente**, con **un'unica eccezione**: il
+refresh token del Drive è cifrato e il codice vecchio non lo legge, quindi
+ogni azienda che aveva collegato il Drive deve ricollegarlo. Tutto il resto
+resta nel database, invisibile e innocuo per il codice precedente: le chiavi
+`tenant/<id>/…` (i file già scritti restano leggibili, il codice vecchio non
+guarda il prefisso), `tenant_storage`, `oauth_state`, la colonna
+`storage_quota_bytes`.
+
+### Errori che l'operatore può vedere (WS3)
+
+- `[fileStorage] scrittura senza tenant nel contesto` (o `lettura`) — un
+  upload o un download è partito fuori da una richiesta con l'interruttore
+  acceso. Nessun file è stato salvato senza prefisso: è il fail-closed che
+  ha funzionato. Si corregge avvolgendo il punto d'ingresso in
+  `conTenant`/`conTenantDellaSede`.
+- `[fileStorage] lettura rifiutata: chiave di un'altra azienda` — la cintura
+  in lettura. Il chiamante vede «non trovato». Se si ripete, il record che
+  porta quella chiave è di un'altra azienda: guardarlo, non alzare la
+  cintura.
+- `[fileStorage] contabilità non aggiornata (<id>): …` e
+  `[fileStorage] delete fallito per <chiave>: …` — il file è a posto, il
+  conto no. Si rimette in pari con `pnpm tenant storage --slug=… --ricalcola
+  --scrivi`.
+- Evento `storage_soglia` in `tenant_eventi` (50, 80, 100 %) — avviso, non
+  blocco: nessun upload viene rifiutato oltre quota.
+- «Account Google non collegato: collega il Drive dell'azienda da
+  Integrazioni → Backup» nel log del backup — un'azienda diversa da Ruffino
+  Group non ha ancora collegato il suo Drive. Nessun ripiego: il backup di
+  quell'azienda non esiste finché non lo collega.
+- «MAIL_ENCRYPTION_KEY non configurata sul server: senza chiave il refresh
+  token di Drive non può essere salvato.» — collegamento rifiutato prima di
+  salvare; il browser torna con `?gdrive=errore`.
+- `[backup] tenant <id>: MAIL_ENCRYPTION_KEY assente, il refresh token resta
+  in chiaro` — al boot: la chiave manca, la migrazione del token non è
+  potuta girare. Aggiungere la chiave e riavviare.
+- `?gdrive=errore` / `?fic=errore` dopo un collegamento — `state` scaduto
+  (10 minuti), già usato o sconosciuto. Niente è stato salvato: si rifà il
+  collegamento.
+- `[whatsapp-webhook] numero sconosciuto: <id>` — un `phone_number_id` che
+  nessuna azienda attiva ha in `configWhatsApp`. Meta riceve `200` (non
+  ritenta): controllare la configurazione WhatsApp della sede.
+- `[<etichetta>] tenant <id> sospeso per <min> min: <errore>` — tre errori
+  consecutivi di quel worker su quell'azienda. Le altre girano; `pnpm tenant
+  elenco` dice fino a quando.
+- «Risorsa non trovata.» (`NOT_FOUND`) al posto di un 500 — dal WS3 i 98
+  «non trovato» dei router rispondono così, sia per un id inesistente sia
+  per uno di un'altra sede.
+- «Backup … non trovato sul Drive dell'azienda», «Store richiesti assenti
+  dal backup: …», «Dump non valido: …», «Nessuno store da ripristinare» —
+  ripristino rifiutato **prima** di toccare qualsiasi cosa, azienda non
+  sospesa.
+- «Ripristino interrotto dopo …: … (azienda lasciata sospesa)» — verifica e
+  poi `pnpm tenant stato --slug=… --riattiva --motivo=… --scrivi`.
 
 ## Verifica in sola lettura (prima e dopo l'accensione)
 
