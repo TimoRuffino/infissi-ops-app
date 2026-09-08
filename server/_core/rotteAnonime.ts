@@ -80,13 +80,47 @@ export async function mittenteWebhookWhatsApp(
   return trovato == null ? null : { tenantId: trovato.tenantId, sedeId: trovato.valore };
 }
 
-/** L'ingestione del payload già verificato, nel tenant del numero. */
-export async function ingestisciWebhookWhatsApp(
-  mittente: MittenteWhatsApp,
-  payload: unknown
-): Promise<number> {
-  const { ingestisciWebhook } = await import("../comunicazioni/whatsapp");
-  return conTenantDellaSede(mittente.sedeId, () => ingestisciWebhook(payload));
+/** I `phone_number_id` distinti del payload, nell'ordine in cui compaiono. */
+export function numeriDelPayload(payload: unknown): string[] {
+  const numeri: string[] = [];
+  for (const entry of (payload as any)?.entry ?? []) {
+    for (const change of entry?.changes ?? []) {
+      const id = change?.value?.metadata?.phone_number_id;
+      if (id != null && !numeri.includes(String(id))) numeri.push(String(id));
+    }
+  }
+  return numeri;
+}
+
+/** Lo stesso payload ridotto alle entry/changes di un numero. */
+export function payloadDelNumero(payload: any, phoneNumberId: string): any {
+  const entry = (payload?.entry ?? [])
+    .map((e: any) => ({ ...e, changes: (e?.changes ?? []).filter((c: any) => String(c?.value?.metadata?.phone_number_id ?? "") === phoneNumberId) }))
+    .filter((e: any) => e.changes.length > 0);
+  return { ...payload, entry };
+}
+
+/**
+ * L'ingestione, DOPO la firma, azienda per azienda in base al numero (WS3
+ * spec §6): con l'Embedded Signup il segreto dell'app è uno per tutte le
+ * aziende, quindi la firma non dice di chi è il messaggio — lo dice il
+ * `phone_number_id`, cercato in `configWhatsApp` di ogni azienda attiva.
+ * Un numero che nessuna azienda segue si logga e basta: Meta non deve riprovare.
+ */
+export async function ingestisciWebhookPerNumero(payload: unknown): Promise<{ ricevuti: number; numeriSconosciuti: string[] }> {
+  const { ingestisciWebhook, configPerPhoneNumberId } = await import("../comunicazioni/whatsapp");
+  let ricevuti = 0;
+  const numeriSconosciuti: string[] = [];
+  for (const numero of numeriDelPayload(payload)) {
+    const trovato = await trovaNeiTenant<number>("whatsapp-webhook", () => configPerPhoneNumberId(numero)?.sedeId ?? null);
+    if (!trovato) {
+      numeriSconosciuti.push(numero);
+      console.warn(`[whatsapp-webhook] numero sconosciuto: ${numero}`);
+      continue;
+    }
+    ricevuti += await conTenantDellaSede(trovato.valore, () => ingestisciWebhook(payloadDelNumero(payload, numero)));
+  }
+  return { ricevuti, numeriSconosciuti };
 }
 
 export type FeedIcs = { corpo: string; nomeFile: string };

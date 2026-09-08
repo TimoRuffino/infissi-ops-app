@@ -260,7 +260,7 @@ async function startServer() {
     express.raw({ type: "*/*", limit: "10mb" }),
     async (req, res) => {
       try {
-        const { mittenteWebhookWhatsApp, ingestisciWebhookWhatsApp } =
+        const { mittenteWebhookWhatsApp, ingestisciWebhookPerNumero } =
           await import("./rotteAnonime");
         const raw: Buffer = Buffer.isBuffer(req.body)
           ? req.body
@@ -282,8 +282,8 @@ async function startServer() {
         res.sendStatus(200);
         try {
           const payload = JSON.parse(raw.toString("utf8"));
-          const n = await ingestisciWebhookWhatsApp(mittente, payload);
-          if (n > 0) console.log(`[whatsapp] ${n} messaggi ricevuti`);
+          const { ricevuti } = await ingestisciWebhookPerNumero(payload);
+          if (ricevuti > 0) console.log(`[whatsapp] ${ricevuti} messaggi ricevuti`);
         } catch (e: any) {
           // Dopo il 200 l'errore si registra e basta: rilanciare non
           // cambierebbe la risposta, e Meta non deve riprovare.

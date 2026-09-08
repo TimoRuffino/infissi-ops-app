@@ -8,11 +8,11 @@
 //
 // Qui `modalitaTenantStretta(true)` toglie il ripiego dei test sul tenant 1:
 // se un corpo dimenticasse di dichiarare il tenant, il test lo vedrebbe.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { __registraTenantNotoPerTest, storeDi } from "./persistence";
 import { encryptSecret } from "./secretBox";
-import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import { modalitaTenantStretta } from "../tenants/contestoCorrente";
 import {
   getTenantRepository,
   resetTenantRepositoryForTesting,
@@ -27,8 +27,10 @@ import "../routers/interventi";
 import type { AppWhatsApp, ConfigWhatsApp } from "../comunicazioni/whatsapp";
 import {
   feedIcsPerToken,
-  ingestisciWebhookWhatsApp,
+  ingestisciWebhookPerNumero,
   mittenteWebhookWhatsApp,
+  numeriDelPayload,
+  payloadDelNumero,
   verifyTokenDiQualcheTenant,
 } from "./rotteAnonime";
 
@@ -126,7 +128,7 @@ describe("rotte anonime: il tenant si cerca, non si presume", () => {
   });
 
   describe("consegna del webhook WhatsApp (POST)", () => {
-    it("la firma dice tenant e sede, e l'ingestione gira in quel contesto", async () => {
+    it("la firma dice tenant e sede", async () => {
       storeDi<ConfigWhatsApp>(1, "whatsapp_config").push(
         config(1, SEDE_T1, { appSecretCifrato: encryptSecret("app-secret-di-rg") })
       );
@@ -150,30 +152,84 @@ describe("rotte anonime: il tenant si cerca, non si presume", () => {
       );
       const mittente = await mittenteWebhookWhatsApp(raw, firmaDi(raw, SEGRETO_T2));
       expect(mittente).toEqual({ tenantId: 2, sedeId: SEDE_T2 });
-
-      await ingestisciWebhookWhatsApp(mittente!, JSON.parse(raw.toString("utf8")));
-
-      // Le due aziende hanno lo STESSO phone_number_id: solo l'archivio di
-      // chi ha firmato deve essersi mosso.
-      expect(storeDi<ConfigWhatsApp>(2, "whatsapp_config")[0].diagnosticaWebhook?.eventiWebhook).toBe(1);
-      expect(storeDi<ConfigWhatsApp>(1, "whatsapp_config")[0].diagnosticaWebhook).toBeUndefined();
+      // Da qui in poi (Task 9) a decidere l'archivio d'arrivo non è più la
+      // firma ma il numero: vedi `ingestisciWebhookPerNumero` più sotto.
     });
 
-    it("l'ingestione dichiara il tenant della sede del numero", async () => {
-      storeDi<ConfigWhatsApp>(2, "whatsapp_config").push(
-        config(2, SEDE_T2, { appSecretCifrato: encryptSecret(SEGRETO_T2) })
+    it("numeriDelPayload e payloadDelNumero", () => {
+      const payload = {
+        entry: [
+          {
+            id: "e1",
+            changes: [
+              { field: "messages", value: { metadata: { phone_number_id: "111" }, messages: [{ id: "m1" }] } },
+            ],
+          },
+          {
+            id: "e2",
+            changes: [
+              { field: "messages", value: { metadata: { phone_number_id: "222" }, messages: [{ id: "m2" }] } },
+              { field: "messages", value: { metadata: { phone_number_id: "111" }, messages: [{ id: "m3" }] } },
+            ],
+          },
+        ],
+      };
+      expect(numeriDelPayload(payload)).toEqual(["111", "222"]);
+      const solo222 = payloadDelNumero(payload, "222");
+      expect(solo222.entry).toHaveLength(1);
+      expect(solo222.entry[0].changes).toHaveLength(1);
+      expect(solo222.entry[0].changes[0].value.messages[0].id).toBe("m2");
+      expect(numeriDelPayload({})).toEqual([]);
+    });
+
+    it("con lo stesso app secret due aziende ricevono ciascuna i messaggi del proprio numero; un numero sconosciuto si logga e basta", async () => {
+      // Con l'Embedded Signup il segreto dell'app è UNO per tutte le aziende
+      // (qui lo stesso SEGRETO_T2 su entrambe le configurazioni, apposta): la
+      // firma da sola non distingue più i tenant, come nel test sopra. A
+      // instradare l'ingestione è il phone_number_id, distinto per azienda
+      // come lo sono davvero i numeri su Meta.
+      storeDi<ConfigWhatsApp>(1, "whatsapp_config").push(
+        config(1, SEDE_T1, { phoneNumberId: "111", appSecretCifrato: encryptSecret(SEGRETO_T2) })
       );
-      const visto: Array<number | null> = [];
-      const raw = Buffer.from(JSON.stringify({ entry: [] }));
-      const mittente = await mittenteWebhookWhatsApp(raw, firmaDi(raw, SEGRETO_T2));
-      expect(mittente).not.toBeNull();
-      await ingestisciWebhookWhatsApp(mittente!, {
-        get entry() {
-          visto.push(tenantCorrente());
-          return [];
+      storeDi<ConfigWhatsApp>(2, "whatsapp_config").push(
+        config(2, SEDE_T2, { phoneNumberId: "222", appSecretCifrato: encryptSecret(SEGRETO_T2) })
+      );
+
+      const messaggioDi = (numero: string, id: string, waId: string) => ({
+        field: "messages",
+        value: {
+          metadata: { phone_number_id: numero },
+          contacts: [{ wa_id: waId, profile: { name: `Cliente ${numero}` } }],
+          messages: [
+            { id, from: waId, timestamp: "1786000000", type: "text", text: { body: `Messaggio dal numero ${numero}` } },
+          ],
         },
       });
-      expect(visto).toEqual([2]);
+      const payload = {
+        entry: [
+          { id: "e1", changes: [messaggioDi("111", "wamid.UNO", "393401110001")] },
+          { id: "e2", changes: [messaggioDi("222", "wamid.DUE", "393402220002")] },
+          { id: "e3", changes: [messaggioDi("999", "wamid.NOVE", "393409990009")] },
+        ],
+      };
+
+      // Un numero che nessuna azienda segue si logga e basta (Meta non deve
+      // riprovare): si spia console.warn per non sporcare l'output del test.
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const esito = await ingestisciWebhookPerNumero(payload);
+        expect(esito.ricevuti).toBe(2);
+        expect(esito.numeriSconosciuti).toEqual(["999"]);
+        expect(warn).toHaveBeenCalledWith("[whatsapp-webhook] numero sconosciuto: 999");
+
+        // Ogni azienda ha ricevuto SOLO il messaggio del proprio numero: la
+        // conta sta sull'archivio whatsapp_config del tenant giusto, non su
+        // quello vicino (stessa verifica delle altre prove di questo file).
+        expect(storeDi<ConfigWhatsApp>(1, "whatsapp_config")[0].diagnosticaWebhook?.eventiWebhook).toBe(1);
+        expect(storeDi<ConfigWhatsApp>(2, "whatsapp_config")[0].diagnosticaWebhook?.eventiWebhook).toBe(1);
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it("nessuna chiave valida → nessun mittente, e nulla è stato letto", async () => {
