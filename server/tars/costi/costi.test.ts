@@ -339,7 +339,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   it("prenota prudenzialmente, poi riconcilia al costo REALE liberando il resto", async () => {
     const governato = avvolgiConGovernor(
       providerConUso({ input: 1_000, cachedInput: 400, output: 100 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     const req = richiesta({ runId: "run-a", passo: 0, tentativo: 1 });
@@ -359,7 +359,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   it("senza tetti la spesa passa MA resta contabilizzata riga per riga", async () => {
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: configSenzaTetti(), ledger }
     );
     for (let passo = 0; passo < 5; passo++) {
@@ -380,7 +380,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   it("blocca il tetto PER RUN aggregando tutte le chiamate dello stesso run", async () => {
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config({ run: 0.04 }), ledger }
     );
     // 1ª chiamata: consuma davvero 0,0244 USD del tetto da 0,04.
@@ -405,7 +405,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     const adesso = new Date("2026-08-10T09:00:00.000Z");
     const perGiorno = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       {
         configurazione: config({ run: 0.04, giorno: 0.04 }),
         ledger,
@@ -431,7 +431,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     let adesso = new Date("2026-08-10T09:00:00.000Z");
     const perMese = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       {
         configurazione: config({ run: 0.04, giorno: 0.04, mese: 0.04 }),
         ledger,
@@ -458,12 +458,12 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     const configurazione = config({ run: 0.04, giorno: 0.04 });
     const sedeUno = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione, ledger }
     );
     const sedeDue = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 2, utenteId: 8 },
+      { sedeId: 2, utenteId: 8, tenantId: 1 },
       { configurazione, ledger }
     );
     await sedeUno.rispondi(richiesta({ runId: "s1", passo: 0, tentativo: 1 }));
@@ -485,7 +485,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
     const giornoNano = stimaUnitaria * capienza + 1_000; // spazio per 3, non 4
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       {
         configurazione: {
           ...config(),
@@ -519,7 +519,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   it("la stessa chiamata ripetuta (retry/doppio click) non prenota due volte", async () => {
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     const req = richiesta({ runId: "idem", passo: 0, tentativo: 1 });
@@ -535,7 +535,7 @@ describe("governor — prenotazione, riconciliazione, tetti", () => {
   it("un RETRY vero (tentativo 2) è una chiamata distinta e contabilizzata", async () => {
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     await governato.rispondi(richiesta({ runId: "r", passo: 0, tentativo: 1 }));
@@ -553,7 +553,7 @@ describe("governor — esiti anomali conservativi", () => {
         creaProviderFinto(() => {
           throw new ErroreProvider("guasto", categoria, true);
         }),
-        { sedeId: 1, utenteId: 7 },
+        { sedeId: 1, utenteId: 7, tenantId: 1 },
         { configurazione: config(), ledger: suo }
       );
       await expect(
@@ -573,7 +573,7 @@ describe("governor — esiti anomali conservativi", () => {
         creaProviderFinto(() => {
           throw new ErroreProvider("rifiutata", categoria, false);
         }),
-        { sedeId: 1, utenteId: 7 },
+        { sedeId: 1, utenteId: 7, tenantId: 1 },
         { configurazione: config(), ledger: suo }
       );
       await expect(
@@ -617,7 +617,7 @@ describe("governor — esiti anomali conservativi", () => {
   it("un modello senza tariffa non parte MAI, nemmeno col budget libero", async () => {
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     await expect(
@@ -632,7 +632,7 @@ describe("governor — esiti anomali conservativi", () => {
   it("una chiamata senza identità di run è rifiutata (non contabilizzabile)", async () => {
     const governato = avvolgiConGovernor(
       providerConUso({ input: 10, output: 10 }),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     const senzaIdentita = { ...richiesta({ runId: "x", passo: 0, tentativo: 1 }) };
@@ -660,7 +660,7 @@ describe("governor — uso non plausibile e stima come soffitto", () => {
     };
     const governato = avvolgiConGovernor(
       senzaUso,
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     await governato.rispondi(richiesta({ runId: "u0", passo: 0, tentativo: 1 }));
@@ -685,7 +685,7 @@ describe("governor — uso non plausibile e stima come soffitto", () => {
     };
     const governato = avvolgiConGovernor(
       incoerente,
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     await governato.rispondi(richiesta({ runId: "u1", passo: 0, tentativo: 1 }));
@@ -871,7 +871,7 @@ describe("provider reale — condizioni cumulative", () => {
         testo: "x",
         uso: { ...usoNullo, input: 1, output: 1 },
       })),
-      { sedeId: 1, utenteId: 7 },
+      { sedeId: 1, utenteId: 7, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     expect(governato.nome).toContain("+governor");
@@ -885,7 +885,7 @@ describe("governor — classi di costo (T9)", () => {
   it("una classe di background SENZA variabile non ha tetto (gate §8)", async () => {
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config(), classe: "proactive_commessa", ledger }
     );
     const esito = await governato.rispondi(
@@ -900,7 +900,7 @@ describe("governor — classi di costo (T9)", () => {
     process.env.TARS_BUDGET_PROACTIVE_COMMESSA_USD = "0";
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config(), classe: "proactive_commessa", ledger }
     );
     await expect(
@@ -910,7 +910,7 @@ describe("governor — classi di costo (T9)", () => {
 
     const interattivo = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config(), ledger }
     );
     const esito = await interattivo.rispondi(
@@ -925,7 +925,7 @@ describe("governor — classi di costo (T9)", () => {
     process.env.TARS_BUDGET_PATTERN_AZIENDA_USD = "0.02";
     const governato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config({ giorno: 10 }), classe: "pattern_azienda", ledger }
     );
     const primo = await governato.rispondi(richiesta(identita("run-pa-1")));
@@ -939,7 +939,7 @@ describe("governor — classi di costo (T9)", () => {
     // La classe interattiva continua a lavorare sullo stesso ledger.
     const interattivo = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config({ giorno: 10 }), ledger }
     );
     await expect(
@@ -951,7 +951,7 @@ describe("governor — classi di costo (T9)", () => {
     process.env.TARS_BUDGET_EVAL_USD = "non-un-numero";
     const evalGovernato = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config(), classe: "eval", ledger }
     );
     await expect(
@@ -962,7 +962,7 @@ describe("governor — classi di costo (T9)", () => {
     // Il globale resta l'hard ceiling per la classe interattiva.
     const interattivo = avvolgiConGovernor(
       providerConUso(USO_PESANTE),
-      { sedeId: 1, utenteId: 1 },
+      { sedeId: 1, utenteId: 1, tenantId: 1 },
       { configurazione: config({ run: 0.001, giorno: 2, mese: 20 }), ledger }
     );
     await expect(

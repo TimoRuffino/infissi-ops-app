@@ -48,6 +48,13 @@ export type StatoPrenotazione =
 export type RigaCosto = {
   chiamataId: string;
   runId: string;
+  /**
+   * L'azienda che paga (WS4, spec §7). Lo scrive la prenotazione: il trigger
+   * `tenant_id` del WS2 (che riempie solo i NULL leggendo `tenant_sedi`)
+   * resta la rete per le righe scritte da altre vie. Le righe più vecchie
+   * della colonna si leggono come tenant 1.
+   */
+  tenantId: number;
   sedeId: number;
   utenteId: number;
   conversazioneId: number | null;
@@ -71,6 +78,12 @@ export type ConsumoCorrente = {
   meseNano: number;
   /** Consumo del giorno della sola classe richiesta (0 se non calcolato). */
   classeGiornoNano?: number;
+  /**
+   * Consumo del MESE della sola azienda (WS4, spec §7): il budget per azienda
+   * si rinnova il primo del mese perché la somma è per `mese_locale`. Assente
+   * quando non è stato calcolato (prenotazione già presente, letture legacy).
+   */
+  aziendaMeseNano?: number;
 };
 
 /** Un limite `null` = nessun tetto (decisione 01/09/2026, gate §8). */
@@ -81,11 +94,14 @@ export type LimitiNano = {
 };
 
 export type EsitoPrenotazione =
-  | { esito: "prenotata"; riga: RigaCosto }
-  | { esito: "gia_presente"; riga: RigaCosto }
+  // `consumo` è quello letto PRIMA di questa prenotazione, nella stessa
+  // transazione: serve alla politica d'azienda (WS4, spec §7) per le soglie,
+  // e non costa una query in più. Assente quando la riga c'era già.
+  | { esito: "prenotata"; riga: RigaCosto; consumo?: ConsumoCorrente }
+  | { esito: "gia_presente"; riga: RigaCosto; consumo?: ConsumoCorrente }
   | {
       esito: "rifiutata";
-      limite: "run" | "giorno" | "mese" | "classe";
+      limite: "run" | "giorno" | "mese" | "classe" | "azienda";
       consumo: ConsumoCorrente;
       richiestoNano: number;
     };
@@ -107,6 +123,8 @@ export type LedgerCosti = {
   prenota(input: {
     chiamataId: string;
     runId: string;
+    /** Azienda che paga (WS4): scritta sulla riga e sommata per il mese. */
+    tenantId: number;
     sedeId: number;
     utenteId: number;
     conversazioneId: number | null;
@@ -114,6 +132,12 @@ export type LedgerCosti = {
     classe?: ClasseCosto;
     /** Tetto giornaliero della classe in nano-USD; null = solo il globale. */
     limiteClasseNano?: number | null;
+    /**
+     * Tetto MENSILE dell'azienda in nano-USD (WS4, spec §7); `null` o assente
+     * = nessun tetto d'azienda (tenant 1, interruttore spento, piano senza
+     * budget, o azienda ancora dentro la tolleranza).
+     */
+    limiteAziendaMeseNano?: number | null;
     costoPrenotatoNano: number;
     limiti: LimitiNano;
     adesso: Date;
@@ -163,6 +187,22 @@ export function costoContato(riga: {
     return riga.costoRealeNano ?? riga.costoPrenotatoNano;
   }
   return riga.costoPrenotatoNano;
+}
+
+/**
+ * Tetto MENSILE dell'azienda (WS4, spec §7). Si verifica dopo la classe e
+ * PRIMA dei tetti globali `TARS_*`, che restano la rete della piattaforma:
+ * all'utente dell'azienda si deve dire che il budget della SUA azienda è
+ * finito, non che «Tars ha raggiunto il limite configurato». Un limite
+ * assente (`null`) non rifiuta mai nulla.
+ */
+function sforaTettoAzienda(
+  consumo: ConsumoCorrente,
+  richiesto: number,
+  limiteAziendaMeseNano: number | null | undefined
+): boolean {
+  if (limiteAziendaMeseNano == null) return false;
+  return (consumo.aziendaMeseNano ?? 0) + richiesto > limiteAziendaMeseNano;
 }
 
 function verificaTetti(
@@ -261,6 +301,14 @@ export function ensureCostiSchema(): Promise<void> {
       // Additiva per le installazioni esistenti (T9).
       await kvSql!`ALTER TABLE tars_costi
         ADD COLUMN IF NOT EXISTS classe TEXT NOT NULL DEFAULT 'interactive'`;
+      // WS4 (spec §7): la prenotazione scrive l'azienda che paga. In
+      // produzione la colonna c'è già (WS2, `applicaTenantIdAlleTabelle`, con
+      // indice e trigger), ma il ledger non può dipendere dall'ordine dei
+      // boot né da un database dove quella migrazione non è ancora passata:
+      // qui è additiva, idempotente e dello stesso tipo (NULLABLE: una riga
+      // legacy vale tenant 1).
+      await kvSql!`ALTER TABLE tars_costi
+        ADD COLUMN IF NOT EXISTS tenant_id BIGINT`;
       await kvSql!`CREATE INDEX IF NOT EXISTS tars_costi_giorno_idx
         ON tars_costi (giorno_locale)`;
       // La scadenza delle prenotazioni appese gira a ogni chiamata
@@ -284,6 +332,8 @@ function rigaDa(row: any): RigaCosto {
   return {
     chiamataId: row.chiamata_id,
     runId: row.run_id,
+    // Righe precedenti al WS2/WS4 (colonna assente o NULL): Ruffino Group.
+    tenantId: Number(row.tenant_id ?? 1),
     sedeId: Number(row.sede_id),
     utenteId: Number(row.utente_id),
     conversazioneId:
@@ -351,7 +401,13 @@ export function creaLedgerPostgres(): LedgerCosti {
               WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
               ELSE costo_prenotato_nano END)
               FILTER (WHERE giorno_locale = ${giorno}
-                AND classe = ${input.classe ?? "interactive"}), 0) AS classe
+                AND classe = ${input.classe ?? "interactive"}), 0) AS classe,
+            COALESCE(SUM(CASE stato
+              WHEN 'released' THEN 0
+              WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
+              ELSE costo_prenotato_nano END)
+              FILTER (WHERE mese_locale = ${mese}
+                AND COALESCE(tenant_id, 1) = ${input.tenantId}), 0) AS azienda
           FROM tars_costi
           WHERE mese_locale = ${mese} OR run_id = ${input.runId}`;
         const consumo: ConsumoCorrente = {
@@ -359,6 +415,7 @@ export function creaLedgerPostgres(): LedgerCosti {
           giornoNano: Number(somme?.giorno ?? 0),
           meseNano: Number(somme?.mese ?? 0),
           classeGiornoNano: Number(somme?.classe ?? 0),
+          aziendaMeseNano: Number(somme?.azienda ?? 0),
         };
         if (
           input.limiteClasseNano != null &&
@@ -368,6 +425,20 @@ export function creaLedgerPostgres(): LedgerCosti {
           return {
             esito: "rifiutata",
             limite: "classe",
+            consumo,
+            richiestoNano: input.costoPrenotatoNano,
+          };
+        }
+        if (
+          sforaTettoAzienda(
+            consumo,
+            input.costoPrenotatoNano,
+            input.limiteAziendaMeseNano
+          )
+        ) {
+          return {
+            esito: "rifiutata",
+            limite: "azienda",
             consumo,
             richiestoNano: input.costoPrenotatoNano,
           };
@@ -387,11 +458,12 @@ export function creaLedgerPostgres(): LedgerCosti {
         }
 
         const [inserita] = await tx`INSERT INTO tars_costi (
-            chiamata_id, run_id, sede_id, utente_id, conversazione_id, modello,
-            classe, stato, costo_prenotato_nano, giorno_locale, mese_locale
+            chiamata_id, run_id, tenant_id, sede_id, utente_id, conversazione_id,
+            modello, classe, stato, costo_prenotato_nano, giorno_locale, mese_locale
           ) VALUES (
-            ${input.chiamataId}, ${input.runId}, ${input.sedeId}, ${input.utenteId},
-            ${input.conversazioneId}, ${input.modello}, ${input.classe ?? "interactive"},
+            ${input.chiamataId}, ${input.runId}, ${input.tenantId}, ${input.sedeId},
+            ${input.utenteId}, ${input.conversazioneId}, ${input.modello},
+            ${input.classe ?? "interactive"},
             'reserved', ${input.costoPrenotatoNano}, ${giorno}, ${mese}
           )
           ON CONFLICT (chiamata_id) DO NOTHING
@@ -399,9 +471,9 @@ export function creaLedgerPostgres(): LedgerCosti {
         if (!inserita) {
           const [riletta] = await tx`SELECT * FROM tars_costi
             WHERE chiamata_id = ${input.chiamataId} LIMIT 1`;
-          return { esito: "gia_presente", riga: rigaDa(riletta) };
+          return { esito: "gia_presente", riga: rigaDa(riletta), consumo };
         }
-        return { esito: "prenotata", riga: rigaDa(inserita) };
+        return { esito: "prenotata", riga: rigaDa(inserita), consumo };
       }) as Promise<EsitoPrenotazione>;
     },
 
@@ -535,6 +607,9 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
                 r.classe === (input.classe ?? "interactive")
             )
             .reduce((s, r) => s + costoContato(r), 0),
+          aziendaMeseNano: righe
+            .filter(r => r.meseLocale === mese && r.tenantId === input.tenantId)
+            .reduce((s, r) => s + costoContato(r), 0),
         };
         if (
           input.limiteClasseNano != null &&
@@ -544,6 +619,20 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
           return {
             esito: "rifiutata",
             limite: "classe",
+            consumo,
+            richiestoNano: input.costoPrenotatoNano,
+          } as const;
+        }
+        if (
+          sforaTettoAzienda(
+            consumo,
+            input.costoPrenotatoNano,
+            input.limiteAziendaMeseNano
+          )
+        ) {
+          return {
+            esito: "rifiutata",
+            limite: "azienda",
             consumo,
             richiestoNano: input.costoPrenotatoNano,
           } as const;
@@ -564,6 +653,7 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
         const riga: RigaCosto = {
           chiamataId: input.chiamataId,
           runId: input.runId,
+          tenantId: input.tenantId,
           sedeId: input.sedeId,
           utenteId: input.utenteId,
           conversazioneId: input.conversazioneId,
@@ -581,7 +671,7 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
           creataIl: new Date(input.adesso),
         };
         righe.push(riga);
-        return { esito: "prenotata", riga: { ...riga } } as const;
+        return { esito: "prenotata", riga: { ...riga }, consumo } as const;
       });
     },
 

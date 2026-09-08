@@ -84,8 +84,10 @@ export async function preparaTenants(): Promise<number[]> {
   // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
   // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.
   impostaContabileStorage(creaContabileStorage());
-  // La quota che blocca (WS4, spec §6): stesso pattern del contabile, un
-  // gancio iniettato — senza questa chiamata `putFile` non blocca mai nulla.
+  // La quota che blocca (WS4, spec §6) e il tetto Tars per azienda (§7):
+  // stesso pattern del contabile, ganci iniettati — senza questa chiamata
+  // `putFile` non blocca mai nulla e il budget governor non conosce alcun
+  // tetto d'azienda. Entrambi restano inerti a interruttore spento.
   registraGanciQuota();
   if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   return repo.tutti().map(t => t.id);

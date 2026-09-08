@@ -4,11 +4,12 @@
 // servizio.test.ts: orologio finto per controllare `soglia100Dal`, che
 // `applicaSoglie` timbra con `new Date()` reale).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MESSAGGIO_BUDGET_AZIENDA } from "../tars/costi/governor";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import { applicaSoglie } from "../tenants/storage";
 import type { StatoStorage } from "../tenants/tipi";
-import { MESSAGGI_ABBONAMENTO, TOLLERANZA_PREDEFINITA_GIORNI } from "./costanti";
-import { bloccoStorage, verificaCaricamento } from "./quota";
+import { MESSAGGI_ABBONAMENTO, meseLocale, TOLLERANZA_PREDEFINITA_GIORNI } from "./costanti";
+import { bloccoStorage, politicaTarsAzienda, sogliaTars, verificaCaricamento } from "./quota";
 import { creaProva } from "./servizio";
 import type { Abbonamento } from "./tipi";
 
@@ -239,5 +240,219 @@ describe("verificaCaricamento", () => {
 
     expect(esito).toEqual({ messaggio: MESSAGGI_ABBONAMENTO.spazioEsaurito(2) });
     expect(eventiSpy).toHaveBeenCalled();
+  });
+});
+
+// ── Budget Tars per azienda (WS4, spec §7) ──────────────────────────────
+
+describe("sogliaTars (puro)", () => {
+  it("senza budget nessuna soglia: il tenant 1 e i piani senza tetto non avvisano mai", () => {
+    expect(sogliaTars(0, null)).toBe(0);
+    expect(sogliaTars(9_999, null)).toBe(0);
+  });
+
+  it("le tre soglie scattano a 50, 80 e 100 % e restano 100 oltre il budget", () => {
+    expect(sogliaTars(49, 100)).toBe(0);
+    expect(sogliaTars(50, 100)).toBe(50);
+    expect(sogliaTars(79, 100)).toBe(50);
+    expect(sogliaTars(80, 100)).toBe(80);
+    expect(sogliaTars(99, 100)).toBe(80);
+    expect(sogliaTars(100, 100)).toBe(100);
+    expect(sogliaTars(250, 100)).toBe(100);
+  });
+
+  it("budget zero (piano senza Tars incluso): esaurito per definizione", () => {
+    expect(sogliaTars(0, 0)).toBe(100);
+    expect(sogliaTars(1, 0)).toBe(100);
+  });
+});
+
+describe("politicaTarsAzienda — limite", () => {
+  const BUDGET = 1_000_000_000; // 1 USD in nano
+  const EXTRA = 500_000_000;
+
+  const salva = (tenantId: number, patch: Partial<Abbonamento> = {}) =>
+    getTenantRepository().salvaAbbonamento({ ...abbonamentoBase, tenantId, ...patch });
+
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+  });
+
+  afterEach(() => {
+    resetTenantRepositoryForTesting();
+    delete process.env.FLAG_MULTI_AZIENDA;
+  });
+
+  it("interruttore spento: nessun tetto, mai", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    await salva(2, { budgetTarsNanoMese: BUDGET, tarsSoglia100Dal: giorni(-30) });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: null, bloccante: false });
+  });
+
+  it("tenant 1: nessun tetto d'azienda anche se la riga ne portasse uno (valgono i TARS_* globali)", async () => {
+    await salva(1, { budgetTarsNanoMese: BUDGET, tarsSoglia100Dal: giorni(-30) });
+    expect(await politicaTarsAzienda().limite(1, T0)).toEqual({ limiteNano: null, bloccante: false });
+  });
+
+  it("azienda senza abbonamento o senza budget: nessun tetto", async () => {
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: null, bloccante: false });
+    await salva(2, { budgetTarsNanoMese: null });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: null, bloccante: false });
+  });
+
+  it("budget più l'extra DEL MESE, non bloccante finché il 100 % non è scattato", async () => {
+    await salva(2, { budgetTarsNanoMese: BUDGET, extraTarsNano: EXTRA, extraTarsMese: meseLocale(T0) });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({
+      limiteNano: BUDGET + EXTRA,
+      bloccante: false,
+    });
+  });
+
+  it("l'extra di un altro mese non allarga il tetto di questo", async () => {
+    await salva(2, { budgetTarsNanoMese: BUDGET, extraTarsNano: EXTRA, extraTarsMese: "2026-08" });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: BUDGET, bloccante: false });
+  });
+
+  it("bloccante solo OLTRE la tolleranza dal primo 100 %", async () => {
+    await salva(2, {
+      budgetTarsNanoMese: BUDGET,
+      tolleranzaTarsGiorni: 7,
+      tarsSoglia100Dal: giorni(-3),
+    });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: BUDGET, bloccante: false });
+
+    await salva(2, {
+      budgetTarsNanoMese: BUDGET,
+      tolleranzaTarsGiorni: 7,
+      tarsSoglia100Dal: giorni(-8),
+    });
+    expect(await politicaTarsAzienda().limite(2, T0)).toEqual({ limiteNano: BUDGET, bloccante: true });
+  });
+});
+
+describe("politicaTarsAzienda — dopoPrenotazione", () => {
+  const BUDGET = 1_000_000_000; // 1 USD in nano
+  const mese = meseLocale(T0);
+
+  const salva = (tenantId: number, patch: Partial<Abbonamento> = {}) =>
+    getTenantRepository().salvaAbbonamento({
+      ...abbonamentoBase,
+      tenantId,
+      budgetTarsNanoMese: BUDGET,
+      tarsSogliaMese: mese,
+      ...patch,
+    });
+
+  const tipi = async (tenantId: number) =>
+    (await getTenantRepository().eventi(tenantId)).map(e => e.tipo);
+
+  beforeEach(async () => {
+    delete process.env.FLAG_MULTI_AZIENDA;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    for (const id of [2, 4, 5, 6]) {
+      await repo.inserisci({ id, slug: `azienda-${id}`, nome: `Azienda ${id}` });
+    }
+  });
+
+  afterEach(() => {
+    resetTenantRepositoryForTesting();
+    delete process.env.FLAG_MULTI_AZIENDA;
+  });
+
+  it("il messaggio del governor è quello dell'abbonamento (copia sorvegliata)", () => {
+    expect(MESSAGGIO_BUDGET_AZIENDA).toBe(MESSAGGI_ABBONAMENTO.budgetTars);
+  });
+
+  it("interruttore spento, tenant 1 o azienda senza budget: nessun evento", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    await salva(2);
+    await politicaTarsAzienda().dopoPrenotazione(2, BUDGET, T0, { rifiutata: false });
+    expect(await tipi(2)).toEqual([]);
+
+    delete process.env.FLAG_MULTI_AZIENDA;
+    await salva(1);
+    await politicaTarsAzienda().dopoPrenotazione(1, BUDGET, T0, { rifiutata: false });
+    expect(await tipi(1)).toEqual([]);
+
+    await salva(4, { budgetTarsNanoMese: null });
+    await politicaTarsAzienda().dopoPrenotazione(4, BUDGET, T0, { rifiutata: false });
+    expect(await tipi(4)).toEqual([]);
+  });
+
+  it("soglia 50 %: un evento tars_soglia, una volta sola nel mese", async () => {
+    await salva(2);
+    const politica = politicaTarsAzienda();
+    await politica.dopoPrenotazione(2, BUDGET * 0.6, T0, { rifiutata: false });
+    await politica.dopoPrenotazione(2, BUDGET * 0.7, T0, { rifiutata: false });
+
+    const eventi = await getTenantRepository().eventi(2);
+    expect(eventi.filter(e => e.tipo === "tars_soglia")).toHaveLength(1);
+    expect(eventi[0].dettagli).toEqual({ percentuale: 50, mese });
+    expect(getTenantRepository().abbonamentoDi(2)?.tarsSogliaAvvisata).toBe(50);
+    expect(getTenantRepository().abbonamentoDi(2)?.tarsSoglia100Dal).toBeNull();
+  });
+
+  it("soglia 100 %: evento e tarsSoglia100Dal timbrato una volta sola", async () => {
+    await salva(2);
+    const politica = politicaTarsAzienda();
+    await politica.dopoPrenotazione(2, BUDGET, T0, { rifiutata: false });
+    const dopoIlPrimo = getTenantRepository().abbonamentoDi(2);
+    expect(dopoIlPrimo?.tarsSogliaAvvisata).toBe(100);
+    expect(dopoIlPrimo?.tarsSoglia100Dal?.toISOString()).toBe(T0.toISOString());
+
+    await politica.dopoPrenotazione(2, BUDGET * 2, giorni(1), { rifiutata: false });
+    expect((await tipi(2)).filter(t => t === "tars_soglia")).toHaveLength(1);
+    // Il timbro NON si sposta: la tolleranza si conta dal primo 100 %.
+    expect(getTenantRepository().abbonamentoDi(2)?.tarsSoglia100Dal?.toISOString()).toBe(
+      T0.toISOString()
+    );
+  });
+
+  it("mese nuovo: soglie e timbro del 100 % ripartono da zero", async () => {
+    await salva(2, { tarsSogliaAvvisata: 100, tarsSoglia100Dal: T0 });
+    const nuovoMese = new Date("2026-10-02T09:00:00Z");
+    await politicaTarsAzienda().dopoPrenotazione(2, BUDGET * 0.1, nuovoMese, { rifiutata: false });
+
+    const abbonamento = getTenantRepository().abbonamentoDi(2);
+    expect(abbonamento?.tarsSogliaMese).toBe(meseLocale(nuovoMese));
+    expect(abbonamento?.tarsSogliaAvvisata).toBe(0);
+    expect(abbonamento?.tarsSoglia100Dal).toBeNull();
+    expect(await tipi(2)).toEqual([]);
+  });
+
+  it("consumo tornato sotto il 100 % (budget alzato): il timbro si azzera, il blocco cade", async () => {
+    await salva(2, { tarsSogliaAvvisata: 100, tarsSoglia100Dal: T0 });
+    await politicaTarsAzienda().dopoPrenotazione(2, BUDGET * 0.4, T0, { rifiutata: false });
+    expect(getTenantRepository().abbonamentoDi(2)?.tarsSoglia100Dal).toBeNull();
+  });
+
+  it("primo rifiuto del giorno: un evento tars_bloccato, poi lo sblocco quando la chiamata passa", async () => {
+    await salva(5, { tarsSogliaAvvisata: 100, tarsSoglia100Dal: giorni(-10) });
+    const politica = politicaTarsAzienda();
+
+    await politica.dopoPrenotazione(5, BUDGET * 1.2, T0, { rifiutata: true });
+    await politica.dopoPrenotazione(5, BUDGET * 1.2, T0, { rifiutata: true });
+    expect((await tipi(5)).filter(t => t === "tars_bloccato")).toHaveLength(1);
+
+    // Giorno dopo, ancora bloccata: un secondo evento (uno al giorno).
+    await politica.dopoPrenotazione(5, BUDGET * 1.2, giorni(1), { rifiutata: true });
+    expect((await tipi(5)).filter(t => t === "tars_bloccato")).toHaveLength(2);
+
+    // La chiamata passa di nuovo (mese nuovo o budget alzato): sblocco, una volta sola.
+    await politica.dopoPrenotazione(5, BUDGET * 0.2, giorni(2), { rifiutata: false });
+    await politica.dopoPrenotazione(5, BUDGET * 0.3, giorni(2), { rifiutata: false });
+    expect((await tipi(5)).filter(t => t === "tars_sbloccato")).toHaveLength(1);
+  });
+
+  it("una chiamata accettata senza blocchi precedenti non registra sblocchi", async () => {
+    await salva(6);
+    await politicaTarsAzienda().dopoPrenotazione(6, BUDGET * 0.1, T0, { rifiutata: false });
+    expect(await tipi(6)).toEqual([]);
   });
 });
