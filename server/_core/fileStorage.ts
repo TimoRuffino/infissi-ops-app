@@ -28,6 +28,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
+import { TRPCError } from "@trpc/server";
 import { tenantCorrente } from "../tenants/contestoCorrente";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 
@@ -124,6 +125,26 @@ export type ContabileStorage = {
 let contabile: ContabileStorage | null = null;
 export function impostaContabileStorage(c: ContabileStorage | null): void {
   contabile = c;
+}
+
+// ── Quota che blocca (WS4, spec §6) ─────────────────────────────────────────
+// La quota conta e avvisa dal WS3 (server/tenants/storage.ts): blocca SOLO
+// qui e SOLO col gancio registrato al boot (server/abbonamenti/quota.ts,
+// dietro FLAG_MULTI_AZIENDA — `registraGanciQuota()` in `preparaTenants()`).
+// Senza gancio (script, test, boot prima di quel punto) nessun controllo,
+// come oggi.
+export type VerificaQuota = (tenantId: number, bytes: number) => Promise<{ messaggio: string } | null>;
+let verificaQuota: VerificaQuota | null = null;
+export function impostaVerificaQuota(v: VerificaQuota | null): void {
+  verificaQuota = v;
+}
+
+/** Spazio esaurito oltre la tolleranza: tRPC la mostra come le altre `TRPCError` di dominio. */
+export class ErroreQuotaStorage extends TRPCError {
+  constructor(messaggio: string) {
+    super({ code: "PRECONDITION_FAILED", message: messaggio });
+    this.name = "ErroreQuotaStorage";
+  }
 }
 
 // ── Local driver ────────────────────────────────────────────────────────────
@@ -546,6 +567,13 @@ export async function putFile(
   mimeType: string
 ): Promise<{ storageKey: string; checksum: string }> {
   const tenantId = tenantPerStorage("scrittura");
+  // La quota conta e avvisa dal WS3, blocca solo qui e solo col gancio
+  // registrato al boot (spec WS4 §6): un rifiuto (o un gancio che lancia)
+  // fa fallire l'upload — fail-closed, mai un upload «di comodo».
+  if (verificaQuota) {
+    const rifiuto = await verificaQuota(tenantId, buffer.length);
+    if (rifiuto) throw new ErroreQuotaStorage(rifiuto.messaggio);
+  }
   const driver = getStorageDriver();
   assertDurableDriver(driver);
   const storageKey = chiaveStorage(

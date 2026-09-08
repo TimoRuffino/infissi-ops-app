@@ -5,8 +5,10 @@ import {
   __impostaDriverPerTest,
   chiaveStorage,
   deleteFileQuiet,
+  ErroreQuotaStorage,
   getFile,
   impostaContabileStorage,
+  impostaVerificaQuota,
   openFileReadStream,
   putFile,
   statFile,
@@ -46,12 +48,14 @@ describe("fileStorage per tenant", () => {
     __impostaDriverPerTest(driver);
     modalitaTenantStretta(false);
     impostaContabileStorage(null);
+    impostaVerificaQuota(null);
   });
   afterEach(() => {
     delete process.env.FLAG_MULTI_AZIENDA;
     __impostaDriverPerTest(null);
     modalitaTenantStretta(false);
     impostaContabileStorage(null);
+    impostaVerificaQuota(null);
     vi.restoreAllMocks();
   });
 
@@ -70,6 +74,29 @@ describe("fileStorage per tenant", () => {
     expect(esito.storageKey.startsWith("tenant/2/ticket_allegati/5/6-")).toBe(true);
     expect(driver.file.has(esito.storageKey)).toBe(true);
     expect(chiamate).toEqual([["aggiungi", 2, 3, 1]]);
+  });
+
+  it("senza gancio di quota putFile scrive normalmente", async () => {
+    const esito = await conTenant(2, () => putFile("ticket_allegati", 5, 6, "foto.png", Buffer.from("abc"), "image/png"));
+    expect(driver.file.has(esito.storageKey)).toBe(true);
+  });
+
+  it("con un gancio di quota che rifiuta, putFile lancia ErroreQuotaStorage e il driver non riceve il file", async () => {
+    impostaVerificaQuota(async () => ({ messaggio: "Spazio esaurito" }));
+    const promessa = conTenant(2, () => putFile("ticket_allegati", 5, 6, "foto.png", Buffer.from("abc"), "image/png"));
+    await expect(promessa).rejects.toBeInstanceOf(ErroreQuotaStorage);
+    await expect(promessa).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Spazio esaurito" });
+    expect(driver.file.size).toBe(0);
+  });
+
+  it("un gancio di quota che lancia fa fallire l'upload con quell'errore (fail-closed, mai un upload «di comodo»)", async () => {
+    impostaVerificaQuota(async () => {
+      throw new Error("verifica quota giù");
+    });
+    await expect(
+      conTenant(2, () => putFile("ticket_allegati", 5, 6, "foto.png", Buffer.from("abc"), "image/png"))
+    ).rejects.toThrow("verifica quota giù");
+    expect(driver.file.size).toBe(0);
   });
 
   it("putFile senza tenant nel contesto lancia (interruttore acceso, modalità stretta)", async () => {

@@ -25,6 +25,9 @@ import { getSediStore } from "../routers/sedi";
 // più da questo modulo (Task 3 fix round 1, Ruling R7): parte SOLO dopo il
 // `listen`, in `_core/index.ts` — mai dal boot, che gira prima.
 import { assicuraAbbonamentoPredefinito } from "../abbonamenti/servizio";
+// Stesso ragionamento del commento qui sopra: `quota.ts` non risale a
+// `boot.ts`, import statico sicuro (WS4, Task 5).
+import { registraGanciQuota } from "../abbonamenti/quota";
 import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
@@ -81,6 +84,9 @@ export async function preparaTenants(): Promise<number[]> {
   // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
   // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.
   impostaContabileStorage(creaContabileStorage());
+  // La quota che blocca (WS4, spec §6): stesso pattern del contabile, un
+  // gancio iniettato — senza questa chiamata `putFile` non blocca mai nulla.
+  registraGanciQuota();
   if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   return repo.tutti().map(t => t.id);
 }

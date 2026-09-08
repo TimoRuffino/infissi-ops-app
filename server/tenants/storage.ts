@@ -34,6 +34,17 @@ export function sogliaRaggiunta(bytes: number, quotaBytes: number): SogliaStorag
 export async function applicaSoglie(stato: StatoStorage, attore = "sistema"): Promise<SogliaStorage | null> {
   const repo = getTenantRepository();
   const raggiunta = sogliaRaggiunta(stato.bytes, stato.quotaBytes);
+  // WS4 (quota che blocca, spec §6): la tolleranza dopo il 100 % si conta da
+  // `soglia100Dal`, impostata al primo attraversamento e mai spostata ai
+  // giri successivi; scendendo sotto il 100 % si azzera. L'evento
+  // `storage_sbloccato` lo registra `quota.ts` quando rileva il cambio (solo
+  // se l'azienda era davvero bloccata), non qui.
+  if (raggiunta === 100 && !stato.soglia100Dal) {
+    await repo.impostaSoglia100Storage(stato.tenantId, new Date());
+  }
+  if (raggiunta < 100 && stato.soglia100Dal) {
+    await repo.impostaSoglia100Storage(stato.tenantId, null);
+  }
   if (raggiunta > stato.sogliaAvvisata) {
     await repo.registraEvento({
       tenantId: stato.tenantId,

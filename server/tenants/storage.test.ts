@@ -56,6 +56,31 @@ describe("contabile dello storage", () => {
     expect(await repo.eventi(1)).toEqual([]);
   });
 
+  // WS4 (quota che blocca, spec §6): `soglia100Dal` è la data da cui parte
+  // la tolleranza — impostata al primo attraversamento del 100 %, mai
+  // spostata ai giri successivi finché ci si resta, azzerata scendendo sotto.
+  it("applicaSoglie imposta soglia100Dal al primo 100%, non la sposta ai giri successivi, la azzera scendendo sotto", async () => {
+    const repo = getTenantRepository();
+    let stato = await repo.aggiornaStorage(2, 1000, 1); // esattamente 100 %
+    expect(stato.soglia100Dal).toBeNull(); // non ancora impostata: la riga arriva com'era prima di questo giro
+    await applicaSoglie(stato);
+    const primaData = (await repo.storageDi(2))?.soglia100Dal ?? null;
+    expect(primaData).toBeInstanceOf(Date);
+
+    // Un secondo giro, ancora al 100 % (es. un altro file arrivato): la data
+    // di partenza della tolleranza non si sposta in avanti.
+    stato = (await repo.storageDi(2))!;
+    expect(stato.bytes).toBe(1000);
+    await applicaSoglie(stato);
+    expect((await repo.storageDi(2))?.soglia100Dal?.getTime()).toBe(primaData!.getTime());
+
+    // Sotto il 100 %: si azzera (la tolleranza, se un giorno si torna a
+    // riempire, riparte da un nuovo attraversamento).
+    stato = await repo.aggiornaStorage(2, -600, 0); // 40 %
+    await applicaSoglie(stato);
+    expect((await repo.storageDi(2))?.soglia100Dal).toBeNull();
+  });
+
   it("ricalcolaStorage somma size registrate e head delle anteprime, timbra e avvisa", async () => {
     // Mai `__resetPersistenzaPerTest()` in un file che importa i router: azzera
     // le famiglie registrate all'import. Si registra il tenant 2 e si puliscono gli array.
