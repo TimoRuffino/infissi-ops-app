@@ -139,6 +139,14 @@ export function getCfg(sedeId: number | null): FicConfig {
   return c;
 }
 
+/**
+ * La configurazione di una sede, SENZA crearla: `getCfg` scrive una riga
+ * nuova quando manca, e una fotografia in sola lettura non deve farlo.
+ */
+export function ficConfigDiSede(sedeId: number | null): FicConfig | null {
+  return cfgRows.find(x => x.sedeId === (sedeId ?? DEFAULT_SEDE_ID)) ?? null;
+}
+
 function assertChiaveCifratura() {
   if (!secretBoxConfigured()) {
     throw new TRPCError({

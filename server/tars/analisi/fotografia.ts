@@ -32,6 +32,11 @@ import {
 // Il costo che nasce dalla conferma è regola di dominio, non di Tars: qui
 // si legge solo dove NON è nato, per dirlo.
 import { confermeSenzaCostoLeggibileDiSede } from "../../commesse/costoDaConferma";
+// La merce ordinata: senza questa sezione la fotografia non vedeva l'unica
+// cosa che fa slittare le pose (punto 1 del piano 08/09/2026).
+import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivio";
+// Le fonti mute: l'unico difetto che mente in modo rassicurante (punto 7).
+import { guastiDiSede, type GuastoIntegrazione } from "./guasti";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
 import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
 
@@ -43,6 +48,9 @@ const GIORNI_INTERVENTI = 7;
 const PREVENTIVI_MASSIMI = 10;
 const GATE_MASSIMI = 8;
 const FATTURE_MASSIME = 5;
+const CONSEGNE_MASSIME = 8;
+/** Oltre questa soglia una consegna prevista è «vicina», non futura. */
+const GIORNI_CONSEGNA_VICINA = 14;
 /**
  * Una commessa senza FATTI reali da così tanto è dormiente: non lavoro da
  * proporre, al più da archiviare. Era 120 giorni misurati su `updatedAt`,
@@ -74,6 +82,51 @@ function statoSuccessivo(stato: string): string | null {
   const i = stati.indexOf(stato);
   return i >= 0 ? stati[i + 1] ?? null : null;
 }
+
+/**
+ * Nessun taglio silenzioso (punto 20 del piano 08/09/2026): la fotografia
+ * mostra i primi N e DICE quanti restano fuori. Prima il modello vedeva
+ * otto righe e non aveva modo di sapere che ce n'erano altre quattordici:
+ * per quelle non poteva nascere nessuna proposta, mai.
+ */
+function conResto(
+  fatti: FattoAnalisi[],
+  totale: number,
+  cosa: string,
+  link: string | null = null
+): FattoAnalisi[] {
+  const fuori = totale - fatti.length;
+  if (fuori <= 0) return fatti;
+  return [
+    ...fatti,
+    {
+      chiave: `resto:${cosa.replace(/\s+/g, "_")}`,
+      testo: `E altre ${fuori} ${cosa} non elencate qui: chiedile prima di concludere che queste sono tutte.`,
+      entita: [],
+      link,
+    },
+  ];
+}
+
+/**
+ * I contatori che vale la pena confrontare con l'analisi precedente, con
+ * il nome che il modello deve usare. Non tutti: un elenco di variazioni
+ * lungo trenta righe è rumore quanto nessuna variazione.
+ */
+const CONTATORI_CONFRONTATI: ReadonlyArray<readonly [string, string]> = [
+  ["commesseAttive", "Commesse attive"],
+  ["preventiviFermi7", "Preventivi fermi da oltre 7 giorni"],
+  ["gateMancanti", "Gate documentali scoperti"],
+  ["pronteAlPassoSuccessivo", "Commesse pronte al passo successivo"],
+  ["confermeOrdineMancanti", "Conferme d'ordine mancanti"],
+  ["merceInRitardo", "Consegne in ritardo"],
+  ["fattureNonCollegate", "Fatture non collegate"],
+  ["fattureDaRiconciliare", "Fatture incassate ma non a registro"],
+  ["ticketAperti", "Ticket post-vendita aperti"],
+  ["casiAperti", "Casi aperti del Centro Azioni"],
+  ["comunicazioniSenzaRisposta24h", "Messaggi senza risposta da oltre 24 ore"],
+  ["fontiCieche", "Fonti mute"],
+];
 
 function etichettaCommessa(c: any): string {
   return `${c.codice ?? `Commessa ${c.id}`} — ${c.cliente ?? "cliente non indicato"}`;
@@ -111,6 +164,10 @@ export type DipendenzeFotografia = {
    * non dichiarato, scansione illeggibile): il costo va scritto a mano.
    */
   confermeSenzaCosto?: (sedeId: number) => Promise<ConfermaSenzaCostoFotografia[]>;
+  /** Merce ordinata e non ancora arrivata, con i giorni di ritardo. */
+  consegne?: (sedeId: number, adesso: Date) => ConsegnaInArrivo[];
+  /** Le fonti mute o in errore: posta, WhatsApp, Fatture in Cloud. */
+  guasti?: (sedeId: number, adesso: Date) => GuastoIntegrazione[];
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -159,6 +216,8 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
         limite: 25,
       }),
     confermeSenzaCosto: async sedeId => confermeSenzaCostoLeggibileDiSede(sedeId, 20),
+    consegne: (sedeId, adesso) => consegneInArrivo({ sedeId, adesso }),
+    guasti: (sedeId, adesso) => guastiDiSede({ sedeId, adesso }),
   };
 }
 
@@ -175,6 +234,12 @@ export async function costruisciFotografia(input: {
   sedeId: number;
   adesso: Date;
   deps?: DipendenzeFotografia;
+  /**
+   * I contatori dell'ultima analisi: senza confronto un numero non dice
+   * niente. «12 preventivi fermi» è muto, «12, ieri erano 8» no
+   * (punto 16 del piano 08/09/2026).
+   */
+  contatoriPrecedenti?: Record<string, number> | null;
 }): Promise<FotografiaAzienda> {
   const deps = input.deps ?? dipendenzeFotografiaReali();
   const { sedeId, adesso } = input;
@@ -245,14 +310,19 @@ export async function costruisciFotografia(input: {
   sezioni.push({
     chiave: "preventivi",
     titolo: "Preventivi fermi (sollecito a 7 giorni, perso a 30)",
-    fatti: preventiviFermi.slice(0, PREVENTIVI_MASSIMI).map(({ c, giorni }) => ({
+    fatti: conResto(
+      preventiviFermi.slice(0, PREVENTIVI_MASSIMI).map(({ c, giorni }) => ({
       chiave: `commessa:${c.id}:preventivo_fermo`,
       testo: `${etichettaCommessa(c)}: preventivo senza fatti nuovi da ${giorni} giorni${
         giorni >= 30 ? " — da proporre come perso" : " — da sollecitare"
       }.`,
       entita: [`commessa:${c.id}`],
       link: `/commesse/${c.id}`,
-    })),
+      })),
+      preventiviFermi.length,
+      "commesse col preventivo fermo",
+      "/commesse"
+    ),
   });
 
   // 1-ter. Gate documentali mancanti sulle commesse vive: il documento che
@@ -264,15 +334,20 @@ export async function costruisciFotografia(input: {
   sezioni.push({
     chiave: "gate",
     titolo: "Gate documentali mancanti (il documento che blocca l'avanzamento)",
-    fatti: [...gateMancanti]
-      .sort((a, b) => a.giorni - b.giorni)
-      .slice(0, GATE_MASSIMI)
-      .map(({ c, gate }) => ({
-        chiave: `commessa:${c.id}:gate`,
-        testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
-        entita: [`commessa:${c.id}`],
-        link: `/commesse/${c.id}`,
-      })),
+    fatti: conResto(
+      [...gateMancanti]
+        .sort((a, b) => a.giorni - b.giorni)
+        .slice(0, GATE_MASSIMI)
+        .map(({ c, gate }) => ({
+          chiave: `commessa:${c.id}:gate`,
+          testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
+          entita: [`commessa:${c.id}`],
+          link: `/commesse/${c.id}`,
+        })),
+      gateMancanti.length,
+      "commesse con un gate documentale scoperto",
+      "/commesse"
+    ),
   });
 
   // 1-ter-ter. Il contrario del gate mancante: le commesse che il documento
@@ -303,17 +378,22 @@ export async function costruisciFotografia(input: {
   sezioni.push({
     chiave: "pronte",
     titolo: "Pronte per il passo successivo (il documento c'è già)",
-    fatti: [...pronte]
-      .sort((a, b) => b.giorni - a.giorni)
-      .slice(0, GATE_MASSIMI)
-      .map(({ c, giorni, gate, successivo }) => ({
+    fatti: conResto(
+      [...pronte]
+        .sort((a, b) => b.giorni - a.giorni)
+        .slice(0, GATE_MASSIMI)
+        .map(({ c, giorni, gate, successivo }) => ({
         chiave: `commessa:${c.id}:pronta`,
         testo: `${etichettaCommessa(c)}: in «${c.stato}» il documento del gate c'è (${gate.mancano.join(" o ")}) — può passare a «${successivo}»${
           giorni >= 1 ? `, ferma da ${giorni} giorni` : ""
         }.`,
         entita: [`commessa:${c.id}`],
         link: `/commesse/${c.id}`,
-      })),
+        })),
+      pronte.length,
+      "commesse già pronte al passo successivo",
+      "/commesse"
+    ),
   });
 
   // 1-ter-bis. Conferme d'ordine mancanti: il documento che blocca il gate
@@ -370,6 +450,67 @@ export async function costruisciFotografia(input: {
     })],
   });
 
+  // 1-quinquies. Merce ordinata: quella in ritardo e quella che arriva
+  // adesso. È il dato che fa slittare le pose, e fino all'08/09/2026 la
+  // fotografia non lo guardava affatto (punto 1 del piano).
+  const consegne = deps.consegne ? deps.consegne(sedeId, adesso) : [];
+  const inRitardo = consegne
+    .filter(c => c.giorniDiRitardo > 0)
+    .sort((a, b) => b.giorniDiRitardo - a.giorniDiRitardo);
+  const limiteVicino = new Date(adesso.getTime() + GIORNI_CONSEGNA_VICINA * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const inArrivoVicine = consegne.filter(
+    c => c.giorniDiRitardo === 0 && c.dataConsegna != null && c.dataConsegna <= limiteVicino
+  );
+  const senzaData = consegne.filter(c => c.dataConsegna == null);
+  contatori.merceAttesa = consegne.length;
+  contatori.merceInRitardo = inRitardo.length;
+  contatori.merceSenzaDataConsegna = senzaData.length;
+  const fattiMagazzino: FattoAnalisi[] = conResto(
+    inRitardo.slice(0, CONSEGNE_MASSIME).map(c => ({
+      chiave: `consegna:${c.prodottoId}:ritardo`,
+      testo: `${c.fornitore}: «${c.nome}» per ${
+        c.commessa ? `${c.commessa.codice ?? `commessa ${c.commessa.id}`} — ${c.commessa.cliente ?? "cliente non indicato"} (in «${c.commessa.stato}»)` : "nessuna commessa collegata"
+      } doveva arrivare il ${c.dataConsegna} — ${c.giorniDiRitardo} giorni di ritardo${
+        c.numeroOrdine ? ` (ordine ${c.numeroOrdine})` : ""
+      }.`,
+      entita: c.commessa ? [`commessa:${c.commessa.id}`] : [],
+      link: c.commessa ? `/commesse/${c.commessa.id}` : "/fornitori",
+    })),
+    inRitardo.length,
+    "consegne in ritardo",
+    "/fornitori"
+  );
+  if (inArrivoVicine.length > 0) {
+    fattiMagazzino.push({
+      chiave: "consegne:vicine",
+      testo: `${inArrivoVicine.length} consegne previste entro ${GIORNI_CONSEGNA_VICINA} giorni${
+        inArrivoVicine.length <= 4
+          ? `: ${inArrivoVicine.map(c => `${c.fornitore} il ${c.dataConsegna}`).join("; ")}`
+          : ""
+      }.`,
+      entita: inArrivoVicine
+        .filter(c => c.commessa)
+        .slice(0, 8)
+        .map(c => `commessa:${c.commessa!.id}`),
+      link: "/fornitori",
+    });
+  }
+  if (senzaData.length > 0) {
+    fattiMagazzino.push({
+      chiave: "consegne:senza_data",
+      testo: `${senzaData.length} righe di merce attesa senza data di consegna: non si può sapere se sono in ritardo.`,
+      entita: [],
+      link: "/fornitori",
+    });
+  }
+  sezioni.push({
+    chiave: "magazzino",
+    titolo: "Merce ordinata: in ritardo e in arrivo (fa slittare le pose)",
+    fatti: fattiMagazzino,
+  });
+
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.
   // Mai importi. «attesa_incasso» è il corso normale: solo contatore.
   const fatture = deps.fatture().filter(f => f.sedeId === sedeId);
@@ -380,14 +521,17 @@ export async function costruisciFotografia(input: {
   contatori.fattureNonCollegate = fattureNonCollegate.length;
   contatori.fattureDaRiconciliare = statiFatture.filter(s => s === "da_riconciliare").length;
   contatori.fattureAttesaIncasso = statiFatture.filter(s => s === "attesa_incasso").length;
-  const fattiFatture: FattoAnalisi[] = fattureNonCollegate
-    .slice(0, FATTURE_MASSIME)
-    .map(f => ({
+  const fattiFatture: FattoAnalisi[] = conResto(
+    fattureNonCollegate.slice(0, FATTURE_MASSIME).map(f => ({
       chiave: `fattura:${f.id}:non_collegata`,
       testo: `Fattura n. ${f.numero} del ${f.data} — ${f.clienteNome}: non collegata a nessuna commessa.`,
       entita: [`fattura:${f.id}`],
       link: "/economia",
-    }));
+    })),
+    fattureNonCollegate.length,
+    "fatture non collegate",
+    "/economia"
+  );
   if (contatori.fattureDaRiconciliare > 0) {
     fattiFatture.push({
       chiave: "fatture:da_riconciliare",
@@ -639,6 +783,56 @@ export async function costruisciFotografia(input: {
           ]
         : [],
   });
+
+  // ── In testa: prima di tutto, cosa non vedo e cosa è cambiato ────────
+  //
+  // 0-bis. Le fonti mute. Se la posta è ferma da tre giorni non entra
+  // niente, e una fotografia che conta solo ciò che è entrato scrive
+  // «tutto calmo»: l'unico difetto che mente in modo rassicurante.
+  const guasti = deps.guasti ? deps.guasti(sedeId, adesso) : [];
+  contatori.fontiCieche = guasti.filter(g => g.gravita === "ferma").length;
+  contatori.fontiRallentate = guasti.filter(g => g.gravita === "rallentata").length;
+
+  // 0-ter. La derivata: un numero da solo non dice niente.
+  const derivata: FattoAnalisi[] = [];
+  if (input.contatoriPrecedenti) {
+    const ieri = input.contatoriPrecedenti;
+    for (const [chiave, etichetta] of CONTATORI_CONFRONTATI) {
+      const oggi = contatori[chiave];
+      const prima = ieri[chiave];
+      if (typeof oggi !== "number" || typeof prima !== "number") continue;
+      const delta = oggi - prima;
+      if (delta === 0) continue;
+      derivata.push({
+        chiave: `derivata:${chiave}`,
+        testo: `${etichetta}: ${oggi} (${delta > 0 ? "+" : ""}${delta} rispetto all'ultima analisi, erano ${prima}).`,
+        entita: [],
+        link: null,
+      });
+    }
+  }
+
+  const testa: SezioneFotografia[] = [];
+  if (guasti.length > 0) {
+    testa.push({
+      chiave: "guasti",
+      titolo: "Occhi chiusi: fonti mute o in errore (leggere PRIMA di dire che va tutto bene)",
+      fatti: guasti.map(g => ({
+        chiave: g.chiave,
+        testo: g.testo,
+        entita: [],
+        link: g.link,
+      })),
+    });
+  }
+  if (derivata.length > 0) {
+    testa.push({
+      chiave: "derivata",
+      titolo: "Cosa è cambiato dall'ultima analisi (la variazione, non il livello)",
+      fatti: derivata,
+    });
+  }
+  sezioni.unshift(...testa);
 
   return { sedeId, generataIl: adesso.toISOString(), contatori, sezioni };
 }

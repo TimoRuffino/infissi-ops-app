@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { descrittoreAzione } from "../azioni/registry";
+import { strumentiProponibili } from "./proponibili";
 import type { RichiestaProvider, TarsProvider } from "../provider";
 import { senzaImportiEuro } from "../smistamento/analisi";
 import { entitaDellaFotografia, testoFotografia } from "./fotografia";
@@ -20,26 +21,11 @@ import {
 
 /**
  * Gli strumenti che una proposta può portare come azione eseguibile con un
- * click (T3). Whitelist chiusa: tutte azioni R1 già nel registro; lo
- * scavalco del gate non nasce MAI da una proposta.
+ * click (T3). **Derivata dal registro**, non scritta a mano (punto 2 del
+ * piano 08/09/2026): la regola sta in `proponibili.ts`. Lo scavalco del
+ * gate non nasce MAI da una proposta: lo blocca `eseguiPropostaAnalisi`.
  */
-export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = [
-  "crea_ticket",
-  "aggiorna_ticket",
-  "pianifica_intervento",
-  "crea_promemoria",
-  "collega_comunicazione",
-  "collega_fattura_commessa",
-  "sposta_documento",
-  "archivia_commessa",
-  "transizione_adiacente_commessa",
-  // La conferma d'ordine arrivata per mail entra nel fascicolo con un click
-  // (04/09/2026: il prompt lo chiedeva già, ma la whitelist lo scartava e
-  // la proposta decadeva a richiesta in chat). Lo strumento rilegge il
-  // testo e rifiuta da solo se non cita la commessa: la proposta non porta
-  // mai `confermaSenzaRiscontro`.
-  "archivia_allegato_comunicazione",
-];
+export const STRUMENTI_PROPOSTE_ESEGUIBILI: readonly string[] = strumentiProponibili();
 
 const MODELLO_ANALISI_DEFAULT = "gpt-5.6-sol";
 const SINTESI_MASSIMA = 900;
@@ -225,6 +211,16 @@ export async function analizzaConModello(input: {
 export function analisiDeterministica(fotografia: FotografiaAzienda): EsitoAnalisiAzienda {
   const c = fotografia.contatori;
   const parti: string[] = [];
+  // Anche senza modello, le fonti mute e la merce in ritardo si dicono per
+  // prime: sono le due cose che non devono MAI restare in silenzio.
+  if ((c.fontiCieche ?? 0) > 0) {
+    parti.push(
+      `Attenzione: ${c.fontiCieche} fonti non stanno più portando dati (posta, WhatsApp o Fatture in Cloud): quello che segue è incompleto.`
+    );
+  }
+  if ((c.merceInRitardo ?? 0) > 0) {
+    parti.push(`${c.merceInRitardo} consegne in ritardo.`);
+  }
   parti.push(`${c.commesseAttive ?? 0} commesse attive${c.commesseUrgenti ? ` (${c.commesseUrgenti} urgenti)` : ""}.`);
   if ((c.casiAperti ?? 0) > 0) parti.push(`${c.casiAperti} casi aperti nel Centro Azioni${c.casiCritici ? `, ${c.casiCritici} critici` : ""}.`);
   if ((c.comunicazioniUrgenti ?? 0) + (c.comunicazioniDaRispondere ?? 0) + (c.comunicazioniDaDecidere ?? 0) > 0) {
@@ -233,6 +229,15 @@ export function analisiDeterministica(fotografia: FotografiaAzienda): EsitoAnali
   if ((c.ticketAperti ?? 0) > 0) parti.push(`${c.ticketAperti} ticket aperti${c.ticketUrgenti ? ` (${c.ticketUrgenti} alta priorità)` : ""}.`);
   if ((c.interventiSettimana ?? 0) > 0) parti.push(`${c.interventiSettimana} interventi in settimana${c.interventiSenzaSquadra ? `, ${c.interventiSenzaSquadra} senza squadra` : ""}.`);
   const punti: PuntoAnalisi[] = [];
+  for (const fatto of fotografia.sezioni.find(s => s.chiave === "guasti")?.fatti ?? []) {
+    punti.push({ tipo: "rischio", priorita: "alta", testo: fatto.testo, entita: fatto.entita, link: fatto.link });
+  }
+  const ritardi = (fotografia.sezioni.find(s => s.chiave === "magazzino")?.fatti ?? []).filter(f =>
+    f.chiave.endsWith(":ritardo")
+  );
+  for (const fatto of ritardi.slice(0, 3)) {
+    punti.push({ tipo: "rischio", priorita: "alta", testo: fatto.testo, entita: fatto.entita, link: fatto.link });
+  }
   const casi = fotografia.sezioni.find(s => s.chiave === "casi")?.fatti ?? [];
   for (const fatto of casi.slice(0, 4)) {
     punti.push({ tipo: "rischio", priorita: fatto.testo.startsWith("[critica]") ? "alta" : "media", testo: fatto.testo, entita: fatto.entita, link: fatto.link });

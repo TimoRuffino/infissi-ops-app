@@ -73,10 +73,15 @@ export async function generaAnalisiAzienda(input: {
   const adesso = deps.now();
   const giorno = giornoLocale(adesso);
   try {
+    // I contatori dell'ultima analisi: servono alla sezione «cosa è
+    // cambiato». Se non c'è (prima analisi della sede) la sezione non
+    // nasce — un confronto con il nulla non è un confronto.
+    const ultima = await deps.repository.ultima(input.sedeId);
     const fotografia = await costruisciFotografia({
       sedeId: input.sedeId,
       adesso,
       deps: deps.fotografia,
+      contatoriPrecedenti: ultima?.esito?.contatori ?? null,
     });
     // Le proposte già scartate oggi dalla direzione entrano nella fotografia
     // come fatto: il modello non le ripropone, nemmeno riformulate (04/09:

@@ -235,8 +235,8 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v10: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v10");
+  it("analisi-v11: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v11");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
@@ -246,8 +246,16 @@ describe("prompt", () => {
     expect(PROMPT_ANALISI).toContain("MAI proporre di «rispondere»");
     // 04/09: la conferma arrivata per mail si archivia con un click; la
     // conferma senza costo leggibile è un punto, non una proposta.
-    expect(PROMPT_ANALISI).toContain("archivia_allegato_comunicazione: input");
+    expect(PROMPT_ANALISI).toContain("archivia_allegato_comunicazione:");
     expect(PROMPT_ANALISI).toContain("NON è una proposta");
+    // 08/09 (blocco A): le sezioni nuove sono spiegate, e il catalogo degli
+    // strumenti arriva dal registro invece che da una lista a mano.
+    expect(PROMPT_ANALISI).toContain("Occhi chiusi");
+    expect(PROMPT_ANALISI).toContain("Merce ordinata");
+    expect(PROMPT_ANALISI).toContain("Cosa è cambiato");
+    expect(PROMPT_ANALISI).toContain("non elencate qui");
+    expect(PROMPT_ANALISI).toContain("chiudi_ticket:");
+    expect(PROMPT_ANALISI).toContain("aggiorna_commessa:");
   });
 
   it("archivia_allegato_comunicazione è eseguibile da una proposta, ma mai senza riscontro", () => {

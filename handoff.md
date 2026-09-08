@@ -8,6 +8,30 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 — Tars si accorge di quando è cieco** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco A;
+> PRD §54.9). Fino a oggi la fotografia del mattino contava solo ciò che era
+> ENTRATO: con la posta ferma da tre giorni non entrava niente e l'analisi
+> scriveva «tutto calmo». Ora si apre con **«Occhi chiusi»** — casella in
+> errore o muta da oltre sei ore, WhatsApp in errore, Fatture in Cloud
+> scollegato o fermo da oltre trentasei ore — e il motivo arriva ripulito da
+> indirizzi, token e stringhe lunghe. Entrano anche la **merce ordinata** (i
+> ritardi con fornitore, cliente e giorni; le consegne entro quattordici
+> giorni; le righe senza data, che sono un buco e non un ritardo) e **«cosa è
+> cambiato»** rispetto all'ultima analisi. Nessun elenco è più tagliato in
+> silenzio: dove si mostrano i primi otto si dice quanti restano fuori. Gli
+> strumenti che una proposta può eseguire con un click non sono più una lista
+> scritta a mano ma una regola sul registro (R1, non L3, effetto interno, meno
+> soldi/cancellazioni/importazioni massive): da dieci a ventisette, e il
+> catalogo entra nel prompt generato dal registro. Il freno resta dov'era, al
+> click. Anche senza modello la sintesi deterministica dice per prime le fonti
+> mute e la merce in ritardo. Prompt `analisi-v11`, prove in
+> `server/tars/analisi/bloccoA.test.ts`. **Restano i blocchi B-G del piano**:
+> destinatario delle proposte, memoria oltre la giornata, tasso di
+> accettazione, tempi di attraversamento, margine, versioni dei documenti,
+> filo delle conversazioni, promesse dette nei messaggi, lato in uscita del
+> fascicolo.
+
 > **Novità 08/09/2026 — la grafia definitiva è Wyndoor, e il dominio è
 > wyndoor.com.** Il nome scelto il 07/09 aveva una o sola; l'08/09 la direzione
 > ha fissato la forma a due o, che rende esplicita l'etimologia (*window* +
