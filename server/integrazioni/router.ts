@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import type { Adattatore, Chiave, Ctx } from "./contratto";
+import { passiAttivazione, segnaSaltata } from "./attivazione";
 import { verificaConCache } from "./cache";
 import { REGISTRO, adattatoreDi } from "./registro";
 
@@ -95,6 +96,17 @@ export const integrazioniRouter = router({
         });
       }
       await a.scollega(ctx);
+      return { ok: true as const };
+    }),
+
+  attivazione: protectedProcedure.query(({ ctx }) => passiAttivazione(ctx)),
+
+  salta: protectedProcedure
+    .input(z.object({ chiave: chiaveSchema }))
+    .mutation(({ ctx, input }) => {
+      // `risolvi` applica la guardia: non si salta un passo che non si vede.
+      risolvi(ctx, input.chiave);
+      segnaSaltata(input.chiave);
       return { ok: true as const };
     }),
 });
