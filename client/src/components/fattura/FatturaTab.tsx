@@ -15,6 +15,7 @@ import { FileText, FlaskConical, Plus, ReceiptText, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc";
 import {
   badgeStatoFattura,
+  fatturaEliminabile,
   passiFattura,
   riepilogoControlli,
   VARIANTE_BADGE,
@@ -119,10 +120,18 @@ export default function FatturaTab({
     onError: e => toast.error(e.message),
   });
   // Cancellazione definitiva: solo bozze, annullate o emissioni ferme senza
-  // documento FiC (lo decide il server); conferma umana prima del click.
+  // documento FiC (lo decide il server); conferma umana prima del click. Il
+  // gesto arriva dal cestino dell'elenco, dall'editor della bozza e dalla
+  // vista dell'annullata (08/09/2026: l'elenco compare solo con due o più
+  // fatture, e con una sola annullata non c'era modo di cancellarla).
   const [daEliminare, setDaEliminare] = useState<number | null>(null);
   const elimina = trpc.fatture.elimina.useMutation({
     onSuccess: esito => {
+      // Via subito dalla cache: la tab non deve rileggere una fattura che
+      // non c'è più (NOT_FOUND) mentre aspetta l'elenco nuovo.
+      utils.fatture.perCommessa.setData({ commessaId }, vecchio =>
+        vecchio ? { ...vecchio, fatture: vecchio.fatture.filter(f => f.id !== esito.id) } : vecchio
+      );
       void utils.fatture.perCommessa.invalidate({ commessaId });
       void utils.fatturazioneGuidata.passi.invalidate({ commessaId: esito.commessaId });
       void utils.fatturazioneGuidata.daFare.invalidate();
@@ -265,6 +274,7 @@ export default function FatturaTab({
           onCambiato?.();
         }}
         onCambiato={onCambiato}
+        onElimina={() => setDaEliminare(fattura.id)}
       />
     ) : fattura ? (
       <FatturaEmessaView
@@ -276,6 +286,7 @@ export default function FatturaTab({
         puoModificare={q.data.puoDraft}
         onApriFattura={setSelezionata}
         onCambiato={onCambiato}
+        onElimina={() => setDaEliminare(fattura.id)}
       />
     ) : null;
 
@@ -393,7 +404,7 @@ export default function FatturaTab({
                     {formatCent(f.totaleCent)}
                   </span>
                 </button>
-                {q.data.puoDraft && f.ficDocumentId == null && (f.stato === "bozza" || f.stato === "annullata" || f.stato === "in_emissione") && (
+                {q.data.puoDraft && fatturaEliminabile(f) && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -428,7 +439,7 @@ export default function FatturaTab({
         open={daEliminare != null}
         onOpenChange={aperto => { if (!aperto) setDaEliminare(null); }}
         title="Eliminare definitivamente?"
-        description="La bozza sparisce dal CRM con righe, scadenze e cronologia. Non tocca Fatture in Cloud: si può eliminare solo ciò che non è mai uscito dal CRM."
+        description="Sparisce dal CRM per sempre, con righe, scadenze e cronologia. Non tocca Fatture in Cloud: si elimina solo ciò che non è mai uscito dal CRM (bozza, annullata, emissione ferma senza documento)."
         confirmLabel="Elimina"
         cancelLabel="Resta"
         busy={elimina.isPending}

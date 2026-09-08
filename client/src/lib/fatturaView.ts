@@ -54,6 +54,23 @@ export const VARIANTE_BADGE = {
   errore: "danger",
 } as const;
 
+/**
+ * Ciò che si cancella per sempre: la stessa regola di `eliminaBozza` in
+ * server/fatture/servizio.ts — una fattura mai uscita dal CRM (bozza,
+ * annullata, emissione ferma prima del documento su Fatture in Cloud).
+ * Con un documento creato non si cancella: si corregge con la nota di
+ * credito. Il permesso (`fattura.draft`) lo decide chi monta il componente.
+ */
+export function fatturaEliminabile(f: {
+  stato: StatoFattura;
+  ficDocumentId: number | null;
+}): boolean {
+  return (
+    f.ficDocumentId == null &&
+    (f.stato === "bozza" || f.stato === "annullata" || f.stato === "in_emissione")
+  );
+}
+
 export type GruppoRigheView = {
   chiave: "beni" | "servizi" | "derivate" | "note";
   titolo: string;

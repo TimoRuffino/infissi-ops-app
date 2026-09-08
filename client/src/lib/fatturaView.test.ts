@@ -9,6 +9,7 @@ import {
   badgeStatoFattura,
   DICITURE_SELEZIONABILI,
   etichettaTabFattura,
+  fatturaEliminabile,
   ibanSembraValido,
   indicatoreLimite,
   nomeFileFattura,
@@ -345,6 +346,15 @@ describe("fatturaView", () => {
         { stato: "scartata", tipo: "nota_credito", inviataDryRun: false },
       ])
     ).toBe("Fattura !");
+  });
+
+  it("fatturaEliminabile: solo ciò che non è mai uscito dal CRM, mai con un documento FiC (08/09/2026)", () => {
+    expect(fatturaEliminabile({ stato: "bozza", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "annullata", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "in_emissione", ficDocumentId: null })).toBe(true);
+    expect(fatturaEliminabile({ stato: "in_emissione", ficDocumentId: 42 })).toBe(false);
+    expect(fatturaEliminabile({ stato: "emessa", ficDocumentId: null })).toBe(false);
+    expect(fatturaEliminabile({ stato: "consegnata", ficDocumentId: 42 })).toBe(false);
   });
 
   it("nomeFileFattura sostituisce lo slash del numero e gestisce la bozza", () => {

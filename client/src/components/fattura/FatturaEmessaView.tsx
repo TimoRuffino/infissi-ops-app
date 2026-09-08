@@ -4,7 +4,7 @@
 // niente altro: dall'emissione in poi il documento non si modifica.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Download, FileText, Printer, RefreshCw, Undo2 } from "lucide-react";
+import { Download, FileText, Printer, RefreshCw, Trash2, Undo2 } from "lucide-react";
 
 import { trpc } from "@/lib/trpc";
 import type {
@@ -15,6 +15,7 @@ import type {
 import {
   badgeStatoFattura,
   descriviEvento,
+  fatturaEliminabile,
   indicatoreLimite,
   nomeFileFattura,
   riepilogoControlli,
@@ -110,6 +111,7 @@ export default function FatturaEmessaView({
   puoModificare = false,
   onApriFattura,
   onCambiato,
+  onElimina,
 }: {
   commessaId: number;
   fatturaId: number;
@@ -127,6 +129,14 @@ export default function FatturaEmessaView({
    * cosmetico. Assente: nessuno ascolta, niente cambia.
    */
   onCambiato?: () => void;
+  /**
+   * Cancellazione definitiva (08/09/2026): la vista mostra il gesto solo su
+   * un'annullata o un'emissione ferma senza documento FiC, con
+   * `fattura.draft`; la conferma e la chiamata al server stanno in chi
+   * monta la vista (il tab Fattura), che poi sceglie cosa mostrare.
+   * Assente: il gesto non compare.
+   */
+  onElimina?: () => void;
 }) {
   const utils = trpc.useUtils();
   const dettaglio = trpc.fatture.byId.useQuery(
@@ -233,6 +243,10 @@ export default function FatturaEmessaView({
   const fermaSuDoppione = puoRiprendere && f.ficDocumentId == null && (f.eiErrore ?? "").startsWith("doppione_fic:");
   // Senza documento su FiC non c'è nulla fuori dal CRM: si può annullare.
   const puoAnnullare = puoModificare && stato === "in_emissione" && f.ficDocumentId == null;
+  // Cancellazione definitiva: la regola è quella del server (`fatturaEliminabile`),
+  // il gesto compare solo se chi monta la vista lo ha passato.
+  const puoEliminare =
+    puoModificare && onElimina != null && fatturaEliminabile({ stato, ficDocumentId: f.ficDocumentId });
   const puoStornare =
     puoNotaCredito && f.tipo === "fattura" && STATI_STORNABILI.has(stato);
   const annullataIl =
@@ -269,10 +283,25 @@ export default function FatturaEmessaView({
       )}
 
       {stato === "annullata" ? (
-        <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-2 min-w-0">
-          Bozza annullata il {new Date(annullataIl).toLocaleDateString("it-IT")}{" "}
-          — nessuna azione disponibile.
-        </p>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-2 min-w-0">
+          <span className="min-w-0">
+            Bozza annullata il {new Date(annullataIl).toLocaleDateString("it-IT")}
+            {puoEliminare
+              ? ". Non è mai uscita dal CRM: si può eliminare."
+              : " — nessuna azione disponibile."}
+          </span>
+          {puoEliminare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 ml-auto text-danger hover:text-danger hover:bg-danger-soft"
+              onClick={onElimina}
+            >
+              <Trash2 className="h-4 w-4 mr-1" aria-hidden="true" />
+              Elimina definitivamente
+            </Button>
+          )}
+        </div>
       ) : (
         <div id="fattura-azioni" className="flex flex-wrap gap-2 scroll-mt-24">
           <Button
@@ -341,6 +370,17 @@ export default function FatturaEmessaView({
               Annulla emissione
             </Button>
           )}
+          {puoEliminare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 text-danger hover:text-danger hover:bg-danger-soft"
+              onClick={onElimina}
+            >
+              <Trash2 className="h-4 w-4 mr-1" aria-hidden="true" />
+              Elimina
+            </Button>
+          )}
           {puoSondare && (
             <Button
               variant="outline"
@@ -368,6 +408,7 @@ export default function FatturaEmessaView({
             !puoSondare &&
             !puoRiprendere &&
             !puoAnnullare &&
+            !puoEliminare &&
             !puoStornare && (
               <span className="text-xs text-text-3">
                 Nessuna azione disponibile in questo stato.

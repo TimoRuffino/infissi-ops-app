@@ -4161,7 +4161,8 @@ buttava via la lettura), pattuito lordo/imponibile «da confermare» con IVA
 fattura mai uscita dal CRM (bozza, annullata, emissione ferma senza
 documento FiC) con righe, riepilogo, scadenze ed eventi; cestino con
 conferma sulle righe dell'elenco nel tab Fattura. Con un documento FiC
-creato non si cancella: nota di credito. Runbook della prova: PostgreSQL locale per il ledger
+creato non si cancella: nota di credito (dal 08/09/2026 il gesto sta anche
+nella vista dell'annullata e nell'editor della bozza, v. sotto). Runbook della prova: PostgreSQL locale per il ledger
 (`docker run … postgres:16`), `EVAL_CONTRATTI_REALE=on TARS_PROVIDER=openai
 FLAG_TARS=on FLAG_CONTRATTO_ESTRAZIONE=on FLAG_DOCUMENT_INTELLIGENCE=on` +
 budget `TARS_*` + `OPENAI_API_KEY`; la chiave della launch config demo è
@@ -4235,7 +4236,29 @@ apre `/commesse/:id/limiti/stampa` (`pages/LimitiStampa.tsx`,
 `lib/limitiStampaView.ts` provata): parametri, righe del contratto, CHECK 1
 e CHECK 2 voce per voce, totali, avvertenze; filigrana se il computo non è
 aggiornato. Rotta nel contratto delle rotte e nel manifesto. Verifica
-browser non eseguita (login demo). PRD 5.51.
+browser non eseguita (login demo). PRD 5.63 (dopo il rebase
+sopra il multi-azienda di main: il §60 è il SaaS, la nota «bozza
+automatica» è §61/5.62).
+
+**Eliminazione delle annullate da ogni vista (08/09/2026, direzione: «devo
+poter eliminare le bozze di fatture annullate»).** Il cestino stava solo
+nell'elenco del tab Fattura, che compare con due o più fatture: con una
+sola annullata la vista diceva «nessuna azione disponibile». Ora la vista
+dell'annullata (e dell'emissione ferma senza documento FiC) ha «Elimina
+definitivamente», l'editor della bozza «Elimina bozza» accanto ad «Annulla
+bozza»; regola unica `fatturaEliminabile` (`client/src/lib/fatturaView.ts`,
+la stessa di `eliminaBozza`), conferma e mutation nel tab, fattura tolta
+dalla cache prima del refetch. Trovato e chiuso a schermo un secondo buco:
+su una commessa senza contratto (fatture libere) l'annullata rendeva il
+passo Fattura «da fare» e non raggiungibile — spariva. `calcolaPassi`
+(`server/fatturazione/passi.ts`) torna `annullate` (conteggio) e
+`passoRaggiungibile`/`passoIniziale`/stepper tengono aperto il passo
+Fattura se > 0 (mai a flag spento). Verifica browser FATTA a 1440×900 e
+390×844 col server demo in memoria e un harness nello scratchpad che semina
+tre commesse (libera annullata senza contratto, bozza libera,
+contratto+computo del caso 127 con bozza annullata): tre cancellazioni
+riuscite, nessuno scroll orizzontale, console pulita. Server delle fatture,
+permessi e Cassa invariati. PRD 5.64.
 
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la

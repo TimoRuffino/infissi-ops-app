@@ -41,6 +41,12 @@ export const STATI_FATTURA_EMESSA = new Set([
 export type RisultatoPassi = {
   passi: Record<PassoFatturazione, EsitoPasso>;
   prossimoPasso: PassoFatturazione | null;
+  /**
+   * Quante fatture annullate ha la commessa (08/09/2026): non fanno
+   * avanzare nulla, ma restano da vedere e da eliminare, quindi il client
+   * tiene il passo Fattura raggiungibile anche quando è «da fare».
+   */
+  annullate: number;
   fatturaStato: string | null;
   fatturaPrevistaCent: number | null;
   fatturaPrevistaStima: boolean;
@@ -162,6 +168,7 @@ export function calcolaPassi(i: IngressoPassi): RisultatoPassi {
   return {
     passi,
     prossimoPasso,
+    annullate: i.fatture.filter((f) => f.stato === "annullata").length,
     fatturaStato: ultimoStatoNonAnnullato(i.fatture),
     ...prevediFattura(i),
   };

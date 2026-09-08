@@ -28,6 +28,7 @@ import {
   DICITURE_SELEZIONABILI,
   ETICHETTA_DICITURA,
   ETICHETTA_TIPO_RIGA,
+  fatturaEliminabile,
   indicatoreLimite,
   raggruppaRighe,
   riepilogoControlli,
@@ -232,6 +233,7 @@ export default function BozzaFatturaEditor({
   dryRun,
   onAnnullata,
   onCambiato,
+  onElimina,
 }: {
   commessaId: number;
   fatturaId: number;
@@ -248,6 +250,12 @@ export default function BozzaFatturaEditor({
    * passa già da `onAnnullata`. Assente: nessuno ascolta, niente cambia.
    */
   onCambiato?: () => void;
+  /**
+   * Cancellazione definitiva della bozza (08/09/2026): la conferma e la
+   * chiamata al server stanno nel tab Fattura, che poi sceglie cosa
+   * mostrare. Assente: resta solo «Annulla bozza».
+   */
+  onElimina?: () => void;
 }) {
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
@@ -1261,14 +1269,28 @@ export default function BozzaFatturaEditor({
         }
         destructive={
           puoModificare ? (
-            <Button
-              variant="ghost"
-              className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
-              disabled={inCorso}
-              onClick={() => setConfermaAnnulla(true)}
-            >
-              Annulla bozza
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                variant="ghost"
+                className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
+                disabled={inCorso}
+                onClick={() => setConfermaAnnulla(true)}
+              >
+                Annulla bozza
+              </Button>
+              {/* Cancellazione definitiva: stessa regola del server, conferma nel tab Fattura. */}
+              {onElimina && fatturaEliminabile({ stato: f.stato, ficDocumentId: f.ficDocumentId }) && (
+                <Button
+                  variant="ghost"
+                  className="h-11 text-danger hover:text-danger hover:bg-danger-soft sm:h-10"
+                  disabled={inCorso}
+                  onClick={onElimina}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" aria-hidden="true" />
+                  Elimina bozza
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
         secondary={

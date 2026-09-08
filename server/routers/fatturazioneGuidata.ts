@@ -197,6 +197,7 @@ function costruisciRecord(
     },
     passi: risultato.passi,
     prossimoPasso: risultato.prossimoPasso,
+    annullate: risultato.annullate,
     pattuitoCent: mostraImporti ? contratto?.pattuitoCent ?? centDaEuro(commessa.importoTotale) : null,
     pattuitoTipo: mostraImporti ? contratto?.pattuitoTipo ?? null : null,
     fatturaPrevistaCent: mostraImporti ? risultato.fatturaPrevistaCent : null,

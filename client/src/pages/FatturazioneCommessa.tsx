@@ -137,7 +137,7 @@ export default function FatturazioneCommessa() {
   // in mano si resta sul richiesto o sul primo passo: non c'è altro da cui
   // decidere.
   const corrente: PassoFatturazione = record
-    ? passoIniziale(record.passi, record.prossimoPasso, passoUrl)
+    ? passoIniziale(record.passi, record.prossimoPasso, passoUrl, record.annullate)
     : (passoUrl ?? ORDINE_PASSI[0]);
   const indice = ORDINE_PASSI.indexOf(corrente);
 
@@ -376,6 +376,7 @@ export default function FatturazioneCommessa() {
               passi={record.passi}
               corrente={corrente}
               onVai={vai}
+              annullate={record.annullate}
             />
 
             {riepilogo.length > 0 && (
