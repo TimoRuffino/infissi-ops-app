@@ -108,5 +108,12 @@ export function esitoVisibileA(
   chi: ChiGuarda
 ): EsitoAnalisiAzienda {
   if (chi.direzione) return esito;
-  return { ...esito, proposte: esito.proposte.filter(p => propostaVisibileA(p, chi)) };
+  return {
+    ...esito,
+    proposte: esito.proposte
+      .filter(p => propostaVisibileA(p, chi))
+      // Le cifre le vede solo la direzione (decisione 08/09/2026): il
+      // segnale «sotto margine» resta, i numeri no.
+      .map(({ economia: _cifre, ...resto }) => resto),
+  };
 }

@@ -36,6 +36,13 @@ export type FotografiaAzienda = {
   generataIl: string;
   contatori: Record<string, number>;
   sezioni: SezioneFotografia[];
+  /**
+   * Quanto denaro è esposto dietro ogni riferimento (`commessa:12` → il
+   * residuo da incassare). Serve a ordinare le proposte per quanto costa
+   * ignorarle e **non entra nel testo che legge il modello**: gli importi
+   * restano fuori dal prompt (punto 22 del piano 08/09/2026).
+   */
+  postaInGioco?: Record<string, { residuo: number; marginePerc: number | null }>;
 };
 
 export const TIPI_PUNTO = ["rischio", "anomalia", "andamento", "opportunita"] as const;
@@ -90,6 +97,12 @@ export type PropostaAnalisi = {
    */
   /** La più debole fra le fiducie dei fatti che la proposta cita. */
   fiducia?: FiduciaFatto;
+  /**
+   * Le cifre: le vede **solo la direzione** (decisione 08/09/2026), e
+   * `esitoVisibileA` le toglie a tutti gli altri. Il segnale «sotto
+   * margine» invece sta nella fotografia e lo legge chiunque.
+   */
+  economia?: { residuo: number; marginePerc: number | null } | null;
   destinatario?: {
     utenteId: number | null;
     ruolo: "amministrazione" | "direzione" | null;

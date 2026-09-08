@@ -297,3 +297,67 @@ describe("una lettura non riscontrata non sembra una certezza (punto 23)", () =>
     expect(esito.proposte[0].fonte).toBeNull();
   });
 });
+
+// ── blocco C: l'ordine lo decide quanto costa ignorare ───────────────────
+
+describe("le proposte si ordinano per posta in gioco (punto 22)", () => {
+  const fotografia: FotografiaAzienda = {
+    sedeId: 1,
+    generataIl: "2026-09-08T07:00:00Z",
+    contatori: {},
+    sezioni: [
+      {
+        chiave: "gate",
+        titolo: "Gate",
+        fatti: [
+          { chiave: "a", testo: "grossa", entita: ["commessa:1"], link: null },
+          { chiave: "b", testo: "piccola", entita: ["commessa:2"], link: null },
+        ],
+      },
+    ],
+    postaInGioco: {
+      "commessa:1": { residuo: 40_000, marginePerc: 0.12 },
+      "commessa:2": { residuo: 800, marginePerc: 0.5 },
+    },
+  };
+  const grezzo = {
+    sintesi: "",
+    punti: [],
+    proposte: [
+      {
+        testo: "Carica il documento della piccola.",
+        richiestaPerTars: "Carica il documento.",
+        fonte: "gate",
+        entita: ["commessa:2"],
+        azione: null,
+      },
+      {
+        testo: "Carica il documento della grossa.",
+        richiestaPerTars: "Carica il documento.",
+        fonte: "gate",
+        entita: ["commessa:1"],
+        azione: null,
+      },
+    ],
+    domande: [],
+  };
+
+  it("il lavoro da quarantamila passa davanti a quello da ottocento", () => {
+    const esito = verificaEsito(grezzo, fotografia, "finto");
+    expect(esito.proposte.map(p => p.testo)).toEqual([
+      "Carica il documento della grossa.",
+      "Carica il documento della piccola.",
+    ]);
+  });
+
+  it("le cifre viaggiano con la proposta, e solo la direzione le vede", () => {
+    const esito = verificaEsito(grezzo, fotografia, "finto");
+    expect(esito.proposte[0].economia).toEqual({ residuo: 40_000, marginePerc: 0.12 });
+    const altrui = esitoVisibileA(
+      { ...esito, proposte: esito.proposte.map(p => ({ ...p, destinatario: { utenteId: 9, ruolo: null, motivo: "sua" } })) },
+      { utenteId: 9, ruoli: ["commerciale"], direzione: false }
+    );
+    expect(altrui.proposte).toHaveLength(2);
+    expect(altrui.proposte[0].economia).toBeUndefined();
+  });
+});

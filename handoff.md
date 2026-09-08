@@ -8,6 +8,20 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — Tars conosce il mestiere** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco C;
+> PRD §54.12). Le soglie non sono più numeri scelti a mano: la **mediana**
+> per stato si calcola sulla storia vera della sede (milestone della
+> timeline, archiviate comprese, da cinque passaggi in su), e un lavoro è
+> lento quando sfora il doppio della sua mediana — «in produzione da 40
+> giorni, la mediana è 18». Il **margine** entra come segnale: al modello il
+> flag «sotto soglia» (default 20 %, `TARS_MARGINE_MINIMO`), mai un euro nel
+> prompt; le cifre le calcola il codice, viaggiano in `economia` sulla
+> proposta e `esitoVisibileA` le toglie a chi non è direzione (decisione
+> D1). Le proposte si **ordinano per residuo da incassare** prima del taglio
+> a sei. E ogni posa della settimana dice se la merce c'è. Prompt
+> `analisi-v15`.
+
 > **Novità 08/09/2026 (sera) — il documento si confronta col dato, e il
 > fascicolo dice quale versione vale** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco F;

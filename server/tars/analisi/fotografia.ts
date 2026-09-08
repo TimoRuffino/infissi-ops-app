@@ -43,6 +43,19 @@ import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivi
 // Documento contro dato: la merce che arriva dopo la posa, la data e il
 // costo che non coincidono con la conferma (punto 29 del piano).
 import { discordanzeDiSede, type Discordanza } from "../../commesse/discordanze";
+// Le soglie dalla storia dell'azienda, non inventate a mano (punto 17), e
+// la posta in gioco che ordina le proposte (punti 8 e 22).
+import {
+  commesseLenteDiSede,
+  type CommessaLenta,
+  type MedianaStato,
+} from "../../commesse/tempiDiAttraversamento";
+import {
+  postaPerEntita,
+  postaInGiocoDiSede,
+  sogliaMargine,
+  type PostaCommessa,
+} from "../../commesse/postaInGioco";
 // Le fonti mute: l'unico difetto che mente in modo rassicurante (punto 7).
 import { guastiDiSede, type GuastoIntegrazione } from "./guasti";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
@@ -185,6 +198,13 @@ export type DipendenzeFotografia = {
   discordanze?: (sedeId: number, adesso: Date) => Discordanza[];
   /** I documenti di una commessa: servono a vedere quale versione vale. */
   documentiDi?: (commessaId: number) => DocumentoVersionabile[];
+  /** Quanto dura di solito ogni stato, e chi sfora (dalla storia vera). */
+  tempi?: (
+    sedeId: number,
+    adesso: Date
+  ) => { mediane: Map<string, MedianaStato>; lente: CommessaLenta[] };
+  /** Residuo e margine per commessa: le cifre restano fuori dal prompt. */
+  posta?: (sedeId: number) => Map<number, PostaCommessa>;
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -237,6 +257,8 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     guasti: (sedeId, adesso) => guastiDiSede({ sedeId, adesso }),
     discordanze: (sedeId, adesso) => discordanzeDiSede({ sedeId, adesso }),
     documentiDi: commessaId => getDocumentiDiCommessa(commessaId),
+    tempi: (sedeId, adesso) => commesseLenteDiSede({ sedeId, adesso }),
+    posta: sedeId => postaInGiocoDiSede({ sedeId }),
   };
 }
 
@@ -576,6 +598,56 @@ export async function costruisciFotografia(input: {
     fatti: conResto(catene.slice(0, GATE_MASSIMI), catene.length, "commesse con documenti in più versioni", "/commesse"),
   });
 
+  // 1-octies. Più lente del solito: la soglia non è inventata, è la mediana
+  // di questa azienda su questo stato (punto 17 del piano 08/09/2026).
+  const tempi = deps.tempi ? deps.tempi(sedeId, adesso) : null;
+  const lente = tempi?.lente ?? [];
+  contatori.piuLenteDelSolito = lente.length;
+  sezioni.push({
+    chiave: "lentezza",
+    titolo: "Più lente del solito (mediana di questa azienda, non una soglia inventata)",
+    fatti: conResto(
+      lente.slice(0, GATE_MASSIMI).map(l => {
+        const c = commesse.find(x => x.id === l.commessaId);
+        return {
+          chiave: `commessa:${l.commessaId}:lenta`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${l.commessaId}`}: in «${l.stato}» da ${l.giorni} giorni, la mediana di questa azienda è ${l.mediana} (su ${l.campione} passaggi osservati).`,
+          entita: [`commessa:${l.commessaId}`],
+          link: `/commesse/${l.commessaId}`,
+        };
+      }),
+      lente.length,
+      "commesse più lente del solito",
+      "/commesse"
+    ),
+  });
+
+  // 1-nonies. Margine sotto la soglia: SOLO il segnale. Le cifre non
+  // entrano nel prompt — le mette il codice accanto alla proposta, e le
+  // vede la sola direzione (decisione 08/09/2026).
+  const posta = deps.posta ? deps.posta(sedeId) : new Map<number, PostaCommessa>();
+  const sotto = [...posta.values()].filter(p => p.sottoMargine);
+  contatori.commesseSottoMargine = sotto.length;
+  contatori.margineNonCalcolabile = [...posta.values()].filter(p => p.datiIncompleti).length;
+  sezioni.push({
+    chiave: "margine",
+    titolo: `Margine sotto la soglia del ${Math.round(sogliaMargine() * 100)}% (segnale, senza cifre)`,
+    fatti: conResto(
+      sotto.slice(0, GATE_MASSIMI).map(p => {
+        const c = commesse.find(x => x.id === p.commessaId);
+        return {
+          chiave: `commessa:${p.commessaId}:margine`,
+          testo: `${c ? etichettaCommessa(c) : `Commessa ${p.commessaId}`}: il margine è sotto la soglia. Le cifre sono nella scheda, qui non si scrivono.`,
+          entita: [`commessa:${p.commessaId}`],
+          link: `/commesse/${p.commessaId}`,
+        };
+      }),
+      sotto.length,
+      "commesse sotto la soglia di margine",
+      "/commesse"
+    ),
+  });
+
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.
   // Mai importi. «attesa_incasso» è il corso normale: solo contatore.
   const fatture = deps.fatture().filter(f => f.sedeId === sedeId);
@@ -819,6 +891,29 @@ export async function costruisciFotografia(input: {
               entita: interventi.slice(0, 12).map(i => `intervento:${i.id}`),
               link: "/planning",
             },
+            // Punto 18: agenda e magazzino non si parlavano. Per ogni posa
+            // della settimana, se la merce c'è o no — è la domanda che si
+            // fa il capo squadra la sera prima.
+            ...interventi
+              .filter(i => i.tipo === "posa")
+              .slice(0, 6)
+              .map(i => {
+                const c = commesse.find(x => x.id === i.commessaId);
+                const attese = consegne.filter(x => x.commessa?.id === i.commessaId);
+                const mancanti = attese.length;
+                return {
+                  chiave: `intervento:${i.id}:merce`,
+                  testo: `Posa del ${i.dataPianificata} — ${c ? etichettaCommessa(c) : `commessa ${i.commessaId}`}: ${
+                    mancanti === 0
+                      ? "la merce attesa risulta tutta arrivata"
+                      : `${mancanti} ${mancanti === 1 ? "riga" : "righe"} di merce non ancora arrivata${
+                          attese.some(x => x.giorniDiRitardo > 0) ? ", e almeno una è già in ritardo" : ""
+                        }`
+                  }.`,
+                  entita: [`intervento:${i.id}`, ...(c ? [`commessa:${c.id}`] : [])],
+                  link: c ? `/commesse/${c.id}` : "/planning",
+                };
+              }),
           ]
         : [],
   });
@@ -899,7 +994,13 @@ export async function costruisciFotografia(input: {
   }
   sezioni.unshift(...testa);
 
-  return { sedeId, generataIl: adesso.toISOString(), contatori, sezioni };
+  return {
+    sedeId,
+    generataIl: adesso.toISOString(),
+    contatori,
+    sezioni,
+    postaInGioco: postaPerEntita(posta),
+  };
 }
 
 /** Tutti i riferimenti di entità presenti nella fotografia (per la verifica). */

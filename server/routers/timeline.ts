@@ -197,6 +197,26 @@ export function stepsDiCommessa(commessaId: number): {
     .map(s => ({ dataCompletamento: s.dataCompletamento, stato: s.stato }));
 }
 
+/**
+ * Le milestone completate di una commessa, in ordine: da qui si ricava
+ * quando è entrata in ogni stato, e quindi quanto ci è rimasta (punto 17
+ * del piano 08/09/2026). Solo le milestone che spostano il board.
+ */
+export function milestoneCompletate(commessaId: number): {
+  stato: string;
+  quando: string;
+}[] {
+  return steps
+    .filter(
+      s =>
+        s.commessaId === commessaId &&
+        s.dataCompletamento != null &&
+        STATO_PER_MILESTONE[s.stepNumber] != null
+    )
+    .map(s => ({ stato: STATO_PER_MILESTONE[s.stepNumber]!, quando: s.dataCompletamento! }))
+    .sort((a, b) => a.quando.localeCompare(b.quando));
+}
+
 export function reconcileTimelineBoardStates(): {
   analizzate: number;
   aggiornate: number;

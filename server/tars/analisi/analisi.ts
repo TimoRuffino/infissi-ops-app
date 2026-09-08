@@ -140,11 +140,27 @@ export function verificaEsito(
   const verificaFonte = (fonte: string | null | undefined): string | null =>
     fonte && sezioniVere.has(fonte) ? fonte : null;
 
+  // Le cifre: le porta la proposta, e il filtro dei destinatari le toglie a
+  // chi non è direzione (decisione 08/09/2026).
+  const economiaDi = (entita: string[]) => {
+    const residuo = pesoDi(entita);
+    const conMargine = entita.map(e => posta[e]).find(x => x?.marginePerc != null);
+    const marginePerc = conMargine?.marginePerc ?? null;
+    return residuo > 0 || marginePerc != null ? { residuo, marginePerc } : null;
+  };
+
   const punti: PuntoAnalisi[] = grezzo.punti
     .filter(p => p.testo.trim().length > 0)
     .map(p => ({ tipo: p.tipo, priorita: p.priorita, testo: pulisci(p.testo, TESTO_MASSIMO), ...filtraEntita(p.entita) }))
     .sort((a, b) => ORDINE_PRIORITA[a.priorita] - ORDINE_PRIORITA[b.priorita])
     .slice(0, PUNTI_MASSIMI);
+  // L'ordine delle proposte non lo decide il modello: lo decide quanto costa
+  // ignorarle (punto 22 del piano 08/09/2026). Il peso è il denaro esposto
+  // dietro le entità citate, e non è mai passato al modello.
+  const posta = fotografia.postaInGioco ?? {};
+  const pesoDi = (entita: string[]): number =>
+    entita.reduce((somma, rif) => somma + (posta[rif]?.residuo ?? 0), 0);
+
   const proposte: PropostaAnalisi[] = grezzo.proposte
     .filter(p => p.testo.trim().length > 0 && p.richiestaPerTars.trim().length > 0)
     .map(p => {
@@ -164,8 +180,13 @@ export function verificaEsito(
         fiducia,
         ...entita,
         azione: verificaAzione(p.azione),
+        economia: economiaDi(entita.entita),
       };
     })
+    // Stabile: a parità di posta in gioco resta l'ordine del modello.
+    .map((p, i) => ({ p, i, peso: pesoDi(p.entita) }))
+    .sort((a, b) => b.peso - a.peso || a.i - b.i)
+    .map(x => x.p)
     .slice(0, PROPOSTE_MASSIME);
   const domande = grezzo.domande
     .map(d => pulisci(d, TESTO_MASSIMO))
