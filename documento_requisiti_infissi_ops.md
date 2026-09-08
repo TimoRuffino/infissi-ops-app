@@ -2436,9 +2436,16 @@ giorni sono già persi: restano elencati, e l'anteprima lo dice.
 
 **Recuperare quello che c'è ancora.** I media arrivati prima dell'08/09/2026
 non hanno i byte, ma quelli degli ultimi trenta giorni si possono ancora
-scaricare da Meta: `pnpm media:whatsapp-dry-run` conta quanti sono,
-`pnpm media:whatsapp` li conserva (idempotente, un media scaduto non ferma
-gli altri). È una finestra che si chiude da sola, giorno per giorno.
+scaricare da Meta. Il modo giusto è il tasto **«Conserva ora»** nella scheda
+del numero WhatsApp (Impostazioni → Integrazioni, direzione soltanto,
+procedura `mail.whatsapp.conservaMediaArretrati`): gira DENTRO il servizio,
+dove database, storage e token ci sono già. Lo stesso lavoro lo fa
+`pnpm media:whatsapp` da una postazione che raggiunga il database — con
+`railway run` la variabile `DATABASE_URL` punta all'host interno di Railway,
+che da fuori non si risolve, e lo script lo dice invece di leggere zero
+messaggi. In entrambi i casi è idempotente: un allegato che ha già i byte
+viene saltato e un media scaduto non ferma gli altri. È una finestra che si
+chiude da sola, giorno per giorno.
 
 **Vedere.** Ogni allegato — email e WhatsApp — ha anteprima, apertura in una
 scheda e download (§8.5). Le immagini WhatsApp si vedono direttamente nella

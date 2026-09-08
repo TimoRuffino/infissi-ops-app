@@ -30,6 +30,7 @@ import {
   completaOnboarding,
   configPubblica,
   configWhatsApp,
+  conservaMediaWhatsApp,
   getAppWhatsApp,
   newConfigWhatsAppId,
   proteggiSegreto,
@@ -554,6 +555,49 @@ export const mailRouter = router({
         const c = configWhatsApp.find(x => x.id === input.id);
         assertSedeScope(c ?? null, ctx.sedeId);
         return sincronizzaStorico(c!);
+      }),
+
+    /**
+     * Porta nello storage i media arrivati PRIMA che il CRM li conservasse
+     * (08/09/2026). Gira DENTRO il servizio, dove ci sono database, storage
+     * e token: da fuori l'host interno del database non si risolve nemmeno.
+     *
+     * È una corsa contro il tempo: Meta tiene i media circa trenta giorni.
+     * Idempotente — un allegato che ha già i byte viene saltato — e un media
+     * che Meta non dà più conta come perso senza fermare gli altri.
+     */
+    conservaMediaArretrati: protectedProcedure
+      .input(z.object({ limite: z.number().int().min(1).max(500).default(200) }).optional())
+      .mutation(async ({ input, ctx }) => {
+        requireDirezione(ctx.user);
+        const sedeId = ctx.sedeId ?? 1;
+        const limite = input?.limite ?? 200;
+        const messaggi = await listComunicazioni({
+          sedeId,
+          canale: "whatsapp",
+          soloConAllegati: true,
+          limit: 200,
+        });
+        const esito = { daSalvare: 0, salvati: 0, saltati: 0, errori: 0, senzaCasella: 0 };
+        for (const messaggio of messaggi) {
+          const mancanti = messaggio.allegati.filter(a => !a.storageKey && a.mediaId);
+          if (mancanti.length === 0) continue;
+          esito.daSalvare += mancanti.length;
+          if (esito.salvati >= limite) continue;
+          const config = configWhatsApp.find(
+            c => c.id === messaggio.casellaId && c.sedeId === messaggio.sedeId
+          );
+          if (!config) {
+            esito.senzaCasella += mancanti.length;
+            continue;
+          }
+          const parziale = await conservaMediaWhatsApp(messaggio, config);
+          esito.salvati += parziale.salvati;
+          esito.saltati += parziale.saltati;
+          esito.errori += parziale.errori;
+        }
+        console.info("[whatsapp-media] arretrati " + JSON.stringify({ sedeId, ...esito }));
+        return esito;
       }),
 
     // L'URL da incollare in Meta: si costruisce dall'host della richiesta,

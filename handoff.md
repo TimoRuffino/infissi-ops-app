@@ -511,11 +511,14 @@
 > modifica. Suite 2.752 test. Verifica browser fatta con la console armata:
 > zero errori su /messaggi/whatsapp, /messaggi/email e /fornitori a 1440x900
 > e 390x844.
-> DA DECIDERE SUBITO: in produzione ci sono **170 allegati WhatsApp senza
-> byte, tutti degli ultimi trenta giorni** — cioè ancora scaricabili da Meta,
-> ma non per molto. `pnpm media:whatsapp-dry-run` li conta,
-> `pnpm media:whatsapp` li conserva (da lanciare dentro il servizio, dove
-> DATABASE_URL e lo storage ci sono). Passata la finestra non tornano.
+> DA FARE SUBITO: in produzione ci sono **170 allegati WhatsApp senza byte,
+> tutti degli ultimi trenta giorni** — ancora scaricabili da Meta, ma non per
+> molto. Il tasto **«Conserva ora»** nella scheda del numero WhatsApp
+> (Impostazioni → Integrazioni) li recupera girando dentro il servizio.
+> Lo script `pnpm media:whatsapp` fa lo stesso, ma NON da `railway run`: lì
+> `DATABASE_URL` è l'host interno `postgres.railway.internal`, che da fuori
+> non si risolve (lo script se ne accorge e lo dice, invece di leggere zero
+> messaggi come è successo la prima volta). Passata la finestra non tornano.
 >
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
