@@ -100,6 +100,36 @@ describe("abbonamenti: provider di pagamento", () => {
     expect(repo.abbonamentoDi(2)?.disdettaAFinePeriodo).toBe(true);
   });
 
+  it("pagamento riuscito senza periodo: stato active, insoluto e omaggio azzerati, date invariate", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await concediOmaggio(2, { motivo: "test", scadenza: giorni(5) }, attore, T0);
+    await valutaAbbonamento(2, giorni(10)); // omaggio scaduto -> past_due
+    const primaDell = repo.abbonamentoDi(2)!;
+    expect(primaDell.stato).toBe("past_due");
+    expect(primaDell.omaggio).not.toBeNull();
+    const finePeriodoIniziale = primaDell.finePeriodo;
+
+    const esito = await applicaEventoProvider(
+      { id: "ev-np", tipo: "pagamento_riuscito", tenantId: 2, periodo: null },
+      giorni(10)
+    );
+    expect(esito).toBe("applicato");
+
+    const a = repo.abbonamentoDi(2)!;
+    expect(a.stato).toBe("active");
+    expect(a.tipo).toBe("paid");
+    expect(a.insolutoDal).toBeNull();
+    expect(a.omaggio).toBeNull();
+    expect(a.finePeriodo?.toISOString()).toBe(finePeriodoIniziale?.toISOString());
+
+    const ripetuto = await applicaEventoProvider(
+      { id: "ev-np", tipo: "pagamento_riuscito", tenantId: 2, periodo: null },
+      giorni(11)
+    );
+    expect(ripetuto).toBe("duplicato");
+  });
+
   it("un evento del provider per il tenant 1 è rifiutato: è la proprietaria della piattaforma", async () => {
     await expect(
       applicaEventoProvider({ id: "ev4", tipo: "pagamento_riuscito", tenantId: 1, periodo: null }, T0)

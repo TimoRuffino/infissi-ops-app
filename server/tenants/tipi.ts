@@ -36,7 +36,8 @@ export type TipoEvento =
   | "archivi_ripristinati"
   // WS4 (abbonamenti, spec §3): `abbonamento_stato` porta `{ da, a, motivo }`,
   // `abbonamento_avviso` `{ giorniAllaScadenza, fineIso }`,
-  // `abbonamento_modificato` `{ campo, prima, dopo }`, `tars_soglia`
+  // `abbonamento_modificato` `{ campo, prima, dopo }` (il marcatore del provider usa
+  // `{ campo: "provider_evento", evento, tipo }`), `tars_soglia`
   // `{ percentuale, mese }`.
   | "abbonamento_creato"
   | "abbonamento_stato"

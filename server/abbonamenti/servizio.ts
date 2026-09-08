@@ -548,7 +548,14 @@ export async function applicaEventoProvider(
           omaggio: null,
           providerRef,
         }
-      : { tipo: "paid", providerRef };
+      : {
+          tipo: "paid",
+          // Un pagamento verificato chiude sempre l'insoluto e l'omaggio,
+          // anche quando il provider non manda il periodo (R9).
+          insolutoDal: null,
+          omaggio: null,
+          providerRef,
+        };
     await cambiaStato(a, "active", "pagamento verificato", attore, extra);
   } else if (eventoProvider.tipo === "pagamento_fallito") {
     // Già past_due o suspended: la tolleranza (o la sola lettura) sta già
