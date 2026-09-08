@@ -13,6 +13,7 @@
 // riconciliati uno-a-uno con le rate e cancellarli farebbe solo ricrearli.
 
 import { getAllStoreSnapshots } from "./persistence";
+import { tenantCorrente } from "../tenants/contestoCorrente";
 
 export type ResetPattuitiReport = {
   dryRun: boolean;
@@ -27,7 +28,13 @@ export type ResetPattuitiReport = {
 };
 
 function lastBackupOkWithin(hours: number): boolean {
-  const snapshot = getAllStoreSnapshots().find(s => s.key === "backup_log");
+  // `backup_log` è per tenant (WS3): `s.key` è la chiave fisica (nuda per
+  // il tenant 1, alias), non il filtro giusto — stesso bug di
+  // fileStorageMigrate.ts, stessa correzione. Il tenant è quello del
+  // contesto della richiesta/comando in corso.
+  const snapshot = getAllStoreSnapshots().find(
+    s => s.nome === "backup_log" && s.tenantId === tenantCorrente()
+  );
   if (!snapshot) return false;
   const cutoff = Date.now() - hours * 3600 * 1000;
   return snapshot.items.some((riga: any) => {

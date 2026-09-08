@@ -7,6 +7,14 @@ import { ricalcolaImportoIncassato } from "./commessaPayments";
 
 vi.mock("./persistence", () => ({
   getAllStoreSnapshots: () => snapshots,
+  // Task 12: resetPattuiti.ts ora importa tenantCorrente da
+  // ../tenants/contestoCorrente, che al caricamento del modulo chiama
+  // impostaResolverTenant per registrarsi — deve esistere sul mock anche se
+  // qui non serve altro (getAllStoreSnapshots è finto, il resolver non è
+  // mai interrogato). tenantCorrente resta quello vero: senza un contesto
+  // conTenant(...) attivo, in NODE_ENV=test ripiega sul tenant 1, che è
+  // esattamente il tenantId delle fixture qui sotto.
+  impostaResolverTenant: () => {},
 }));
 
 // La stessa forma di getAllStoreSnapshots (chiave, nome della famiglia,

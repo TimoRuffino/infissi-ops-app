@@ -17,6 +17,7 @@ import {
   type PersistedStore,
 } from "./persistence";
 import { getFile, getStorageDriver, putFile, sha256Hex } from "./fileStorage";
+import { tenantCorrente } from "../tenants/contestoCorrente";
 
 type LegacyFileRecord = {
   id: number;
@@ -44,7 +45,13 @@ export type MigrateReport = {
 };
 
 function lastBackupOkWithin(hours: number): boolean {
-  const snap = getAllStoreSnapshots().find((s) => s.key === "backup_log");
+  // `backup_log` è per tenant: `s.key` è la chiave fisica (nuda per il
+  // tenant 1, alias), non il filtro giusto — un backup di un'altra azienda
+  // non deve sbloccare (né bloccare) questa. Il tenant è quello del
+  // contesto della richiesta/comando in corso, mai un parametro.
+  const snap = getAllStoreSnapshots().find(
+    (s) => s.nome === "backup_log" && s.tenantId === tenantCorrente()
+  );
   if (!snap) return false;
   const cutoff = Date.now() - hours * 3600 * 1000;
   return snap.items.some((r: any) => {
