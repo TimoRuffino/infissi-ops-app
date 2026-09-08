@@ -1,12 +1,25 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const storageProbe = vi.hoisted(() => ({ fail: false }));
 
 vi.mock("../_core/fileStorage", async importOriginal => {
   const actual = await importOriginal<typeof import("../_core/fileStorage")>();
+  // Il gancio quota (WS4 §6) non ha un driver reale sotto in questo file
+  // (`putFile` è interamente rimpiazzato): per i test R10 lo replichiamo qui,
+  // chiamando davvero la funzione registrata con `impostaVerificaQuota` prima
+  // di controllare `storageProbe.fail` — stesso ordine del `putFile` reale.
+  let quotaHook: Parameters<typeof actual.impostaVerificaQuota>[0] = null;
   return {
     ...actual,
-    putFile: vi.fn(async () => {
+    impostaVerificaQuota: (v: Parameters<typeof actual.impostaVerificaQuota>[0]) => {
+      quotaHook = v;
+    },
+    putFile: vi.fn(async (...args: Parameters<typeof actual.putFile>) => {
+      if (quotaHook) {
+        const buffer = args[4];
+        const rifiuto = await quotaHook(1, buffer?.length ?? 0);
+        if (rifiuto) throw new actual.ErroreQuotaStorage(rifiuto.messaggio);
+      }
       if (storageProbe.fail) throw new Error("storage non disponibile");
       return {
         storageKey: "preventivi_documenti/test/fattura.pdf",
@@ -18,14 +31,19 @@ vi.mock("../_core/fileStorage", async importOriginal => {
 
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import { ErroreQuotaStorage, impostaVerificaQuota } from "../_core/fileStorage";
 import {
   migraTipiDocumento,
   validaAllegatoFascicolo,
   validaUploadManualeFascicolo,
 } from "./preventiviContratti";
 import {
+  archiviaAllegatoComunicazione,
+  caricaDocumentoCommessaDaBuffer,
   deleteDocumentoFic,
   findDocumentoFic,
+  getDocumentiDiCommessa,
+  registraDocumentoFatturaCrm,
   StorageAllegatoTemporaneamenteNonDisponibile,
   upsertDocumentoFic,
 } from "./preventiviContratti";
@@ -325,5 +343,123 @@ describe("migrazione dei tipi documento accorpati", () => {
     const caricati = [documento(1, "conferma_ordine"), documento(2, "fattura")];
 
     expect(migraTipiDocumento(caricati)).toBe(false);
+  });
+});
+
+// Fix round 1 (R10): quattro dei cinque siti di upload del brief vivono qui.
+// Ognuno avvolgeva `putFile` in un try/catch pensato SOLO per un guasto
+// infrastrutturale dello storage — e ricadeva su un fallback (rilancio
+// generico, o base64 inline) che avrebbe inghiottito anche `ErroreQuotaStorage`
+// (WS4 §6). Il fix propaga quell'errore per primo, prima di ogni fallback.
+describe("quota che blocca — ErroreQuotaStorage si propaga oltre il fallback (R10)", () => {
+  const pdf = Buffer.from("%PDF-1.4\nquota\n%%EOF", "ascii");
+
+  afterEach(() => {
+    impostaVerificaQuota(null);
+  });
+
+  it("archiviaAllegatoComunicazione: rifiuta, non archivia nulla", async () => {
+    const sedeId = 411;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Quota comunicazione" });
+
+    impostaVerificaQuota(async () => ({ messaggio: "Spazio esaurito: prova" }));
+
+    const promessa = archiviaAllegatoComunicazione({
+      sedeId,
+      comunicazioneId: 411_001,
+      allegatoIndex: 0,
+      commessaId: commessa.id,
+      nome: "allegato.pdf",
+      tipo: "altro",
+      mimeType: "application/pdf",
+      buffer: pdf,
+      createdBy: sedeId,
+    });
+    await expect(promessa).rejects.toBeInstanceOf(ErroreQuotaStorage);
+    await expect(promessa).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Spazio esaurito: prova",
+    });
+
+    expect(getDocumentiDiCommessa(commessa.id)).toHaveLength(0);
+  });
+
+  it("upsertDocumentoFic: rifiuta, non crea il documento FiC", async () => {
+    const sedeId = 412;
+    const ficId = 412_001;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Quota FiC" });
+
+    impostaVerificaQuota(async () => ({ messaggio: "Spazio esaurito: prova" }));
+
+    const promessa = upsertDocumentoFic({
+      sedeId,
+      ficId,
+      commessaId: commessa.id,
+      numero: "412/PDF",
+      data: "2026-08-20",
+      pdf,
+      createdBy: sedeId,
+    });
+    await expect(promessa).rejects.toBeInstanceOf(ErroreQuotaStorage);
+    await expect(promessa).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Spazio esaurito: prova",
+    });
+
+    expect(findDocumentoFic(sedeId, ficId)).toBeNull();
+  });
+
+  it("registraDocumentoFatturaCrm: rifiuta anche per un PDF piccolo, non ricade sul base64 inline", async () => {
+    const sedeId = 413;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Quota fattura CRM" });
+
+    impostaVerificaQuota(async () => ({ messaggio: "Spazio esaurito: prova" }));
+
+    // Il PDF sta ben sotto COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES: prima
+    // del fix questo caso NON lanciava affatto, ricadeva sul fallback inline.
+    const promessa = registraDocumentoFatturaCrm({
+      sedeId,
+      commessaId: commessa.id,
+      fatturaId: 413_001,
+      numero: "413/1",
+      tipo: "fattura",
+      pdf,
+      createdBy: sedeId,
+    });
+    await expect(promessa).rejects.toBeInstanceOf(ErroreQuotaStorage);
+    await expect(promessa).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Spazio esaurito: prova",
+    });
+
+    expect(getDocumentiDiCommessa(commessa.id)).toHaveLength(0);
+  });
+
+  it("caricaDocumentoCommessaDaBuffer: rifiuta anche per un file piccolo, non ricade sul base64 inline", async () => {
+    const sedeId = 414;
+    const caller = appRouter.createCaller(ctx(sedeId));
+    const commessa = await caller.commesse.create({ cliente: "Quota upload manuale" });
+
+    impostaVerificaQuota(async () => ({ messaggio: "Spazio esaurito: prova" }));
+
+    const promessa = caricaDocumentoCommessaDaBuffer({
+      commessaId: commessa.id,
+      nome: "manuale.pdf",
+      tipo: "altro",
+      mimeType: "application/pdf",
+      buffer: pdf,
+      sedeId,
+      createdBy: sedeId,
+    });
+    await expect(promessa).rejects.toBeInstanceOf(ErroreQuotaStorage);
+    await expect(promessa).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Spazio esaurito: prova",
+    });
+
+    expect(getDocumentiDiCommessa(commessa.id)).toHaveLength(0);
   });
 });

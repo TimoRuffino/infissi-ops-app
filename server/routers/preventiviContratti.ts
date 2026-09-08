@@ -14,6 +14,7 @@ import {
 import { Readable } from "stream";
 import {
   deleteFileQuiet,
+  ErroreQuotaStorage,
   getFile,
   openFileReadStream,
   putFile,
@@ -599,7 +600,10 @@ export async function archiviaAllegatoComunicazione(args: {
       documento.storageKey = stored.storageKey;
       documento.checksum = stored.checksum;
       delete documento.dataBase64;
-    } catch {
+    } catch (e) {
+      // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+      // propaga al client, mai il ripiego inline.
+      if (e instanceof ErroreQuotaStorage) throw e;
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
 
@@ -681,7 +685,10 @@ export async function upsertDocumentoFic(args: {
     doc.storageKey = stored.storageKey;
     doc.checksum = stored.checksum;
     delete doc.dataBase64;
-  } catch {
+  } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     throw new StorageAllegatoTemporaneamenteNonDisponibile();
   }
 
@@ -775,6 +782,9 @@ export async function registraDocumentoFatturaCrm(args: {
     doc.checksum = stored.checksum;
     delete doc.dataBase64;
   } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     if (args.pdf.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
@@ -1118,6 +1128,9 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
     doc.storageKey = stored.storageKey;
     doc.checksum = stored.checksum;
   } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     if (input.buffer.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }

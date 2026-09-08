@@ -4,7 +4,12 @@ import { persistedStore } from "../_core/persistence";
 import { getTicketById } from "./ticket";
 import { isDirezione, oppureNotFound } from "../_core/permissions";
 import { TRPCError } from "@trpc/server";
-import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
+import {
+  deleteFileQuiet,
+  ErroreQuotaStorage,
+  getFile,
+  putFile,
+} from "../_core/fileStorage";
 import { registerMigratableCollection } from "../_core/fileStorageMigrate";
 
 // Per-ticket file attachments. Same shape as preventiviContratti Documento but
@@ -161,6 +166,9 @@ export const ticketAllegatiRouter = router({
         a.storageKey = stored.storageKey;
         a.checksum = stored.checksum;
       } catch (e) {
+        // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+        // propaga al client, mai il ripiego inline.
+        if (e instanceof ErroreQuotaStorage) throw e;
         console.warn(
           "[ticketAllegati] storage put fallito, fallback base64 inline:",
           e

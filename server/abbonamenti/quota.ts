@@ -16,6 +16,16 @@ import type { Abbonamento } from "./tipi";
 
 const MS_GIORNO = 86_400_000;
 
+// Fix round 1 (R11): tenant visti bloccati in QUESTO processo. Serve solo a
+// non perdere lo sblocco pendente quando `applicaSoglie` ha già azzerato
+// `soglia100Dal` (l'azienda è scesa sotto quota) prima che `verificaCaricamento`
+// abbia potuto scrivere `storage_sbloccato`. Dopo un riavvio il set riparte
+// vuoto: il prossimo caricamento di un'azienda ancora bloccata lo aggiunge di
+// nuovo da sé (bloccato === true), e un'azienda scesa sotto quota MENTRE il
+// processo era giù semplicemente non riceve quello sblocco (accettabile: non
+// è mai stata segnalata come bloccata da QUESTO processo).
+const bloccatiVisti = new Set<number>();
+
 /**
  * Puro: se lo storage è bloccato ad `adesso`, e da quando lo sarebbe (utile
  * anche quando NON è ancora bloccato, per la scheda «Abbonamento e
@@ -66,9 +76,31 @@ export async function verificaCaricamento(
   if (!stato) return null; // nessun byte mai contato per questa azienda: niente da bloccare
   const abbonamento = repo.abbonamentoDi(tenantId);
   const { bloccato, bloccoDal } = bloccoStorage(stato, abbonamento, adesso);
+
+  // Fix round 1 (R11): `repo.eventi` è un giro DB in più (~147ms, la voce di
+  // costo dominante qui) ad OGNI caricamento — inutile per un'azienda
+  // tranquilla che non ha mai visto il 100%. Si legge SOLO se c'è qualcosa
+  // da deduplicare o da chiudere: un blocco (magari già scritto oggi), la
+  // riga al 100% o oltre anche solo dentro la tolleranza (`bloccoDal` non è
+  // null esattamente in quel caso — stesso confine di `bloccoStorage`),
+  // `soglia100Dal` ancora valorizzata, oppure un tenant che questo processo
+  // ha già visto bloccato e per cui potrebbe mancare ancora lo sblocco
+  // (`bloccatiVisti`: copre il caso in cui `applicaSoglie` abbia già
+  // azzerato `soglia100Dal` scendendo sotto quota).
+  const potrebbeServireLaCronologia =
+    bloccato || bloccoDal != null || stato.soglia100Dal != null || bloccatiVisti.has(tenantId);
+  if (!potrebbeServireLaCronologia) {
+    return null;
+  }
+
+  // Assunzione sulla finestra "ultimi 50": in tenant_eventi vivono solo
+  // eventi rari (creazione abbonamento, soglie, blocchi/sblocchi, pagamenti,
+  // ...). Un futuro tipo di evento ad alta frequenza renderebbe 50
+  // insufficiente e chiederebbe un filtro per `tipo`, non gli "ultimi N".
   const eventi = await repo.eventi(tenantId, { ultimi: 50 });
 
   if (bloccato) {
+    bloccatiVisti.add(tenantId);
     const oggi = periodiLocali(adesso).giorno;
     const giaOggi = eventi.some(
       e => e.tipo === "storage_bloccato" && periodiLocali(e.createdAt).giorno === oggi
@@ -100,6 +132,7 @@ export async function verificaCaricamento(
       dettagli: { bytes: stato.bytes, quotaBytes: stato.quotaBytes },
     });
   }
+  bloccatiVisti.delete(tenantId);
   return null;
 }
 

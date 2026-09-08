@@ -104,6 +104,11 @@ describe("verificaCaricamento", () => {
     const repo = getTenantRepository();
     await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
     await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    // Tenant 3: riservato ai test R11 sulle letture (spy), mai bloccato
+    // altrove nel file — `bloccatiVisti` è un Set di modulo che sopravvive
+    // fra i test di questo file, quindi un id condiviso con un test che
+    // blocca e non sblocca falserebbe il conteggio delle letture.
+    await repo.inserisci({ id: 3, slug: "terza-r11", nome: "Terza R11" });
   });
 
   afterEach(() => {
@@ -177,6 +182,11 @@ describe("verificaCaricamento", () => {
     const liberato = await repo.aggiornaStorage(2, -(1.5 * GB), 0);
     await applicaSoglie(liberato); // azzera soglia100Dal
 
+    // R11: qui `soglia100Dal` è già null (appena azzerata sopra) — la
+    // cronologia si legge lo stesso SOLO perché `bloccatiVisti` ricorda che
+    // questo processo ha visto il tenant 2 bloccato al giro precedente.
+    // Senza quel set, questa chiamata prenderebbe la via corta e lo sblocco
+    // pendente non verrebbe mai scritto.
     const esito = await verificaCaricamento(2, 10, dopoTolleranza);
     expect(esito).toBeNull();
     // Nella cronologia ci sono anche `abbonamento_creato` (creaProva) e
@@ -191,5 +201,43 @@ describe("verificaCaricamento", () => {
     const esito2 = await verificaCaricamento(2, 10, dopoTolleranza);
     expect(esito2).toBeNull();
     expect((await repo.eventi(2)).filter(e => e.tipo === "storage_sbloccato")).toHaveLength(1);
+  });
+
+  // Fix round 1 (R11): il gancio gira a ogni upload — leggere 50 eventi
+  // quando non c'è niente da deduplicare né da sbloccare costerebbe un giro
+  // DB (~147ms) per ogni file caricato da un'azienda tranquilla. Tenant 3 è
+  // riservato a questi due test (mai bloccato altrove nel file): `bloccatiVisti`
+  // è un Set di modulo che sopravvive fra i test dello stesso file, quindi un
+  // id già bloccato da un altro test falserebbe il conteggio delle letture.
+  it("sotto quota, senza storico: una sola lettura di storageDi, zero letture di eventi", async () => {
+    const repo = getTenantRepository();
+    await repo.impostaQuotaStorage(3, 1000);
+    await repo.aggiornaStorage(3, 500, 1);
+
+    const storageDiSpy = vi.spyOn(repo, "storageDi");
+    const eventiSpy = vi.spyOn(repo, "eventi");
+
+    expect(await verificaCaricamento(3, 10, T0)).toBeNull();
+
+    expect(storageDiSpy).toHaveBeenCalledTimes(1);
+    expect(eventiSpy).not.toHaveBeenCalled();
+  });
+
+  it("bloccato: legge la cronologia (dedup del blocco)", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const repo = getTenantRepository();
+    await creaProva(3, T0, attore);
+    await repo.impostaQuotaStorage(3, 2 * GB);
+    const stato = await repo.aggiornaStorage(3, 2 * GB, 1); // esattamente al 100 %
+    await applicaSoglie(stato);
+
+    const dopoTolleranza = giorni(8);
+    vi.setSystemTime(dopoTolleranza);
+    const eventiSpy = vi.spyOn(repo, "eventi");
+
+    const esito = await verificaCaricamento(3, 10, dopoTolleranza);
+
+    expect(esito).toEqual({ messaggio: MESSAGGI_ABBONAMENTO.spazioEsaurito(2) });
+    expect(eventiSpy).toHaveBeenCalled();
   });
 });
