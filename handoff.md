@@ -13,9 +13,13 @@
 > l'08/09 (PR #3 e #5); da lì nasce `feature/ws3-file-integrazioni`, dove i
 > 13 task del piano
 > (`docs/superpowers/plans/2026-09-08-ws3-file-integrazioni.md`) sono
-> implementati e committati (`cea968e`…`c4efcd8`). **Nessun push, nessun
-> merge su `main` da qui, PR ancora da aprire**: il merge è una decisione
-> della direzione.
+> implementati e committati (`cea968e`…`3c9b2e3`). Poi `origin/main` è stato
+> **fuso nel branch** (merge `212bf6f`: grafia Wyndoor, allegati dei messaggi
+> come documenti, media WhatsApp, Tars che legge gli allegati), il branch
+> intero è andato in revisione e una fix wave ha chiuso i quattro punti
+> importanti usciti da lì (v. «Revisione finale» qui sotto). **Nessun push,
+> nessun merge su `main` da qui, PR ancora da aprire**: il merge è una
+> decisione della direzione.
 > **Che cosa cambia.** I file **nuovi** nascono sotto `tenant/<id>/…` per
 > ogni azienda, tenant 1 compreso; le chiavi nude restano di Ruffino Group e
 > non si spostano, e in lettura una chiave di un'altra azienda torna `null`
@@ -41,7 +45,12 @@
 > log; l'errore di un numero non ferma gli altri). `perOgniTenantAttivo` ha
 > un interruttore per (worker, azienda): 3 errori consecutivi → 15, 30, 60,
 > 120 minuti di salto, eventi `worker_sospeso`/`worker_riarmato`, visibili in
-> `pnpm tenant elenco`. I **98** «non trovato» rimasti nei 19 router passano
+> `pnpm tenant elenco`. **Questo si vede anche a `FLAG_MULTI_AZIENDA`
+> spento** (solo tenant 1): è l'unico comportamento del WS3 non invisibile in
+> mono-azienda — un'integrazione rotta smette di riprovare a ogni giro e
+> riparte dopo l'attesa; un riavvio riarma. Il giro notturno **salta**
+> l'azienda che non ha collegato il suo Drive (log, nessun tentativo, nessun
+> errore) e fa invece contare all'interruttore un backup fallito tre volte. I **98** «non trovato» rimasti nei 19 router passano
 > a `recordOppureNotFound`/`oppureNotFound` (`NOT_FOUND` «Risorsa non
 > trovata.»), con guardia strutturale: il debito aperto dal WS2 è chiuso.
 > **Comandi nuovi:** `pnpm tenant storage --slug=… [--ricalcola --scrivi]` e
@@ -57,9 +66,10 @@
 > aveva collegato. Tutto il resto (chiavi col prefisso, `tenant_storage`,
 > `oauth_state`, `storage_quota_bytes`) è additivo e innocuo per il codice
 > vecchio.
-> **Decisioni d'esecuzione:** quindici più due pre-volo, registrate nella
+> **Decisioni d'esecuzione:** quindici più due pre-volo, più quattro della
+> fix wave finale, registrate nella
 > spec `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
-> **§2-bis «Decisioni in corso d'opera»** (pre-1, pre-2, R1…R15) con motivo e
+> **§2-bis «Decisioni in corso d'opera»** (pre-1, pre-2, R1…R19) con motivo e
 > costo se sbagliate; registro esteso in
 > `.superpowers/sdd/2026-09-08-ws3-file-integrazioni/progress.md`. Le più
 > pesanti: `sostituisciStore` scrive sotto il lock e **propaga** l'errore —
@@ -70,15 +80,31 @@
 > il runbook chiede il riavvio se il backup è più vecchio del codice (R13);
 > lo specchio su file `data/backup-oauth*.json` è spento sotto test — un giro
 > di `pnpm test` aveva cifrato il token vero con la chiave di prova (R6).
-> **Verificato:** `pnpm check`, `pnpm test` (3114 test, suite intera verde —
-> in questa sessione sono passati anche i 3 casi «foto HEIC vera (sips)» che
-> altrove sono rossi per i binari della macchina) e `pnpm build`; test su
-> Postgres vero per ledger e ripristino (`--no-file-parallelism`); backup con
-> due aziende e Drive finti. **Non verificato:** nulla distribuito su
-> Railway, nessun collegamento OAuth reale di una seconda azienda, nessuna
-> verifica a schermo (il WS3 non tocca il client). Runbook:
+> **Revisione finale del branch intero (08/09).** Nessun Critical; quattro
+> Important, tutti chiusi da una fix wave sul branch: (1) l'interruttore del
+> worker `backup` non poteva scattare — `runBackup` scrive l'errore nel log e
+> non lancia — e un'azienda senza Drive collegato bruciava 40 minuti di
+> attese davanti alle altre ogni notte (R16); (2) una gara al primo boot: un
+> `putFile` fra `preparaTenants()` e il ricalcolo iniziale creava la riga del
+> ledger e quell'azienda restava senza ricalcolo per sempre — ora si guarda
+> il timbro `ricalcolatoIl`, non la riga (R17); (3) il backoff dei worker
+> vale anche a interruttore spento e non era scritto da nessuna parte (R18,
+> sola documentazione); (4) il ramo SQL del ricalcolo non era esercitato da
+> nessun test pg, e non tollerava una colonna `tenant_id` non ancora
+> aggiunta (R19). Con loro, undici minori: sei tabelle nel messaggio di
+> schema assente, `pulisciStateScaduti()` collegata al boot, `misura()` che
+> non conta un file assente, `deleteFileQuiet` con due `catch` distinti, due
+> punti di `tars.ts`, i gradini 60/120 dell'interruttore asseriti,
+> `pnpm tenant elenco` che legge solo gli ultimi 200 eventi, il `CHECK` di
+> `tenant_comandi` rifatto solo se serve.
+> **Verificato:** `pnpm check`, `pnpm test` (3131 test verdi, suite intera) e
+> `pnpm build`; test su Postgres vero per ledger, ricalcolo e ripristino
+> (`--no-file-parallelism`); backup con due aziende e Drive finti. **Non
+> verificato:** nulla distribuito su Railway, nessun collegamento OAuth reale
+> di una seconda azienda, nessuna verifica a schermo (il WS3 non tocca il
+> client). Runbook:
 > `docs/runbooks/multi-azienda.md`, sezione «WS3 — file, backup, credenziali
-> e guasti per tenant». PRD §60.11 (v5.62). Voce 21 del debito aggiornata.
+> e guasti per tenant». PRD §60.11 (v5.65). Voce 21 del debito aggiornata.
 
 > **Novità 08/09/2026 — la grafia definitiva è Wyndoor, e il dominio è
 > wyndoor.com.** Il nome scelto il 07/09 aveva una o sola; l'08/09 la direzione
@@ -4695,7 +4721,8 @@ a vuoto e dice «57 saltati»).
     **08/09/2026: WS1 e WS2 fusi in `main` (PR #3 e #5); WS3 codificato su
     branch, PR da aprire.** Il branch `feature/ws3-file-integrazioni` nasce
     da `main` dopo quelle due fusioni e porta i 13 task del piano
-    (`cea968e`…`c4efcd8`): chiavi dello storage col prefisso dell'azienda
+    (`cea968e`…`3c9b2e3`, più la fusione di `origin/main` `212bf6f` e una
+    fix wave dopo la revisione finale): chiavi dello storage col prefisso dell'azienda
     (legacy intatte) e cintura in lettura, ledger `tenant_storage` con
     soglie 50/80/100 % che **avvisano e non bloccano**, backup per azienda
     sul Drive dell'azienda con refresh token cifrato e albero filtrato,
@@ -4713,13 +4740,19 @@ a vuoto e dice «57 saltati»).
     **(12)–(16)** restano per WS4–WS6. Chiuso qui il debito lasciato dal
     WS2 (i 96/98 «non trovato» a 500). **Rollback non del tutto additivo:**
     il refresh token del Drive è cifrato a senso unico, tornare al build
-    precedente impone di ricollegare il Drive di ogni azienda. Le quindici
-    decisioni d'esecuzione (più due pre-volo) sono nella spec §2-bis; PRD
-    §60.11 (v5.62); runbook `docs/runbooks/multi-azienda.md`, sezione «WS3
+    precedente impone di ricollegare il Drive di ogni azienda. **Una cosa si
+    vede anche a interruttore spento** (revisione finale, R18): il backoff
+    per (worker, azienda) gira con la sola Ruffino Group, quindi
+    un'integrazione rotta smette di riprovare a ogni giro e riparte dopo
+    15/30/60/120 minuti — è nel runbook e nel PRD, perché non venga scambiato
+    per un guasto nuovo. Le diciannove decisioni d'esecuzione (più due
+    pre-volo) sono nella spec §2-bis; PRD
+    §60.11 (v5.65); runbook `docs/runbooks/multi-azienda.md`, sezione «WS3
     — file, backup, credenziali e guasti per tenant». `pnpm
-    check`/`test`/`build` verdi (suite intera: 3114 test, HEIC compresi),
-    test su Postgres vero per ledger e ripristino; nulla distribuito su
-    Railway, nessuna verifica a schermo (il WS3 non tocca il client).
+    check`/`test`/`build` verdi (suite intera: 3131 test, HEIC compresi),
+    test su Postgres vero per ledger, ricalcolo e ripristino; nulla
+    distribuito su Railway, nessuna verifica a schermo (il WS3 non tocca il
+    client).
 
 ## 13. Cosa resta della piattaforma
 

@@ -58,11 +58,13 @@ come oggi, salvo le aggiunte additive di §11.
 
 ## 2-bis. Decisioni in corso d'opera (08/09/2026)
 
-Diciassette scelte prese mentre il piano veniva eseguito — due nella
-scansione pre-volo, quindici durante i 13 task — quando il codice vero ha
+Ventun scelte prese mentre il piano veniva eseguito — due nella scansione
+pre-volo, quindici durante i 13 task, quattro nella fix wave dopo la
+revisione finale del branch intero (R16–R19) — quando il codice vero ha
 contraddetto la lettera della spec o del piano. Ognuna è un emendamento a
 questo documento: le sezioni che ne sono cambiate sono già corrette qui
-sotto — la §4.4 in particolare (R11, R12, R13 e la forma vera della CLI).
+sotto — la §4.4 in particolare (R11, R12, R13 e la forma vera della CLI), e
+la §5, la §7 e la §11 per le quattro della fix wave.
 Registro completo, con implementer, reviewer e commit:
 `.superpowers/sdd/2026-09-08-ws3-file-integrazioni/progress.md`.
 
@@ -85,33 +87,43 @@ Registro completo, con implementer, reviewer e commit:
 | R13 | l'esito del ripristino porta `avvertenze: string[]` con l'avviso fisso «gli archivi ripristinati non passano da `onLoad`: se il backup è di una versione più vecchia del codice, riavviare il server subito dopo»; il runbook lo ripete | i dump non passano da `onLoad` (§4.4 punto 5): default dei campi nuovi, backfill e migrazioni di forma non girano, e chi ripristina deve saperlo prima di scrivere | nessuno |
 | R14 | nel webhook l'ingestione di **ogni numero** è isolata (try/catch, log del solo numero, si continua), come `perOgniTenantAttivo` e `trovaNeiTenant` | un throw su un numero — per esempio `conTenantDellaSede` fail-closed su una sede sparita — perderebbe i messaggi degli altri numeri della stessa consegna, a cui Meta ha già ricevuto `200` | nessuno |
 | R15 | in `tars.ts` sei blocchi `catch` ricevono `if (errore instanceof TRPCError) throw errore;` (pattern già presente nel file) | senza, i `NOT_FOUND` appena introdotti sarebbero stati riavvolti in un 500 dal `catch` generico | nessuno |
+| R16 | nel giro notturno un'azienda ≠ 1 senza riga OAuth viene **saltata** con un log, senza ritentativi e senza errore; un backup fallito tre volte fa invece **lanciare** `giroNotturno` con l'ultimo errore | `backup_config` nasce abilitato per tutte: senza il salto, ogni notte un'azienda non collegata bruciava tre tentativi e due attese da 20 minuti davanti alle altre; e siccome `runBackup` non lancia mai, l'interruttore del worker `backup` non sarebbe mai potuto scattare | un'azienda senza Drive non compare più «in errore» nel log notturno (che è la verità) |
+| R17 | il ricalcolo iniziale salta solo i tenant con `ricalcolatoIl` valorizzato, non quelli che hanno una riga qualunque nel ledger | la riga nasce anche dal primo `putFile`: uno arrivato fra `preparaTenants()` e il ricalcolo (che gira dopo il `listen`) avrebbe lasciato quell'azienda senza ricalcolo per sempre, con un ledger che conta un file su diecimila | un ricalcolo in più al boot |
+| R18 | l'interruttore per (worker, azienda) vale **anche a interruttore spento** (solo tenant 1): è un'aggiunta additiva ma visibile, da scrivere in §7, §11, runbook e PRD — nessun cambio di codice | con una sola azienda `perOgniTenantAttivo` gira lo stesso: un worker rotto ora si ferma per 15/30/60/120 minuti invece di riprovare a ogni giro, e chi è di turno deve saperlo | un'integrazione che «non riparte da sola» scambiata per un guasto nuovo |
+| R19 | test pg del ramo `if (kvSql)` di `ricalcolaStorage` e tolleranza di `42703` (colonna assente) accanto a `42P01` | quel ramo — allegati JSONB e chiavi PDF/XML — non girava in nessun test, perché in memoria `kvSql` è null; e una tabella creata pigramente dopo `applicaTenantIdAlleTabelle` non ha ancora `tenant_id` (la aggiunge il boot dopo) | un ricalcolo che muore su una tabella incompleta, o un errore di nome di colonna scoperto in produzione |
 
-**Parcheggiati per la fix wave finale.** Minori accettati durante le
-revisioni e registrati nel progress, tutti verificati ancora aperti alla
-chiusura del WS3: `deleteFileQuiet` ha un solo `catch` per il `delete` e per
-la contabilità (il log dice «delete fallito» anche quando cede solo il
-conto); nessun test che `getFile`/`openFileReadStream` **lancino** senza
-tenant nel contesto (il caso della chiave altrui è invece coperto); nessun
-test dei rami «tenant inesistente» di `impostaQuotaStorage` e «state mai
-emesso» di `consumaStateOAuth`; attore `"sistema"` letterale invece di
-`attoreTesto`; `sogliaRaggiunta` dipende dall'ordine crescente di
-`SOGLIE_STORAGE` e il passaggio isolato all'80 % non è asserito; il wiring
-boot → `fileStorage` (contabile registrato in `preparaTenants`) non è
-provato end-to-end; il ramo `if (kvSql)` di `ricalcolaStorage` (allegati
-delle comunicazioni, `pdf/xml_storage_key`, tolleranza `42P01`) non è
-esercitato da nessun test pg; `driveBackup.ts` è arrivato a ~1450 righe e
-chiede l'estrazione di un `driveOAuth.ts`; la cache del token d'accesso per
-azienda non ha un test suo; `ATTESA_RITENTATIVO_MS` è un `let` in maiuscolo;
-i tre ritentativi notturni (20 minuti l'uno) sono sequenziali fra aziende,
-quindi un'azienda che fallisce ritarda le successive — da rivedere nel WS4
-se le aziende crescono; `driveElencaFigli` non pagina; i livelli 60/120
-minuti e il clamp dell'interruttore non sono asseriti, né due aziende
-sospese insieme; in `tars.ts` restano un `oppureNotFound(null)` usato come
-throw nudo (`:1037`) e un `catch` che non rilancia il `TRPCError` (`:410`,
-`comeErrore` lo trasformerebbe in un 500); la guardia strutturale dei «non
-trovato» copre solo `server/routers` (~40 siti analoghi vivono fuori);
-l'etichetta `costo-da-conferma` è condivisa da due chiamanti, quindi da un
-solo contatore dell'interruttore.
+**Chiusi dalla fix wave finale.** Oltre a R16–R19: `deleteFileQuiet` ha ora
+due `catch` distinti (delete e contabilità dicono cose diverse, e senza
+dimensione nota il ledger non si tocca); il ramo `if (kvSql)` di
+`ricalcolaStorage` ha il suo test pg (`server/tenants/storage.pg.test.ts`);
+i livelli 60 e 120 minuti dell'interruttore e il tetto sono asseriti;
+`MESSAGGI.schemaAssente` nomina tutte e sei le tabelle che la sonda chiede;
+`pulisciStateScaduti()` è collegata al boot (§5); `misura()` non conta più
+un file la cui `HEAD` risponde a vuoto; `pnpm tenant elenco` legge solo gli
+ultimi 200 eventi per azienda; il `CHECK` di `tenant_comandi` si rifà solo
+se non nomina già i sette tipi (niente lock ACCESS EXCLUSIVE a ogni boot);
+in `tars.ts` il `catch` di `conversazioni` rilancia il `TRPCError` e
+l'`oppureNotFound(null)` del fascicolo è diventato un `throw` esplicito.
+
+**Ancora aperti**, minori accettati e registrati nel progress: nessun test
+che `getFile`/`openFileReadStream` **lancino** senza tenant nel contesto (il
+caso della chiave altrui è invece coperto); nessun test dei rami «tenant
+inesistente» di `impostaQuotaStorage` e «state mai emesso» di
+`consumaStateOAuth`; attore `"sistema"` letterale invece di `attoreTesto`;
+`sogliaRaggiunta` dipende dall'ordine crescente di `SOGLIE_STORAGE` e il
+passaggio isolato all'80 % non è asserito; il wiring boot → `fileStorage`
+(contabile registrato in `preparaTenants`) non è provato end-to-end;
+`driveBackup.ts` è arrivato a ~1450 righe e chiede l'estrazione di un
+`driveOAuth.ts` (inizio WS4); la cache del token d'accesso per azienda non
+ha un test suo; `ATTESA_RITENTATIVO_MS` è un `let` in maiuscolo; i tre
+ritentativi notturni (20 minuti l'uno) restano sequenziali fra aziende —
+R16 toglie il caso frequente (chi non ha collegato il Drive non ritenta più)
+ma un guasto vero di Drive ritarda ancora le aziende successive, da rivedere
+nel WS4 se crescono; `driveElencaFigli` non pagina; non c'è un test con due
+aziende sospese insieme; la guardia strutturale dei «non trovato» copre solo
+`server/routers` (~40 siti analoghi vivono fuori); l'etichetta
+`costo-da-conferma` è condivisa da due chiamanti, quindi da un solo
+contatore dell'interruttore.
 
 ## 3. Storage per tenant
 
@@ -335,10 +347,12 @@ CREATE TABLE IF NOT EXISTS oauth_state (
 (24 byte casuali, scadenza 10 minuti); `consumaStateOAuth(state, tipo)`
 restituisce la riga una sola volta (`UPDATE … SET consumato_il = NOW() WHERE
 consumato_il IS NULL AND scade_il > NOW() RETURNING *`) o `null`;
-`pulisciStateScaduti()` esiste sul repository ed è provato, ma **nessun
-percorso lo chiama al boot** (verificato alla chiusura del WS3): le righe
-scadute restano nella tabella, inerti — scadenza e consumo unico sono
-comunque garantiti in SQL. Da collegare nella fix wave.
+`pulisciStateScaduti()` la chiama `preparaTenants()` a ogni boot, subito
+dopo `caricaCache()` (fix wave finale): una `DELETE` sola, e la riga
+`[tenants] oauth_state: <n> state scaduti rimossi` solo quando ha tolto
+qualcosa. Un errore lì si logga e non ferma l'avvio. Non è una questione di
+sicurezza — scadenza e consumo unico sono garantiti in SQL — ma di una
+tabella che altrimenti cresce e non cala mai.
 Sostituisce `pendingFicStates` (`fattureInCloud.ts:177-208`) e le mappe di
 Drive. I callback
 (`/api/oauth/fic/callback`, `/api/oauth/gdrive/callback`) ricavano azienda,
@@ -375,6 +389,22 @@ sospeso per <min> min: <errore>` e un evento `worker_sospeso` in
 riarma e registra `worker_riarmato`. `pnpm tenant elenco` mostra i worker
 sospesi per azienda (`tenants.salute` interna). Nessuna coda nuova
 (decisione 3); la coda durevole degli eventi resta com'è.
+
+**Vale anche a `FLAG_MULTI_AZIENDA` spento** (R18): `perOgniTenantAttivo`
+gira comunque, con il solo tenant 1, quindi il backoff e i due eventi
+esistono anche in mono-azienda. È l'unico comportamento del WS3 che si vede
+a interruttore spento — additivo, ma non invisibile: prima un worker rotto
+riprovava a ogni giro, ora si ferma per 15/30/60/120 minuti. I worker
+coinvolti sono `fic`, `imap`, `tars-*`, `costo-da-conferma`,
+`archivio-fornitori`, `conferme-auto-archivio`, `action-center`, `timeline`
+e `backup`. Lo stato vive in memoria: un riavvio riarma tutto.
+
+Il worker `backup` è entrato davvero nel conteggio solo con la fix wave
+finale (R16): `runBackup` scrive l'errore nel log e non lancia, quindi
+`giroNotturno` deve rilanciare l'ultimo errore perché l'interruttore lo
+veda. Nello stesso punto, un'azienda diversa da Ruffino Group che non ha
+collegato il Drive viene **saltata** con una riga di log, senza ritentativi
+e senza errore: non ha collegato niente, non è guasta.
 
 ## 8. Residui che bloccano una seconda azienda
 
@@ -414,7 +444,10 @@ sospesi per azienda (`tenants.salute` interna). Nessuna coda nuova
   con byte; `statFile` sui due driver (`local` vero, `s3` con fetch finto).
 - Ledger (`tenant_storage`, Postgres vero): incrementi atomici, soglie una
   volta sola e ritorno sotto il 50 %, `ricalcolaStorage` con `statFile` sulle
-  anteprime, comando `ricalcola_storage`, `tenants.storage`.
+  anteprime, comando `ricalcola_storage`, `tenants.storage`; e su Postgres
+  vero anche il ramo SQL del ricalcolo (allegati JSONB delle comunicazioni,
+  `pdf/xml_storage_key` delle fatture, righe di un'altra azienda escluse):
+  `server/tenants/storage.pg.test.ts`, R19.
 - Backup: due aziende con Drive finti; `database/` e `Utenti.json`
   contengono solo l'azienda; scheduler `perOgniTenantAttivo`; token cifrato
   al caricamento; router per azienda (la direzione dell'azienda 2 non vede
@@ -425,7 +458,11 @@ sospesi per azienda (`tenants.salute` interna). Nessuna coda nuova
   FiC e Drive dallo `state`.
 - Webhook: due aziende con lo stesso segreto e numeri diversi → l'azienda
   giusta; numero sconosciuto → 200 e log.
-- Breaker: sequenza 3 errori → salto, riarmo, eventi.
+- Breaker: sequenza 3 errori → salto, riarmo, eventi, tutti e quattro i
+  gradini (15/30/60/120) e il tetto.
+- Giro notturno: azienda senza Drive saltata (log, nessun `backup_log`,
+  nessun errore) e backup fallito tre volte che arriva all'interruttore
+  (R16).
 - `recordOppureNotFound`: cross-sede e assente → `NOT_FOUND`; guardia
   strutturale sui router.
 - `fileStorageAdmin` e script con `--tenant`.
@@ -436,7 +473,7 @@ sospesi per azienda (`tenants.salute` interna). Nessuna coda nuova
 
 Additivo tranne un punto. Al boot: `tenant_storage`, `oauth_state`,
 colonna `storage_quota_bytes`; ricalcolo dello storage per ogni azienda
-senza riga, dopo il listen; `backup_oauth`: token cifrato al caricamento —
+senza ricalcolo timbrato, dopo il listen; `backup_oauth`: token cifrato al caricamento —
 **a senso unico**: un rollback al codice precedente non legge più il token
 e il Drive va ricollegato (runbook). I file nuovi hanno il prefisso anche
 per Ruffino Group; i vecchi restano nudi. Ordine in produzione: backup Drive
@@ -444,6 +481,20 @@ riuscito, deploy a interruttore spento, `pnpm --silent tenant verifica`,
 `pnpm tenant storage --slug=ruffino-group` (ledger popolato), accensione,
 prima azienda 2 in staging (crea, collega Drive, backup, ripristino dry-run),
 poi in produzione.
+
+**Che cosa si vede a interruttore SPENTO** (R18). Quasi tutto il WS3 è
+inerte in mono-azienda, con un'eccezione da mettere nel piano di rilascio:
+l'**interruttore per (worker, azienda)** gira anche con il solo tenant 1.
+Un worker che fallisce tre giri di fila — `fic`, `imap`, `tars-*`,
+`costo-da-conferma`, `archivio-fornitori`, `conferme-auto-archivio`,
+`action-center`, `timeline`, `backup` — viene saltato per 15, 30, 60 e poi
+sempre 120 minuti, con `[<etichetta>] tenant 1 sospeso per <min> min: …` nel
+log e gli eventi `worker_sospeso`/`worker_riarmato` in `tenant_eventi` del
+tenant 1. È un miglioramento (i log non si riempiono più dello stesso
+errore) ma cambia i tempi di ripresa dopo un guasto: chi è di turno deve
+sapere che l'integrazione non riprova subito, e che `pnpm tenant elenco` lo
+dice. Un riavvio del server riarma. Nel runbook, sezione «Guasti isolati per
+azienda».
 
 ## 12. Rischi e limiti noti
 

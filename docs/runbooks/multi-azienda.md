@@ -306,10 +306,12 @@ Spec: `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
 (le decisioni prese durante l'esecuzione sono nella sua §2-bis).
 
 > **Stato al 08/09/2026:** i 13 task del WS3 sono implementati e committati su
-> `feature/ws3-file-integrazioni` (da `cea968e` a `c4efcd8`), nato da `main`
-> @ `b77c9da`. Il branch **non è su `main`**, quindi **niente di questa
-> sezione è in produzione**: vale dal momento in cui il branch viene
-> distribuito. WS1 e WS2, invece, sono su `main` dall'08/09 (PR #3 e #5).
+> `feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`), nato da `main`
+> @ `b77c9da`; `origin/main` è poi stato fuso nel branch (merge `212bf6f`) e
+> la revisione finale ha aperto una fix wave, anch'essa sul branch. Il branch
+> **non è su `main`**, quindi **niente di questa sezione è in produzione**:
+> vale dal momento in cui il branch viene distribuito. WS1 e WS2, invece,
+> sono su `main` dall'08/09 (PR #3 e #5).
 
 Con il solo WS2 gli archivi sono per azienda, ma file, backup, credenziali e
 guasti sono ancora dell'installazione: per questo il runbook vietava una
@@ -352,9 +354,11 @@ Sopra i sette passi della sezione WS2, il boot con questo codice fa anche:
 `server/tenants/repository.ts`). Su un database dove gira il WS2 ma il WS3
 non ha ancora fatto boot, `elenco`, `crea`, `stato`, `proprietario`,
 `storage` e `ripristina` si fermano con «Tabelle del control plane del
-tenant assenti (tenants, tenant_eventi, tenant_comandi)…»: il messaggio ne
-nomina tre, ma a mancare sono le due nuove. Non è un guasto — deploy prima,
-script poi, anche fra WS2 e WS3. `verifica` resta l'eccezione: gira lo
+tenant assenti (tenants, tenant_eventi, tenant_comandi, tenant_sedi,
+tenant_storage, oauth_state)…»: il messaggio le nomina **tutte e sei** (fino
+alla revisione finale ne nominava tre e mandava a cercare il guasto sulla
+tabella sbagliata), e a mancare sono le due nuove. Non è un guasto — deploy
+prima, script poi, anche fra WS2 e WS3. `verifica` resta l'eccezione: gira lo
 stesso, senza DDL.
 
 ### File: chiavi, ledger, quota
@@ -425,6 +429,13 @@ stesso, senza DDL.
 - Il giro notturno (00:00 Europe/Rome) resta uno e passa per ogni azienda
   attiva che ha il backup abilitato nella **sua** configurazione; i tre
   ritentativi a 20 minuti di distanza restano, per azienda.
+- **Un'azienda che non ha ancora collegato il suo Drive viene saltata**, con
+  la riga `[backup] tenant <id>: Drive non collegato, salto`: non è un
+  errore, non fa tentativi e non trattiene il giro delle altre (il backup
+  nasce abilitato per tutte, quindi senza il salto ogni notte avrebbe
+  bruciato tre tentativi e due attese da 20 minuti per un esito noto in
+  partenza). Il backup che invece **fallisce davvero** tre volte conta come
+  errore per l'interruttore qui sotto.
 - **I ripieghi valgono solo per Ruffino Group**: service account e disco
   locale del server sono del tenant 1. Un'altra azienda senza OAuth non
   finisce da qualche altra parte: il backup fallisce e lo dice, «Account
@@ -526,6 +537,27 @@ riuscito riarma e registra `worker_riarmato`. Le altre aziende continuano a
 girare, e `pnpm tenant elenco` mostra chi è fermo e fino a quando. Nessuna
 coda nuova: la coda durevole degli eventi resta com'è.
 
+**Questo vale anche a `FLAG_MULTI_AZIENDA` spento**, dove l'unica azienda è
+Ruffino Group: è l'unico comportamento del WS3 che si vede a interruttore
+spento, ed è additivo ma non invisibile. I worker che ci passano sono
+`fic`, `imap`, `tars-*`, `costo-da-conferma`, `archivio-fornitori`,
+`conferme-auto-archivio`, `action-center`, `timeline` e `backup`. Che cosa
+vede chi è di turno: dopo tre giri consecutivi falliti, per esempio
+
+    [fic] tenant 1 sospeso per 15 min: HTTP 500 da Fatture in Cloud
+
+e quel worker **non riprova** per 15 minuti (poi 30, 60, 120), mentre gli
+altri continuano; il primo giro riuscito riarma e scrive `worker_riarmato`.
+Prima, con una sola azienda, lo stesso guasto produceva un errore a ogni
+giro all'infinito: ora i log si asciugano ma il worker resta fermo più a
+lungo — se un integrazione «non riparte da sola» subito dopo un guasto, è
+questo, e `pnpm tenant elenco` lo dice sotto Ruffino Group:
+
+    1	ruffino-group	attivo	Ruffino Group
+      worker sospeso: fic fino a 2026-09-08T23:41:12.004Z (HTTP 500 da Fatture in Cloud)
+
+Un riavvio del server azzera l'attesa (lo stato vive in memoria).
+
 ### Script di manutenzione: `--tenant`, e la trappola dell'interruttore
 
 `scripts/migrate-documents-to-storage.ts` accetta ora `--tenant=<id>`
@@ -564,7 +596,13 @@ sessione**, non dell'installazione.
    boot con questa versione (la sonda ora ne chiede sei).
 4. `pnpm tenant storage --slug=ruffino-group`: deve stampare file e byte,
    non «nessun ledger ancora». Se il ricalcolo iniziale è ancora in corso,
-   aspetta la riga di log del passo 2.
+   aspetta la riga di log del passo 2. **Annota l'ordine di grandezza atteso
+   PRIMA del deploy** (quanti file e quanti byte ha oggi lo storage: il
+   pannello della direzione o il conteggio dei documenti): un numero da solo
+   si legge sempre come giusto, e questo passo serve a confrontarlo, non a
+   guardarlo. Se è più basso di un ordine di grandezza, il ricalcolo non ha
+   ancora finito oppure ha saltato una fonte: si rilancia con `--ricalcola
+   --scrivi` prima di accendere l'interruttore.
 5. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio, se non è già accesa;
    poi un nuovo login.
 6. **Prima azienda 2 in staging**, non in produzione: `pnpm tenant crea …`;
@@ -618,7 +656,11 @@ guarda il prefisso), `tenant_storage`, `oauth_state`, la colonna
   ritenta): controllare la configurazione WhatsApp della sede.
 - `[<etichetta>] tenant <id> sospeso per <min> min: <errore>` — tre errori
   consecutivi di quel worker su quell'azienda. Le altre girano; `pnpm tenant
-  elenco` dice fino a quando.
+  elenco` dice fino a quando. **Si vede anche a interruttore spento**, con
+  `tenant 1`: è l'unico comportamento del WS3 visibile in mono-azienda.
+- `[backup] tenant <id>: Drive non collegato, salto` — il giro notturno ha
+  saltato un'azienda che non ha ancora collegato il suo Drive. Non è un
+  errore e non conta per l'interruttore: è un'azienda da collegare.
 - «Risorsa non trovata.» (`NOT_FOUND`) al posto di un 500 — dal WS3 i 98
   «non trovato» dei router rispondono così, sia per un id inesistente sia
   per uno di un'altra sede.
@@ -671,5 +713,7 @@ L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
 - «Solo un proprietario può nominare o revocare un proprietario.»
 - «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
 - (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
-  (tenants, tenant_eventi, tenant_comandi)…» — script lanciato contro un
-  database su cui il server con questa versione non è mai partito.
+  (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage,
+  oauth_state)…» — script lanciato contro un database su cui il server con
+  questa versione non è mai partito. Il messaggio nomina tutte e sei le
+  tabelle che la sonda chiede: quella che manca è fra queste.
