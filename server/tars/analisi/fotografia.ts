@@ -47,6 +47,13 @@ import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivi
 // Documento contro dato: la merce che arriva dopo la posa, la data e il
 // costo che non coincidono con la conferma (punto 29 del piano).
 import { discordanzeDiSede, type Discordanza } from "../../commesse/discordanze";
+// I documenti che la NATURA del lavoro vuole, oltre a quelli della fase
+// (punto 31): avviso, non blocco.
+import { documentiAttesi, testoAttesi } from "../../commesse/documentiAttesi";
+import { getClientiStore } from "../../routers/clienti";
+// Quello che la direzione ha detto a Tars in chat deve arrivare al mattino
+// dopo (punti 10 e 25 del piano): i due cervelli erano scollegati.
+import { memorieValide, type MemoriaTars } from "../memoria";
 // Le soglie dalla storia dell'azienda, non inventate a mano (punto 17), e
 // la posta in gioco che ordina le proposte (punti 8 e 22).
 import {
@@ -213,6 +220,8 @@ export type DipendenzeFotografia = {
   impegni?: (sedeId: number, adesso: Date) => Promise<ImpegnoInScadenza[]>;
   /** I fili di conversazione che aspettano una risposta. */
   filiInAttesa?: (sedeId: number, adesso: Date) => Promise<Filo[]>;
+  /** Le convenzioni condivise che la direzione ha dettato a Tars in chat. */
+  memorie?: (sedeId: number) => MemoriaTars[];
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -268,6 +277,9 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     tempi: (sedeId, adesso) => commesseLenteDiSede({ sedeId, adesso }),
     posta: sedeId => postaInGiocoDiSede({ sedeId }),
     impegni: (sedeId, adesso) => impegniDiSede({ sedeId, adesso }),
+    // Perimetro «sede»: le convenzioni valide per tutti. Le memorie
+    // personali restano della chat di chi le ha dettate.
+    memorie: sedeId => memorieValide(sedeId, 0).filter(m => m.perimetro === "sede"),
     filiInAttesa: async (sedeId, adesso) =>
       filiInAttesa(fili(await listComunicazioni({ sedeId, limit: 400 }), adesso)),
   };
@@ -603,6 +615,47 @@ export async function costruisciFotografia(input: {
     }
   }
   contatori.documentiConPiuVersioni = catene.length;
+
+  // 1-decies. Documenti che la natura del lavoro vuole e non ci sono: un
+  // condominio la delibera, una posa fatta il suo verbale. NON blocca
+  // niente — il gate resta quello che è (punto 31 del piano 08/09/2026).
+  const clienti = new Map<number, any>(
+    (getClientiStore() as any[]).map(c => [c.id, c])
+  );
+  const posateDiCommessa = new Set(
+    deps
+      .interventi()
+      .filter(i => i.tipo === "posa" && (i.stato === "completato" || i.stato === "fatto"))
+      .map(i => i.commessaId)
+  );
+  const fattiAttesi: FattoAnalisi[] = [];
+  if (deps.documentiDi) {
+    for (const c of commesse) {
+      const attesi = documentiAttesi({
+        tipoCliente: clienti.get(c.clienteId)?.tipo ?? null,
+        tipiPresenti: new Set(deps.documentiDi(c.id).map(d => d.tipo)),
+        posaFatta: posateDiCommessa.has(c.id),
+      });
+      if (attesi.length === 0) continue;
+      fattiAttesi.push({
+        chiave: `commessa:${c.id}:documenti_attesi`,
+        testo: `${etichettaCommessa(c)}: manca ${testoAttesi(attesi)}. Non blocca l'avanzamento, ma il fascicolo resta incompleto.`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      });
+    }
+  }
+  contatori.documentiAttesiMancanti = fattiAttesi.length;
+  sezioni.push({
+    chiave: "documenti_attesi",
+    titolo: "Documenti che questo tipo di lavoro vuole (avviso, non blocco)",
+    fatti: conResto(
+      fattiAttesi.slice(0, GATE_MASSIMI),
+      fattiAttesi.length,
+      "commesse col fascicolo incompleto per la loro natura",
+      "/commesse"
+    ),
+  });
   sezioni.push({
     chiave: "versioni",
     titolo: "Documenti con più versioni (vale l'ultimo)",
@@ -1037,6 +1090,9 @@ export async function costruisciFotografia(input: {
     }
   }
 
+  // Quello che ti è stato detto: la chat aveva memoria, il mattino no.
+  const memorie = deps.memorie ? deps.memorie(sedeId) : [];
+
   const testa: SezioneFotografia[] = [];
   if (guasti.length > 0) {
     testa.push({
@@ -1055,6 +1111,19 @@ export async function costruisciFotografia(input: {
       chiave: "derivata",
       titolo: "Cosa è cambiato dall'ultima analisi (la variazione, non il livello)",
       fatti: derivata,
+    });
+  }
+  if (memorie.length > 0) {
+    contatori.memorieDiSede = memorie.length;
+    testa.push({
+      chiave: "memoria",
+      titolo: "Quello che la direzione ti ha già detto (vale più di qualunque regola qui sotto)",
+      fatti: memorie.slice(0, 15).map(m => ({
+        chiave: `memoria:${m.id}`,
+        testo: `[${m.tipo}] ${m.contenuto}`,
+        entita: [],
+        link: null,
+      })),
     });
   }
   sezioni.unshift(...testa);

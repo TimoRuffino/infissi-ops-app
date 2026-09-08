@@ -5,6 +5,7 @@
 import { TZDate } from "@date-fns/tz";
 import { tarsAttivo } from "../../platform/interruttori";
 import { getCommesseStore } from "../../routers/commesse";
+import { getInterventiStore } from "../../routers/interventi";
 import { sediAttiveDelTenant } from "../../routers/sedi";
 import { getTicketStore } from "../../routers/ticket";
 import { tenantCorrente } from "../../tenants/contestoCorrente";
@@ -20,6 +21,7 @@ import {
   scartateRecenti,
   testoRiscontro,
 } from "./riscontro";
+import { correttivi } from "./correttivi";
 import { conDestinatari, type DipendenzeDestinatari } from "./destinatari";
 import { costruisciFotografia, giornoLocale, type DipendenzeFotografia } from "./fotografia";
 import { repositoryAnalisiCorrente, type RepositoryAnalisiAzienda } from "./repository";
@@ -118,6 +120,27 @@ export async function generaAnalisiAzienda(input: {
           testo: `${p.giorno}${p.fonte ? ` [${p.fonte}]` : ""}: ${p.testo}`,
           entita: [],
           link: null,
+        })),
+      });
+    }
+    // Cosa hai fatto invece (punto 24): le proposte rifiutate che poi si
+    // sono avverate in un altro modo. È il segnale più forte che esista.
+    const diversi = correttivi(recenti, {
+      commessa: id => (getCommesseStore() as any[]).find(c => c.id === id) ?? null,
+      interventiDi: commessaId =>
+        (getInterventiStore() as any[]).filter(
+          i => i.commessaId === commessaId && i.stato !== "annullato"
+        ),
+    });
+    if (diversi.length > 0) {
+      fotografia.sezioni.push({
+        chiave: "correttivi",
+        titolo: "Cosa hai fatto invece (proposte rifiutate, poi avvenute in un altro modo)",
+        fatti: diversi.slice(0, 8).map(c => ({
+          chiave: c.chiave,
+          testo: c.testo,
+          entita: [`commessa:${c.commessaId}`],
+          link: `/commesse/${c.commessaId}`,
         })),
       });
     }

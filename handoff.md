@@ -8,6 +8,18 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — il mattino ricorda, avvisa e impara dal
+> correttivo** (piano `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`;
+> PRD §54.14). Le **memorie di sede** dettate in chat entrano in testa alla
+> fotografia e valgono più di qualunque regola del prompt (punti 10 e 25: i
+> due cervelli erano scollegati). I **documenti che il tipo di lavoro vuole**
+> — delibera per un condominio, verbale per una posa eseguita, asseverazione
+> per una pratica fiscale, conformità per una edilizia — sono un **avviso e
+> non un blocco**: il gate resta quello che è, perché irrigidirlo fermerebbe
+> lavori veri (punto 31). E i **correttivi**: le proposte rifiutate che poi
+> si sono avverate in un altro modo, senza storage nuovo. Prompt
+> `analisi-v17`.
+
 > **Novità 08/09/2026 (sera) — la posta diventa memoria** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco G
 > parte 1; PRD §54.13). Le **promesse dette a parole** nei messaggi
