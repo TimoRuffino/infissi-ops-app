@@ -8,6 +8,22 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — il documento si confronta col dato, e il
+> fascicolo dice quale versione vale** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco F;
+> PRD §54.11). Tre confronti nuovi: la **merce che arriva dopo la posa**
+> (critica: la squadra va in cantiere e il serramento non c'è), la data che
+> non coincide fra conferma e magazzino, il costo registrato diverso da
+> quello che dichiara la conferma — senza mai scrivere le cifre. E le
+> **versioni**: due «misure.pdf» con byte diversi non sono un duplicato ma
+> due versioni; un calcolo puro (nessuna colonna nuova) dice quale vale e
+> quali sono superate, `preventiviContratti.byCommessa` lo restituisce e la
+> fotografia lo segnala. I tipi che sono molti per natura — foto, DDT,
+> fatture, conferme — restano fuori. **Non ancora fatto**: confrontare il
+> CONTENUTO delle due versioni, e il punto 31 (i documenti richiesti dal
+> gate dipendono ancora solo dallo stato, non dalla natura del lavoro).
+> Prompt `analisi-v14`.
+
 > **Novità 08/09/2026 (sera) — le proposte del mattino hanno un destinatario,
 > una memoria e una misura** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco B;

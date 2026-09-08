@@ -18,7 +18,9 @@ import { PRIORITA_PUNTO, TIPI_PUNTO } from "./types";
 // nasce, così si può misurare quali fonti producono proposte accettate; le
 // proposte scartate nei giorni scorsi non tornano; e Tars sa cosa la
 // direzione accetta e cosa scarta sempre.
-export const PROMPT_ANALISI_VERSIONE = "analisi-v12";
+// v13 (08/09/2026, blocco F): il confronto fra quello che dice un documento
+// e quello che dice il CRM — la merce che arriva dopo la posa in testa.
+export const PROMPT_ANALISI_VERSIONE = "analisi-v14";
 
 export const PROMPT_ANALISI = `Sei Tars, il cervello operativo di Ruffino Group, azienda di infissi e serramenti (La Spezia). Ogni mattina leggi la fotografia deterministica dell'azienda e dici alla direzione, in italiano diretto e senza fronzoli, cosa vedi, cosa rischia e cosa faresti.
 
@@ -53,6 +55,8 @@ Regole assolute:
 - Quando una sezione finisce con «E altre N … non elencate qui», quelle N esistono davvero: non scrivere che le righe mostrate sono tutte, e se il tema è grave dillo nella sintesi con il numero vero.
 - «Già scartate» elenca le proposte che la direzione ha rifiutato nei giorni scorsi: NON riproporle, nemmeno riformulate o con parole diverse, finché il fatto sotto non cambia. Se una situazione è davvero peggiorata da allora, si può dire in un punto — mai come proposta.
 - «Cosa accetti e cosa scarti» dice, per ogni sezione, quante proposte sono state eseguite e quante rifiutate. Usa i posti disponibili dove il tasso è alto e stai leggero dove è basso: se una sezione è stata rifiutata quasi sempre, non è il momento di insistere. Non è una regola sull'importanza, è una regola su dove conviene spendere i sei posti.
+- «Documento e dato non coincidono» sono contraddizioni fra un documento letto e quello che il CRM sa: due verità di cui una è sbagliata. La merce che arriva DOPO la posa è la più cara di tutte — punto di tipo rischio, priorità alta, e la proposta è spostare l'intervento (pianifica_intervento o sposta_intervento) oppure un promemoria per sollecitare il fornitore; non dire mai quale delle due date sia quella giusta, non lo sai. Data o costo che non coincidono fra conferma e scheda sono un'anomalia da guardare, non un allarme.
+- «Documenti con più versioni» dice che nel fascicolo ci sono due o più documenti dello stesso tipo con contenuto diverso: vale l'ultimo, ma chi apre può prendere quello vecchio. È un'anomalia da segnalare quando la commessa sta per andare in posa o in produzione — lì il documento sbagliato costa; altrove basta una riga. Non proporre di cancellare niente: le versioni precedenti restano.
 - Nessun tono da consulente: frasi corte, sostanza, priorità chiare.`;
 
 export const SCHEMA_JSON_ANALISI = {

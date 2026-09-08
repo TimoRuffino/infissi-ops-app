@@ -14,8 +14,13 @@ import { getInterventiStore } from "../../routers/interventi";
 import {
   DOC_TIPO_LABEL,
   REQUIRED_DOC_TIPI_PER_STATO,
+  getDocumentiDiCommessa,
   statoHasRequiredDoc,
 } from "../../routers/preventiviContratti";
+import {
+  catenePerTipo,
+  type DocumentoVersionabile,
+} from "@shared/versioniDocumenti";
 import { getTicketStore } from "../../routers/ticket";
 import { sezioneSmistamento } from "../briefing";
 import { calcolaPatternAzienda } from "../proattivita/patterns";
@@ -35,6 +40,9 @@ import { confermeSenzaCostoLeggibileDiSede } from "../../commesse/costoDaConferm
 // La merce ordinata: senza questa sezione la fotografia non vedeva l'unica
 // cosa che fa slittare le pose (punto 1 del piano 08/09/2026).
 import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivio";
+// Documento contro dato: la merce che arriva dopo la posa, la data e il
+// costo che non coincidono con la conferma (punto 29 del piano).
+import { discordanzeDiSede, type Discordanza } from "../../commesse/discordanze";
 // Le fonti mute: l'unico difetto che mente in modo rassicurante (punto 7).
 import { guastiDiSede, type GuastoIntegrazione } from "./guasti";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
@@ -173,6 +181,10 @@ export type DipendenzeFotografia = {
   consegne?: (sedeId: number, adesso: Date) => ConsegnaInArrivo[];
   /** Le fonti mute o in errore: posta, WhatsApp, Fatture in Cloud. */
   guasti?: (sedeId: number, adesso: Date) => GuastoIntegrazione[];
+  /** Dove il documento e il dato non dicono la stessa cosa. */
+  discordanze?: (sedeId: number, adesso: Date) => Discordanza[];
+  /** I documenti di una commessa: servono a vedere quale versione vale. */
+  documentiDi?: (commessaId: number) => DocumentoVersionabile[];
 };
 
 type ConfermaSenzaCostoFotografia = ReturnType<
@@ -223,6 +235,8 @@ export function dipendenzeFotografiaReali(): DipendenzeFotografia {
     confermeSenzaCosto: async sedeId => confermeSenzaCostoLeggibileDiSede(sedeId, 20),
     consegne: (sedeId, adesso) => consegneInArrivo({ sedeId, adesso }),
     guasti: (sedeId, adesso) => guastiDiSede({ sedeId, adesso }),
+    discordanze: (sedeId, adesso) => discordanzeDiSede({ sedeId, adesso }),
+    documentiDi: commessaId => getDocumentiDiCommessa(commessaId),
   };
 }
 
@@ -520,6 +534,46 @@ export async function costruisciFotografia(input: {
     chiave: "magazzino",
     titolo: "Merce ordinata: in ritardo e in arrivo (fa slittare le pose)",
     fatti: fattiMagazzino,
+  });
+
+  // 1-sexies. Documento contro dato: due verità che non coincidono. La
+  // prima della lista è sempre la stessa — la merce arriva dopo la posa.
+  const discordanze = deps.discordanze ? deps.discordanze(sedeId, adesso) : [];
+  contatori.discordanze = discordanze.length;
+  contatori.discordanzeCritiche = discordanze.filter(d => d.gravita === "critica").length;
+  sezioni.push({
+    chiave: "discordanze",
+    titolo: "Documento e dato non coincidono (due verità, una sbagliata)",
+    fatti: discordanze.slice(0, GATE_MASSIMI).map(d => ({
+      chiave: d.chiave,
+      testo: d.testo,
+      entita: [`commessa:${d.commessaId}`],
+      link: d.link,
+      // Nasce dal confronto con un documento letto: chi decide apra il file.
+      fiducia: "letta" as FiduciaFatto,
+    })),
+  });
+
+  // 1-septies. Due versioni della stessa cosa nel fascicolo: chi apre può
+  // prendere quella vecchia (punto 26 del piano 08/09/2026).
+  const catene: FattoAnalisi[] = [];
+  if (deps.documentiDi) {
+    for (const c of commesse) {
+      for (const catena of catenePerTipo(deps.documentiDi(c.id))) {
+        catene.push({
+          chiave: `commessa:${c.id}:versioni:${catena.tipo}`,
+          testo: `${etichettaCommessa(c)}: nel fascicolo ci sono ${catena.superate.length + 1} documenti «${DOC_TIPO_LABEL[catena.tipo as keyof typeof DOC_TIPO_LABEL] ?? catena.tipo}» diversi fra loro. Vale l'ultimo, «${catena.vigente.nome}»: chi apre il fascicolo può prendere quello superato.`,
+          entita: [`commessa:${c.id}`],
+          link: `/commesse/${c.id}`,
+        });
+      }
+    }
+  }
+  contatori.documentiConPiuVersioni = catene.length;
+  sezioni.push({
+    chiave: "versioni",
+    titolo: "Documenti con più versioni (vale l'ultimo)",
+    fatti: conResto(catene.slice(0, GATE_MASSIMI), catene.length, "commesse con documenti in più versioni", "/commesse"),
   });
 
   // 1-quater. Fatture FiC: non collegate o incassate ma non a registro.
