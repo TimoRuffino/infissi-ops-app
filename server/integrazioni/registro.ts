@@ -7,8 +7,9 @@
 
 import type { Adattatore, Chiave } from "./contratto";
 import { agente } from "./adattatori/agente";
+import { backup } from "./adattatori/backup";
 
-export const REGISTRO: Adattatore[] = [agente];
+export const REGISTRO: Adattatore[] = [backup, agente];
 
 export function adattatoreDi(chiave: Chiave): Adattatore | null {
   return REGISTRO.find(a => a.chiave === chiave) ?? null;
