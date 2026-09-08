@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { appRouter } from "../routers";
+import {
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "../tenants/repository";
 import { getSediStore } from "./sedi";
 import {
   buildFicAuthUrl,
@@ -43,9 +47,12 @@ beforeEach(() => {
   process.env.FIC_OAUTH_CLIENT_ID = "client-test";
   process.env.FIC_OAUTH_CLIENT_SECRET = "secret-test";
   process.env.MAIL_ENCRYPTION_KEY = "test-only-encryption-key";
-  // Il callback OAuth è una rotta anonima: il tenant lo dichiara la sede
-  // custodita nello state (F1/R19), e `conTenantDellaSede` è fail-closed
-  // (R20). La sede va quindi dichiarata, come in produzione.
+  // Lo `state` OAuth vive nel control plane (Task 5, WS3 §5): repository
+  // pulito a ogni test, così uno state emesso in un test non sopravvive al
+  // successivo. Il callback resta una rotta anonima — il tenant lo dice lo
+  // `state`, non il contesto della richiesta — quindi la sede va dichiarata
+  // come in produzione: `issueFicOAuthState` la usa per risolvere il tenant.
+  resetTenantRepositoryForTesting();
   getSediStore().length = 0;
   getSediStore().push({ id: 1, tenantId: 1, nome: "La Spezia", attiva: true } as any);
 });
@@ -106,7 +113,7 @@ describe("OAuth Fatture in Cloud", () => {
     global.fetch = fetchMock as any;
 
     const redirectUri = "https://crm.example.test/api/oauth/fic/callback";
-    const state = issueFicOAuthState(1, redirectUri);
+    const state = await issueFicOAuthState(1, redirectUri);
     await handleFicOAuthCallback("c/codice-monouso", state);
 
     const status = await appRouter
@@ -156,7 +163,7 @@ describe("OAuth Fatture in Cloud", () => {
       );
     global.fetch = fetchMock as any;
 
-    const state = issueFicOAuthState(
+    const state = await issueFicOAuthState(
       1,
       "https://crm.example.test/api/oauth/fic/callback"
     );
@@ -259,5 +266,20 @@ describe("OAuth Fatture in Cloud", () => {
       .fattureInCloud.status();
     expect(scollegato.scopeScrittura).toBe(false);
     expect(scollegato.connected).toBe(false);
+  });
+
+  it("lo state vive nel control plane, si consuma una volta e porta tenant, sede e utente", async () => {
+    const redirectUri = "https://crm.example.test/api/oauth/fic/callback";
+    const state = await issueFicOAuthState(1, redirectUri, true, 7);
+    const repo = getTenantRepository();
+    expect(await repo.consumaStateOAuth(state, "fic")).toMatchObject({
+      tenantId: 1,
+      sedeId: 1,
+      utenteId: 7,
+      payload: { redirectUri, scrittura: true },
+    });
+    await expect(handleFicOAuthCallback("codice", state)).rejects.toThrow(
+      "Stato OAuth non valido o scaduto"
+    );
   });
 });

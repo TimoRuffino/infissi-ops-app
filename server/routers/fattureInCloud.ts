@@ -12,7 +12,10 @@ import {
   secretBoxConfigured,
 } from "../_core/secretBox";
 import { DEFAULT_SEDE_ID, sediAttiveDelTenant } from "./sedi";
-import { conTenantDellaSede, perOgniTenantAttivo } from "../tenants/giri";
+import { perOgniTenantAttivo } from "../tenants/giri";
+import { tenantIdDellaSede } from "../tenants/contesto";
+import { conTenant } from "../tenants/contestoCorrente";
+import { getTenantRepository } from "../tenants/repository";
 import { getClientiStore, createClienteFromSync } from "./clienti";
 import {
   collegaFattureAutomatiche,
@@ -175,36 +178,41 @@ export function ficOAuthClientFromEnv(): {
 }
 
 type PendingFicState = {
+  tenantId: number;
   sedeId: number;
   redirectUri: string;
   // true quando l'utente ha avviato il collegamento chiedendo esplicitamente
   // i permessi di scrittura (fatturazione dal contratto).
   scrittura: boolean;
-  expiresAt: number;
 };
 
-const pendingFicStates = new Map<string, PendingFicState>();
-
-export function issueFicOAuthState(
+// Lo `state` anti-CSRF vive in `oauth_state` (control plane, WS3 spec §5):
+// sopravvive a un deploy fra l'avvio e il ritorno da FiC e dice da quale
+// azienda, sede e utente è partito il collegamento.
+export async function issueFicOAuthState(
   sedeId: number,
   redirectUri: string,
-  scrittura = false
-): string {
-  const state = crypto.randomBytes(24).toString("base64url");
-  pendingFicStates.set(state, {
+  scrittura = false,
+  utenteId = 0
+): Promise<string> {
+  return getTenantRepository().emettiStateOAuth({
+    tipo: "fic",
+    tenantId: tenantIdDellaSede(sedeId),
     sedeId,
-    redirectUri,
-    scrittura,
-    expiresAt: Date.now() + 10 * 60_000,
+    utenteId,
+    payload: { redirectUri, scrittura },
   });
-  return state;
 }
 
-function consumeFicOAuthState(state: string): PendingFicState | null {
-  const pending = pendingFicStates.get(state) ?? null;
-  pendingFicStates.delete(state);
-  if (!pending || pending.expiresAt <= Date.now()) return null;
-  return pending;
+async function consumeFicOAuthState(state: string): Promise<PendingFicState | null> {
+  const riga = await getTenantRepository().consumaStateOAuth(state, "fic");
+  if (!riga || riga.sedeId == null) return null;
+  return {
+    tenantId: riga.tenantId,
+    sedeId: riga.sedeId,
+    redirectUri: String(riga.payload.redirectUri ?? ""),
+    scrittura: riga.payload.scrittura === true,
+  };
 }
 
 export function buildFicAuthUrl(
@@ -321,7 +329,7 @@ export async function handleFicOAuthCallback(
   code: string,
   state: string
 ): Promise<{ sedeId: number }> {
-  const pending = consumeFicOAuthState(state);
+  const pending = await consumeFicOAuthState(state);
   if (!pending) throw new Error("Stato OAuth non valido o scaduto");
   const client = ficOAuthClientFromEnv();
   if (!client) throw new Error("Client OAuth Fatture in Cloud non configurato");
@@ -335,12 +343,13 @@ export async function handleFicOAuthCallback(
   if (!token.refresh_token) {
     throw new Error("Fatture in Cloud non ha restituito il refresh token");
   }
-  // Google rimanda il browser su una rotta ANONIMA: non c'è utente, quindi
-  // non c'è tenant nel contesto della richiesta, e `fic_config` è uno store
-  // per tenant. Il tenant lo dice la sede da cui è partito il collegamento,
-  // custodita nello state monouso: da qui in giù si scrive nell'archivio di
-  // quell'azienda (fix wave finale, F1/R19).
-  return conTenantDellaSede(pending.sedeId, async () => {
+  // Fatture in Cloud rimanda il browser su una rotta ANONIMA: non c'è utente,
+  // quindi non c'è tenant nel contesto della richiesta, e `fic_config` è uno
+  // store per tenant. Il tenant è quello scritto in `oauth_state` al momento
+  // dell'emissione (Task 5, WS3 §5): non lo si ri-deriva dalla sede con
+  // `conTenantDellaSede` perché conta l'azienda da cui è partito il click,
+  // anche se nel frattempo la sede cambiasse tenant o sparisse.
+  return conTenant(pending.tenantId, async () => {
     const cfg = getCfg(pending.sedeId);
     cfg.scopeScrittura = pending.scrittura;
     salvaTokenOAuth(cfg, token);
@@ -1217,7 +1226,7 @@ export const fattureInCloudRouter = router({
 
   oauthStartUrl: adminProcedure
     .input(z.object({ scrittura: z.boolean().optional() }).optional())
-    .mutation(({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       assertChiaveCifratura();
       if (!ficOAuthClientFromEnv()) {
         throw new TRPCError({
@@ -1230,10 +1239,11 @@ export const fattureInCloudRouter = router({
         process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
         `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
       const scrittura = input?.scrittura ?? false;
-      const state = issueFicOAuthState(
+      const state = await issueFicOAuthState(
         ctx.sedeId ?? DEFAULT_SEDE_ID,
         redirectUri,
-        scrittura
+        scrittura,
+        Number((ctx.user as any)?.id ?? 0)
       );
       const url = buildFicAuthUrl(
         redirectUri,
