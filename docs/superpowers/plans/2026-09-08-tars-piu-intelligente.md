@@ -362,7 +362,24 @@ stato detto a chi.
 
 ---
 
-## 3. Decisioni che servono prima
+## 3. Decisioni prese (direzione, 08/09/2026 sera)
+
+1. **Margine (punto 8)** → **solo direzione**. Il flag «sotto margine» è un
+   segnale che possono vedere tutti; le cifre appaiono solo a chi ha il
+   ruolo direzione. Le altre code restano senza numeri.
+2. **Bozze al cliente (punto 11)** → **sì, bozza pronta e invio a mano**,
+   anche verso i clienti. Tars scrive il testo, una persona lo legge e preme
+   invia. Nessun invio autonomo, mai.
+3. **Larghezza della lista (punto 2)** → **derivata dal registro**:
+   R1, non L3, effetto interno, meno soldi, cancellazioni definitive e
+   importazioni massive. Implementata.
+4. **Il salto (punto 19)** → **sì, senza tetto**: l'analisi riceve gli
+   strumenti di lettura e può indagare prima di proporre.
+5. **Lato in uscita (punto 30)** → **tutti e due**: si invia dal CRM (la
+   copia esatta resta sempre) e si cattura dalla posta inviata quello che
+   parte dalle caselle personali.
+
+## 3-bis. Decisioni originali, come erano poste
 
 1. **Margine (punto 8)**: chi vede le cifre — solo direzione, o anche
    amministrazione e chi ha la commessa?
