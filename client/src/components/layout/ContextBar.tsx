@@ -43,7 +43,7 @@ export default function ContextBar({
 
       <div className="min-w-0 flex-1">
         <div className="hidden items-center gap-1.5 text-[11px] font-medium text-text-3 min-[1200px]:flex">
-          <span>Wyndor</span>
+          <span>Wyndoor</span>
           <span aria-hidden="true">/</span>
           <span className="truncate">{presentation.section}</span>
         </div>

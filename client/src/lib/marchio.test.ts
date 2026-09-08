@@ -1,4 +1,4 @@
-// Contratto del marchio Wyndor.
+// Contratto del marchio Wyndoor.
 //
 // Non esiste ambiente DOM nei test di questo progetto (vitest gira in
 // `node`), quindi il marchio si verifica come si verificano i token in
@@ -12,11 +12,11 @@ import { join } from "node:path";
 
 const CSS = readFileSync(join("client", "src", "index.css"), "utf8");
 const MARK = readFileSync(
-  join("client", "src", "components", "brand", "WyndorMark.tsx"),
+  join("client", "src", "components", "brand", "WyndoorMark.tsx"),
   "utf8"
 );
 const LOCKUP = readFileSync(
-  join("client", "src", "components", "brand", "WyndorLockup.tsx"),
+  join("client", "src", "components", "brand", "WyndoorLockup.tsx"),
   "utf8"
 );
 const SIDEBAR = readFileSync(
@@ -65,7 +65,7 @@ function blocco(selettore: string): string {
   return CSS.slice(inizio, CSS.indexOf("\n}", inizio));
 }
 
-describe("marchio Wyndor", () => {
+describe("marchio Wyndoor", () => {
   it("dichiara l'accento del marchio nel tema chiaro e in quello scuro", () => {
     expect(blocco(":root")).toMatch(/--brand-accent:\s*#e8a33d/i);
     expect(blocco(".dark")).toMatch(/--brand-accent:\s*#f0b657/i);
@@ -127,13 +127,13 @@ describe("il marchio nella chrome", () => {
     ] as const) {
       expect(sorgente, nome).not.toContain('src="/logo.svg"');
     }
-    expect(SIDEBAR).toContain("<WyndorLockup");
-    expect(LEGACY).toContain("<WyndorLockup");
-    expect(LOGIN).toContain("<WyndorMark");
+    expect(SIDEBAR).toContain("<WyndoorLockup");
+    expect(LEGACY).toContain("<WyndoorLockup");
+    expect(LOGIN).toContain("<WyndoorMark");
   });
 
   it("mostra il segno anche a barra compressa, non un'iniziale", () => {
-    expect(SIDEBAR).toContain("<WyndorMark");
+    expect(SIDEBAR).toContain("<WyndoorMark");
   });
 
   it("scrive la parola come testo, non come tracciato", () => {
@@ -141,7 +141,7 @@ describe("il marchio nella chrome", () => {
     // preferenze dell'utente e non arriva agli screen reader.
     // Il confronto tollera a capo e indentazione: in JSX la parola sta su una
     // riga sua fra i due tag.
-    expect(LOCKUP).toMatch(/>\s*Wyndor\s*</);
+    expect(LOCKUP).toMatch(/>\s*Wyndoor\s*</);
   });
 });
 
@@ -186,7 +186,7 @@ describe("file statici del marchio", () => {
 
   it("shared/marchio.ts dichiara lo stesso riquadro del viewBox stretto", () => {
     // RIQUADRO_SEGNO è x/y/larghezza/altezza dello stesso viewBox="9 5 82 90"
-    // di WyndorMark.tsx e favicon.svg, riscritto a mano come oggetto perché
+    // di WyndoorMark.tsx e favicon.svg, riscritto a mano come oggetto perché
     // inquadraturaIcona() lavora su numeri, non su un attributo SVG. Se il
     // segno cambia riquadro nel componente e questo non segue, le icone
     // generate inquadrano la forma vecchia — e shared/marchio.test.ts non lo

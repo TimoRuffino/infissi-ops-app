@@ -174,7 +174,7 @@ function esitoCommessa(
       },
     ],
     freschezza: "2026-08-31T10:00:00.000Z",
-    fonteAutorevole: "CRM Wyndor",
+    fonteAutorevole: "CRM Wyndoor",
     omissioni: [],
     versioniEntita: { [`commessa:${id}`]: versione },
   };

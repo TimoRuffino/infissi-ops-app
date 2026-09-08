@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
-import { WyndorLockup } from "@/components/brand/WyndorLockup";
-import { WyndorMark } from "@/components/brand/WyndorMark";
+import { WyndoorLockup } from "@/components/brand/WyndoorLockup";
+import { WyndoorMark } from "@/components/brand/WyndoorMark";
 import SedeSwitcher from "@/components/SedeSwitcher";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -132,20 +132,20 @@ export default function NavigationSidebar({
 
   return (
     <aside
-      aria-label="Navigazione Wyndor"
+      aria-label="Navigazione Wyndoor"
       className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground"
       data-navigation-collapsed={collapsed ? "true" : "false"}
     >
       <div className="flex h-[72px] shrink-0 items-center gap-2 border-b border-sidebar-border px-3">
         <div className="flex min-w-0 flex-1 items-center justify-center px-1 group-data-[drawer=true]:justify-start">
           {collapsed ? (
-            <WyndorMark
+            <WyndoorMark
               size={22}
-              title="Wyndor"
+              title="Wyndoor"
               className="shrink-0 text-brand-mark"
             />
           ) : (
-            <WyndorLockup className="max-w-[148px]" />
+            <WyndoorLockup className="max-w-[148px]" />
           )}
         </div>
         <button

@@ -1,16 +1,16 @@
-type WyndorMarkProps = {
+type WyndoorMarkProps = {
   /** Lato in pixel. Sotto i 16 il segno non è più leggibile. */
   size?: number;
   className?: string;
   /**
    * Nome accessibile. Ometterlo rende il segno decorativo, che è giusto
-   * quando accanto c'è già la parola «Wyndor» come testo.
+   * quando accanto c'è già la parola «Wyndoor» come testo.
    */
   title?: string;
 };
 
 /**
- * Il segno Wyndor: l'anta fissa e l'anta in apertura, viste in prospettiva.
+ * Il segno Wyndoor: l'anta fissa e l'anta in apertura, viste in prospettiva.
  * Geometria canonica nella spec del 07/09/2026, Appendice A.
  *
  * L'anta fissa prende `currentColor`: chi lo ospita decide il colore passando
@@ -29,7 +29,7 @@ type WyndorMarkProps = {
  * pieni, o un fondo (come la barra legacy) dove il borgogna normativo non
  * regge il contrasto — non ha bisogno di una prop: basta ridefinire
  * `--brand-accent` a `currentColor` sull'elemento che ospita il segno. Se
- * quell'elemento (o `WyndorLockup`) ha già applicato `text-brand-mark`
+ * quell'elemento (o `WyndoorLockup`) ha già applicato `text-brand-mark`
  * all'anta fissa, va ridefinito anche `--brand-mark` allo stesso modo.
  * `text-brand-mark` compila come `color: var(--brand-mark)`: `@theme inline`
  * fa sì che Tailwind inserisca il riferimento dichiarato in `:root`/`.dark`
@@ -45,14 +45,14 @@ type WyndorMarkProps = {
  *         "--brand-accent": "currentColor",
  *       } as CSSProperties}
  *     >
- *       <WyndorLockup />
+ *       <WyndoorLockup />
  *     </span>
  *
  * Le due ante restano separate dal solo varco: è la stessa funzione che
  * svolgeva il filtro rimosso, non un ripiego. Esempio reale:
  * `LegacyDashboardLayout.tsx`, dove il marchio sta sulla barra verde.
  */
-export function WyndorMark({ size = 24, className, title }: WyndorMarkProps) {
+export function WyndoorMark({ size = 24, className, title }: WyndoorMarkProps) {
   return (
     <svg
       width={size}

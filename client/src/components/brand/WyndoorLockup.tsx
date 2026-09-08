@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
-import { WyndorMark } from "./WyndorMark";
+import { WyndoorMark } from "./WyndoorMark";
 
-type WyndorLockupProps = {
+type WyndoorLockupProps = {
   className?: string;
   /** Lato del segno in pixel. */
   markSize?: number;
@@ -14,19 +14,19 @@ type WyndorLockupProps = {
  * scala con le preferenze dell'utente e leggibile dagli screen reader senza
  * dipendere dal caricamento del font.
  */
-export function WyndorLockup({
+export function WyndoorLockup({
   className,
   markSize = 20,
   title,
-}: WyndorLockupProps) {
+}: WyndoorLockupProps) {
   return (
     <span
       className={cn("inline-flex min-w-0 items-center gap-2", className)}
       title={title}
     >
-      <WyndorMark size={markSize} className="shrink-0 text-brand-mark" />
+      <WyndoorMark size={markSize} className="shrink-0 text-brand-mark" />
       <span className="font-display truncate text-[15px] font-semibold tracking-[-0.03em]">
-        Wyndor
+        Wyndoor
       </span>
     </span>
   );
