@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
+import { sospendi } from "../tenants/servizio";
 import { getSediStore } from "../routers/sedi";
-import { GIORNI_PROVA, eurInNano } from "./costanti";
+import { GIORNI_PROVA, budgetTarsPredefinitoEur, eurInNano } from "./costanti";
 import {
   aggiungiExtraTars, assicuraAbbonamentoPredefinito, concediOmaggio, creaProva, giorniAllaScadenza,
-  impostaBudgetTars, impostaDisdetta, prorogaProva, valutaAbbonamento,
+  impostaBudgetTars, impostaDisdetta, impostaTolleranze, prorogaProva, valutaAbbonamento,
 } from "./servizio";
 
 const T0 = new Date("2026-09-08T09:00:00Z");
@@ -100,5 +101,76 @@ describe("abbonamenti: stati e transizioni", () => {
     await expect(impostaDisdetta(1, true, attore)).rejects.toThrow("proprietaria della piattaforma");
     expect((await impostaBudgetTars(1, eurInNano(100), attore)).budgetTarsNanoMese).toBe(eurInNano(100));
     expect(await valutaAbbonamento(1, giorni(400))).toEqual({ transizione: null, avviso: null });
+  });
+
+  it("una sospensione manuale dell'operatore non viene annullata da omaggio o proroga", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await sospendi(2, "insoluto da tre mesi, blocco io", attore);
+    await concediOmaggio(2, { motivo: "x", scadenza: null }, attore, T0);
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toBe("insoluto da tre mesi, blocco io");
+    // L'omaggio ha portato l'abbonamento ad "active": non è più prorogabile
+    // (guardia invariata), e comunque una proroga non porta MAI il marcatore
+    // `abbonamento:`, quindi non riattiverebbe una sospensione manuale anche
+    // se lo stato lo permettesse.
+    await expect(prorogaProva(2, 5, "y", attore, T0)).rejects.toThrow();
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toBe("insoluto da tre mesi, blocco io");
+  });
+
+  it("la sospensione per insoluto porta il marcatore abbonamento:", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await valutaAbbonamento(2, giorni(30.1));
+    await valutaAbbonamento(2, giorni(37.2));
+    expect(repo.perId(2)?.stato).toBe("sospeso");
+    expect(repo.perId(2)?.motivoStato).toMatch(/^abbonamento: /);
+    expect(repo.perId(2)?.motivoStato).toContain("insoluto");
+    await concediOmaggio(2, { motivo: "riapertura", scadenza: null }, attore, giorni(38));
+    expect(repo.perId(2)?.stato).toBe("attivo");
+  });
+
+  it("la proroga di un omaggio scaduto torna prova paid senza omaggio e senza disdetta", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    await concediOmaggio(2, { motivo: "pilota", scadenza: giorni(50) }, attore, T0);
+    expect(await valutaAbbonamento(2, giorni(51))).toEqual({ transizione: "past_due", avviso: null });
+    await impostaDisdetta(2, true, attore);
+    const pr = await prorogaProva(2, 10, "ripescaggio", attore, giorni(52));
+    expect(pr).toMatchObject({
+      tipo: "paid",
+      periodicita: null,
+      omaggio: null,
+      disdettaAFinePeriodo: false,
+      stato: "trialing",
+    });
+    const prorogato = (await repo.eventi(2)).find(e => e.tipo === "abbonamento_prova_prorogata");
+    expect(prorogato?.dettagli).toMatchObject({ tipoPrecedente: "complimentary" });
+  });
+
+  it("impostaTolleranze scrive i due campi e gli eventi modificato", async () => {
+    const repo = getTenantRepository();
+    await creaProva(2, T0, attore);
+    const a = await impostaTolleranze(2, { storage: 3, tars: 10 }, attore);
+    expect(a.tolleranzaStorageGiorni).toBe(3);
+    expect(a.tolleranzaTarsGiorni).toBe(10);
+    const modificati = (await repo.eventi(2)).filter(e => e.tipo === "abbonamento_modificato");
+    expect(modificati.map(e => e.dettagli?.campo)).toEqual(["tolleranza_storage", "tolleranza_tars"]);
+  });
+
+  it("budget predefinito dall'ambiente: 0 valido, negativo o testo rifiutati", () => {
+    const precedente = process.env.SAAS_BUDGET_TARS_EUR_MESE;
+    try {
+      process.env.SAAS_BUDGET_TARS_EUR_MESE = "0";
+      expect(budgetTarsPredefinitoEur()).toBe(0);
+      process.env.SAAS_BUDGET_TARS_EUR_MESE = "-1";
+      expect(() => budgetTarsPredefinitoEur()).toThrow(/SAAS_BUDGET_TARS_EUR_MESE/);
+      process.env.SAAS_BUDGET_TARS_EUR_MESE = "abc";
+      expect(() => budgetTarsPredefinitoEur()).toThrow(/SAAS_BUDGET_TARS_EUR_MESE/);
+    } finally {
+      if (precedente === undefined) delete process.env.SAAS_BUDGET_TARS_EUR_MESE;
+      else process.env.SAAS_BUDGET_TARS_EUR_MESE = precedente;
+    }
   });
 });

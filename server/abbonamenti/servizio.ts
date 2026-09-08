@@ -66,14 +66,21 @@ async function evento(
 }
 
 /**
- * La sola transizione di stato che esiste. Salva la riga, registra
- * `abbonamento_stato` e accende o spegne la sola lettura del WS1:
- * - entrando in `suspended`/`cancelled` sospende il tenant, se è ancora attivo;
- * - uscendone lo riattiva SOLO se era sospeso per insoluto — una sospensione
- *   decisa a mano dall'operatore non la disfa un omaggio.
- * Il prefisso `insoluto: ` nel motivo del tenant è quel marcatore: dice «l'ha
- * sospesa il dominio degli abbonamenti», e vale anche per la disdetta, che
- * arriva a fine periodo per la stessa strada e si riapre allo stesso modo.
+ * La sola transizione di stato che esiste. Salva la riga sempre; registra
+ * `abbonamento_stato` SOLO quando lo stato cambia davvero (R6): un omaggio
+ * concesso a un abbonamento già `active` aggiorna la riga (nuova scadenza,
+ * nuovo omaggio) ma non lascia un evento `{ da: "active", a: "active" }` —
+ * la transizione vera, se c'è, è quella specifica (`abbonamento_omaggio`,
+ * `abbonamento_prova_prorogata`, …).
+ * Accende o spegne la sola lettura del WS1:
+ * - entrando in `suspended`/`cancelled` sospende il tenant, se è ancora
+ *   attivo, con il motivo prefissato `abbonamento: ` (R5) — un marcatore che
+ *   dice «l'ha sospesa il dominio degli abbonamenti», non un giudizio sul
+ *   perché (insoluto scaduto, disdetta a fine periodo, …);
+ * - uscendone lo riattiva SOLO se il tenant era sospeso con quel marcatore:
+ *   una sospensione decisa a mano dall'operatore (motivo qualunque, es.
+ *   «insoluto da tre mesi, blocco io») non porta il prefisso, quindi non la
+ *   disfa né un omaggio né una proroga.
  * Il motivo finisce nella colonna `motivo` dell'evento (il registro la mostra
  * per ogni tipo) e nei dettagli, dove la spec §3 lo vuole insieme a `da`/`a`.
  */
@@ -87,20 +94,27 @@ async function cambiaStato(
   const repo = getTenantRepository();
   const da = a.stato;
   const salvato = await repo.salvaAbbonamento({ ...a, ...extra, stato });
-  await evento(a.tenantId, "abbonamento_stato", attore, { da, a: stato, motivo }, motivo);
+  if (da !== stato) {
+    await evento(a.tenantId, "abbonamento_stato", attore, { da, a: stato, motivo }, motivo);
+  }
   const tenant = repo.perId(a.tenantId);
   if (stato === "suspended" || stato === "cancelled") {
-    if (tenant?.stato === "attivo") await sospendi(a.tenantId, `insoluto: ${motivo}`, attore);
-  } else if (tenant?.stato === "sospeso" && (tenant.motivoStato ?? "").startsWith("insoluto")) {
+    if (tenant?.stato === "attivo") await sospendi(a.tenantId, `abbonamento: ${motivo}`, attore);
+  } else if (tenant?.stato === "sospeso" && (tenant.motivoStato ?? "").startsWith("abbonamento:")) {
     await riattiva(a.tenantId, motivo, attore);
   }
   return salvato;
 }
 
-/** Cambio di un singolo campo, senza transizione di stato: salva e registra. */
+/**
+ * Cambio di un singolo campo, senza transizione di stato: salva e registra.
+ * `campo` è un'etichetta per il registro, non necessariamente il nome della
+ * proprietà sulla riga (`impostaTolleranze` usa `tolleranza_storage`/
+ * `tolleranza_tars`, più leggibili di `tolleranzaStorageGiorni` nel log).
+ */
 async function modifica(
   a: Abbonamento,
-  campo: keyof Abbonamento,
+  campo: string,
   prima: unknown,
   dopo: unknown,
   extra: Partial<Abbonamento>,
@@ -237,10 +251,15 @@ export async function concediOmaggio(
 }
 
 /**
- * Sposta la scadenza e riporta in prova: azzera l'insoluto e, se il tenant era
- * sospeso per insoluto, lo riattiva. Il tipo non cambia — una prova prorogata
- * resta una prova, un omaggio prorogato resta un omaggio nei registri: si
- * muove solo la data.
+ * Sposta la scadenza e riporta SEMPRE a una prova piena (R6, ruling): oltre a
+ * `finePeriodo` e `insolutoDal: null`, forza `tipo: "paid"`, `periodicita:
+ * null`, `omaggio: null` e `disdettaAFinePeriodo: false`. Anche quando si
+ * proroga un omaggio scaduto (`tipo: "complimentary"`): un omaggio con la
+ * scadenza passata a cui si regalano altri giorni torna a essere una prova a
+ * tutti gli effetti, non un omaggio con la data vecchia — altrimenti la
+ * scheda continuerebbe a mostrare «Abbonamento omaggio» con una scadenza
+ * ormai bugiarda, e una disdetta lasciata attiva scadrebbe di nuovo la prova
+ * appena regalata invece di lasciarla correre.
  */
 export async function prorogaProva(
   tenantId: number,
@@ -263,7 +282,12 @@ export async function prorogaProva(
   const base =
     a.finePeriodo && a.finePeriodo.getTime() > adesso.getTime() ? a.finePeriodo : adesso;
   const finePeriodo = new Date(base.getTime() + giorni * MS_GIORNO);
+  const tipoPrecedente = a.tipo;
   const salvato = await cambiaStato(a, "trialing", `proroga: ${motivo}`, attore, {
+    tipo: "paid",
+    periodicita: null,
+    omaggio: null,
+    disdettaAFinePeriodo: false,
     finePeriodo,
     insolutoDal: null,
   });
@@ -271,7 +295,7 @@ export async function prorogaProva(
     tenantId,
     "abbonamento_prova_prorogata",
     attore,
-    { giorni, fineIso: finePeriodo.toISOString() },
+    { giorni, finePeriodo: finePeriodo.toISOString(), tipoPrecedente },
     motivo
   );
   return salvato;
@@ -327,7 +351,12 @@ export async function aggiungiExtraTars(
   );
 }
 
-/** Giorni di tolleranza dopo il 100 % di storage e di Tars, per azienda. */
+/**
+ * Giorni di tolleranza dopo il 100 % di storage e di Tars, per azienda.
+ * Il `campo` nel registro è `tolleranza_storage`/`tolleranza_tars` (non il
+ * nome della colonna): è quello che compare nella Situazione, ed è lo stesso
+ * sia che lo cambi un umano da pannello sia che lo chiami Tars.
+ */
 export async function impostaTolleranze(
   tenantId: number,
   input: { storage?: number; tars?: number },
@@ -338,7 +367,7 @@ export async function impostaTolleranze(
     validaTolleranza(input.storage, "storage");
     a = await modifica(
       a,
-      "tolleranzaStorageGiorni",
+      "tolleranza_storage",
       a.tolleranzaStorageGiorni,
       input.storage,
       { tolleranzaStorageGiorni: input.storage },
@@ -349,7 +378,7 @@ export async function impostaTolleranze(
     validaTolleranza(input.tars, "Tars");
     a = await modifica(
       a,
-      "tolleranzaTarsGiorni",
+      "tolleranza_tars",
       a.tolleranzaTarsGiorni,
       input.tars,
       { tolleranzaTarsGiorni: input.tars },

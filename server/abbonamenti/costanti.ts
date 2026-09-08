@@ -18,28 +18,44 @@ const BUDGET_TARS_EUR_PREDEFINITO = 25;
 const CAMBIO_EUR_USD_PREDEFINITO = 1.08;
 
 /**
- * Un numero positivo dall'ambiente. Un valore sbagliato NON ricade sul
- * predefinito: un budget letto male diventerebbe silenziosamente un altro
- * budget, e la spec (§10) vuole il comando in errore senza scritture.
+ * Un numero dall'ambiente. Un valore sbagliato NON ricade sul predefinito: un
+ * budget letto male diventerebbe silenziosamente un altro budget, e la spec
+ * (§10) vuole il comando in errore senza scritture. Per difetto deve essere
+ * maggiore di zero; `permettiZero` lo ammette — serve al solo budget Tars,
+ * dove zero è un piano legittimo (nessun Tars incluso) e `impostaBudgetTars`
+ * lo accetta già come tetto esplicito.
  */
-function numeroDaAmbiente(nome: string, predefinito: number): number {
+function numeroDaAmbiente(
+  nome: string,
+  predefinito: number,
+  opzioni: { permettiZero?: boolean } = {}
+): number {
   const grezzo = process.env[nome];
   if (grezzo == null || grezzo.trim() === "") return predefinito;
   const valore = Number(grezzo);
-  if (!Number.isFinite(valore) || valore <= 0) {
-    throw new Error(
-      `${nome} non valido: «${grezzo}». Serve un numero maggiore di zero (predefinito: ${predefinito}).`
-    );
+  const valido = opzioni.permettiZero ? valore >= 0 : valore > 0;
+  if (!Number.isFinite(valore) || !valido) {
+    const soglia = opzioni.permettiZero ? "maggiore o uguale a zero" : "maggiore di zero";
+    throw new Error(`${nome} non valido: «${grezzo}». Serve un numero ${soglia} (predefinito: ${predefinito}).`);
   }
   return valore;
 }
 
-/** Budget Tars incluso per una nuova azienda, in euro al mese (decisione 4). */
+/**
+ * Budget Tars incluso per una nuova azienda, in euro al mese (decisione 4).
+ * Zero è valido (un piano senza Tars incluso): resta rifiutato solo un
+ * valore negativo o non numerico.
+ */
 export function budgetTarsPredefinitoEur(): number {
-  return numeroDaAmbiente("SAAS_BUDGET_TARS_EUR_MESE", BUDGET_TARS_EUR_PREDEFINITO);
+  return numeroDaAmbiente("SAAS_BUDGET_TARS_EUR_MESE", BUDGET_TARS_EUR_PREDEFINITO, { permettiZero: true });
 }
 
-/** Il ledger conta in nano-dollari del provider; il budget si scrive in euro. */
+/**
+ * Il ledger conta in nano-dollari del provider; il budget si scrive in euro.
+ * Deve restare strettamente positivo: `eurInNano`/`nanoInEur` lo usano per
+ * moltiplicare e dividere importi reali, e uno zero (o un negativo) li
+ * renderebbe indefiniti o capovolti.
+ */
 export function cambioEurUsd(): number {
   return numeroDaAmbiente("SAAS_CAMBIO_EUR_USD", CAMBIO_EUR_USD_PREDEFINITO);
 }
