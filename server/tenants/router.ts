@@ -1,5 +1,5 @@
 // server/tenants/router.ts
-import { router, sessionProcedure } from "../_core/trpc";
+import { protectedProcedure, router, sessionProcedure } from "../_core/trpc";
 import { interruttoreAttivo } from "../platform/interruttori";
 import {
   QUOTA_STORAGE_PREDEFINITA_BYTES,
@@ -8,8 +8,9 @@ import {
   TENANT_PREDEFINITO_NOME,
   TENANT_PREDEFINITO_SLUG,
 } from "./costanti";
-import { ruoliDi } from "./regole";
+import { ruoliDi, tenantDelContesto } from "./regole";
 import { getTenantRepository } from "./repository";
+import { percentualeStorage } from "./storage";
 import type { TenantRecord } from "./tipi";
 
 function tenantPredefinitoSintetico(): TenantRecord {
@@ -47,6 +48,22 @@ export const tenantsRouter = router({
       // ("weak type") anche se a runtime `ruoliDi` gestisce già l'assenza.
       proprietario: ruoliDi(ctx.user as any).includes(RUOLO_PROPRIETARIO),
       multiAzienda,
+    };
+  }),
+
+  /** Uso dello storage dell'azienda della sessione: conta e avvisa, non blocca (spec WS3 §3.2). */
+  storage: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = tenantDelContesto(ctx);
+    const stato = await getTenantRepository().storageDi(tenantId);
+    const quotaBytes = stato?.quotaBytes ?? getTenantRepository().perId(tenantId)?.storageQuotaBytes ?? QUOTA_STORAGE_PREDEFINITA_BYTES;
+    const bytes = stato?.bytes ?? 0;
+    return {
+      bytes,
+      file: stato?.file ?? 0,
+      quotaBytes,
+      percentuale: percentualeStorage(bytes, quotaBytes),
+      sogliaAvvisata: stato?.sogliaAvvisata ?? 0,
+      ricalcolatoIl: stato?.ricalcolatoIl ?? null,
     };
   }),
 });

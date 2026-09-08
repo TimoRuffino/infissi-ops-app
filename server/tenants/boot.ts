@@ -13,6 +13,7 @@
 // store, comandi in attesa e il ciclo ogni 30 s, questi sì condizionati
 // all'interruttore. In produzione un fallimento dello schema ferma l'avvio
 // (come policy ed eventi).
+import { impostaContabileStorage } from "../_core/fileStorage";
 import { kvSql } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getSediStore } from "../routers/sedi";
@@ -20,6 +21,7 @@ import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
 import { allineaTenantPredefinito, eseguiComandiInAttesa } from "./servizio";
+import { creaContabileStorage } from "./storage";
 import {
   applicaTenantIdAlleTabelle,
   backfillTenantIdSulleTabelle,
@@ -56,6 +58,9 @@ export async function preparaTenants(): Promise<number[]> {
   await repo.ensureSchema();
   await repo.caricaCache();
   await repo.assicuraTenantPredefinito();
+  // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
+  // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.
+  impostaContabileStorage(creaContabileStorage());
   if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   return repo.tutti().map(t => t.id);
 }
