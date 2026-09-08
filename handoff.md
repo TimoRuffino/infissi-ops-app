@@ -12,10 +12,14 @@
 > (`feature/ws3-file-integrazioni` @ `a44fc37`) nasce
 > `feature/ws4-abbonamenti`, dove i 9 task del piano
 > (`docs/superpowers/plans/2026-09-08-ws4-abbonamenti.md`) sono implementati e
-> committati (`bb2f147`…`d335a68`). Finché la PR #7 del WS3 non è fusa, questo
-> branch **contiene anche tutto il WS3**. **Nessun push, nessun merge su
-> `main` da qui, PR ancora da aprire**: il merge è una decisione della
-> direzione.
+> committati (`bb2f147`…`d335a68`). La revisione dell'intero branch ha poi
+> prodotto una **fix wave finale** (09/09/2026, `fa5b8be`…`3a5cf0b`): la suite
+> era rossa per un orologio non finto in un blocco di test (la deduplicazione
+> «un evento al giorno» confrontava `adesso` col `createdAt` vero), e ne sono
+> usciti tre ruling nuovi — R15, R16, R17, qui sotto. Finché la PR #7 del WS3
+> non è fusa, questo branch **contiene anche tutto il WS3**. **Nessun push,
+> nessun merge su `main` da qui, PR ancora da aprire**: il merge è una
+> decisione della direzione.
 > **Che cosa cambia.** Ogni azienda ha un **abbonamento** nel control plane
 > (tabella `abbonamenti`, una riga per tenant): tipo `paid`/`complimentary`,
 > stati `trialing|active|past_due|grace|suspended|cancelled`, periodo, budget
@@ -70,8 +74,9 @@
 > non esiste alcun tetto per azienda: le sole aggiunte sono le tabelle, la
 > colonna e la riga omaggio del tenant 1. **Rollback = redeploy del build
 > precedente**, senza eccezioni: tutto il WS4 è additivo.
-> **Decisioni d'esecuzione:** diciassette (tre pre-volo e R1–R14), registrate
-> nella spec `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md`
+> **Decisioni d'esecuzione:** venti (tre pre-volo, R1–R14 durante i task,
+> R15–R17 dalla fix wave finale), registrate nella spec
+> `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md`
 > **§2-bis** con motivo e costo se sbagliate; registro esteso in
 > `.superpowers/sdd/2026-09-08-ws4-abbonamenti/progress.md`. Le più pesanti:
 > `ErroreQuotaStorage` si propaga sempre dai siti di upload, mai il ripiego
@@ -80,6 +85,16 @@
 > contratto, e il worker segnala chi non ce l'ha invece di ripararlo da solo
 > (R8); un pagamento verificato azzera sempre insoluto e omaggio, anche senza
 > periodo (R9); la proroga riporta il contratto a prova piena (R3, R6).
+> Le tre della fix wave: **R15**, l'abbonamento è la fonte di verità — un
+> contratto `suspended`/`cancelled` con l'azienda attiva viene risospeso dal
+> giro successivo (sopra); **R16**, il tenant 1 non si blocca mai per lo
+> spazio, come già non ha un tetto Tars: le soglie lo avvisano, `--quota-gb`
+> resta la leva; **R17**, la migrazione dei record legacy passa da `putFile`,
+> quindi rispetta il blocco — si ferma al primo rifiuto col messaggio della
+> quota, senza toccare nessun `dataBase64`.
+> **Verificato dopo la fix wave:** `pnpm check` pulito, `pnpm test` 3276 verdi
+> su 313 file (78 saltati), `pnpm build` riuscito, e i test su Postgres vero
+> rieseguiti a parte contro il Docker locale (19 casi in tre file).
 > **Un incidente da sapere:** alle 20:47 dell'08/09 il ref del branch WS4 è
 > stato fatto avanzare per errore su un merge del branch WS5 di un'altra
 > sessione; rimediato con un reset a `873b6c6` e il cherry-pick del fix
