@@ -395,7 +395,7 @@ gira comunque, con il solo tenant 1, quindi il backoff e i due eventi
 esistono anche in mono-azienda. È l'unico comportamento del WS3 che si vede
 a interruttore spento — additivo, ma non invisibile: prima un worker rotto
 riprovava a ogni giro, ora si ferma per 15/30/60/120 minuti. I worker
-coinvolti sono `fic`, `imap`, `tars-*`, `costo-da-conferma`,
+coinvolti sono `fic`, `imap`, `imap-watcher`, `tars-*`, `costo-da-conferma`,
 `archivio-fornitori`, `conferme-auto-archivio`, `action-center`, `timeline`
 e `backup`. Lo stato vive in memoria: un riavvio riarma tutto.
 
@@ -485,7 +485,7 @@ poi in produzione.
 **Che cosa si vede a interruttore SPENTO** (R18). Quasi tutto il WS3 è
 inerte in mono-azienda, con un'eccezione da mettere nel piano di rilascio:
 l'**interruttore per (worker, azienda)** gira anche con il solo tenant 1.
-Un worker che fallisce tre giri di fila — `fic`, `imap`, `tars-*`,
+Un worker che fallisce tre giri di fila — `fic`, `imap`, `imap-watcher`, `tars-*`,
 `costo-da-conferma`, `archivio-fornitori`, `conferme-auto-archivio`,
 `action-center`, `timeline`, `backup` — viene saltato per 15, 30, 60 e poi
 sempre 120 minuti, con `[<etichetta>] tenant 1 sospeso per <min> min: …` nel

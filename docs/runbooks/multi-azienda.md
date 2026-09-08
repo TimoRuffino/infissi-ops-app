@@ -306,7 +306,7 @@ Spec: `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
 (le decisioni prese durante l'esecuzione sono nella sua §2-bis).
 
 > **Stato al 08/09/2026:** i 13 task del WS3 sono implementati e committati su
-> `feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`), nato da `main`
+> `feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`, poi la fusione di `main` `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`), nato da `main`
 > @ `b77c9da`; `origin/main` è poi stato fuso nel branch (merge `212bf6f`) e
 > la revisione finale ha aperto una fix wave, anch'essa sul branch. Il branch
 > **non è su `main`**, quindi **niente di questa sezione è in produzione**:
@@ -540,7 +540,7 @@ coda nuova: la coda durevole degli eventi resta com'è.
 **Questo vale anche a `FLAG_MULTI_AZIENDA` spento**, dove l'unica azienda è
 Ruffino Group: è l'unico comportamento del WS3 che si vede a interruttore
 spento, ed è additivo ma non invisibile. I worker che ci passano sono
-`fic`, `imap`, `tars-*`, `costo-da-conferma`, `archivio-fornitori`,
+`fic`, `imap`, `imap-watcher`, `tars-*`, `costo-da-conferma`, `archivio-fornitori`,
 `conferme-auto-archivio`, `action-center`, `timeline` e `backup`. Che cosa
 vede chi è di turno: dopo tre giri consecutivi falliti, per esempio
 

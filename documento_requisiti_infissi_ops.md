@@ -4292,7 +4292,7 @@ runbook operativo: `docs/runbooks/multi-azienda.md`, sezione «WS3 — file,
 backup, credenziali e guasti per tenant».
 
 **Stato reale.** I 13 task sono implementati e committati sul branch
-`feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`), nato da `main`
+`feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`, poi la fusione di `main` `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`), nato da `main`
 dopo la fusione di WS1 e WS2; poi `origin/main` è stato **fuso nel branch**
 (merge `212bf6f`: grafia Wyndoor, allegati dei messaggi come documenti,
 media WhatsApp, Tars che legge gli allegati), il branch intero è passato in

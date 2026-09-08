@@ -53,6 +53,8 @@ describe("repository tenant in memoria", () => {
     expect((await repo.eventi(t.id, { ultimi: 2 })).map(e => e.motivo)).toEqual(["d", "e"]);
     // Più di quanti ce ne sono: li dà tutti, senza lamentarsi.
     expect((await repo.eventi(t.id, { ultimi: 99 })).map(e => e.motivo)).toEqual(["a", "b", "c", "d", "e"]);
+    // `ultimi: 0` vale «tutti» (su Postgres LIMIT 0 darebbe zero righe: le due implementazioni concordano).
+    expect((await repo.eventi(t.id, { ultimi: 0 })).map(e => e.motivo)).toEqual(["a", "b", "c", "d", "e"]);
     // Senza opzione, il comportamento di sempre.
     expect((await repo.eventi(t.id)).map(e => e.motivo)).toEqual(["a", "b", "c", "d", "e"]);
   });

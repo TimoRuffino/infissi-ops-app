@@ -209,7 +209,8 @@ function createMemoryTenantRepository(): TenantRepository {
     async eventi(tenantId, opzioni) {
       const suoi = eventi.filter(e => e.tenantId === tenantId);
       const ultimi = opzioni?.ultimi;
-      return (ultimi != null && ultimi < suoi.length ? suoi.slice(-ultimi) : suoi).map(clone);
+      // `ultimi` ≤ 0 vale «tutti», come su Postgres (dove LIMIT 0 darebbe zero righe).
+      return (ultimi != null && ultimi > 0 && ultimi < suoi.length ? suoi.slice(-ultimi) : suoi).map(clone);
     },
     async accodaComando(input) {
       const c: TenantComando = {
@@ -573,7 +574,8 @@ export function createPostgresTenantRepository(
       // Con `ultimi` si prendono le ultime n righe (`ORDER BY id DESC LIMIT
       // n`, che usa l'indice) e si rovescia il risultato: il chiamante
       // riceve sempre l'ordine crescente, come senza opzione.
-      if (ultimi != null) {
+      // `ultimi` ≤ 0 vale «tutti», come in memoria: LIMIT 0 darebbe zero righe.
+      if (ultimi != null && ultimi > 0) {
         const rows = await sql`SELECT * FROM tenant_eventi WHERE tenant_id = ${tenantId}
           ORDER BY id DESC LIMIT ${ultimi}`;
         return rows.map(rigaEvento).reverse();

@@ -13,7 +13,7 @@
 > l'08/09 (PR #3 e #5); da lì nasce `feature/ws3-file-integrazioni`, dove i
 > 13 task del piano
 > (`docs/superpowers/plans/2026-09-08-ws3-file-integrazioni.md`) sono
-> implementati e committati (`cea968e`…`3c9b2e3`). Poi `origin/main` è stato
+> implementati e committati (`cea968e`…`3c9b2e3`; poi la fusione `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`). Poi `origin/main` è stato
 > **fuso nel branch** (merge `212bf6f`: grafia Wyndoor, allegati dei messaggi
 > come documenti, media WhatsApp, Tars che legge gli allegati), il branch
 > intero è andato in revisione e una fix wave ha chiuso i quattro punti
