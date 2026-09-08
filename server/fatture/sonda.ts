@@ -138,6 +138,10 @@ export async function aggiornaStatoFattura(
       ctx,
       repository,
       client,
+      // R45: finché la fattura non è partita il documento può ancora
+      // cambiare, e nel fascicolo ci va quello definitivo. I file sì:
+      // servono a guardarla durante la finestra.
+      conDocumentoFascicolo: fattura.stato !== "emessa",
       now: () => now,
     });
     fattura = archivio.fattura;

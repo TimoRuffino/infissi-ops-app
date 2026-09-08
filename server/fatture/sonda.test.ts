@@ -366,6 +366,52 @@ describe("aggiornaStatoFattura", () => {
     ]);
   });
 
+  // R45: nella finestra fra Fatture in Cloud e SdI il documento può ancora
+  // cambiare, quindi nel fascicolo non ci entra. La sonda ora guarda anche
+  // le emesse non spedite: deve archiviare XML e PDF e fermarsi lì.
+  it("fattura emessa e non ancora spedita: archivia i file ma non tocca il fascicolo", async () => {
+    const f = await creaFatturaInviata({
+      stato: "emessa",
+      eiStatusFic: "not_sent",
+      xmlStorageKey: null,
+      pdfStorageKey: null,
+      xmlSha256: null,
+      documentoId: null,
+    });
+    const registro: ChiamataFic[] = [];
+    const client = creaClientFicFinto(
+      {
+        leggiDocumento: async () => documentoFicDa({ ei_status: "not_sent" }),
+        scaricaXml: async () => Buffer.from("<xml/>", "utf-8"),
+        scaricaPdf: async () => Buffer.from("%PDF-1.4 finto\n%%EOF\n", "utf-8"),
+      },
+      registro
+    );
+
+    const esito = await aggiornaStatoFattura({
+      sedeId: SEDE,
+      id: f.id,
+      actorUserId: ATTORE,
+      repository,
+      now: () => ora,
+      client,
+      contesto: contestoFinto,
+      storage: {
+        putFile: async (collection, _parentId, _recordId, nome) => ({
+          storageKey: `${collection}/${nome}-finto`,
+          checksum: "checksum-finto",
+        }),
+      },
+    });
+
+    expect(esito.fattura.stato).toBe("emessa");
+    expect(esito.fattura.xmlStorageKey).toContain("fatture_xml/");
+    expect(esito.fattura.pdfStorageKey).toContain("fatture_pdf/");
+    expect(esito.fattura.documentoId).toBeNull();
+    // E nessun errore: il fascicolo saltato di proposito non è un guasto.
+    expect(esito.fattura.eiErrore).toBeNull();
+  });
+
   it("solo l'XML manca: basta che uno dei due sia null per ritentare l'archivio", async () => {
     const XML_FINTO = Buffer.from("<xml/>", "utf-8");
     // pdfStorageKey e documentoId restano quelli (già presenti) di

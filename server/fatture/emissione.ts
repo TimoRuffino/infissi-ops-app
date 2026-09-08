@@ -118,13 +118,19 @@ export function trovaDoppioneFic(
   return null;
 }
 
-/** Gli stati da cui l'emissione può partire o ripartire. */
+/** Gli stati da cui la creazione su Fatture in Cloud può partire o ripartire. */
 const STATI_DI_PARTENZA = new Set<Fattura["stato"]>([
   "bozza",
   "in_emissione",
   "emessa",
-  "inviata",
 ]);
+
+/**
+ * Gli stati da cui si può chiedere l'invio allo SdI. `inviata` c'è per la
+ * ripresa: un archivio o un documento del fascicolo rimasti indietro si
+ * ritentano senza rispedire niente (il passo d'invio si salta da sé).
+ */
+const STATI_INVIABILI = new Set<Fattura["stato"]>(["emessa", "inviata"]);
 
 /** Scarto ammesso per campo nel confronto con i totali di Fatture in Cloud. */
 const TOLLERANZA_CENT = 1;
@@ -379,7 +385,16 @@ function numeroDocumento(doc: DocumentoFicCreato, now: Date): string {
 
 // ── La pipeline ─────────────────────────────────────────────────────────
 
-export async function emettiFattura(
+/**
+ * Primo dei due gesti (08/09/2026): crea il documento su Fatture in Cloud
+ * e si ferma. Non spedisce niente allo SdI — quello è `inviaAlloSdi`, un
+ * secondo click che può arrivare giorni dopo. In mezzo c'è la finestra dei
+ * dodici giorni in cui la fattura resta correggibile (R43).
+ *
+ * L'XML si verifica comunque: è una GET senza effetti e dice subito se il
+ * documento è malformato, invece di scoprirlo alla scadenza.
+ */
+export async function creaSuFic(
   input: {
     sedeId: number;
     id: number;
@@ -391,7 +406,6 @@ export async function emettiFattura(
 ): Promise<{ fattura: Fattura; passi: EsitoPasso[] }> {
   const repository = repo(input);
   const now = input.now?.() ?? new Date();
-  const dryRun = input.dryRun ?? sdiDryRun;
   const client = input.client ?? creaClientFicEmissione();
   const allineaTimeline = input.timeline ?? allineaTimelineAlBoard;
   const passi: EsitoPasso[] = [];
@@ -758,12 +772,8 @@ export async function emettiFattura(
   const ficDocumentId = fattura.ficDocumentId!;
 
   // ── 5. verifica dell'XML ──────────────────────────────────────────────
-  // Si salta solo dopo l'invio vero: dopo un giro in dry-run l'XML si
-  // riverifica: è una GET senza effetti, e all'accensione dell'invio
-  // reale il documento potrebbe non essere più quello di allora.
-  if (fattura.stato === "inviata") {
-    segna("xml", "saltato", "già inviata allo SdI");
-  } else {
+  // Costa una GET senza effetti e non dipende dall'invio: si fa sempre.
+  {
     const verifica = await bloccante("xml", () =>
       client.verificaXml(ctx, ficDocumentId)
     );
@@ -784,40 +794,16 @@ export async function emettiFattura(
     segna("xml", "fatto");
   }
 
-  // ── 6. invio allo SdI ─────────────────────────────────────────────────
-  const inProva = dryRun();
-  if (fattura.stato === "inviata") {
-    segna("invio", "saltato", "già inviata allo SdI");
-  } else if (fattura.inviataDryRun && inProva) {
-    segna("invio", "saltato", "già inviata in prova");
-  } else {
-    await bloccante("invio", async () => {
-      const esito = await client.inviaEInvoice(ctx, ficDocumentId, {
-        dry_run: inProva,
-      });
-      fattura = await repository.aggiornaStato({
-        sedeId: input.sedeId,
-        id: fattura.id,
-        patch: inProva
-          ? { inviataDryRun: true, eiErrore: null }
-          : { stato: "inviata", inviataDryRun: false, eiErrore: null },
-        now,
-      });
-      await eventoDi(fattura.id, "inviata", {
-        dryRun: inProva,
-        date: esito.date,
-      });
-      segna("invio", "fatto", inProva ? "prova (dry-run)" : "inviata allo SdI");
-    });
-  }
-
-  // ── 7 e 8. archivio XML/PDF e documento nel fascicolo ─────────────────
+  // ── 7. archivio XML/PDF ───────────────────────────────────────────────
+  // Il documento del fascicolo no: nasce all'invio riuscito (R45), perché
+  // il fascicolo tiene la fattura definitiva e questa può ancora cambiare.
   const archivio = await archiviaFattura({
     ...input,
     fattura,
     ctx,
     repository,
     client,
+    conDocumentoFascicolo: false,
     now: () => now,
   });
   fattura = archivio.fattura;
@@ -850,6 +836,214 @@ export async function emettiFattura(
 }
 
 /**
+ * Secondo dei due gesti (08/09/2026): manda allo SdI un documento che su
+ * Fatture in Cloud c'è già. È l'atto irreversibile — da qui in poi si
+ * corregge solo con una nota di credito — e per questo è un click a sé,
+ * non la coda di «Invia a Fatture in Cloud».
+ *
+ * Come il primo gesto, si prende la fattura con un compare-and-swap su
+ * stato e revisione (R35): due click sovrapposti non spediscono due volte.
+ * E come per la bozza (R1), chi preme deve avere in mano l'ultima
+ * versione: nella finestra la fattura è correggibile, quindi la revisione
+ * conta anche qui.
+ */
+export async function inviaAlloSdi(
+  input: {
+    sedeId: number;
+    id: number;
+    actorUserId: number | null;
+    revisione: number;
+  } & DipendenzeEmissione
+): Promise<{ fattura: Fattura; passi: EsitoPasso[] }> {
+  const repository = repo(input);
+  const now = input.now?.() ?? new Date();
+  const dryRun = input.dryRun ?? sdiDryRun;
+  const client = input.client ?? creaClientFicEmissione();
+  const allineaTimeline = input.timeline ?? allineaTimelineAlBoard;
+  const passi: EsitoPasso[] = [];
+  const problemi: string[] = [];
+  const segna = (
+    passo: PassoEmissione,
+    esito: EsitoPasso["esito"],
+    dettaglio: string | null = null
+  ) => {
+    passi.push({ passo, esito, dettaglio });
+  };
+
+  // Sede prima di tutto: una fattura di un'altra sede non esiste, e non si
+  // deve poter dedurre il contrario nemmeno dal messaggio d'errore.
+  const iniziale = await repository.perId(input.sedeId, input.id);
+  if (!iniziale) throw new Error("NOT_FOUND: Fattura non trovata.");
+  let fattura: Fattura = iniziale;
+  if (!STATI_INVIABILI.has(fattura.stato)) {
+    throw new Error(
+      `PRECONDIZIONE: la fattura #${fattura.id} è in stato «${fattura.stato}»: allo SdI ci va un documento già su Fatture in Cloud.`
+    );
+  }
+  if (fattura.ficDocumentId == null) {
+    throw new Error(
+      `PRECONDIZIONE: la fattura #${fattura.id} non ha un documento su Fatture in Cloud: mandala prima là.`
+    );
+  }
+  if (fattura.revisione !== input.revisione) {
+    throw new Error(
+      "CONFLITTO: la fattura è stata modificata da un'altra sessione, ricarica."
+    );
+  }
+
+  const commessa: any = getCommessaById(fattura.commessaId);
+  if (!commessa || (commessa.sedeId ?? DEFAULT_SEDE_ID) !== input.sedeId) {
+    throw new Error("NOT_FOUND: Commessa non trovata.");
+  }
+
+  // Azienda e token prima del lease: senza collegamento FiC non ha senso
+  // bruciare una revisione.
+  const ctx = await (input.contesto ?? contestoFicPerSede)(input.sedeId);
+
+  const partenza = fattura.stato;
+  fattura = await repository.aggiornaStato({
+    sedeId: input.sedeId,
+    id: fattura.id,
+    patch: {},
+    atteso: { stato: partenza, revisione: fattura.revisione },
+    now,
+  });
+
+  const eventoDi = (tipo: TipoEvento, payload: Record<string, unknown>) =>
+    appendiEvento(
+      repository,
+      input.sedeId,
+      fattura.id,
+      input.actorUserId,
+      tipo,
+      payload
+    );
+
+  const bloccante = async <T>(
+    passo: PassoEmissione,
+    azione: () => Promise<T>
+  ): Promise<T> => {
+    try {
+      return await azione();
+    } catch (errore) {
+      const testo = messaggio(errore);
+      segna(passo, "errore", testo);
+      try {
+        fattura = await repository.aggiornaStato({
+          sedeId: input.sedeId,
+          id: fattura.id,
+          patch: { eiErrore: `${passo}: ${testo}` },
+          now,
+        });
+      } catch {
+        // L'eccezione originale descrive il guasto meglio di questa.
+      }
+      throw new Error(`EMISSIONE: ${passo}: ${testo}`);
+    }
+  };
+
+  const ficDocumentId = fattura.ficDocumentId!;
+
+  // ── rilettura ─────────────────────────────────────────────────────────
+  // Il documento può essere cambiato dopo il primo gesto, dentro Fatture
+  // in Cloud: si riparte da com'è adesso, non da com'era.
+  const documento = await bloccante("documento_fic", () =>
+    client.leggiDocumento(ctx, ficDocumentId)
+  );
+  fattura = await repository.aggiornaStato({
+    sedeId: input.sedeId,
+    id: fattura.id,
+    patch: {
+      eiStatusFic: documento.ei_status,
+      ficUpdatedAt: documento.updatedAt,
+    },
+    now,
+  });
+  segna("documento_fic", "fatto", `riletto (#${ficDocumentId})`);
+
+  // ── verifica dell'XML ─────────────────────────────────────────────────
+  if (fattura.stato === "inviata") {
+    segna("xml", "saltato", "già inviata allo SdI");
+  } else {
+    const verifica = await bloccante("xml", () =>
+      client.verificaXml(ctx, ficDocumentId)
+    );
+    if (!verifica.success) {
+      const testo = `XML non valido: ${verifica.errori.join(" · ")}`;
+      fattura = await repository.aggiornaStato({
+        sedeId: input.sedeId,
+        id: fattura.id,
+        patch: { eiErrore: testo },
+        now,
+      });
+      await eventoDi("xml_errore", { errori: verifica.errori });
+      segna("xml", "errore", testo);
+      return { fattura, passi };
+    }
+    await eventoDi("xml_ok", {});
+    segna("xml", "fatto");
+  }
+
+  // ── invio ─────────────────────────────────────────────────────────────
+  const inProva = dryRun();
+  if (fattura.stato === "inviata") {
+    segna("invio", "saltato", "già inviata allo SdI");
+  } else if (fattura.inviataDryRun && inProva) {
+    segna("invio", "saltato", "già inviata in prova");
+  } else {
+    await bloccante("invio", async () => {
+      const esito = await client.inviaEInvoice(ctx, ficDocumentId, {
+        dry_run: inProva,
+      });
+      fattura = await repository.aggiornaStato({
+        sedeId: input.sedeId,
+        id: fattura.id,
+        patch: inProva
+          ? { inviataDryRun: true, eiErrore: null }
+          : { stato: "inviata", inviataDryRun: false, eiErrore: null },
+        now,
+      });
+      await eventoDi("inviata", { dryRun: inProva, date: esito.date });
+      segna("invio", "fatto", inProva ? "prova (dry-run)" : "inviata allo SdI");
+    });
+  }
+
+  // ── archivio e documento nel fascicolo ────────────────────────────────
+  const archivio = await archiviaFattura({
+    ...input,
+    fattura,
+    ctx,
+    repository,
+    client,
+    now: () => now,
+  });
+  fattura = archivio.fattura;
+  problemi.push(...archivio.problemi);
+  passi.push(...archivio.passi);
+
+  // ── timeline ──────────────────────────────────────────────────────────
+  try {
+    const completate = allineaTimeline(
+      fattura.commessaId,
+      String(commessa.stato ?? ""),
+      nomeUtente(input.actorUserId)
+    );
+    segna("timeline", "fatto", `${completate} tappe completate`);
+  } catch (errore) {
+    segna("timeline", "errore", messaggio(errore));
+  }
+
+  fattura = await repository.aggiornaStato({
+    sedeId: input.sedeId,
+    id: fattura.id,
+    patch: { eiErrore: problemi.length > 0 ? problemi.join(" ") : null },
+    now,
+  });
+
+  return { fattura, passi };
+}
+
+/**
  * Passi 7 e 8: XML e PDF nello storage, PDF nel fascicolo della commessa.
  * Vive fuori da `emettiFattura` perché la sonda (Task 10) li ritenta da
  * sola quando trova una fattura emessa senza archivio, con le stesse
@@ -865,8 +1059,16 @@ export async function archiviaFattura(
     fattura: Fattura;
     actorUserId: number | null;
     ctx?: ContestoFic;
+    /**
+     * Se il PDF debba anche entrare nel fascicolo della commessa (R45).
+     * Falso durante la finestra fra FiC e SdI: lì la fattura può ancora
+     * cambiare, e il fascicolo tiene il documento definitivo, non una
+     * versione di passaggio. Default vero, per la sonda e le riprese.
+     */
+    conDocumentoFascicolo?: boolean;
   } & DipendenzeEmissione
 ): Promise<{ fattura: Fattura; passi: EsitoPasso[]; problemi: string[] }> {
+  const conFascicolo = input.conDocumentoFascicolo !== false;
   const repository = repo(input);
   const now = input.now?.() ?? new Date();
   const client = input.client ?? creaClientFicEmissione();
@@ -940,7 +1142,7 @@ export async function archiviaFattura(
 
   // Il PDF serve anche al fascicolo: si riscarica se manca l'archivio
   // oppure il documento della commessa.
-  if (!fattura.pdfStorageKey || !fattura.documentoId) {
+  if (!fattura.pdfStorageKey || (conFascicolo && !fattura.documentoId)) {
     try {
       pdf = await client.scaricaPdf(ctx, ficDocumentId);
       if (!fattura.pdfStorageKey) {
@@ -990,7 +1192,13 @@ export async function archiviaFattura(
 
   // È il PDF che soddisfa il gate documentale «fattura» di
   // `fatture_pagamento`: senza, la commessa non avanza.
-  if (fattura.documentoId != null) {
+  if (!conFascicolo) {
+    passi.push({
+      passo: "documento_fascicolo",
+      esito: "saltato",
+      dettaglio: "dopo l'invio allo SdI",
+    });
+  } else if (fattura.documentoId != null) {
     passi.push({
       passo: "documento_fascicolo",
       esito: "saltato",

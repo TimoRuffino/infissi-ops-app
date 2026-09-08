@@ -18,7 +18,7 @@ import { _resetContrattiRepositoryForTests } from "../contratti/repository";
 import { salvaContratto } from "../contratti/servizio";
 import type { DocumentoFicCreato } from "../fic/emissione";
 import { creaClientFicFinto, type ChiamataFic } from "../fic/fake";
-import { emettiFattura, type DipendenzeEmissione } from "../fatture/emissione";
+import { creaSuFic, inviaAlloSdi, type DipendenzeEmissione } from "../fatture/emissione";
 import {
   _resetFattureRepositoryForTests,
   getFattureRepository,
@@ -419,7 +419,7 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
   const PDF_FINTO = Buffer.from("%PDF-1.4 finto\n%%EOF\n", "utf-8");
 
   /** Stesso montaggio del banco() di emissione.test.ts, senza registro/timeline: qui serve solo l'esito, non le sue tappe. */
-  function emettiInDryRun(fattura: Fattura, sedeId: number) {
+  async function emettiInDryRun(fattura: Fattura, sedeId: number) {
     const registro: ChiamataFic[] = [];
     const dip: DipendenzeEmissione = {
       now: () => ORA_FATTURE,
@@ -428,6 +428,7 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
           cercaClienti: async () => [],
           creaCliente: async () => ({ id: 424242 }),
           creaDocumento: async () => documentoFicDa(fattura),
+          leggiDocumento: async () => documentoFicDa(fattura),
           verificaXml: async () => ({ success: true, errori: [] }),
           inviaEInvoice: async () => ({ name: "IT01234567890_00001.xml", date: "2026-09-04" }),
           scaricaXml: async () => XML_FINTO,
@@ -446,11 +447,20 @@ describe("tars T3 — fascicolo racconta la fattura (Task 17)", () => {
       salvaFicEntityId: () => {},
       timeline: () => 1,
     };
-    return emettiFattura({
+    // I due gesti (08/09/2026): prima su Fatture in Cloud, poi allo SdI —
+    // qui in prova, che è ciò che il fascicolo deve saper raccontare.
+    const creata = await creaSuFic({
       sedeId,
       id: fattura.id,
       actorUserId: ATTORE_FATTURE,
       revisione: fattura.revisione,
+      ...dip,
+    });
+    return inviaAlloSdi({
+      sedeId,
+      id: fattura.id,
+      actorUserId: ATTORE_FATTURE,
+      revisione: creata.fattura.revisione,
       ...dip,
     });
   }

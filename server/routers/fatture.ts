@@ -17,7 +17,7 @@ import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
 import { getFile } from "../_core/fileStorage";
-import { contestoFicPerSede, emettiFattura } from "../fatture/emissione";
+import { contestoFicPerSede, creaSuFic, inviaAlloSdi } from "../fatture/emissione";
 import { creaClientFicEmissione } from "../fic/emissione";
 import { classificaRigheFic, confrontaLati, latoCrm } from "../fatture/confronto";
 import { ficFatture } from "./ficFatture";
@@ -349,7 +349,30 @@ export const fattureRouter = router({
         legacyAllowed: "capability",
       });
       try {
-        return await emettiFattura({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione, ignoraDoppione: input.ignoraDoppione === true });
+        return await creaSuFic({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione, ignoraDoppione: input.ignoraDoppione === true });
+      } catch (errore) {
+        erroreServizioComeTrpc(errore);
+      }
+    }),
+
+  // Secondo gesto (R44): il documento su Fatture in Cloud esiste già, qui
+  // parte davvero allo SdI. Stessa capability del primo — la decisione in
+  // chat è «A»: lo stesso operatore, un click dopo l'altro.
+  inviaSdi: procedura
+    .input(z.object({ id: z.number().int(), revisione: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      assicuraInterruttore("limiti");
+      const sedeId = sedeCorrente(ctx);
+      await authorizeCoreOperation({
+        ctx,
+        endpoint: "fatture.inviaSdi",
+        capability: "fattura.emit",
+        resourceType: "fattura",
+        resource: { sedeId },
+        legacyAllowed: "capability",
+      });
+      try {
+        return await inviaAlloSdi({ sedeId, id: input.id, actorUserId: ctx.user.id, revisione: input.revisione });
       } catch (errore) {
         erroreServizioComeTrpc(errore);
       }
