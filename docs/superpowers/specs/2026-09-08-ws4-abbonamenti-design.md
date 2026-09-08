@@ -1,6 +1,6 @@
 # WS4 — Abbonamenti: prova, omaggio, insoluti, quota che blocca, budget Tars per azienda (spec tecnica)
 
-**Data:** 08/09/2026 · **Stato:** approvata in chat dalla direzione (ordine WS4→WS5, provider rimandato, tolleranza 7 giorni, budget Tars 25 €/mese, fine prova → insoluto → sola lettura; «Approvato: spec, piano ed esecuzione») · **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (§3, §4, §9, §10, §11, §16.3, §18-bis) · **Precedenti:** WS1 (fondazione tenant), WS2 (archivi per tenant), WS3 (`2026-09-08-ws3-file-integrazioni-design.md`, PR #7 aperta) · **Branch:** `feature/ws4-abbonamenti`, nato da `feature/ws3-file-integrazioni` @ `a44fc37` (finché la PR #7 non è fusa la PR del WS4 contiene anche il WS3).
+**Data:** 08/09/2026 · **Stato:** approvata in chat dalla direzione (ordine WS4→WS5, provider rimandato, tolleranza 7 giorni, budget Tars 25 €/mese, fine prova → insoluto → sola lettura; «Approvato: spec, piano ed esecuzione») e **implementata** in 9 task sul branch `feature/ws4-abbonamenti` (08/09/2026, `bb2f147`…`d335a68`); non su `main`, non in produzione. Le decisioni prese durante l'esecuzione sono in §2-bis e le sezioni che ne sono cambiate sono già corrette · **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (§3, §4, §9, §10, §11, §16.3, §18-bis) · **Precedenti:** WS1 (fondazione tenant), WS2 (archivi per tenant), WS3 (`2026-09-08-ws3-file-integrazioni-design.md`, PR #7 aperta) · **Branch:** `feature/ws4-abbonamenti`, nato da `feature/ws3-file-integrazioni` @ `a44fc37` (finché la PR #7 non è fusa la PR del WS4 contiene anche il WS3).
 
 > Con il WS3 un'azienda ha i suoi archivi, i suoi file contati, il suo
 > backup. Le manca un contratto: quando inizia, quando scade, cosa succede
@@ -53,6 +53,80 @@ quota e la tolleranza, fermano solo ciò che costa. Con
 | 4 | Budget Tars incluso | 25 €/mese per le nuove aziende (configurazione, non codice); Ruffino Group senza tetto per azienda (valgono i tetti globali `TARS_*`) |
 | 5 | Prova scaduta senza provider | Avvisi a 7/3/1 giorni, poi `past_due`, dopo 7 giorni `suspended` = sola lettura (madre §10.3); un omaggio riattiva; nessuna cancellazione |
 | 6 | Sicurezza a flag spento | Worker, blocchi e limiti per azienda inerti a `FLAG_MULTI_AZIENDA` spento; le sole aggiunte visibili sono le tabelle e la riga omaggio del tenant 1 |
+
+## 2-bis. Decisioni in corso d'opera (08/09/2026)
+
+Diciassette scelte prese mentre il piano veniva eseguito — tre nella
+scansione pre-volo, quattordici durante i 9 task — quando il codice vero ha
+contraddetto la lettera della spec o del piano. Ognuna è un emendamento a
+questo documento: le sezioni che ne sono cambiate sono già corrette qui sotto
+— la §4.1 (R7, R8), la §6, la §11 e la §13 (pre-2, R10), la §8 (pre-3, R13),
+la §9 (R5, più la riattivazione manuale, che il testo raccontava sbagliata) e
+la §10. Con loro due correzioni di lettura, senza ruling perché non c'era
+niente da decidere: la §9 sopra, e la §6 sui media WhatsApp, che dalla
+fusione di `main` si conservano nello storage invece di restare solo su Meta.
+Registro completo, con implementer, reviewer e commit:
+`.superpowers/sdd/2026-09-08-ws4-abbonamenti/progress.md`.
+
+| # | Che cosa | Perché | Costo se sbagliata |
+|---|---|---|---|
+| pre-1 | nei test che importano i router (anche di rimbalzo) non si chiama mai `__resetPersistenzaPerTest()` | ereditata dal WS3: quella funzione fa `famiglie.clear()` e cancella le famiglie registrate all'import | test rossi per «store sconosciuto»; nessun danno al codice |
+| pre-2 | la §6 «413» decade: `ErroreQuotaStorage` è un `TRPCError PRECONDITION_FAILED` e basta | il 413 doveva venire da rotte Express di upload che si credevano inesistenti. Il Task 5 ha poi trovato l'unica che c'è (`_core/commessaFileRoutes.ts`, documenti di commessa): non risponde 413 ma **400 con lo stesso messaggio**, perché passa dallo stesso `caricaDocumentoCommessaDaBuffer` — il 413 di quel file è il limite dei 250 MB del body parser, un'altra cosa | nessuno sul blocco (il messaggio arriva comunque); un codice HTTP meno parlante su un percorso solo |
+| pre-3 | le notifiche del WS4 si scrivono direttamente nel repository delle notifiche e solo dove `notificationMode` della sede è `active`; l'avviso nella shell legge le query e non dipende da nulla | il bus degli eventi è spento per sede di default, e una notifica di contratto non deve dipendere dal proiettore | nessuno |
+| R1 | `servizio.ts` (control plane) riceve subito un `case "imposta_abbonamento"` che lancia «non ancora implementato»; il Task 3 lo sostituisce | tenere esaustivo — e quindi tipato — lo `switch` sui tipi di comando fin dal task che li introduce nello schema | un comando accodato prima del Task 3 finisce in `errore` con un messaggio chiaro; nessun effetto |
+| R2 | `abbonamenti` aggiunta a TUTTI i `DROP TABLE` di `repository.pg.test.ts` | un `DROP … CASCADE` di `tenants` toglie il vincolo, non la tabella, e il `CREATE IF NOT EXISTS` non la ricreava: i casi si sporcavano a vicenda | test-only |
+| R3 | `prorogaProva` vale da `trialing`, `past_due` e `suspended`, senza guardia sul tipo, e riporta il contratto a **prova piena**: `paid`, `periodicita` null, `trialing`, `omaggio: null`; l'evento porta il tipo precedente | si proroga anche un omaggio scaduto, e un omaggio a cui si regalano giorni di prova non è più un omaggio: lasciarne l'etichetta farebbe leggere alla scheda «Abbonamento omaggio» con una scadenza ormai falsa | un'etichetta «omaggio in prova» incoerente nella scheda |
+| R4 | la deduplicazione degli avvisi 7/3/1 guarda gli ultimi 50 eventi del tenant | in `tenant_eventi` vivono solo eventi rari; una query mirata costerebbe un indice nuovo per un caso che non esiste | un tenant molto rumoroso può rivedere un avviso |
+| R5 | le sospensioni decise dall'abbonamento portano il marcatore `abbonamento: ` in `motivoStato` (es. «abbonamento: tolleranza dell'insoluto scaduta»); la riattivazione automatica agisce **solo** su quel prefisso | una sospensione decisa a mano dall'operatore («blocco io») non deve essere disfatta da un omaggio o da una proroga | registro meno leggibile; una sospensione manuale annullata per sbaglio |
+| R6 | la proroga azzera anche `disdettaAFinePeriodo`; `SAAS_BUDGET_TARS_EUR_MESE=0` è valido (nessun Tars incluso) mentre il cambio resta > 0; nessun evento `abbonamento_stato` quando `da === a` | una proroga è una prova nuova, e una disdetta lasciata attiva la chiuderebbe subito; `impostaBudgetTars` accettava già lo zero come tetto esplicito; un evento `{da: active, a: active}` è rumore nel registro | nessuno |
+| R7 | `avviaWorkerAbbonamenti()` si chiama SOLO dal callback di `server.listen`; l'idempotenza (`if (intervallo) return`) resta come rete | il piano la faceva chiamare anche da `completaTenants`, che gira **prima** della porta: il primo giro sarebbe partito mentre il server non rispondeva ancora | un giro di valutazione durante il boot, prima della porta |
+| R8 | `pnpm tenant crea` chiama `creaProva` anche quando il tenant esiste già ma non ha abbonamento (idempotenza per slug estesa al contratto); il worker logga «rilancia pnpm tenant crea» e salta, senza creare nulla | se `creaProva` fallisse, il tenant resterebbe per sempre senza abbonamento e ogni comando risponderebbe «inesistente», senza una via di riparazione; ma un worker che crea contratti da solo è un'altra cosa | nessuno |
+| R9 | un `pagamento_riuscito` verificato azzera SEMPRE `insolutoDal` e `omaggio`, anche quando l'evento non porta il periodo | un provider che manda l'evento minimale lasciava la riga in uno stato che si contraddice: `active` con un insoluto aperto | riga incoerente (attiva e insoluta insieme) |
+| R10 | nei cinque siti di upload `ErroreQuotaStorage` si **propaga** sempre: rethrow prima del ripiego inline e prima dell'incapsulamento in un `Error` generico | il ripiego su `dataBase64` esisteva per lo storage non durevole, non per la quota: teneva il file fuori dallo storage e fuori dal conto dei byte, aggirando il blocco | un blocco della quota aggirabile caricando dai percorsi «giusti» |
+| R11 | `verificaCaricamento` legge la cronologia degli eventi SOLO se serve (bloccato, oppure `soglia100Dal` valorizzata, oppure tenant già visto bloccato da questo processo) | erano due letture di database a **ogni** caricamento, ~147 ms l'una, anche per un'azienda lontanissima dalla quota | nessuno |
+| R12 | il ledger espone `consumoAziendaMese(tenantId, adesso)` per la query `tenants.consumi` | la scheda ha bisogno del consumo del mese dell'azienda, e senza questo metodo l'avrebbe ricavato con un giro suo | nessuno |
+| R13 | la notifica dello storage dentro `verificaCaricamento` non si attende (fire-and-forget con `catch`, come nel governor) | un caricamento non deve pagare la consegna di una notifica che riguarda il mese, non lui | latenza in più su un upload al giorno per azienda |
+| R14 | la scheda «Abbonamento e consumi» è visibile a proprietario e direzione **anche a interruttore spento** (mostra l'omaggio del tenant 1); l'avviso nella shell resta gated su `multiAzienda` | la scheda è informativa e non promette nulla che non ci sia; una riga d'avviso in cima alle pagine, in mono-azienda, sarebbe rumore | nessuno |
+
+**Ancora aperti**, minori accettati dalle revisioni per task e registrati nel
+progress — alla chiusura del Task 9 non era stata fatta una revisione
+dell'intero branch, quindi nessuno di questi è passato da una fix wave finale.
+*Dominio:* `limite()` della politica Tars non applica il cambio di mese, quindi
+un `bloccante` armato a fine mese resta armato al primo del mese finché
+`dopoPrenotazione` non riesce (serve la guardia `tarsSogliaMese !== meseLocale
+→ bloccante: false`); una politica che lanciasse **in modo sincrono**
+sfuggirebbe al `.catch()` dei due punti del governor (igiene di contratto, oggi
+la sola implementazione è `async`); la finestra «ultimi 50 eventi» è condivisa
+da più famiglie di eventi e un tipo ad alta frequenza la renderebbe stretta;
+la deduplicazione di `applicaEventoProvider` guarda gli ultimi 500 eventi ed è
+un check-then-act non transazionale — va sostituita con una query mirata e un
+lock quando nascerà la rotta del webhook; `creaProva` non ha la guardia sul
+tenant 1 (oggi irraggiungibile: il seed gira in `completaTenants`);
+`tenantIdDellaSede` ripiega sul tenant 1 per una sede sconosciuta fuori da
+`conTenant` (prescritto dalla spec §7). *Fedeltà del blocco* (non la sua
+tenuta): quattro strati secondari degradano il codice della quota —
+`server/routers/mail.ts` la riavvolge in un `BAD_REQUEST`,
+`server/routers/ficAllegati.ts` e `server/fatture/emissione.ts` la
+inghiottono in uno stato «errore» del proprio flusso,
+`server/_core/commessaFileRoutes.ts` risponde `400` invece di un codice che
+dica «precondizione»; il testo che l'utente legge resta però quello giusto.
+*Notifiche:* il ripiego sulla prima sede attiva può scrivere una notifica su
+una sede che il destinatario non legge (prescritto dalla spec); titolo e corpo
+si costruiscono anche quando il memo del giorno li scarterà. *Test:*
+`bloccatiVisti` e `bloccatiTars` non hanno un hook di azzeramento (ce l'ha solo
+`avvisiDelGiorno`); nessun test di una proroga che riattiva un tenant sospeso
+(il ramo è condiviso con l'omaggio, che invece è provato); l'asserzione su
+`updatedAt` del repository non è stretta; non c'è un `CHECK` su
+`tars_soglia_avvisata` (come `sogliaAvvisata` del WS3). *CLI e scheda:*
+`--scadenza` di un omaggio non rifiuta una data nel passato; il messaggio di
+«due facce della stessa azione» dice «Indica --disdetta oppure
+--annulla-disdetta» anche quando sono state date entrambe; il log del worker
+nomina l'azienda per id e non per slug; la scheda mostra il messaggio del
+server anche quando è «L'azienda non ha una sede attiva.», che meriterebbe una
+via d'uscita scritta; `campo` di `modifica` è una stringa libera (etichetta di
+lettura, non nome di colonna); resta da guardare a schermo se l'avviso
+«scorre con il contenuto» anche sotto i 1200 px, dove la shell Modular
+Control cambia disposizione — il commento nel codice lo dà per scontato.
 
 ## 3. Control plane
 
@@ -149,11 +223,15 @@ active ─disdetta─▶ cancelled a fine periodo (servizio attivo fino a fine_p
 
 ### 4.1 Worker
 
-`server/abbonamenti/worker.ts`: `avviaWorkerAbbonamenti()` dopo
-`server.listen`, poi ogni 6 ore (`setInterval` con `unref`, come FiC):
+`server/abbonamenti/worker.ts`: `avviaWorkerAbbonamenti()` è chiamata SOLO
+dal callback di `server.listen` in `server/_core/index.ts` (R7) — mai da
+`completaTenants()`, che gira prima della porta —, poi ogni 6 ore
+(`setInterval` con `unref`, come FiC):
 `perOgniTenantAttivo("abbonamenti", t => valutaAbbonamento(t, new Date()))`
 — quindi con interruttore per azienda (WS3) e mai sui sospesi
 (`tenantsAttivi()` li esclude: un sospeso torna attivo solo da un comando).
+Un tenant ≠ 1 senza riga di abbonamento viene **saltato** con un log
+(«rilancia pnpm tenant crea»): il worker non crea niente da solo (R8).
 A `FLAG_MULTI_AZIENDA` spento il worker non parte.
 
 ## 5. Adattatore del provider
@@ -195,11 +273,21 @@ nasce ora.
   azzera scendendo sotto (evento `storage_sbloccato` se era bloccato).
   Il primo rifiuto del giorno registra `storage_bloccato` e notifica (§8).
 - Chi carica: le procedure tRPC ricevono il `PRECONDITION_FAILED` col
-  messaggio (il client lo mostra come oggi per gli errori di dominio); le
-  rotte Express di upload rispondono 413 con il messaggio; la posta
+  messaggio (il client lo mostra come oggi per gli errori di dominio). Nei
+  cinque siti di upload — `ticketAllegati.ts` e i quattro percorsi di
+  `preventiviContratti.ts` — l'errore di quota si **rilancia** prima di
+  qualunque ripiego (R10): il ripiego su `dataBase64` inline e
+  l'incapsulamento in un `Error` generico esistevano per lo storage non
+  durevole e qui avrebbero aggirato il blocco. L'unica rotta Express che
+  carica file (`_core/commessaFileRoutes.ts`, documenti di commessa) non
+  risponde 413 — quello è il limite dei 250 MB del body parser — ma **400
+  con lo stesso messaggio**, perché passa dallo stesso
+  `caricaDocumentoCommessaDaBuffer` (pre-2, corretto in Task 5). La posta
   (`imap.ts`) e le anteprime hanno già il `try/catch` intorno a `putFile`
   (allegato elencato ma non scaricato; anteprima assente); i media
-  WhatsApp restano su Meta, recuperabili dopo. Dati, download, backup e
+  WhatsApp, che dalla fusione di `main` si conservano nello storage
+  (`conservaMediaWhatsApp`), non fanno fallire il messaggio se non si
+  salvano: restano su Meta, recuperabili dopo. Dati, download, backup e
   CRM ordinario continuano.
 - Tolleranza e quota cambiano per azienda con `pnpm tenant abbonamento`.
 
@@ -244,13 +332,20 @@ nasce ora.
   budgetEur, extraEur, bloccoDal, tolleranzaGiorni, mese } }` —
   `budgetEur`/`extraEur` solo per proprietario e direzione, `null` agli
   altri; `percentuale` `null` quando non c'è budget (tenant 1).
-- Notifiche: eventi business `abbonamento.avviso`, `abbonamento.insoluto`,
-  `abbonamento.sospeso`, `consumi.storage`, `consumi.tars` pubblicati con
-  `publishDomainEvent` (`recipientHints` = proprietari e direzione attivi
-  dell'azienda, `sedeId` = prima sede attiva); `projectNotification`
-  impara i cinque tipi (titolo, corpo, link `/integrazioni?scheda=abbonamento`,
-  priorità `high` per insoluto/sospeso/blocco, `normal` per le soglie);
-  in-app e push come le assegnazioni.
+- Notifiche: i cinque tipi `abbonamento.avviso`, `abbonamento.insoluto`,
+  `abbonamento.sospeso`, `consumi.storage`, `consumi.tars` si scrivono
+  **direttamente** nel repository delle notifiche (`notificaAzienda`,
+  `server/abbonamenti/notifiche.ts`), non passano dal bus degli eventi né
+  da `projectNotification` (pre-3): destinatari i proprietari e la direzione
+  **attivi** dell'azienda, `sedeId` = la prima sede attiva fra le sue, link
+  `/integrazioni?scheda=abbonamento`, priorità `high` per
+  insoluto/sospeso/blocco e `normal` per le soglie, poi segnale SSE e push
+  come le assegnazioni. Ogni destinatario riceve **solo se
+  `notificationMode` della sua sede è `active`** (il default è `legacy`: dove
+  nessuno l'ha acceso gli stati si muovono lo stesso e la notifica non
+  arriva). Nessuna notifica può far fallire ciò che la origina:
+  `notificaAzienda` non lancia mai, e sul percorso di un caricamento la
+  chiamata non si attende nemmeno (R13).
 - Client (unico lavoro `client/` del WS4, verificato a 1440 e 390):
   - `AvvisoAzienda` in `ModularControlLayout` e `LegacyDashboardLayout`:
     una riga sotto la barra di contesto quando la prova finisce entro 7
@@ -275,15 +370,20 @@ Comando `imposta_abbonamento` (`schemaPayloadAbbonamento`, discriminato
 su `azione`) eseguito dal server in `eseguiComando` → `servizio`. `pnpm
 tenant elenco` stampa `stato abbonamento`, `fine periodo`, `insoluto dal`.
 `pnpm tenant stato --sospendi/--riattiva` restano per la mano
-dell'operatore (una riattivazione manuale di un `suspended` per insoluto
-NON cambia l'abbonamento: il worker lo risospenderebbe; il runbook lo
-dice: per riaprire un'azienda si concede omaggio o si proroga).
+dell'operatore. Una riattivazione manuale di un tenant chiuso per insoluto
+NON cambia l'abbonamento, che resta `suspended`: il worker non lo
+risospende — dal `suspended` non esiste transizione automatica all'indietro
+— ma nemmeno rimette in pari le due cose, e la scheda continua a dire
+«sospeso». Per riaprire un'azienda si concede un omaggio o si proroga; il
+runbook lo dice. Simmetricamente, una sospensione decisa a mano non porta il
+marcatore `abbonamento: ` e non viene disfatta né da un omaggio né da una
+proroga (R5).
 
 ## 10. Errori
 
 | Situazione | Esito |
 |---|---|
-| upload oltre quota e tolleranza | `PRECONDITION_FAILED` «Spazio esaurito…» (tRPC), 413 (Express); posta/anteprime: allegato non scaricato, log |
+| upload oltre quota e tolleranza | `PRECONDITION_FAILED` «Spazio esaurito…» (tRPC), `400` con lo stesso messaggio dalla rotta Express dei documenti di commessa; posta/anteprime: allegato non scaricato, log |
 | chiamata Tars oltre budget e tolleranza | `ErroreBudget("azienda")` → risposta di Tars col messaggio; worker che saltano e registrano |
 | azienda `suspended` | sola lettura del WS1 (`PRECONDITION_FAILED` «Azienda sospesa…»); lettura, download, backup continuano |
 | comando su tenant 1 (`--omaggio`, `--proroga`, `--disdetta`) | rifiutato: «Il tenant 1 è la proprietaria della piattaforma» (quota, budget e tolleranze ammessi) |
@@ -301,7 +401,8 @@ dice: per riaprire un'azienda si concede omaggio o si proroga).
 - Worker via `perOgniTenantAttivo` (tenant sospeso escluso; interruttore).
 - Quota: `putFile` rifiuta solo con gancio, flag acceso, 100 % e
   tolleranza scaduta; la tolleranza parte al primo 100 % e si azzera sotto;
-  rotte Express → 413; posta e anteprime non lanciano.
+  i cinque siti di upload propagano l'errore invece di ripiegare
+  sull'inline; posta e anteprime non lanciano.
 - Ledger pg con due aziende: somme per azienda e mese, rifiuto `azienda`
   solo se bloccante, tenant 1 senza tetto; governor con ledger finto:
   `tenantId` risolto, soglie e blocco, messaggio.
@@ -329,8 +430,8 @@ giorni con `--proroga` e l'orologio, si concede l'omaggio.
 | `server/tenants/servizio.ts`, `boot.ts`, `comandi.ts`, `router.ts`, `scripts/tenant.ts` | prova alla creazione, seed tenant 1, comando, query, CLI |
 | `server/_core/fileStorage.ts`, `server/tenants/storage.ts` | gancio quota, `soglia_100_dal` nelle soglie |
 | `server/tars/costi/{ledger,governor,providerGovernato}.ts` | tenant nel contesto e nella prenotazione, limite d'azienda, politica iniettata |
-| `server/events/*`, `server/notifications/projector.ts` | eventi e proiezione |
-| `server/_core/index.ts`, rotte Express di upload | worker dopo il listen; 413 |
+| `server/routers/{ticketAllegati,preventiviContratti}.ts` | i cinque siti di upload propagano l'errore di quota (R10) |
+| `server/_core/index.ts` | worker avviato nel callback del `listen` |
 | `client/src/components/layout/*`, `client/src/pages/Integrazioni.tsx`, nuovo `client/src/components/abbonamento/*` | avviso e scheda |
 | runbook, PRD §60.12, handoff, CLAUDE.md, `docs/storage-r2.md` | documentazione |
 

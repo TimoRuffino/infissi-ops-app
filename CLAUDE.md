@@ -69,6 +69,25 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   del tenant 1, leggibili solo da lui. `deleteFileQuiet(chiave, byte)` vuole i
   byte del record: senza, il ledger dello storage resta gonfio finché qualcuno
   non ricalcola.
+- La tabella `abbonamenti` la scrive **solo** `server/tenants/repository.ts`,
+  come il resto del control plane (guardia
+  `server/tenants/confine.test.ts`), e ogni cambio di stato di un abbonamento
+  passa da `server/abbonamenti/servizio.ts`: mai un `salvaAbbonamento` sparso
+  nei router, negli strumenti di Tars o negli script. È il servizio che
+  registra l'evento e che accende o spegne la sola lettura del tenant.
+- `putFile` può **rifiutare** per quota (`ErroreQuotaStorage`,
+  `PRECONDITION_FAILED`): nei siti di upload quell'errore si **rilancia
+  sempre**, prima di qualunque ripiego. Il ripiego su `dataBase64` inline
+  esiste per lo storage non durevole, non per la quota: usarlo qui
+  aggirerebbe il blocco e il conto dei byte.
+- Il tetto Tars per azienda arriva al governor come **politica iniettata**
+  (`impostaPoliticaTarsAzienda`, registrata al boot da
+  `server/abbonamenti/quota.ts`): `server/tars/costi/` non importa gli
+  abbonamenti e non legge il control plane. Chi aggiunge un limite nuovo
+  passa da lì, non da una lettura diretta dentro il ledger.
+- Con `FLAG_MULTI_AZIENDA` spento **niente blocca**: nessun worker degli
+  abbonamenti, nessun rifiuto per quota, nessun tetto per azienda. Le sole
+  aggiunte visibili sono le tabelle e l'abbonamento omaggio del tenant 1.
 - Ogni flusso OAuth nuovo emette il suo `state` in `oauth_state`
   (`emettiStateOAuth`/`consumaStateOAuth`, legati ad azienda, sede e utente):
   mai una mappa in memoria, che un deploy azzera a metà collegamento.
@@ -112,6 +131,9 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - I file migrati vivono dietro `storageKey` con checksum SHA-256.
 - Le letture devono mantenere il fallback `dataBase64` per i record legacy.
 - Il backup Drive deve leggere i byte dallo storage, non assumere base64 inline.
+- Oltre la quota dell'azienda e la sua tolleranza i caricamenti nuovi vengono
+  rifiutati: le leve sono `--quota-gb` e `--tolleranza-storage` di `pnpm
+  tenant abbonamento` (v. `docs/storage-r2.md` e il runbook multi-azienda).
 - Non eseguire la migrazione reale senza un backup Drive riuscito nelle ultime
   24 ore. Procedura completa: `docs/storage-r2.md`.
 

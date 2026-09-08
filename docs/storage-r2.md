@@ -65,8 +65,44 @@ Il ricalcolo è la fonte di verità (il ledger deriva dal vero e può
 discostarsi): rilegge documenti, allegati dei ticket, allegati delle
 comunicazioni e — con una `HEAD` allo storage — anteprime e PDF/XML delle
 fatture. Superato il 50, 80 o 100 % della quota (`tenants.storage_quota_bytes`,
-100 GiB di default) l'azienda riceve un evento `storage_soglia`: è un
-avviso, **non** un blocco degli upload.
+100 GiB di default) l'azienda riceve un evento `storage_soglia`.
+
+### Il blocco dopo la tolleranza (WS4, su branch)
+
+Col solo WS3 la quota **avvisa e basta**. Dal WS4
+(`feature/ws4-abbonamenti`, non ancora su `main`) il 100 % lascia un timbro
+— `tenant_storage.soglia_100_dal`, messo al primo attraversamento e azzerato
+scendendo sotto — e da lì parte una **tolleranza** per azienda
+(`abbonamenti.tolleranza_storage_giorni`, 7 giorni di default). Passata
+quella, e **solo** con `FLAG_MULTI_AZIENDA` acceso, `putFile` rifiuta ogni
+caricamento nuovo:
+
+    Spazio esaurito: l'azienda ha superato i <N> GB inclusi. Libera spazio o chiedi capacità aggiuntiva.
+
+È un `PRECONDITION_FAILED` di tRPC (`ErroreQuotaStorage`) e **si propaga**:
+nei siti di upload quell'errore viene rilanciato prima di qualunque ripiego,
+perché il ripiego su `dataBase64` inline nacque per lo storage non durevole e
+qui aggirerebbe il blocco. Dalla rotta Express dei documenti di commessa
+arriva al browser come HTTP `400` con lo stesso messaggio. Si fermano solo i
+caricamenti: lettura, download, ricerca, backup, ripristino e migrazione
+continuano; la posta, le anteprime e i media WhatsApp hanno già il loro
+`try/catch` (allegato elencato ma non scaricato, anteprima assente, media
+lasciato su Meta).
+
+Le due leve dell'operatore, quando un'azienda si ferma:
+
+    pnpm tenant abbonamento --slug=acme --quota-gb=200 --scrivi --attendi          # più spazio incluso
+    pnpm tenant abbonamento --slug=acme --tolleranza-storage=14 --scrivi --attendi # più giorni prima del blocco
+
+La prima riapre subito — sotto quota il blocco cade, e il primo caricamento
+riuscito registra `storage_sbloccato`; la seconda sposta in avanti la data di
+stacco, che la scheda «Abbonamento e consumi» mostra mentre la tolleranza
+corre. Non esiste
+uno «sblocca e basta»: il blocco è una conseguenza dei byte contati, non uno
+stato che si scrive a mano. Il primo rifiuto del giorno lascia un evento
+`storage_bloccato` in `tenant_eventi` e una notifica a proprietari e
+direzione. Dettagli e messaggi: `docs/runbooks/multi-azienda.md`, sezione
+«WS4 — abbonamenti, quota che blocca, budget Tars per azienda».
 
 ## Procedura verificabile
 

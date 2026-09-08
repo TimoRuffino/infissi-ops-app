@@ -8,6 +8,89 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 — WS4 «abbonamenti»: su branch.** Dal branch del WS3
+> (`feature/ws3-file-integrazioni` @ `a44fc37`) nasce
+> `feature/ws4-abbonamenti`, dove i 9 task del piano
+> (`docs/superpowers/plans/2026-09-08-ws4-abbonamenti.md`) sono implementati e
+> committati (`bb2f147`…`d335a68`). Finché la PR #7 del WS3 non è fusa, questo
+> branch **contiene anche tutto il WS3**. **Nessun push, nessun merge su
+> `main` da qui, PR ancora da aprire**: il merge è una decisione della
+> direzione.
+> **Che cosa cambia.** Ogni azienda ha un **abbonamento** nel control plane
+> (tabella `abbonamenti`, una riga per tenant): tipo `paid`/`complimentary`,
+> stati `trialing|active|past_due|grace|suspended|cancelled`, periodo, budget
+> Tars del mese, extra del mese, tolleranze, disdetta, omaggio. Un'azienda
+> nuova nasce **in prova per 30 giorni** con 25 €/mese di Tars incluso e
+> tolleranze 7/7; Ruffino Group nasce **omaggio senza scadenza e senza tetto
+> per azienda**, ed è intoccabile da omaggio, proroga e disdetta. Un worker
+> ogni 6 ore — avviato **solo dopo `server.listen`**, mai dal boot — avvisa a
+> 7, 3 e 1 giorno dalla scadenza (una volta ciascuno), poi porta a `past_due`
+> e, dopo 7 giorni, a `suspended`, cioè alla **sola lettura** del WS1
+> (`motivoStato` = «abbonamento: …», il marcatore che distingue la chiusura
+> del dominio da una sospensione decisa a mano). Si riapre con `--omaggio` o
+> `--proroga`, **non** con `stato --riattiva`, che riaprirebbe l'azienda
+> lasciando il contratto sospeso.
+> **Le due risorse misurate ora fermano.** Lo spazio: superata la quota, un
+> timbro `tenant_storage.soglia_100_dal` fa partire la tolleranza (7 giorni),
+> dopo la quale `putFile` rifiuta ogni caricamento nuovo con
+> `PRECONDITION_FAILED` «Spazio esaurito: l'azienda ha superato i `<N>` GB
+> inclusi…»; l'errore **si propaga** dai cinque siti di upload, che prima
+> ripiegavano sul base64 inline o lo riavvolgevano in un errore generico — un
+> ripiego pensato per lo storage non durevole avrebbe aggirato il blocco.
+> Tars: `tars_costi` conta ora **per azienda e per mese**, il governor riceve
+> una politica iniettata dal control plane (`limite` e `dopoPrenotazione`),
+> soglie 50/80/100 % e, dopo la tolleranza, il rifiuto `limite: "azienda"` con
+> «Tars ha esaurito il budget mensile dell'azienda…». Si ferma solo ciò che
+> costa; i tetti globali `TARS_*` restano come rete della piattaforma.
+> **Comandi nuovi:** `pnpm tenant abbonamento --slug=… <una azione>
+> [--motivo=…] [--scrivi] [--attendi]` con `--omaggio [--scadenza=AAAA-MM-GG]`,
+> `--proroga=<gg>`, `--quota-gb=<n>`, `--budget-tars-eur=<n|nessuno>`,
+> `--extra-tars-eur=<n>`, `--tolleranza-storage=<gg>`, `--tolleranza-tars=<gg>`,
+> `--disdetta`/`--annulla-disdetta`; `pnpm tenant elenco` stampa la riga
+> dell'abbonamento. Env nuove, entrambe con un default: `SAAS_BUDGET_TARS_EUR_MESE`
+> (25; `0` è valido) e `SAAS_CAMBIO_EUR_USD` (1.08). La sonda dello script
+> chiede ora **sette** tabelle: si aggiunge `abbonamenti`.
+> **Che cosa vede l'azienda:** query `tenants.abbonamento` e `tenants.consumi`
+> (budget ed extra in euro solo a proprietario e direzione), una riga d'avviso
+> nelle due shell — solo a interruttore acceso — e la scheda «Abbonamento e
+> consumi» in Integrazioni, visibile anche a interruttore spento, dove mostra
+> l'omaggio di Ruffino Group. **Nessun pulsante di pagamento:** il provider
+> resta «nessuno» dietro l'adattatore `server/abbonamenti/provider.ts`, che
+> però consuma già eventi normalizzati e idempotenti — è il punto in cui
+> entreranno checkout e webhook. Le cinque notifiche (avviso, insoluto,
+> sospeso, storage, Tars) si scrivono **direttamente** nel repository delle
+> notifiche, per proprietari e direzione, e **solo dove `notificationMode`
+> della sede è `active`** (default `legacy`, e l'endpoint di scrittura dei
+> flag non esiste: §13): dove non lo è, gli stati si muovono lo stesso ma
+> nessuno riceve la notifica.
+> **A `FLAG_MULTI_AZIENDA` spento** non parte il worker, non blocca niente,
+> non esiste alcun tetto per azienda: le sole aggiunte sono le tabelle, la
+> colonna e la riga omaggio del tenant 1. **Rollback = redeploy del build
+> precedente**, senza eccezioni: tutto il WS4 è additivo.
+> **Decisioni d'esecuzione:** diciassette (tre pre-volo e R1–R14), registrate
+> nella spec `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md`
+> **§2-bis** con motivo e costo se sbagliate; registro esteso in
+> `.superpowers/sdd/2026-09-08-ws4-abbonamenti/progress.md`. Le più pesanti:
+> `ErroreQuotaStorage` si propaga sempre dai siti di upload, mai il ripiego
+> inline (R10); il worker parte solo dopo il `listen` (R7); `pnpm tenant crea`
+> è idempotente **anche per l'abbonamento**, così un'azienda non resta senza
+> contratto, e il worker segnala chi non ce l'ha invece di ripararlo da solo
+> (R8); un pagamento verificato azzera sempre insoluto e omaggio, anche senza
+> periodo (R9); la proroga riporta il contratto a prova piena (R3, R6).
+> **Un incidente da sapere:** alle 20:47 dell'08/09 il ref del branch WS4 è
+> stato fatto avanzare per errore su un merge del branch WS5 di un'altra
+> sessione; rimediato con un reset a `873b6c6` e il cherry-pick del fix
+> (`3c49d1c`). Il branch WS5 è rimasto com'era: **quella sessione dovrà
+> rifondere il WS4 aggiornato**.
+> **Verificato:** `pnpm check`, `pnpm test` e `pnpm build`; test su Postgres
+> vero per il control plane e per il ledger dei costi con due aziende;
+> interfaccia a 1440 e 390 con il login demo dell'anteprima (nessuno scroll
+> orizzontale, console pulita). **Non verificato:** nulla distribuito su
+> Railway, nessun pagamento reale (il provider non esiste), nessuna prova con
+> un'azienda vera oltre la quota. Runbook: `docs/runbooks/multi-azienda.md`,
+> sezione «WS4 — abbonamenti, quota che blocca, budget Tars per azienda». PRD
+> §60.12 (v5.66). Voce 21 del debito aggiornata.
+
 > **Novità 08/09/2026 — WS3 «file, backup, credenziali e guasti per
 > azienda»: su branch.** WS1 e WS2 sono stati fusi in `main` dalla direzione
 > l'08/09 (PR #3 e #5); da lì nasce `feature/ws3-file-integrazioni`, dove i
@@ -4576,7 +4659,8 @@ a vuoto e dice «57 saltati»).
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
 21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2 su
-    `main` dall'08/09/2026, WS3 implementato su branch lo stesso giorno.**
+    `main` dall'08/09/2026, WS3 e WS4 implementati su branch lo stesso
+    giorno.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -4753,6 +4837,42 @@ a vuoto e dice «57 saltati»).
     test su Postgres vero per ledger, ricalcolo e ripristino; nulla
     distribuito su Railway, nessuna verifica a schermo (il WS3 non tocca il
     client).
+
+    **08/09/2026, sera: WS4 «abbonamenti» codificato su branch, PR da
+    aprire.** `feature/ws4-abbonamenti` nasce dal branch del WS3 (@
+    `a44fc37`) e porta i 9 task del piano
+    (`docs/superpowers/plans/2026-09-08-ws4-abbonamenti.md`,
+    `bb2f147`…`d335a68`): tabella `abbonamenti` nel control plane, prova
+    gratuita di 30 giorni alla creazione dell'azienda, omaggio e proroga,
+    avvisi 7/3/1, insoluto e sola lettura dopo 7 giorni, quota storage che
+    **blocca** i caricamenti dopo la tolleranza, budget Tars **per azienda**
+    contato in `tars_costi` e applicato dal governor con una politica
+    iniettata, notifiche a proprietari e direzione, query
+    `tenants.abbonamento`/`tenants.consumi`, avviso nella shell e scheda
+    «Abbonamento e consumi», comandi `pnpm tenant abbonamento`. Dei punti
+    aperti elencati sopra, il WS4 chiude **(11)** (i tetti Tars non sono più
+    solo globali: ogni azienda ha il suo, e i `TARS_*` restano come rete
+    della piattaforma) e la parte di **(7)** che restava sulla quota — che
+    ora blocca invece di limitarsi ad avvisare. Restano aperti **(12)–(16)**
+    e, del §60 madre, l'**export aziendale** del proprietario in sola
+    lettura (WS6). **Il provider di pagamento non è ancora scelto:** esiste
+    solo l'adattatore con l'implementazione «nessuno» — niente checkout,
+    niente portale, niente webhook, nessun pulsante di pagamento; un'azienda
+    si riapre a mano con omaggio o proroga. Prezzo del canone, budget Tars
+    incluso e prezzo degli extra restano da fissare fuori dal codice, come
+    sopra: nel codice sono `SAAS_BUDGET_TARS_EUR_MESE` (25) e
+    `SAAS_CAMBIO_EUR_USD` (1.08). Diciassette decisioni d'esecuzione nella
+    spec §2-bis; PRD §60.12 (v5.66); runbook `docs/runbooks/multi-azienda.md`,
+    sezione «WS4 — abbonamenti, quota che blocca, budget Tars per azienda».
+    `pnpm check`/`test`/`build` verdi, test su Postgres vero, interfaccia
+    verificata a 1440 e 390 col login demo; nulla distribuito su Railway.
+    **PR verso `main` ancora da aprire**, e da aprire dopo (o insieme a)
+    quella del WS3: finché la #7 non è fusa, la PR del WS4 contiene anche il
+    WS3. **Da sapere sul WS5:** spec e piano dell'onboarding self-service
+    esistono già su un ALTRO worktree (`gestionale-integrazioni-semplify-90a470`),
+    scritti da un'altra sessione, codice non iniziato; quel branch aveva
+    fuso il WS4 a metà (`873b6c6`) e dovrà rifonderlo aggiornato. Non
+    avviare il WS5 da qui senza coordinarsi con la direzione.
 
 ## 13. Cosa resta della piattaforma
 

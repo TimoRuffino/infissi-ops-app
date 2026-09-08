@@ -1,10 +1,10 @@
-# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti)
+# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti + WS4 abbonamenti)
 
 Spec: `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
-`docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md` e
-`docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md` (le
-decisioni prese durante l'esecuzione di WS2 e WS3 sono nelle rispettive
-§2-bis).
+`docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`,
+`docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md` e
+`docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` (le decisioni
+prese durante l'esecuzione di WS2, WS3 e WS4 sono nelle rispettive §2-bis).
 Modulo: `server/tenants/`. Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
 
 ## Cosa fa, in una riga
@@ -12,7 +12,10 @@ Il tenant (azienda) esiste, è nel contesto di ogni richiesta, ha guardie e un
 ruolo Proprietario (WS1); ogni store JSONB ha un archivio per azienda e le
 tabelle SQL portano `tenant_id` (WS2); i file, il backup sul Drive, le
 credenziali OAuth e i guasti dei worker sono per azienda, e il ripristino
-degli archivi è un comando provato (WS3, su branch). Ruffino Group è il
+degli archivi è un comando provato (WS3, su branch); ogni azienda ha un
+abbonamento — prova di 30 giorni, omaggio, insoluto, sola lettura — e le due
+risorse misurate, spazio e Tars, dopo la tolleranza smettono di funzionare
+invece di limitarsi ad avvisare (WS4, su branch). Ruffino Group è il
 tenant 1 e tiene le chiavi di sempre.
 
 > **Stato al 08/09/2026:** WS1 e WS2 sono su `main` (PR #3 e #5, fuse
@@ -20,7 +23,9 @@ tenant 1 e tiene le chiavi di sempre.
 > l'accensione di `FLAG_MULTI_AZIENDA` in produzione resta una decisione
 > della direzione, e le sezioni sotto dicono in che ordine si fa. Il **WS3**
 > è su `feature/ws3-file-integrazioni` e **non è su `main`**: la sua sezione
-> vale dal momento in cui quel branch viene distribuito.
+> vale dal momento in cui quel branch viene distribuito. Lo stesso vale per il
+> **WS4**, che sta su `feature/ws4-abbonamenti` — nato dal branch del WS3 e
+> quindi lo contiene.
 
 ## Interruttore
 - `FLAG_MULTI_AZIENDA=off` (default in produzione): il CRM di oggi. Tabelle,
@@ -359,7 +364,8 @@ tenant_storage, oauth_state)…»: il messaggio le nomina **tutte e sei** (fino
 alla revisione finale ne nominava tre e mandava a cercare il guasto sulla
 tabella sbagliata), e a mancare sono le due nuove. Non è un guasto — deploy
 prima, script poi, anche fra WS2 e WS3. `verifica` resta l'eccezione: gira lo
-stesso, senza DDL.
+stesso, senza DDL. **Col WS4 le tabelle chieste diventano sette**: si
+aggiunge `abbonamenti`, e il messaggio la nomina (v. la sezione WS4).
 
 ### File: chiavi, ledger, quota
 
@@ -671,6 +677,329 @@ guarda il prefisso), `tenant_storage`, `oauth_state`, la colonna
 - «Ripristino interrotto dopo …: … (azienda lasciata sospesa)» — verifica e
   poi `pnpm tenant stato --slug=… --riattiva --motivo=… --scrivi`.
 
+## WS4 — abbonamenti, quota che blocca, budget Tars per azienda
+
+Spec: `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` (le
+decisioni prese durante l'esecuzione sono nella sua §2-bis).
+
+> **Stato al 08/09/2026:** i 9 task del WS4 sono implementati e committati su
+> `feature/ws4-abbonamenti` (da `bb2f147` a `d335a68`), nato da
+> `feature/ws3-file-integrazioni` @ `a44fc37`: finché la PR #7 del WS3 non è
+> fusa, questo branch contiene anche tutto il WS3. Il branch **non è su
+> `main`**, quindi **niente di questa sezione è in produzione**: vale dal momento in cui viene distribuito. WS1 e
+> WS2 sono su `main` dall'08/09 (PR #3 e #5).
+
+Con il WS3 un'azienda ha i suoi file, il suo backup e i suoi guasti, ma non ha
+un contratto: nessuno sa quando inizia, quando scade e che cosa succede se non
+paga. Il WS4 dà a ogni azienda un abbonamento nel control plane — prova
+gratuita di 30 giorni, omaggio, insoluto, sola lettura — e trasforma le due
+risorse misurate, spazio e Tars, da «conta e avvisa» a «conta, avvisa, tollera
+e poi ferma». Il provider di pagamento **non** è ancora scelto: esiste solo
+l'adattatore, con l'unica implementazione «nessuno». Non c'è nessun checkout,
+nessun portale, nessun pulsante di pagamento: un'azienda si riapre a mano, con
+un omaggio o con una proroga.
+
+### Cosa fa il boot, in ordine (aggiunte del WS4)
+
+Sopra i passi delle sezioni WS2 e WS3, il boot con questo codice fa anche:
+
+1. In `preparaTenants()`, con lo schema del control plane: la tabella
+   `abbonamenti` (una riga per azienda), la colonna
+   `tenant_storage.soglia_100_dal` e il `CHECK` di `tenant_comandi` allargato
+   all'ottavo tipo di comando, `imposta_abbonamento`. Subito dopo il contabile
+   dei byte del WS3, `registraGanciQuota()`: da qui in avanti `putFile` può
+   **rifiutare** un caricamento e il governor di Tars conosce il tetto
+   dell'azienda. Senza questa chiamata (script, test) non blocca niente.
+2. In `completaTenants()`, dopo lo specchio delle sedi: l'abbonamento del
+   tenant 1 — `complimentary`, `active`, **senza scadenza**, senza tetto Tars
+   per azienda, motivo «Ruffino Group, proprietaria della piattaforma». Nasce
+   **sempre, anche a interruttore spento**, ed è l'unica riga di dominio che
+   il WS4 aggiunge in mono-azienda. Un errore qui non ferma l'avvio: lascia
+   `[tenants] abbonamento del tenant 1: …` nel log.
+3. **Dopo** `server.listen`, accanto al backfill e al ricalcolo dello storage:
+   `avviaWorkerAbbonamenti()`. Un giro subito, poi ogni 6 ore
+   (`setInterval` con `unref`, come la sonda FiC). **A `FLAG_MULTI_AZIENDA`
+   spento non parte** — se lo verifica da sé. Il giro passa da
+   `perOgniTenantAttivo("abbonamenti", …)`: quindi mai sulle aziende sospese,
+   e con l'interruttore per (worker, azienda) del WS3 sopra.
+
+**Dal WS4 la sonda dello script chiede sette tabelle, non sei**: alle sei del
+WS3 si aggiunge `abbonamenti`. Su un database dove gira il WS3 ma il WS4 non
+ha ancora fatto boot, tutti i sottocomandi tranne `verifica` si fermano con
+«Tabelle del control plane del tenant assenti (tenants, tenant_eventi,
+tenant_comandi, tenant_sedi, tenant_storage, oauth_state, abbonamenti)…».
+Non è un guasto: deploy prima, script poi, anche fra WS3 e WS4.
+
+### Il percorso di un abbonamento
+
+    crea azienda ──▶ trialing, 30 giorni, budget Tars 25 €/mese, tolleranze 7 e 7
+    trialing ──7, 3, 1 giorno alla scadenza──▶ un avviso ciascuno (una volta sola)
+    trialing ──scadenza passata──▶ past_due   (insoluto_dal = adesso, notifica)
+    past_due ──7 giorni──▶ suspended          (azienda in SOLA LETTURA, notifica)
+    past_due | suspended ──omaggio o proroga──▶ active | trialing (azienda riaperta)
+    active con disdetta ──fine periodo──▶ cancelled (sola lettura, come suspended)
+
+A muovere gli stati è sempre e solo `server/abbonamenti/servizio.ts`: su
+comando dell'operatore (omaggio, proroga, disdetta) oppure da sé, e in questo
+secondo caso **solo quando il worker passa** — le transizioni automatiche
+(avvisi, insoluto, sola lettura, chiusura per disdetta) non accadono fra un
+giro e l'altro, e un giro dura sei ore. Una scadenza «di oggi» diventa
+insoluto entro sei ore, non al secondo.
+
+**Che cosa vede l'azienda.** Proprietari e direzione ricevono una notifica a
+ogni passaggio (avvisi 7/3/1, insoluto, sola lettura) e dall'80 % in su sulle
+due risorse; in cima alle pagine compare una riga d'avviso (`AvvisoAzienda`),
+e la scheda «Abbonamento e consumi» in Integrazioni dice tipo, stato, giorni
+alla scadenza e le due barre. La riga d'avviso compare **solo a interruttore
+acceso**; la scheda si vede sempre, anche a interruttore spento, dove mostra
+l'omaggio senza scadenza di Ruffino Group. **Nessun pulsante di pagamento**:
+finché il provider è «nessuno» non c'è niente da premere. In sola lettura si
+legge, si cerca, si scarica e il backup continua; non si scrive.
+
+**Come si riapre un'azienda in sola lettura.** Con un omaggio o con una
+proroga:
+
+    pnpm tenant abbonamento --slug=acme --omaggio --motivo="pilota fino a marzo" --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --proroga=15 --motivo="attesa bonifico" --scrivi --attendi
+
+**Non** con `pnpm tenant stato --slug=acme --riattiva`. Quella riapre
+l'azienda ma non tocca il contratto: l'abbonamento resta `suspended`, la
+scheda continua a dire «sospeso», e nessun giro del worker rimette in pari le
+due cose (dal `suspended` non esiste transizione all'indietro automatica).
+`stato --sospendi/--riattiva` resta la mano dell'operatore per tutto il resto:
+una sospensione decisa a mano **non** viene annullata da un omaggio o da una
+proroga, perché non porta il marcatore `abbonamento: ` che il dominio si
+lascia dietro quando è lui a chiudere (`motivoStato` = «abbonamento: …»).
+
+**Un'azienda senza riga di abbonamento.** Il worker la salta e lo scrive:
+
+    [abbonamenti] tenant 2 senza abbonamento: rilancia pnpm tenant crea
+
+Si ripara come dice il log: `pnpm tenant crea` con lo **stesso** slug è
+idempotente e semina solo l'abbonamento mancante (non una seconda azienda, né
+una seconda sede o un secondo utente). Il worker non crea niente da solo.
+
+### Comandi dell'operatore (aggiunte del WS4)
+
+    pnpm tenant abbonamento --slug=acme --omaggio --motivo="pilota" [--scadenza=2027-03-31] --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --proroga=15 --motivo="attesa bonifico" --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --quota-gb=200 --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --budget-tars-eur=40 --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --budget-tars-eur=nessuno --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --extra-tars-eur=10 --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --tolleranza-storage=14 --tolleranza-tars=3 --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --disdetta --scrivi --attendi
+    pnpm tenant abbonamento --slug=acme --annulla-disdetta --scrivi --attendi
+
+- **Una sola azione per comando.** `--tolleranza-storage` e
+  `--tolleranza-tars` contano per una sola (si possono dare insieme);
+  `--disdetta` e `--annulla-disdetta` sono le due facce della stessa. Con due
+  azioni lo script si ferma: «Un'azione per comando (trovate 2: omaggio,
+  proroga)».
+- Valgono le regole di sempre: senza `--scrivi` è solo l'anteprima, `--attendi`
+  aspetta l'esito fino a 90 s, il comando lo esegue **il server**, non lo
+  script. `--motivo` è obbligatorio per omaggio e proroga: finisce nel
+  registro e nella scheda.
+- `--omaggio` senza `--scadenza` è un omaggio **senza scadenza** (come quello
+  del tenant 1). Con `--scadenza=AAAA-MM-GG` scade a fine di quel giorno, e
+  gli avvisi 7/3/1 valgono anche per lui.
+- `--proroga=<giorni>` riporta il contratto a **prova**: `paid`, stato
+  `trialing`, omaggio azzerato, disdetta azzerata. Se la scadenza è ancora nel
+  futuro i giorni si sommano a quella; se è passata partono da oggi. Da 1 a
+  365 giorni.
+- `--quota-gb` non tocca l'abbonamento: scrive `tenants.storage_quota_bytes`
+  (la quota del WS3) e lascia nel registro un `abbonamento_modificato` con
+  campo `quota_storage_gb`.
+- `--budget-tars-eur=nessuno` toglie il tetto per azienda: restano i tetti
+  globali `TARS_*` della piattaforma. `--budget-tars-eur=0` è invece un piano
+  **senza Tars incluso** (esaurito per definizione).
+- `--extra-tars-eur` è una concessione una tantum che vale **solo per il mese
+  corrente**: il primo giro del worker del mese nuovo la azzera.
+- Il **tenant 1 rifiuta** `--omaggio`, `--proroga` e `--disdetta` («Il tenant 1
+  è la proprietaria della piattaforma…»): lo script si ferma prima di
+  accodare. Quota, budget e tolleranze restano ammessi.
+- `pnpm tenant elenco` stampa, sotto ogni azienda, una riga in più:
+
+      2	acme	attivo	Acme Infissi
+        abbonamento: paid trialing, fine 2026-10-08T09:12:00.000Z, insoluto dal -
+
+  Per Ruffino Group: `abbonamento: complimentary active, fine nessuna,
+  insoluto dal -`. «abbonamento: nessuno» è l'anomalia da riparare con `crea`.
+
+### Quota storage: da avviso a blocco
+
+- Il conto dei byte è quello del WS3 (`tenant_storage`, soglie 50/80/100 %).
+  Il WS4 aggiunge il timbro `soglia_100_dal`, messo al **primo**
+  attraversamento del 100 % e azzerato scendendo sotto.
+- Da lì parte la **tolleranza** (`tolleranza_storage_giorni`, 7 di default per
+  azienda). Passata quella — e **solo** con `FLAG_MULTI_AZIENDA` acceso —
+  `putFile` rifiuta ogni caricamento nuovo con `PRECONDITION_FAILED`:
+
+      Spazio esaurito: l'azienda ha superato i 100 GB inclusi. Libera spazio o chiedi capacità aggiuntiva.
+
+  Prima della tolleranza non blocca: conta, avvisa e mostra nella scheda **la
+  data** in cui i caricamenti si fermeranno.
+- Si blocca solo **ciò che costa spazio**: caricamenti di documenti, allegati,
+  anteprime e PDF/XML delle fatture. Lettura, ricerca, download, backup,
+  ripristino e CRM ordinario continuano. La posta, le anteprime e i media
+  WhatsApp hanno già il loro `try/catch`: l'allegato resta elencato e non
+  scaricato, l'anteprima non si genera, il media resta su Meta — il messaggio
+  arriva lo stesso.
+- Le due leve dell'operatore, quando un'azienda si ferma e non può liberare
+  spazio subito:
+
+      pnpm tenant abbonamento --slug=acme --quota-gb=200 --scrivi --attendi        # più spazio incluso
+      pnpm tenant abbonamento --slug=acme --tolleranza-storage=14 --scrivi --attendi  # più giorni prima del blocco
+
+  La prima riapre subito — sotto quota il blocco cade, e il primo
+  caricamento riuscito registra `storage_sbloccato`; la seconda sposta in
+  avanti la data di stacco. Non esiste uno «sblocca e basta»: il blocco è una
+  conseguenza dei byte contati, non uno stato scritto a mano.
+- Il primo rifiuto del giorno lascia un evento `storage_bloccato` in
+  `tenant_eventi` (con byte, quota e data del blocco) e una notifica; il
+  ritorno sotto quota lascia `storage_sbloccato`, una volta sola.
+
+### Budget Tars per azienda
+
+- Il ledger dei costi (`tars_costi`) conta ora **per azienda e per mese**. Il
+  tetto dell'azienda è `budget_tars_nano_mese` + l'extra del mese;
+  `null` = nessun tetto (è il caso del tenant 1).
+- Anche qui prima si conta, poi si blocca: soglie 50/80/100 % (evento
+  `tars_soglia`, una volta per soglia per mese; notifica dall'80 % in su),
+  timbro al primo 100 %, e blocco solo dopo `tolleranza_tars_giorni` (7 di
+  default). Il budget si rinnova il primo del mese: la somma è per mese
+  locale (Europe/Rome).
+- Quando blocca, chi parla con Tars legge:
+
+      Tars ha esaurito il budget mensile dell'azienda; le funzioni che non costano restano disponibili, il budget si rinnova il primo del mese.
+
+  Lo stesso testo arriva ai lavori di fondo a pagamento (analisi,
+  smistamento, lettura visiva), che si fermano lì: un budget esaurito non è un
+  guasto del provider, quindi niente retry e nessun circuito aperto.
+  **Si ferma solo ciò che costa**: il resto di Tars, e tutto il CRM, continua.
+- Le leve: `--budget-tars-eur=<n>` (il tetto del piano),
+  `--extra-tars-eur=<n>` (una tantum, solo questo mese),
+  `--tolleranza-tars=<gg>`, `--budget-tars-eur=nessuno` (nessun tetto per
+  azienda). L'utente vede sempre e solo una **percentuale**: mai token, mai
+  dollari; budget ed extra in euro li leggono solo proprietario e direzione.
+- I tetti globali `TARS_DAILY_BUDGET_USD`/`TARS_MONTHLY_BUDGET_USD` restano
+  come rete della piattaforma, sopra a tutte le aziende.
+
+### Variabili d'ambiente (WS4)
+
+| Variabile | Default | A che serve |
+|---|---|---|
+| `SAAS_BUDGET_TARS_EUR_MESE` | `25` | Budget Tars incluso di **ogni azienda nuova**, in euro al mese. `0` è valido (piano senza Tars incluso); negativo o non numerico fa fallire il comando, senza scritture. Non cambia le aziende già create. |
+| `SAAS_CAMBIO_EUR_USD` | `1.08` | Cambio euro→dollaro per convertire il budget nei nano-dollari del ledger. Deve essere > 0. |
+
+Nessuna delle due va aggiunta per far partire il WS4: senza, valgono i
+default. Cambiare il cambio **non riconverte** i budget già salvati: cambia
+solo le conversioni successive (comandi nuovi, euro mostrati nella scheda).
+
+### Notifiche: solo dove il centro notifiche della sede è attivo
+
+Le cinque notifiche del WS4 (`abbonamento.avviso`, `abbonamento.insoluto`,
+`abbonamento.sospeso`, `consumi.storage`, `consumi.tars`) si scrivono
+**direttamente** nel repository delle notifiche, per i proprietari e la
+direzione **attivi** dell'azienda; non passano dal bus degli eventi. Ognuna
+rispetta l'interruttore per sede: **arriva solo se `notificationMode` della
+sede è `active`**. Il default è `legacy`, e l'endpoint di scrittura dei flag
+di piattaforma oggi non esiste (handoff §13): su un'installazione dove nessuno
+li ha portati ad `active`, gli stati dell'abbonamento **si muovono lo stesso**
+(eventi, sola lettura, blocchi) ma nessuno riceve la notifica. Restano
+l'avviso in cima alle pagine e la scheda, che leggono le query e non dipendono
+da quel flag. Un'azienda senza sedi attive non riceve nulla: non c'è una sede
+su cui scrivere.
+
+### Produzione, in ordine (WS4)
+
+Dopo l'ordine del WS3 (che questo branch contiene):
+
+1. **Deploy a interruttore spento.** Nei log non deve comparire
+   `[tenants] abbonamento del tenant 1: …`, e il worker non parte (non deve).
+   Le uniche aggiunte sono la tabella `abbonamenti`, la colonna
+   `tenant_storage.soglia_100_dal` e la riga omaggio del tenant 1.
+2. `pnpm --silent tenant verifica --json` — come nel WS3. Se dice «Tabelle del
+   control plane del tenant assenti…», il server non ha ancora fatto boot con
+   questa versione (la sonda ora ne chiede sette).
+3. `pnpm tenant elenco`: sotto `ruffino-group` deve comparire
+   `abbonamento: complimentary active, fine nessuna, insoluto dal -`. È il
+   controllo che il seed è passato: senza quella riga, il passo 1 non è
+   andato a buon fine e non si prosegue.
+4. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio, se non è già accesa.
+   Da qui il worker parte dopo il listen e gira ogni 6 ore; blocco dello
+   spazio e tetto Tars per azienda diventano vivi.
+5. **Prima azienda pilota**, in staging: `pnpm tenant crea …` la fa nascere
+   `trialing` con 30 giorni, budget 25 €/mese e tolleranze 7/7 — si verifica
+   con `pnpm tenant elenco`. Per un pilota che non deve scadere:
+   `pnpm tenant abbonamento --slug=<slug> --omaggio --motivo="pilota" --scrivi
+   --attendi`, e la scheda dirà «Abbonamento omaggio».
+6. Per provare avvisi e insoluto senza aspettare un mese: `--proroga=<gg>` con
+   un numero piccolo, oppure una scadenza vicina, e si guarda il giro
+   successivo del worker (o si riavvia il server, che ne fa uno subito).
+7. Solo dopo, **la stessa sequenza in produzione**.
+
+**Rollback = redeploy del build precedente.** Tutto il WS4 è additivo: la
+tabella `abbonamenti`, la colonna `soglia_100_dal`, il tipo di comando e i
+tipi di evento nuovi restano nel database, invisibili e innocui per il codice
+di prima — che non blocca nulla e non conosce alcun abbonamento. Nessuna
+migrazione a senso unico.
+
+### Errori che l'operatore può vedere (WS4)
+
+- «Spazio esaurito: l'azienda ha superato i `<N>` GB inclusi. Libera spazio o
+  chiedi capacità aggiuntiva.» — quota **e** tolleranza superate. Da tRPC è
+  `PRECONDITION_FAILED`; dalla rotta Express dei documenti di commessa arriva
+  come HTTP `400` con lo stesso messaggio. Rimedi: liberare spazio,
+  `--quota-gb`, `--tolleranza-storage`.
+- «Tars ha esaurito il budget mensile dell'azienda; le funzioni che non costano
+  restano disponibili, il budget si rinnova il primo del mese.» — tetto
+  d'azienda e tolleranza superati. Rimedi: `--extra-tars-eur` (questo mese),
+  `--budget-tars-eur` (da qui in avanti), `--tolleranza-tars`, o aspettare il
+  primo del mese.
+- «Azienda sospesa: il gestionale è in sola lettura.» — è la sola lettura del
+  WS1, accesa qui dall'abbonamento (insoluto scaduto o disdetta). Si riapre
+  con `--omaggio` o `--proroga`, non con `stato --riattiva`.
+- «Il tenant 1 è la proprietaria della piattaforma: niente omaggio, proroga o
+  disdetta.» — comando rifiutato dallo script (e comunque dal servizio).
+- «Un'azione per comando (trovate 2: omaggio, proroga).» / «Indica --disdetta
+  oppure --annulla-disdetta» — due azioni nello stesso comando: se ne dà una.
+- «SAAS_CAMBIO_EUR_USD non valido: «…». Serve un numero maggiore di zero
+  (predefinito: 1.08).» e «SAAS_BUDGET_TARS_EUR_MESE non valido: «…». Serve un
+  numero maggiore o uguale a zero (predefinito: 25).» — l'ambiente è
+  sbagliato: il comando (o la creazione dell'azienda) fallisce **senza
+  scrivere niente**. Si corregge la variabile, non il database.
+- «Si proroga solo una prova in corso, scaduta o sospesa (stato: active)» — si
+  proroga da `trialing`, `past_due` o `suspended`. Un `active` si allunga con
+  `--omaggio`; un `cancelled` è chiuso.
+- «Abbonamento del tenant `<id>` inesistente» in `esito` del comando — l'azienda
+  non ha la riga: `pnpm tenant crea` con lo stesso slug la ripara.
+- `[abbonamenti] tenant <id> senza abbonamento: rilancia pnpm tenant crea` —
+  lo stesso, visto dal giro del worker, che salta quell'azienda.
+- `[tenants] abbonamento del tenant 1: …` — il seed dell'omaggio della
+  proprietaria è fallito al boot. L'avvio prosegue, ma `pnpm tenant elenco`
+  dirà «abbonamento: nessuno» per `ruffino-group`: guardare l'errore.
+- `[abbonamenti] notifica <tipo> non consegnata (tenant <id>, utente <id>): …` e
+  `[abbonamenti] notifica consumi storage non consegnata: …` — la notifica non
+  è partita; lo stato dell'abbonamento è cambiato lo stesso. Nessun
+  caricamento e nessuna transizione fallisce per una notifica.
+- `[abbonamenti] consumo Tars del tenant <id> non leggibile: …` — la scheda
+  mostra la percentuale Tars vuota invece di uno zero falso (tipico senza
+  `DATABASE_URL`).
+- `[tars] tetto del budget d'azienda: …` / `[tars] soglie del budget
+  d'azienda: …` — la politica per azienda ha lanciato. La chiamata a Tars
+  prosegue **senza** tetto d'azienda: se si ripete, il blocco per azienda non
+  sta funzionando.
+- `[<etichetta>] tenant <id> sospeso per <min> min: …` con etichetta
+  `abbonamenti` — il giro degli abbonamenti fallisce per quell'azienda: è
+  l'interruttore del WS3. Le altre continuano; `pnpm tenant elenco` dice fino
+  a quando.
+- Eventi da leggere in `tenant_eventi` quando qualcosa non torna:
+  `abbonamento_creato`, `abbonamento_stato` (`da`/`a`/`motivo`),
+  `abbonamento_omaggio`, `abbonamento_prova_prorogata`, `abbonamento_avviso`,
+  `abbonamento_modificato`, `tars_soglia`, `storage_bloccato`/`storage_sbloccato`,
+  `tars_bloccato`/`tars_sbloccato`.
+
 ## Verifica in sola lettura (prima e dopo l'accensione)
 
     SELECT id, slug, stato FROM tenants ORDER BY id;
@@ -714,6 +1043,7 @@ L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
 - «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
 - (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
   (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage,
-  oauth_state)…» — script lanciato contro un database su cui il server con
-  questa versione non è mai partito. Il messaggio nomina tutte e sei le
-  tabelle che la sonda chiede: quella che manca è fra queste.
+  oauth_state, abbonamenti)…» — script lanciato contro un database su cui il
+  server con questa versione non è mai partito. Il messaggio nomina tutte e
+  sette le tabelle che la sonda chiede: quella che manca è fra queste
+  (`abbonamenti` è del WS4, `tenant_storage` e `oauth_state` del WS3).
