@@ -152,8 +152,25 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     await repo.ensureSchema();
     await repo.caricaCache();
     await repo.assicuraTenantPredefinito();
-    await Promise.all([repo.aggiornaStorage(1, 10, 1), repo.aggiornaStorage(1, 20, 1), repo.aggiornaStorage(1, -5, 0)]);
+    // Delta di segno misto in sequenza, non in Promise.all: con -5 la riga
+    // usa il ramo INSERT/UPDATE con GREATEST(delta, 0), quindi il risultato
+    // dipende da QUALE arriva per primo al DB (se -5 vince la corsa, la riga
+    // nasce a zero invece di sottrarre) — non è un bug, è il clamp voluto,
+    // ma rende il test non deterministico se lanciato in concorrenza.
+    // Eseguendoli uno alla volta il totale è prevedibile.
+    await repo.aggiornaStorage(1, 10, 1);
+    await repo.aggiornaStorage(1, 20, 1);
+    await repo.aggiornaStorage(1, -5, 0);
     expect(await repo.storageDi(1)).toMatchObject({ bytes: 25, file: 2, quotaBytes: 100 * 1024 ** 3 });
+    // Concorrenza vera, ma solo delta positivi: qui il clamp non entra mai in
+    // gioco, quindi l'ordine di arrivo non conta e la somma finale deve
+    // tornare esatta — è la prova che l'incremento su Postgres è atomico
+    // (nessuna scrittura concorrente si perde per una race sul valore letto).
+    const primaDellaConcorrenza = await repo.storageDi(1);
+    await Promise.all([repo.aggiornaStorage(1, 10, 1), repo.aggiornaStorage(1, 20, 1), repo.aggiornaStorage(1, 5, 1)]);
+    const dopoLaConcorrenza = await repo.storageDi(1);
+    expect(dopoLaConcorrenza?.bytes).toBe((primaDellaConcorrenza?.bytes ?? 0) + 35);
+    expect(dopoLaConcorrenza?.file).toBe((primaDellaConcorrenza?.file ?? 0) + 3);
     await repo.impostaSogliaAvvisata(1, 50);
     expect((await repo.storageDi(1))?.sogliaAvvisata).toBe(50);
     expect((await repo.impostaQuotaStorage(1, 1234)).storageQuotaBytes).toBe(1234);

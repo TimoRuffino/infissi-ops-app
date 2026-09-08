@@ -14,6 +14,7 @@ import { getUtentiStore } from "../routers/utenti";
 import { disponibilitaOcr } from "../documenti/ocr";
 import { pdfConTesto } from "../documenti/pdfMinimo";
 import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import { QUOTA_STORAGE_PREDEFINITA_BYTES } from "../tenants/costanti";
 import type { TenantRecord } from "../tenants/tipi";
 import { registerAnteprimaRoutes } from "./anteprimaRoutes";
 
@@ -181,6 +182,7 @@ describe("GET /api/documenti/:id/pagina/:n", () => {
         motivoStato: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
       };
       sessione.corrente = { userId: DIREZIONE_ID, sedeId: SEDE, tenantId: 4, tenant: sospeso };
       const r = await chiedi(`/api/documenti/${documentoId}/pagina/1`);
