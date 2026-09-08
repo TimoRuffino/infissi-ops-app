@@ -22,6 +22,14 @@ export const STORE_ESCLUSI_DAL_RIPRISTINO = new Set(["backup_config", "backup_oa
 /** Il `backup` del comando è una data (`Backup CRM <data>`) oppure un id di cartella. */
 const RE_DATA = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * La forma di un id di Drive: lettere, cifre, `_` e `-`, e mai cortissimo.
+ * Serve perché il riferimento finisce dentro la stringa `q` della richiesta a
+ * Drive: un apostrofo o uno spazio chiuderebbero la clausola e allargherebbero
+ * la ricerca. Quello che non ha questa forma non è un id, ed è «non trovato».
+ */
+const RE_ID_DRIVE = /^[A-Za-z0-9_-]{10,}$/;
+
 export type DriveRipristino = {
   /** "AAAA-MM-GG" → `Backup CRM <data>` sotto la radice dell'azienda; altrimenti l'id di una cartella. */
   cartellaBackup(riferimento: string): Promise<{ id: string; nome: string } | null>;
@@ -34,7 +42,18 @@ export type EsitoRipristino = {
   backup: { id: string; nome: string };
   store: Array<{ nome: string; prima: number; dopo: number; sostituito: boolean }>;
   anomalie: string[];
+  /** Cose vere anche quando è andato tutto bene: si leggono, non si correggono. */
+  avvertenze: string[];
 };
+
+/**
+ * `sostituisciStore` scrive gli item come stanno nel dump: `onLoad` — default
+ * dei campi nuovi, backfill, migrazioni di forma — non gira. Finché il
+ * processo resta in piedi, gli archivi ripristinati sono quelli della versione
+ * che li ha salvati; un riavvio li fa ripassare dal caricamento normale.
+ */
+const AVVERTENZA_ONLOAD =
+  "Gli archivi ripristinati non passano da onLoad: se il backup è di una versione più vecchia del codice, riavviare il server subito dopo il ripristino.";
 
 export type OpzioniRipristino = {
   tenantId: number;
@@ -53,9 +72,11 @@ export function driveRipristinoReale(): DriveRipristino {
         const [c] = await driveElencaFigli(token, rootId, { nome: `Backup CRM ${riferimento}`, soloCartelle: true });
         return c ? { id: c.id, nome: c.name } : null;
       }
-      // Un id di cartella arbitrario: vale come backup solo se contiene
+      // Un id di cartella arbitrario: prima deve almeno avere la forma di un
+      // id (finisce nella `q` di Drive), poi vale come backup solo se contiene
       // `database/`. Così un id sbagliato dice «non trovato» invece di
       // ripristinare zero store in silenzio.
+      if (!RE_ID_DRIVE.test(riferimento)) return null;
       const figli = await driveElencaFigli(token, riferimento, { nome: "database", soloCartelle: true });
       return figli.length ? { id: riferimento, nome: riferimento } : null;
     },
@@ -131,6 +152,10 @@ export function validaDump(
  * l'azienda torna com'era. Se qualcosa cede a metà l'azienda resta SOSPESA e
  * il messaggio dice quali store erano già stati sostituiti: metà archivio
  * nuovo e metà vecchio non è uno stato in cui far rientrare la gente.
+ *
+ * Con `scrivi` e niente da sostituire non parte: un fermo dell'azienda senza
+ * ripristino non lo si fa in silenzio. In prova, invece, l'esito con le note
+ * si legge lo stesso — è lì per quello.
  */
 export async function ripristinaArchivi(
   opzioni: OpzioniRipristino,
@@ -152,7 +177,12 @@ export async function ripristinaArchivi(
     const assenti = richiesti.filter(n => !disponibili.some(d => d.nome === n));
     if (assenti.length) throw new Error(`Store richiesti assenti dal backup: ${assenti.join(", ")}`);
 
-    const anomalie: string[] = [];
+    // Due liste separate, non una da rileggere: una NOTA dice perché un dump
+    // del Drive non viene sostituito, un DIFETTO dice che il dump è rotto. Solo
+    // i difetti fermano la scrittura, e riconoscerli dal testo del messaggio
+    // sarebbe un contratto che si rompe alla prima riscrittura di una frase.
+    const note: string[] = [];
+    const difetti: string[] = [];
     const daSostituire: Array<{ nome: string; items: any[] }> = [];
     const sedi = new Set(sediDelTenant(tenantId).map(s => s.id));
     for (const d of disponibili) {
@@ -161,29 +191,34 @@ export async function ripristinaArchivi(
       // l'aveva chiesto, altrimenti sempre — nella prova serve a spiegare
       // perché un dump presente sul Drive non compare fra quelli sostituiti.
       if (STORE_ESCLUSI_DAL_RIPRISTINO.has(d.nome)) {
-        if (!opzioni.solo || scelto) anomalie.push(`${d.nome}: escluso dal ripristino`);
+        if (!opzioni.solo || scelto) note.push(`${d.nome}: escluso dal ripristino`);
         continue;
       }
       if (!perTenant.has(d.nome)) {
-        if (!opzioni.solo || scelto) anomalie.push(`${d.nome}: non è uno store per azienda`);
+        if (!opzioni.solo || scelto) note.push(`${d.nome}: non è uno store per azienda`);
         continue;
       }
       if (!scelto) continue;
       const v = validaDump(d.nome, await d.scarica(), tenantId, sedi);
-      anomalie.push(...v.anomalie);
+      difetti.push(...v.anomalie);
       daSostituire.push({ nome: d.nome, items: v.items });
     }
 
-    // «Saltato» è una nota, non un difetto: solo il resto blocca la scrittura.
-    const invalidi = anomalie.filter(a => !a.endsWith("escluso dal ripristino") && !a.endsWith("non è uno store per azienda"));
     const esito: EsitoRipristino = {
       dryRun: !opzioni.scrivi,
       backup: cartella,
       store: daSostituire.map(s => ({ nome: s.nome, prima: storeDi(tenantId, s.nome).length, dopo: s.items.length, sostituito: false })),
-      anomalie,
+      anomalie: [...note, ...difetti],
+      // Anche in prova: l'avvertenza serve PRIMA di scrivere, non dopo.
+      avvertenze: daSostituire.length ? [AVVERTENZA_ONLOAD] : [],
     };
     if (!opzioni.scrivi) return esito;
-    if (invalidi.length) throw new Error(`Dump non valido: ${invalidi.join("; ")}`);
+    if (difetti.length) throw new Error(`Dump non valido: ${difetti.join("; ")}`);
+    // Niente da sostituire (un `--solo` di soli store esclusi, un backup senza
+    // dump di questa azienda): sospendere e riattivare l'azienda per non fare
+    // nulla è un fermo gratuito, e l'evento `archivi_ripristinati` racconterebbe
+    // un ripristino mai avvenuto. La prova, invece, torna l'esito con le note.
+    if (daSostituire.length === 0) throw new Error("Nessuno store da ripristinare");
 
     const repo = getTenantRepository();
     // Un'azienda già sospesa resta sospesa: il ripristino non la riapre.
@@ -191,10 +226,15 @@ export async function ripristinaArchivi(
     if (eraAttivo) await sospendi(tenantId, "ripristino archivi in corso", opzioni.attore);
     const sostituiti: string[] = [];
     try {
-      for (const s of daSostituire) {
+      // Per posizione: `esito.store` nasce da `daSostituire` nello stesso
+      // ordine, e cercare per nome darebbe la riga sbagliata al primo dump
+      // omonimo. I conteggi `prima` sono già stati letti prima di toccare
+      // qualsiasi archivio.
+      for (let i = 0; i < daSostituire.length; i++) {
+        const s = daSostituire[i];
         await sostituisciStore(tenantId, s.nome, s.items);
         sostituiti.push(s.nome);
-        esito.store.find(x => x.nome === s.nome)!.sostituito = true;
+        esito.store[i].sostituito = true;
       }
     } catch (e) {
       throw new Error(

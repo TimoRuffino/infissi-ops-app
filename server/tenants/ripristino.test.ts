@@ -49,9 +49,12 @@ describe("ripristino degli archivi", () => {
     expect(prova.dryRun).toBe(true);
     expect(prova.store).toEqual([{ nome: "rip_clienti", prima: 2, dopo: 1, sostituito: false }]);
     expect(prova.anomalie).toEqual(["backup_oauth: escluso dal ripristino", "altro: non è uno store per azienda"]);
+    // L'avvertenza sull'`onLoad` si legge già in prova, cioè prima di scrivere.
+    expect(prova.avvertenze).toEqual([expect.stringContaining("non passano da onLoad")]);
     expect(storeDi(2, "rip_clienti")).toHaveLength(2);
     const vero = await ripristinaArchivi({ tenantId: 2, backup: "idcartella", solo: ["rip_clienti"], scrivi: true, attore: { tipo: "script", nome: "test" } }, drive);
     expect(vero.store).toEqual([{ nome: "rip_clienti", prima: 2, dopo: 1, sostituito: true }]);
+    expect(vero.avvertenze).toEqual([expect.stringContaining("riavviare il server subito dopo il ripristino")]);
     expect(storeDi(2, "rip_clienti")).toEqual([{ id: 7, tenantId: 2, sedeId: 20 }]);
     const repo = getTenantRepository();
     expect(repo.perId(2)?.stato).toBe("attivo");
@@ -65,6 +68,25 @@ describe("ripristino degli archivi", () => {
     await expect(ripristinaArchivi({ tenantId: 2, backup: "2026-09-07", solo: null, scrivi: true, attore }, driveFinto({ rip_clienti: [{ id: 1, sedeId: 99 }] }))).rejects.toThrow("Dump non valido");
     expect(storeDi(2, "rip_clienti")).toHaveLength(2);
     expect(getTenantRepository().perId(2)?.stato).toBe("attivo");
+  });
+
+  it("con --scrivi e nessuno store da sostituire rifiuta prima di sospendere l'azienda", async () => {
+    const attore = { tipo: "script" as const, nome: "test" };
+    // Un backup che porta solo store esclusi: non c'è niente da ripristinare.
+    const drive = driveFinto({ backup_oauth: [{ id: 1 }] });
+    // La prova lo dice e basta: è lì per far leggere le note.
+    const prova = await ripristinaArchivi({ tenantId: 2, backup: "2026-09-07", solo: ["backup_oauth"], scrivi: false, attore }, drive);
+    expect(prova.store).toEqual([]);
+    expect(prova.anomalie).toEqual(["backup_oauth: escluso dal ripristino"]);
+    expect(prova.avvertenze).toEqual([]);
+    // Con `--scrivi` no: sospendere e riattivare l'azienda per non sostituire
+    // niente sarebbe un fermo gratuito con un evento che non racconta nulla.
+    await expect(
+      ripristinaArchivi({ tenantId: 2, backup: "2026-09-07", solo: ["backup_oauth"], scrivi: true, attore }, drive)
+    ).rejects.toThrow("Nessuno store da ripristinare");
+    const repo = getTenantRepository();
+    expect(repo.perId(2)?.stato).toBe("attivo");
+    expect((await repo.eventi(2)).map(e => e.tipo)).toEqual([]);
   });
 
   it("il tenant 1 richiede ancheTenant1", async () => {

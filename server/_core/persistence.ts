@@ -245,34 +245,51 @@ export function storeDi<T = any>(tenantId: number, nome: string): T[] {
 
 /**
  * Ripristino (WS3 §4.4): rimpiazza gli item dell'istanza di un tenant con
- * quelli di un dump e scrive SUBITO il blob, fuori dal debounce. Non riesegue
- * `onLoad`. Solo famiglie per tenant già caricate: le globali (sedi, utenti)
- * non si ripristinano per azienda.
+ * quelli di un dump, scrive SUBITO il blob, sotto il lock dello store, e
+ * propaga l'errore di scrittura. Non riesegue `onLoad`. Solo famiglie per
+ * tenant già caricate: le globali (sedi, utenti) non si ripristinano per
+ * azienda.
+ *
+ * Il salvataggio con debounce, quando l'INSERT fallisce, se lo tiene per sé e
+ * lo riaccoda: giusto per una mutation qualsiasi, sbagliato qui. Chi ripristina
+ * riattiva l'azienda e registra l'evento subito dopo: se la riga in `kv_store`
+ * è ancora quella vecchia, deve saperlo — quindi niente riaccodamento e
+ * l'errore esce.
  */
 export async function sostituisciStore(tenantId: number, nome: string, items: unknown[]): Promise<void> {
-  const f = famiglie.get(nome);
-  if (!f) throw new Error(`[persistence] store ${nome} sconosciuto`);
-  if (f.ambito === "globale") throw new Error(`[persistence] store ${nome} è globale: non si ripristina per tenant`);
-  const entry = f.istanze.get(tenantId);
-  if (!entry) throw new Error(`[persistence] store ${nome} non istanziato per il tenant ${tenantId}`);
-  // Un'istanza non ancora caricata ha un array vuoto che NON è lo stato del
-  // database: sovrascriverlo qui sarebbe la stessa perdita che `flushSave`
-  // impedisce rinviando i salvataggi finché il bootstrap non ha letto la riga.
-  if (!entry.loaded) throw new Error(`[persistence] store ${entry.key} non ancora caricato`);
-  // Sul posto, senza spread: un dump può portare decine di migliaia di record
-  // e `push(...items)` li passerebbe tutti come argomenti (stack overflow).
-  entry.items.length = 0;
-  for (const r of items) entry.items.push(r);
-  for (const r of entry.items) {
-    const id = (r as any)?.id;
-    if (typeof id === "number" && id > f.maxId) f.maxId = id;
-  }
-  // Il debounce in coda scriverebbe di nuovo lo stesso array un attimo dopo:
-  // inutile, e in un ripristino interrotto rimetterebbe in gioco una scrittura
-  // che nessuno si aspetta più.
-  const t = saveTimers.get(entry.key);
-  if (t) { clearTimeout(t); saveTimers.delete(entry.key); }
-  await flushSave(entry.key);
+  // La chiave si conosce prima dell'istanza: dentro il lock — lo stesso che
+  // prende il salvataggio con debounce — sostituzione e scrittura non si
+  // incrociano con un flush partito un istante prima.
+  await conStoreBloccati([chiaveStore(tenantId, nome)], async () => {
+    const f = famiglie.get(nome);
+    if (!f) throw new Error(`[persistence] store ${nome} sconosciuto`);
+    if (f.ambito === "globale") throw new Error(`[persistence] store ${nome} è globale: non si ripristina per tenant`);
+    const entry = f.istanze.get(tenantId);
+    if (!entry) throw new Error(`[persistence] store ${nome} non istanziato per il tenant ${tenantId}`);
+    // Un'istanza non ancora caricata ha un array vuoto che NON è lo stato del
+    // database: sovrascriverlo qui sarebbe la stessa perdita che `flushSave`
+    // impedisce rinviando i salvataggi finché il bootstrap non ha letto la riga.
+    if (!entry.loaded) throw new Error(`[persistence] store ${entry.key} non ancora caricato`);
+    // Il debounce in coda scriverebbe di nuovo lo stesso array un attimo dopo:
+    // inutile, e in un ripristino interrotto rimetterebbe in gioco una scrittura
+    // che nessuno si aspetta più.
+    const t = saveTimers.get(entry.key);
+    if (t) { clearTimeout(t); saveTimers.delete(entry.key); }
+    // Sul posto, senza spread: un dump può portare decine di migliaia di record
+    // e `push(...items)` li passerebbe tutti come argomenti (stack overflow).
+    entry.items.length = 0;
+    for (const r of items) entry.items.push(r);
+    for (const r of entry.items) {
+      const id = (r as any)?.id;
+      if (typeof id === "number" && id > f.maxId) f.maxId = id;
+    }
+    if (!sql) {
+      console.warn(`[persistence] sostituisciStore ${entry.key}: nessun DATABASE_URL, archivio sostituito solo in memoria`);
+      return;
+    }
+    await scriviBlobStore(entry);
+    console.log(`[persistence] saved ${entry.key}: ${entry.items.length} items`);
+  });
 }
 
 function proxyArray(f: Famiglia): any[] {
@@ -563,6 +580,32 @@ async function flushSave(key: string) {
   return conStoreBloccati([key], () => flushSaveBloccato(key));
 }
 
+/**
+ * L'unico INSERT del blob di uno store: lo condividono il salvataggio con
+ * debounce e `sostituisciStore`, che chiamano entrambi con il lock della
+ * chiave già preso. Non decide che farne dell'errore — lo lascia salire a chi
+ * sa se va riaccodato (il debounce) o dichiarato (il ripristino).
+ */
+async function scriviBlobStore(store: StoreEntry): Promise<void> {
+  if (!sql) return;
+  // Guarantee schema before any write — protects against the race where a
+  // module-level seed schedules a save before bootstrapAll runs ensureSchema.
+  await ensureSchema();
+  // Use sql.json() so postgres-js encodes as proper JSONB (not a JSON
+  // string primitive). Passing a pre-stringified value + ::jsonb cast
+  // double-encodes it — stored as jsonb string, not jsonb array.
+  const payload = sql.json(store.items as any);
+  await withRetry(
+    () => sql`
+      INSERT INTO kv_store (key, data, updated_at)
+      VALUES (${store.key}, ${payload}, NOW())
+      ON CONFLICT (key) DO UPDATE
+        SET data = EXCLUDED.data, updated_at = NOW()
+    `.then(() => undefined),
+    `save(${store.key})`
+  );
+}
+
 async function flushSaveBloccato(key: string) {
   if (!sql) {
     console.warn(`[persistence] save skipped for ${key} — no DATABASE_URL`);
@@ -582,22 +625,7 @@ async function flushSaveBloccato(key: string) {
     return;
   }
   try {
-    // Guarantee schema before any write — protects against the race where a
-    // module-level seed schedules a save before bootstrapAll runs ensureSchema.
-    await ensureSchema();
-    // Use sql.json() so postgres-js encodes as proper JSONB (not a JSON
-    // string primitive). Passing a pre-stringified value + ::jsonb cast
-    // double-encodes it — stored as jsonb string, not jsonb array.
-    const payload = sql.json(store.items as any);
-    await withRetry(
-      () => sql`
-        INSERT INTO kv_store (key, data, updated_at)
-        VALUES (${key}, ${payload}, NOW())
-        ON CONFLICT (key) DO UPDATE
-          SET data = EXCLUDED.data, updated_at = NOW()
-      `.then(() => undefined),
-      `save(${key})`
-    );
+    await scriviBlobStore(store);
     console.log(
       `[persistence] saved ${key}: ${store.items.length} items`
     );

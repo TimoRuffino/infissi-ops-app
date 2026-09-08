@@ -22,7 +22,13 @@ import {
 
 const conDatabase = Boolean(process.env.DATABASE_URL && kvSql);
 
-/** Numero suo: gli altri file .pg del tenant usano 20260907. */
+/**
+ * Lock consultivo tutto suo: le chiavi `kv_store` di questo file sono solo
+ * sue, quindi NON deve serializzarsi con `repository.pg.test.ts` e
+ * `tabelle.pg.test.ts` (che condividono il 20260907 perché condividono le
+ * tabelle del control plane). Un numero diverso è esattamente questo: quei
+ * file possono girare in parallelo a questo senza pestarsi.
+ */
 const LOCK_RIPRISTINO_PG = 20260908;
 
 describe.skipIf(!conDatabase)("ripristino su Postgres", () => {
@@ -30,9 +36,9 @@ describe.skipIf(!conDatabase)("ripristino su Postgres", () => {
   let riservata: Awaited<ReturnType<typeof sql.reserve>> | null = null;
 
   beforeAll(async () => {
-    // Le chiavi qui sotto sono solo di questo file, ma il lock consultivo su
-    // una connessione riservata tiene comunque il passo con gli altri .pg del
-    // tenant, che vitest esegue in parallelo.
+    // Il lock sta su una connessione riservata (le altre del pool servono le
+    // scritture del test) e vale contro un'altra copia di QUESTO file, non
+    // contro gli altri .pg del tenant.
     riservata = await sql.reserve();
     await riservata`SELECT pg_advisory_lock(${LOCK_RIPRISTINO_PG})`;
     // `bootstrapAll` crea `kv_store` da sé (ensureSchema); la pulizia va fatta
@@ -66,5 +72,29 @@ describe.skipIf(!conDatabase)("ripristino su Postgres", () => {
     // accodarsi (è una sostituzione, non un merge).
     await sostituisciStore(2, "rip_pg", []);
     expect(await leggiBlobDaDb("tenant:2:rip_pg")).toEqual([]);
+  });
+
+  it("se l'INSERT fallisce l'errore arriva a chi ha chiesto il ripristino e il blob resta quello di prima", async () => {
+    // La famiglia `rip_pg` è già registrata dal test precedente: qui basta
+    // riportare la riga a uno stato noto.
+    await bootstrapAll({ tenantIds: [1, 2] });
+    await sostituisciStore(2, "rip_pg", [{ id: 1 }]);
+    expect(await leggiBlobDaDb("tenant:2:rip_pg")).toEqual([{ id: 1 }]);
+
+    // Un vincolo che rende impossibile scrivere PROPRIO quella chiave: è il
+    // modo deterministico di far fallire l'INSERT senza spegnere il database.
+    // `NOT VALID` perché la riga violante esiste già e la validazione
+    // all'indietro farebbe fallire l'ALTER, non la scrittura che ci interessa;
+    // sugli INSERT/UPDATE successivi il vincolo vale comunque.
+    await sql`ALTER TABLE kv_store ADD CONSTRAINT rip_blocco CHECK (key <> 'tenant:2:rip_pg') NOT VALID`;
+    try {
+      // Il salvataggio con debounce, qui, avrebbe loggato e riaccodato: il
+      // ripristino no, altrimenti dichiarerebbe «sostituito» un archivio che
+      // in `kv_store` è ancora quello vecchio.
+      await expect(sostituisciStore(2, "rip_pg", [{ id: 9 }])).rejects.toThrow(/rip_blocco/);
+      expect(await leggiBlobDaDb("tenant:2:rip_pg")).toEqual([{ id: 1 }]);
+    } finally {
+      await sql`ALTER TABLE kv_store DROP CONSTRAINT rip_blocco`;
+    }
   });
 });

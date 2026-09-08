@@ -651,6 +651,12 @@ async function driveCreateFolder(
  * come in `driveFindFolder`, ma qui serve la lista intera — i `<nome>.json`
  * di `database/` — non il primo id. Passa da `driveFetch`, quindi eredita i
  * ritentativi sui 429/503 di Drive.
+ *
+ * Legge UNA pagina sola (`pageSize=1000`, nessun `nextPageToken`): i due usi
+ * sono `database/`, che tiene qualche decina di file — uno per store — e la
+ * radice dell'azienda, dove la ricerca è già filtrata per nome. Mille è un
+ * tetto che nessuno dei due sfiora; se un giorno lo sfiorasse, qui servirebbe
+ * il ciclo sulle pagine, non un `pageSize` più grande.
  */
 export async function driveElencaFigli(
   token: string,
