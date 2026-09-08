@@ -153,12 +153,19 @@ export function frasiAvviso(
     } else if (storage.percentuale >= SOGLIA_AVVISO_PERCENTUALE) {
       // Oltre quota `bloccoDal` esiste già mentre la tolleranza corre: quella
       // data è più utile del numero di giorni, perché è il giorno esatto in
-      // cui i caricamenti si fermano.
+      // cui i caricamenti si fermano. Sopra il 100 % SENZA `bloccoDal` c'è
+      // un'azienda che non si blocca (R16: il tenant 1, o un piano senza
+      // quota): resta la percentuale, senza promettere una tolleranza che per
+      // lei non esiste.
+      const stacco =
+        storage.bloccoDal
+          ? `: dal ${dataItaliana(storage.bloccoDal)} i caricamenti nuovi si fermano`
+          : storage.percentuale >= 100
+            ? ""
+            : `: oltre il 100 % i caricamenti si fermano dopo ${giorniScritti(storage.tolleranzaGiorni)}`;
       frasi.push({
         chiave: `storage:${storage.percentuale}`,
-        testo: storage.bloccoDal
-          ? `Spazio ${allaPercentuale(storage.percentuale)}: dal ${dataItaliana(storage.bloccoDal)} i caricamenti nuovi si fermano`
-          : `Spazio ${allaPercentuale(storage.percentuale)}: oltre il 100 % i caricamenti si fermano dopo ${giorniScritti(storage.tolleranzaGiorni)}`,
+        testo: `Spazio ${allaPercentuale(storage.percentuale)}${stacco}`,
         tono: "attenzione",
       });
     }

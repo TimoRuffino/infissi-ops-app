@@ -864,6 +864,12 @@ una seconda sede o un secondo utente). Il worker non crea niente da solo.
 - Il primo rifiuto del giorno lascia un evento `storage_bloccato` in
   `tenant_eventi` (con byte, quota e data del blocco) e una notifica; il
   ritorno sotto quota lascia `storage_sbloccato`, una volta sola.
+- **Ruffino Group (tenant 1) non si blocca mai** (R16), come non ha un tetto
+  Tars per azienda: la proprietaria della piattaforma paga i propri costi. Le
+  soglie 50/80/100 la avvisano lo stesso, e la scheda non le promette nessun
+  giorno di stacco. Se è al 100 % la leva è `--quota-gb`: alzarla rimette le
+  soglie al loro posto (un'azienda perennemente al 140 % non avvisa più
+  niente).
 
 ### Budget Tars per azienda
 
@@ -932,6 +938,13 @@ Dopo l'ordine del WS3 (che questo branch contiene):
    `abbonamento: complimentary active, fine nessuna, insoluto dal -`. È il
    controllo che il seed è passato: senza quella riga, il passo 1 non è
    andato a buon fine e non si prosegue.
+
+   **3-bis.** `pnpm tenant storage --slug=ruffino-group`: il tenant 1 non si
+   blocca mai (R16), ma se è già al 100 % dei suoi GB le soglie non dicono
+   più niente. Si alza la quota con `pnpm tenant abbonamento
+   --slug=ruffino-group --quota-gb=<n> --scrivi --attendi`, così l'avviso
+   torna significativo prima dell'accensione.
+
 4. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio, se non è già accesa.
    Da qui il worker parte dopo il listen e gira ogni 6 ore; blocco dello
    spazio e tetto Tars per azienda diventano vivi.
@@ -957,7 +970,8 @@ migrazione a senso unico.
   chiedi capacità aggiuntiva.» — quota **e** tolleranza superate. Da tRPC è
   `PRECONDITION_FAILED`; dalla rotta Express dei documenti di commessa arriva
   come HTTP `400` con lo stesso messaggio. Rimedi: liberare spazio,
-  `--quota-gb`, `--tolleranza-storage`.
+  `--quota-gb`, `--tolleranza-storage`. Ruffino Group non lo vede mai: il
+  tenant 1 è esente dal blocco (R16).
 - «Tars ha esaurito il budget mensile dell'azienda; le funzioni che non costano
   restano disponibili, il budget si rinnova il primo del mese.» — tetto
   d'azienda e tolleranza superati. Rimedi: `--extra-tars-eur` (questo mese),

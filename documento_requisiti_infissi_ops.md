@@ -4387,7 +4387,10 @@ incluso e che cosa fare, e oltre il budget Tars del mese si fermano solo le
 funzioni che costano — il resto di Tars e tutto il CRM continuano. L'azienda
 vede una riga d'avviso in cima alle pagine e la scheda «Abbonamento e
 consumi» in Integrazioni (proprietario e direzione), con percentuali, mai
-token né dollari. **Nessun pulsante di pagamento:** non c'è ancora niente da
+token né dollari. Ruffino Group, che è la proprietaria della piattaforma,
+resta **fuori da entrambi i blocchi**: nessun tetto Tars per azienda e nessun
+blocco dello spazio — le soglie la avvisano, la quota si alza con
+`--quota-gb`. **Nessun pulsante di pagamento:** non c'è ancora niente da
 premere.
 
 **Che cosa fa l'operatore.** `pnpm tenant abbonamento --slug=… <una azione>`

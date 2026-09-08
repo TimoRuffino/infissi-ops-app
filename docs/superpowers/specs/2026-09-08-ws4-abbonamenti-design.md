@@ -56,13 +56,13 @@ quota e la tolleranza, fermano solo ciò che costa. Con
 
 ## 2-bis. Decisioni in corso d'opera (08/09/2026)
 
-Diciotto scelte prese mentre il piano veniva eseguito — tre nella
-scansione pre-volo, quattordici durante i 9 task, una nella fix wave finale
+Diciannove scelte prese mentre il piano veniva eseguito — tre nella
+scansione pre-volo, quattordici durante i 9 task, due nella fix wave finale
 (la revisione dell'intero branch, `final-review-report.md`) — quando il codice
 vero ha contraddetto la lettera della spec o del piano. Ognuna è un emendamento
 a questo documento: le sezioni che ne sono cambiate sono già corrette qui sotto
-— la §4.1 (R7, R8), la §6, la §11 e la §13 (pre-2, R10), la §8 (pre-3, R13),
-la §9 (R5 e R15, più la riattivazione manuale, che il testo raccontava
+— la §4.1 (R7, R8), la §6 (R16), la §11 e la §13 (pre-2, R10), la §8 (pre-3,
+R13), la §9 (R5 e R15, più la riattivazione manuale, che il testo raccontava
 sbagliata) e la §10. Con loro due correzioni di lettura, senza ruling perché non c'era
 niente da decidere: la §9 sopra, e la §6 sui media WhatsApp, che dalla
 fusione di `main` si conservano nello storage invece di restare solo su Meta.
@@ -90,6 +90,8 @@ Registro completo, con implementer, reviewer e commit:
 | R14 | la scheda «Abbonamento e consumi» è visibile a proprietario e direzione **anche a interruttore spento** (mostra l'omaggio del tenant 1); l'avviso nella shell resta gated su `multiAzienda` | la scheda è informativa e non promette nulla che non ci sia; una riga d'avviso in cima alle pagine, in mono-azienda, sarebbe rumore | nessuno |
 
 | R15 | l'abbonamento è la fonte di verità: un contratto `suspended` o `cancelled` con il tenant `attivo` viene risospeso dal giro successivo del worker (entro 6 ore) col marcatore `abbonamento: `; per riaprire un'azienda si usano omaggio o proroga, mai `stato --riattiva` | due strade ci arrivano senza che nessuno abbia sbagliato — la riattivazione a mano e il ripristino archivi del WS3, che riapre il tenant proprio mentre il worker porta il contratto a `suspended` — e la coppia incoerente resterebbe tale per sempre, con l'azienda che lavora senza contratto | un'azienda insolvente che continua a scrivere; nel verso opposto, se il ramo non guardasse lo stato del tenant, un ripristino disturbato a metà |
+
+| R16 | il tenant 1 è esente dal blocco dello spazio: `bloccoStorage` ritorna sempre «non bloccato» per `TENANT_PREDEFINITO_ID`, che resta avvisato dalle soglie 50/80/100 | esenzione simmetrica a quella del tetto Tars: la proprietaria della piattaforma paga i propri costi, e il giorno che `FLAG_MULTI_AZIENDA` si accende Ruffino Group, se è già oltre i 100 GiB, si fermerebbe da sola dopo la tolleranza | i byte della piattaforma non hanno più un freno automatico: restano le soglie e `pnpm tenant storage` a dirlo |
 
 **Ancora aperti**, minori accettati dalle revisioni per task e registrati nel
 progress — alla chiusura del Task 9 non era stata fatta una revisione
@@ -121,6 +123,12 @@ si costruiscono anche quando il memo del giorno li scarterà. *Test:*
 (il ramo è condiviso con l'omaggio, che invece è provato); l'asserzione su
 `updatedAt` del repository non è stretta; non c'è un `CHECK` su
 `tars_soglia_avvisata` (come `sogliaAvvisata` del WS3). *CLI e scheda:*
+per il tenant 1 (R16) la scheda scrive ancora «tolleranza 7 giorni» nel
+dettaglio della barra dello spazio e, fra l'80 e il 99 %, la riga d'avviso
+ricorda che «oltre il 100 % i caricamenti si fermano»: due frasi vere per
+tutti tranne che per lui, che non si blocca — dirle giuste chiede un campo
+in più nel payload di `tenants.consumi` («questa azienda non si blocca»),
+non un ritocco di testo;
 `--scadenza` di un omaggio non rifiuta una data nel passato; il messaggio di
 «due facce della stessa azione» dice «Indica --disdetta oppure
 --annulla-disdetta» anche quando sono state date entrambe; il log del worker
@@ -297,6 +305,14 @@ nasce ora.
   (`conservaMediaWhatsApp`), non fanno fallire il messaggio se non si
   salvano: restano su Meta, recuperabili dopo. Dati, download, backup e
   CRM ordinario continuano.
+- **Il tenant 1 non si blocca mai** (R16): `bloccoStorage` esce subito per
+  `TENANT_PREDEFINITO_ID`, simmetrico al tetto Tars, che per lui è già
+  `null` — la proprietaria della piattaforma paga i propri costi e non si
+  toglie da sola la possibilità di caricare. Le soglie 50/80/100 del WS3
+  continuano ad avvisarla, e con `bloccoDal` null i testi cadono sulla sola
+  percentuale, senza parlare di una tolleranza che per lei non esiste. Se
+  Ruffino Group è al 100 % la leva è `--quota-gb`, così le soglie tornano
+  significative.
 - Tolleranza e quota cambiano per azienda con `pnpm tenant abbonamento`.
 
 ## 7. Budget Tars per azienda

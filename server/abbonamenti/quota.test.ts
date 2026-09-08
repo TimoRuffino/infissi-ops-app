@@ -97,6 +97,16 @@ describe("bloccoStorage (puro)", () => {
     expect(r.bloccato).toBe(false);
     expect(r.bloccoDal?.toISOString()).toBe(giorni(7).toISOString());
   });
+
+  it("R16: il tenant 1 non si blocca mai, nemmeno oltre quota da un mese; un'altra azienda nello stesso stato sì", () => {
+    const soglia100Dal = giorni(-30); // tolleranza 7 giorni, scaduta da 23
+    expect(
+      bloccoStorage({ ...statoBase, tenantId: 1, bytes: 1200, soglia100Dal }, abbonamentoBase, T0)
+    ).toEqual({ bloccato: false, bloccoDal: null });
+
+    const altra = bloccoStorage({ ...statoBase, tenantId: 2, bytes: 1200, soglia100Dal }, abbonamentoBase, T0);
+    expect(altra.bloccato).toBe(true);
+  });
 });
 
 describe("verificaCaricamento", () => {
@@ -241,6 +251,22 @@ describe("verificaCaricamento", () => {
 
     expect(esito).toEqual({ messaggio: MESSAGGI_ABBONAMENTO.spazioEsaurito(2) });
     expect(eventiSpy).toHaveBeenCalled();
+  });
+
+  it("R16: il tenant 1 oltre quota e tolleranza carica lo stesso, senza evento di blocco", async () => {
+    vi.useFakeTimers({ now: T0 });
+    const repo = getTenantRepository();
+    await repo.impostaQuotaStorage(1, 2 * GB);
+    const stato = await repo.aggiornaStorage(1, 3 * GB, 1); // oltre il 100 %
+    await applicaSoglie(stato); // la soglia del WS3 avvisa lo stesso
+
+    const dopoTolleranza = giorni(30);
+    vi.setSystemTime(dopoTolleranza);
+    expect(await verificaCaricamento(1, 10, dopoTolleranza)).toBeNull();
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_bloccato")).toHaveLength(0);
+    // La soglia del 100 % resta registrata: la proprietaria della piattaforma
+    // viene avvisata, non fermata.
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_soglia")).toHaveLength(1);
   });
 
   it("avvisaConsumi: memo aggiunto solo quando notificaAzienda restituisce > 0", async () => {

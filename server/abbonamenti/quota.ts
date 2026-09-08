@@ -93,12 +93,22 @@ const bloccatiVisti = new Set<number>();
  * vecchia di questa logica) non blocca subito: la tolleranza riparte da
  * `adesso`, come se il 100 % fosse appena scattato — il giro successivo la
  * vedrà davvero.
+ *
+ * R16: il tenant 1 non si blocca MAI, simmetrico ad `abbonamentoConBudget`
+ * per il tetto Tars — la proprietaria della piattaforma paga i propri costi e
+ * non si toglie da sola la possibilità di caricare. Le soglie 50/80/100 del
+ * WS3 (`applicaSoglie`) continuano ad avvisarla; con `bloccoDal` null il testo
+ * dell'avviso cade sulla sola percentuale, senza parlare di una tolleranza che
+ * per lei non esiste. Questa è l'unica funzione che decide il blocco
+ * (`verificaCaricamento` e la query `tenants.consumi` passano di qui), quindi
+ * l'esenzione vale ovunque.
  */
 export function bloccoStorage(
   stato: StatoStorage,
   abbonamento: Abbonamento | null,
   adesso: Date
 ): { bloccato: boolean; bloccoDal: Date | null } {
+  if (stato.tenantId === TENANT_PREDEFINITO_ID) return { bloccato: false, bloccoDal: null };
   if (stato.quotaBytes <= 0 || stato.bytes < stato.quotaBytes) {
     return { bloccato: false, bloccoDal: null };
   }

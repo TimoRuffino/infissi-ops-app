@@ -137,6 +137,20 @@ describe("frasiAvviso", () => {
     expect(frasi[0].chiave).toBe("storage:92");
   });
 
+  // R16: il tenant 1 non si blocca mai, quindi `bloccoDal` resta null anche
+  // oltre il 100 %. La frase deve cadere sulla sola percentuale: promettergli
+  // un blocco «dopo 7 giorni» sarebbe falso.
+  it("R16: oltre il 100 % senza blocco (tenant 1) dice solo la percentuale", () => {
+    const consumi = consumiTranquilli();
+    const frasi = frasiAvviso(abbonamentoTranquillo(), {
+      ...consumi,
+      storage: { ...consumi.storage, bytes: 130_000, percentuale: 130, bloccoDal: null },
+    }, ADESSO);
+    expect(testi(frasi)).toEqual(["Spazio al 130 %"]);
+    expect(frasi[0].tono).toBe("attenzione");
+    expect(frasi[0].chiave).toBe("storage:130");
+  });
+
   it("dice la data del blocco mentre la tolleranza corre", () => {
     const consumi = consumiTranquilli();
     const frasi = frasiAvviso(abbonamentoTranquillo(), {
