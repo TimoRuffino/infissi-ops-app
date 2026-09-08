@@ -160,6 +160,14 @@ export type Fattura = {
   totaleCent: number;
   deltaPattuitoCent: number;
   markupCent: number;
+  /**
+   * Markup scritto a mano (08/09/2026, «devo poter modificare il markup»):
+   * null = lo deriva il risolutore (prestazione − altri beni − servizi). Con
+   * un valore la riga markup vale quello e il totale si sposta: lo scarto dal
+   * pattuito lo dice «Δ pattuito». Su una fattura libera il pattuito segue
+   * righe e markup, quindi lo scarto resta zero.
+   */
+  markupForzatoCent: number | null;
   stornoCent: number;
   diciture: string[];
   note: string | null;

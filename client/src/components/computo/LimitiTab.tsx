@@ -1,20 +1,24 @@
 // Tab «Limiti»: l'ultimo computo con esito, totali e voci raggruppate; ogni
 // voce spiega il proprio numero. «Ricalcola» quando righe o parametri sono
 // cambiati. Nessun calcolo qui: il server è l'unico confine.
+import { useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import type { VoceComputo } from "@shared/limiti/tipi";
 import { trpc } from "@/lib/trpc";
 import {
   badgeStato,
+  correzioneDi,
   formatCent,
   motivoSintetico,
   raggruppaVoci,
   spiegaVoce,
 } from "@/lib/limitiView";
+import CorreggiVoceDialog from "@/components/computo/CorreggiVoceDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Calculator, Info, Printer, ReceiptText } from "lucide-react";
+import { AlertTriangle, Calculator, Info, Pencil, Printer, ReceiptText } from "lucide-react";
 import { hrefStampaLimiti } from "@/lib/limitiStampaView";
 
 const TONO: Record<"success" | "warning" | "muted", string> = {
@@ -55,6 +59,9 @@ export default function LimitiTab({
     },
     onError: e => toast.error(e.message),
   });
+  // La voce aperta nel dialog «Correggi la voce» (08/09/2026): hook prima
+  // delle uscite anticipate qui sotto (React #310).
+  const [daCorreggere, setDaCorreggere] = useState<VoceComputo | null>(null);
 
   if (q.error) return <p className="text-sm text-danger py-6">{q.error.message}</p>;
   if (!q.data) return <p className="text-sm text-muted-foreground py-6">Caricamento limiti…</p>;
@@ -218,31 +225,51 @@ export default function LimitiTab({
                             non inclusa
                           </Badge>
                         )}
+                        {correzioneDi(v) && (
+                          <Badge variant="warning" className="h-4 px-1 text-[10px] shrink-0">
+                            corretta a mano
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {v.codiceDei ? `${v.codiceDei} ` : ""}
                         {spiegaVoce(v)}
                       </p>
                     </div>
-                    <Popover>
-                      <PopoverTrigger asChild>
+                    <div className="flex items-center gap-0.5">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label={`Perché ${v.descrizione}`}
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="text-xs space-y-1 w-64">
+                          {Object.entries(v.dettaglio).map(([k, val]) => (
+                            <p key={k}>
+                              <span className="text-muted-foreground">{k}:</span> {String(val)}
+                            </p>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                      {/* Correzione a mano: chi può calcolare i limiti può anche correggerli. */}
+                      {stato.puoEseguire && (
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          aria-label={`Perché ${v.descrizione}`}
+                          aria-label={`Correggi ${v.descrizione}`}
+                          title="Correggi a mano quantità, prezzo o limite"
+                          onClick={() => setDaCorreggere(v)}
                         >
-                          <Info className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="text-xs space-y-1 w-64">
-                        {Object.entries(v.dettaglio).map(([k, val]) => (
-                          <p key={k}>
-                            <span className="text-muted-foreground">{k}:</span> {String(val)}
-                          </p>
-                        ))}
-                      </PopoverContent>
-                    </Popover>
+                      )}
+                    </div>
                     <span className="tabular-nums font-medium">{formatCent(v.limiteCent)}</span>
                   </li>
                 ))}
@@ -254,6 +281,14 @@ export default function LimitiTab({
           </p>
         </>
       )}
+      <CorreggiVoceDialog
+        commessaId={commessaId}
+        voce={daCorreggere}
+        onOpenChange={aperto => {
+          if (!aperto) setDaCorreggere(null);
+        }}
+        onSalvata={() => onCambiato?.()}
+      />
     </div>
   );
 }

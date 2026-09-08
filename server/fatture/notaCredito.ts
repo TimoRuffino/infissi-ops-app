@@ -272,6 +272,7 @@ export async function creaNotaCredito(
       totaleCent,
       deltaPattuitoCent: 0,
       markupCent,
+      markupForzatoCent: null,
       stornoCent,
       diciture: ["copia_ade"],
       note: `Nota di credito a storno della fattura n. ${origine.numero ?? origine.id} del ${origine.data ?? ""}`,

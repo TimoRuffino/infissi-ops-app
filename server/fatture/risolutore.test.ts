@@ -93,3 +93,26 @@ describe("risolutore — regole", () => {
     expect(riequilibraBeni([], 100)).toEqual([]);
   });
 });
+
+describe("risolutore — markup scritto a mano (08/09/2026)", () => {
+  const base = { pattuitoCent: 100000, pattuitoTipo: "imponibile" as const, beniSignificativiCent: 60000, beniAltriCent: 10000, serviziCent: 20000 };
+
+  it("forzato: P = N + S + M, il pattuito non comanda più il totale e lo scarto lo dichiara", () => {
+    expect(risolvi(base).markupCent).toBe(10000);
+    const forzato = risolvi({ ...base, markupForzatoCent: 25000 });
+    expect(forzato.markupCent).toBe(25000);
+    expect(forzato.prestazioneCent).toBe(55000);
+    expect(forzato.stornoCent).toBe(55000); // min(B, P)
+    expect(forzato.imponibileCent).toBe(115000);
+    expect(forzato.deltaPattuitoCent).toBe(15000);
+    expect(forzato.avvertenze).toEqual([]);
+  });
+
+  it("null o assente = calcolo di prima; col lordo la ricerca del centesimo non si fa su un markup forzato", () => {
+    expect(risolvi({ ...base, markupForzatoCent: null })).toEqual(risolvi(base));
+    const lordo = risolvi({ pattuitoCent: 122000, pattuitoTipo: "lordo", beniSignificativiCent: 100000, beniAltriCent: 0, serviziCent: 0, markupForzatoCent: 0 });
+    expect(lordo.markupCent).toBe(0);
+    expect(lordo.prestazioneCent).toBe(0);
+    expect(lordo.deltaPattuitoCent).toBe(lordo.totaleCent - 122000);
+  });
+});

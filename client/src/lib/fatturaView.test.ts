@@ -263,9 +263,11 @@ describe("fatturaView", () => {
     ]);
   });
 
-  it("riepilogoView su una fattura libera si ferma al totale: niente markup né Δ pattuito (07/09/2026)", () => {
-    const righe = riepilogoView({ ...fatturaCaso127, deltaPattuitoCent: 500 }, { libera: true });
-    expect(righe.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale"]);
+  it("riepilogoView su una fattura libera si ferma al totale: mai il Δ pattuito, il markup solo se scritto a mano (07-08/09/2026)", () => {
+    const senza = riepilogoView({ ...fatturaCaso127, markupCent: 0, deltaPattuitoCent: 500 }, { libera: true });
+    expect(senza.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale"]);
+    const aMano = riepilogoView({ ...fatturaCaso127, deltaPattuitoCent: 500 }, { libera: true });
+    expect(aMano.map(r => r.etichetta)).toEqual(["22 %", "10 %", "IVA", "Totale", "Markup"]);
   });
 
   it("riepilogoView aggiunge «Δ pattuito» con tono attenzione solo se il delta non è zero", () => {
@@ -571,5 +573,13 @@ describe("descriviEvento", () => {
   it("non più di quattro pezzi: la riga deve restare una riga", () => {
     const r = descriviEvento({ a: 1, b: 2, c: 3, d: 4, e: 5 });
     expect(r.split(" · ")).toHaveLength(4);
+  });
+});
+
+describe("riepilogoView — markup scritto a mano (08/09/2026)", () => {
+  it("su una libera il markup si vede solo quando non è zero, senza Δ pattuito", () => {
+    const base = { riepilogo: [], imponibileCent: 120000, ivaCent: 24000, totaleCent: 144000, deltaPattuitoCent: 0, pattuitoCent: 120000, pattuitoTipo: "imponibile" as const };
+    expect(riepilogoView({ ...base, markupCent: 20000 }, { libera: true }).map(r => r.etichetta)).toEqual(["IVA", "Totale", "Markup"]);
+    expect(riepilogoView({ ...base, markupCent: 0 }, { libera: true }).map(r => r.etichetta)).toEqual(["IVA", "Totale"]);
   });
 });

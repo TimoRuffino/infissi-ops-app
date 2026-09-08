@@ -4,7 +4,7 @@
 // è atomico e sostituisce le righe: una lista è più semplice da tenere
 // coerente che un diff riga per riga, e la UI ricarica comunque.
 import { kvSql } from "../_core/persistence";
-import { OPZIONI_COMPUTO_DEFAULT, type Contratto, type RigaContratto } from "@shared/limiti/tipi";
+import { OPZIONI_COMPUTO_DEFAULT, type Contratto, type OpzioniComputo, type RigaContratto } from "@shared/limiti/tipi";
 
 export type ContrattoPersist = Omit<Contratto, "createdAt" | "updatedAt">;
 export type RigaPersist = Omit<RigaContratto, "id" | "createdAt" | "updatedAt">;
@@ -18,6 +18,19 @@ export type ContrattiRepository = {
     righe: RigaPersist[];
     now: Date;
   }): Promise<{ contratto: Contratto; righe: RigaContratto[] }>;
+  /**
+   * Solo le opzioni del computo (correzioni a mano, 08/09/2026) e l'hash
+   * dei parametri: righe e resto del contratto restano com'erano. NOT_FOUND
+   * senza contratto o da un'altra sede.
+   */
+  aggiornaOpzioniComputo(input: {
+    sedeId: number;
+    commessaId: number;
+    opzioniComputo: OpzioniComputo;
+    hashParametri: string;
+    updatedBy: number | null;
+    now: Date;
+  }): Promise<Contratto>;
 };
 
 function ordina(righe: RigaContratto[]): RigaContratto[] {
@@ -71,6 +84,15 @@ export function createMemoryContrattiRepository(): ContrattiRepository {
       }));
       righe.push(...inserite);
       return { contratto: structuredClone(salvato), righe: ordina(inserite) };
+    },
+    async aggiornaOpzioniComputo({ sedeId, commessaId, opzioniComputo, hashParametri, updatedBy, now }) {
+      const c = contratti.get(commessaId);
+      if (!c || c.sedeId !== sedeId) throw new Error("NOT_FOUND: Contratto non trovato.");
+      c.opzioniComputo = structuredClone(opzioniComputo);
+      c.hashParametri = hashParametri;
+      c.updatedBy = updatedBy;
+      c.updatedAt = now;
+      return structuredClone(c);
     },
   };
 }
@@ -309,6 +331,16 @@ export function createPostgresContrattiRepository(
         // riporta le righe nell'ordine di lettura (ordine, poi id).
         return { contratto: rowToContratto(rows[0]), righe: ordina(inserite.map(rowToRiga)) };
       });
+    },
+    async aggiornaOpzioniComputo({ sedeId, commessaId, opzioniComputo, hashParametri, updatedBy, now }) {
+      await ensureSchema();
+      const rows = await sql`UPDATE commessa_contratti SET
+          opzioni_computo = ${sql.json(opzioniComputo as any)}, hash_parametri = ${hashParametri},
+          updated_by = ${updatedBy}, updated_at = ${now}
+        WHERE sede_id = ${sedeId} AND commessa_id = ${commessaId}
+        RETURNING *`;
+      if (!rows[0]) throw new Error("NOT_FOUND: Contratto non trovato.");
+      return rowToContratto(rows[0]);
     },
   };
 }

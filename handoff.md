@@ -230,7 +230,7 @@
 
 > **Novità 07/09/2026 — decisione prodotto, non ancora implementata (PRD
 > 5.62, §61; nessun codice CRM modificato).** Dopo che una persona ha rivisto
-> e applicato i dati letti dal contratto, Wyndor dovrà preparare
+> e applicato i dati letti dal contratto, Wyndoor dovrà preparare
 > automaticamente nella commessa una bozza di fattura rivedibile. Il trigger
 > non è l'upload né la sola estrazione; l'emissione, la numerazione su Fatture
 > in Cloud e l'invio SdI restano dietro «Emetti» e conferma autorizzata. I
@@ -4236,9 +4236,9 @@ apre `/commesse/:id/limiti/stampa` (`pages/LimitiStampa.tsx`,
 `lib/limitiStampaView.ts` provata): parametri, righe del contratto, CHECK 1
 e CHECK 2 voce per voce, totali, avvertenze; filigrana se il computo non è
 aggiornato. Rotta nel contratto delle rotte e nel manifesto. Verifica
-browser non eseguita (login demo). PRD 5.63 (dopo il rebase
-sopra il multi-azienda di main: il §60 è il SaaS, la nota «bozza
-automatica» è §61/5.62).
+browser non eseguita (login demo). PRD 5.66 (dopo i rebase sopra il
+multi-azienda e gli allegati di main: il §60 è il SaaS, la nota «bozza
+automatica» è §61/5.65).
 
 **Eliminazione delle annullate da ogni vista (08/09/2026, direzione: «devo
 poter eliminare le bozze di fatture annullate»).** Il cestino stava solo
@@ -4258,7 +4258,45 @@ Fattura se > 0 (mai a flag spento). Verifica browser FATTA a 1440×900 e
 tre commesse (libera annullata senza contratto, bozza libera,
 contratto+computo del caso 127 con bozza annullata): tre cancellazioni
 riuscite, nessuno scroll orizzontale, console pulita. Server delle fatture,
-permessi e Cassa invariati. PRD 5.64.
+permessi e Cassa invariati. PRD 5.67.
+
+**Limiti correggibili a mano (08/09/2026, direzione: «devo poter modificare
+i limiti dal gestionale»).** Come le celle ritoccate nel foglio: matita
+«Correggi» su ogni voce del tab Limiti → dialog (quantità, prezzo, limite
+forzato, inclusione, motivo) → `computo.correggiVoce` (una voce per volta,
+`null` = ripristina). La correzione sta nel contratto
+(`opzioniComputo.correzioni[]`, `aggiornaOpzioniComputo` con hash rifatto;
+entra nell'hash solo se c'è) e il computo si rifà subito. Motore: correzioni
+dopo le voci e prima dei totali, fattore esatto della formula nel dettaglio
+(`fattore`, es. installatori 2), `fisso` per la pulizia, limite forzato che
+vince, voce esclusa fuori dai totali, T6 in centesimi con una riga DEI
+corretta, avvertenza «…corretta a mano: X (calcolato Y) — motivo». Il form
+del contratto conserva le correzioni e avvisa se cambiano le righe. Verifica
+browser 1440×900 con l'harness (`seme-elimina.mts`, ora dentro
+`conTenantDellaSede(1, …)` perché gli store vogliono il tenant): posa 18 → 8
+ore = 584,00 € esatti, CHECK 1 e limite seguono, badge, avvertenza e stampa.
+PRD 5.68.
+
+**Markup scritto a mano (08/09/2026, direzione: «devo poter modificare il
+markup»).** `fatture.markup_forzato_cent` (null = calcolato): il risolutore
+con `markupForzatoCent` pone P = N + S + M e lascia lo scarto in
+`deltaPattuitoCent`; `aggiornaBozza.markupForzatoCent` (numero/null/assente);
+riequilibrio e rigenerazione lo azzerano; sulla libera il pattuito diventa
+righe + markup (scarto zero) e il riepilogo mostra il Markup se ≠ 0. Editor:
+campo «Markup» accanto a «Riequilibra i beni», badge «calcolato»/«a mano»,
+«Torna al calcolo». PRD 5.69. Verifica browser non eseguita (chiusura rapida per la prima fattura vera): coperto dai test.
+
+**OAuth FiC non retrocede i permessi di scrittura (08/09/2026, direzione:
+«Permessi di scrittura fatture: non autorizzati continua a uscirmi»).**
+Causa dal codice: il badge legge `scopeScrittura` (intento dell'ultimo
+OAuth) e i pulsanti generici («Ricollega account», «Ricollega e aggiorna
+permessi» — che compare dopo OGNI OAuth finché un sync pieno non conferma i
+permessi economici) ripartivano in sola lettura: token nuovo senza scrittura,
+badge di nuovo «non autorizzati», giro che si ripete. Fix: `oauthStartUrl`
+senza argomento eredita `cfg.scopeScrittura`. Da fare UNA volta in
+produzione: Integrazioni → Fatture in Cloud → «Ri-autorizza con permessi di
+scrittura», poi Contabilità → Fatturazione → «Verifica permessi». Non
+verificabile in demo. PRD 5.70.
 
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la

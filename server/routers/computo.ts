@@ -4,7 +4,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { procedureConInterruttore, router } from "../_core/trpc";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
-import { eseguiComputo, ultimoComputo } from "../computo/servizio";
+import { correggiVoce, eseguiComputo, ultimoComputo } from "../computo/servizio";
 import { getCommessaById } from "./commesse";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
@@ -49,6 +49,60 @@ export const computoRouter = router({
         return await eseguiComputo({ sedeId, commessaId: input.commessaId, actorUserId: ctx.user?.id ?? null });
       } catch (errore: any) {
         const messaggio = String(errore?.message ?? "");
+        if (messaggio.startsWith("NOT_FOUND: Contratto")) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Prima serve il contratto: inserisci o leggi le righe." });
+        }
+        if (messaggio.startsWith("NOT_FOUND: ")) {
+          throw new TRPCError({ code: "NOT_FOUND", message: messaggio.slice("NOT_FOUND: ".length) });
+        }
+        if (messaggio.startsWith("TARIFFE_NON_DISPONIBILI")) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Tariffe non disponibili per la data del contratto." });
+        }
+        throw errore;
+      }
+    }),
+
+  /**
+   * Correzione a mano di una voce (08/09/2026, «devo poter modificare i
+   * limiti dal gestionale»): si salva nel contratto e il computo si rifà
+   * subito; `correzione: null` la toglie. Stessa capability del calcolo —
+   * chi può calcolare i limiti può correggerli — e ogni correzione resta
+   * scritta nel computo, nella stampa e nelle avvertenze.
+   */
+  correggiVoce: procedura
+    .input(
+      z.object({
+        commessaId: z.number().int(),
+        codice: z.string().trim().min(1).max(60),
+        correzione: z
+          .object({
+            quantita: z.number().min(0).max(1_000_000).nullable(),
+            prezzoUnitCent: z.number().int().min(0).max(1_000_000_000).nullable(),
+            limiteCent: z.number().int().min(0).max(10_000_000_000).nullable(),
+            inclusa: z.boolean().nullable(),
+            motivo: z.string().trim().max(200).nullable(),
+          })
+          .nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const sedeId = sedeCorrente(ctx);
+      commessaInSede(input.commessaId, sedeId);
+      await authorizeCoreOperation({
+        ctx, endpoint: "computo.correggiVoce", capability: "computo.run",
+        resourceType: "computo", resource: { sedeId }, legacyAllowed: "capability",
+      });
+      try {
+        const stato = await correggiVoce({
+          sedeId, commessaId: input.commessaId, actorUserId: ctx.user?.id ?? null,
+          codice: input.codice, correzione: input.correzione,
+        });
+        return { ...stato, puoEseguire: true };
+      } catch (errore: any) {
+        const messaggio = String(errore?.message ?? "");
+        if (messaggio.startsWith("VALIDAZIONE: ")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: messaggio.slice("VALIDAZIONE: ".length) });
+        }
         if (messaggio.startsWith("NOT_FOUND: Contratto")) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Prima serve il contratto: inserisci o leggi le righe." });
         }

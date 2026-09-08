@@ -102,6 +102,8 @@ const modificaBozzaSchema = z.object({
   diciture: z.array(z.enum(Object.keys(DICITURE) as [ChiaveDicitura, ...ChiaveDicitura[]])).max(20).optional(),
   intestazioneCantiere: z.string().trim().max(300).nullable().optional(),
   riequilibraBeniAMarkupCent: z.number().int().min(0).optional(),
+  // Markup scritto a mano (08/09/2026): un importo lo forza, `null` torna al calcolo.
+  markupForzatoCent: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   scavalcoLimiti: z
     .object({ attivo: z.boolean(), motivo: z.string().trim().max(300).nullable() })
     .optional(),

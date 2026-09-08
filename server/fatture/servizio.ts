@@ -68,6 +68,13 @@ export type ModificaBozza = {
   intestazioneCantiere?: string | null;
   /** Scala le righe bene significative finché il markup vale questo importo. */
   riequilibraBeniAMarkupCent?: number;
+  /**
+   * Markup scritto a mano (08/09/2026, «devo poter modificare il markup»):
+   * un importo lo forza e il totale lo segue (Δ pattuito nel riepilogo);
+   * `null` torna al calcolo del risolutore; `undefined` lascia com'è. Il
+   * riequilibrio dei beni parla del markup calcolato e quindi lo azzera.
+   */
+  markupForzatoCent?: number | null;
   scavalcoLimiti?: { attivo: boolean; motivo: string | null };
   /**
    * Anagrafica del cliente corretta dalla fattura (07/09/2026): aggiorna lo
@@ -299,6 +306,7 @@ export async function creaBozza(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: esito.deltaPattuitoCent,
       markupCent: esito.markupCent,
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       diciture: bozza.diciture,
       note: bozza.note,
@@ -378,6 +386,7 @@ export async function creaBozzaLibera(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: 0,
       markupCent: 0,
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       diciture: dicitureDefault("nessuna", clienteSnapshot.praticaEdilizia),
       note: null,
@@ -707,13 +716,24 @@ export async function aggiornaBozza(
   if (modifica.riequilibraBeniAMarkupCent !== undefined) {
     righe = riequilibra(righe, fattura, modifica.riequilibraBeniAMarkupCent);
   }
+  // Markup scritto a mano (08/09/2026): `undefined` lascia com'è, `null`
+  // torna al calcolo; il riequilibrio dei beni parla del markup calcolato e
+  // quindi lo azzera.
+  const markupForzatoCent =
+    modifica.riequilibraBeniAMarkupCent !== undefined
+      ? null
+      : modifica.markupForzatoCent !== undefined
+        ? modifica.markupForzatoCent
+        : fattura.markupForzatoCent;
 
-  // Fattura libera: il pattuito è la somma delle righe scritte a mano, così il
-  // markup resta zero e il totale è quello che si legge nelle righe.
+  // Fattura libera: il pattuito è la somma delle righe scritte a mano (più il
+  // markup a mano, se c'è), così il totale è quello che si legge nelle righe
+  // e lo scarto dal pattuito resta zero.
   const pattuitoCent = fattura.origine === "libera"
-    ? righe.filter(r => !r.derivata && (r.tipo === "bene" || r.tipo === "servizio")).reduce((s, r) => s + r.importoCent, 0)
+    ? righe.filter(r => !r.derivata && (r.tipo === "bene" || r.tipo === "servizio")).reduce((s, r) => s + r.importoCent, 0) +
+      (markupForzatoCent ?? 0)
     : fattura.pattuitoCent;
-  const ricalcolo = ricalcola({ righe, pattuitoCent, pattuitoTipo: fattura.pattuitoTipo });
+  const ricalcolo = ricalcola({ righe, pattuitoCent, pattuitoTipo: fattura.pattuitoTipo, markupForzatoCent });
   const { righe: righeComplete, esito } = fattura.origine === "libera" ? senzaMarkupVuoto(ricalcolo) : ricalcolo;
 
   const avvisi: Controllo[] = [];
@@ -740,6 +760,7 @@ export async function aggiornaBozza(
     totaleCent: esito.totaleCent,
     deltaPattuitoCent: esito.deltaPattuitoCent,
     markupCent: esito.markupCent,
+    markupForzatoCent,
     stornoCent: esito.stornoCent,
     note: modifica.note,
     diciture: modifica.diciture,
@@ -871,6 +892,8 @@ export async function rigeneraBozza(
       totaleCent: esito.totaleCent,
       deltaPattuitoCent: esito.deltaPattuitoCent,
       markupCent: esito.markupCent,
+      // Torna alla proposta anche il markup: quello del risolutore, non uno scritto a mano su righe che non ci sono più.
+      markupForzatoCent: null,
       stornoCent: esito.stornoCent,
       // La bozza torna alla proposta del sistema: uno scavalco deciso
       // sulle righe di prima non vale più su righe che non sono più

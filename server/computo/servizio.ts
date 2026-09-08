@@ -1,24 +1,18 @@
 // Orchestrazione del computo: legge contratto e righe, carica le tariffe,
 // invoca il motore puro, salva la fotografia. «Valido» è una domanda sugli
 // hash: se righe o parametri sono cambiati dopo l'ultimo computo, il gate
-// e la UI lo dicono e chiedono di ricalcolare.
+// e la UI lo dicono e chiedono di ricalcolare. Le correzioni a mano
+// (08/09/2026) sono parametri del contratto come le altre opzioni del
+// computo: si scrivono qui, con l'hash aggiornato, e il computo si rifà subito.
+import { hashParametri } from "../contratti/hash";
+import { getContrattiRepository } from "../contratti/repository";
 import { leggiContratto } from "../contratti/servizio";
-import type { Computo, Contratto } from "@shared/limiti/tipi";
-import { calcolaLimiti } from "./motore";
+import type { Computo, Contratto, CorrezioneVoce, RigaContratto } from "@shared/limiti/tipi";
+import { calcolaLimiti, type EsitoMotore } from "./motore";
 import { getComputiRepository, type IntestazioneComputo } from "./repository";
-import { tariffeAttive } from "./tariffe";
+import { tariffeAttive, type Tariffe } from "./tariffe";
 
-export async function eseguiComputo(input: {
-  sedeId: number;
-  commessaId: number;
-  actorUserId: number | null;
-  now?: Date;
-}): Promise<Computo> {
-  const now = input.now ?? new Date();
-  const { contratto, righe } = await leggiContratto(input.sedeId, input.commessaId);
-  if (!contratto) {
-    throw new Error("NOT_FOUND: Contratto non trovato per questa commessa.");
-  }
+function calcola(contratto: Contratto, righe: RigaContratto[], now: Date): { esito: EsitoMotore; tariffe: Tariffe } {
   const tariffe = tariffeAttive(now);
   const esito = calcolaLimiti(
     righe,
@@ -34,11 +28,21 @@ export async function eseguiComputo(input: {
     },
     tariffe
   );
+  return { esito, tariffe };
+}
+
+function salvaComputo(
+  contratto: Contratto,
+  esito: EsitoMotore,
+  tariffe: Tariffe,
+  actorUserId: number | null,
+  now: Date
+): Promise<Computo> {
   return getComputiRepository().salva({
     now,
     computo: {
-      sedeId: input.sedeId,
-      commessaId: input.commessaId,
+      sedeId: contratto.sedeId,
+      commessaId: contratto.commessaId,
       hashRighe: contratto.hashRighe,
       hashParametri: contratto.hashParametri,
       tariffeAl: tariffe.versione,
@@ -52,9 +56,84 @@ export async function eseguiComputo(input: {
       detrazioneStimataCent: esito.detrazioneStimataCent,
       avvertenze: esito.avvertenze,
       voci: esito.voci,
-      createdBy: input.actorUserId,
+      createdBy: actorUserId,
     },
   });
+}
+
+export async function eseguiComputo(input: {
+  sedeId: number;
+  commessaId: number;
+  actorUserId: number | null;
+  now?: Date;
+}): Promise<Computo> {
+  const now = input.now ?? new Date();
+  const { contratto, righe } = await leggiContratto(input.sedeId, input.commessaId);
+  if (!contratto) {
+    throw new Error("NOT_FOUND: Contratto non trovato per questa commessa.");
+  }
+  const { esito, tariffe } = calcola(contratto, righe, now);
+  return salvaComputo(contratto, esito, tariffe, input.actorUserId, now);
+}
+
+/**
+ * Una correzione a mano su una voce del computo (08/09/2026, «devo poter
+ * modificare i limiti dal gestionale»): si scrive nelle opzioni del computo
+ * del contratto — con l'hash dei parametri aggiornato — e il computo si rifà
+ * subito, così tab, stampa e fattura vedono lo stesso numero. `null` toglie
+ * la correzione e torna al calcolo. Il codice deve esistere nel computo di
+ * questa commessa; una correzione senza valori non è una correzione.
+ */
+export async function correggiVoce(input: {
+  sedeId: number;
+  commessaId: number;
+  actorUserId: number | null;
+  codice: string;
+  correzione: Omit<CorrezioneVoce, "codice"> | null;
+  now?: Date;
+}): Promise<{ computo: Computo; valido: boolean; motivo: string | null }> {
+  const now = input.now ?? new Date();
+  const { contratto, righe } = await leggiContratto(input.sedeId, input.commessaId);
+  if (!contratto) {
+    throw new Error("NOT_FOUND: Contratto non trovato per questa commessa.");
+  }
+  const altre = (contratto.opzioniComputo.correzioni ?? []).filter(c => c.codice !== input.codice);
+  let correzioni: CorrezioneVoce[] = altre;
+  if (input.correzione) {
+    const c = input.correzione;
+    if (c.quantita == null && c.prezzoUnitCent == null && c.limiteCent == null && c.inclusa == null) {
+      throw new Error(
+        "VALIDAZIONE: una correzione senza quantità, prezzo, limite o inclusione non è una correzione: usa «Ripristina il calcolo»."
+      );
+    }
+    correzioni = [
+      ...altre,
+      {
+        codice: input.codice,
+        quantita: c.quantita,
+        prezzoUnitCent: c.prezzoUnitCent,
+        limiteCent: c.limiteCent,
+        inclusa: c.inclusa,
+        motivo: c.motivo?.trim() || null,
+      },
+    ];
+  }
+  const opzioniComputo = { ...contratto.opzioniComputo, correzioni };
+  const aggiornato: Contratto = { ...contratto, opzioniComputo };
+  const { esito, tariffe } = calcola(aggiornato, righe, now);
+  if (input.correzione && !esito.voci.some(v => v.codice === input.codice)) {
+    throw new Error(`VALIDAZIONE: la voce «${input.codice}» non esiste nel computo di questa commessa.`);
+  }
+  const salvato = await getContrattiRepository().aggiornaOpzioniComputo({
+    sedeId: input.sedeId,
+    commessaId: input.commessaId,
+    opzioniComputo,
+    hashParametri: hashParametri(aggiornato),
+    updatedBy: input.actorUserId,
+    now,
+  });
+  const computo = await salvaComputo(salvato, esito, tariffe, input.actorUserId, now);
+  return { computo, ...giudizio(salvato, computo) };
 }
 
 /**

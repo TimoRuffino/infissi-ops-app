@@ -113,7 +113,7 @@ const PREFISSO_ACCESSORIO = "accessorio ";
  * «mq × prezzo»: quel prodotto sarebbe una cifra che non torna con il limite
  * scritto accanto. In quel caso si mostrano gli addendi.
  */
-export function spiegaVoce(v: VoceComputo): string {
+function spiegazioneCalcolo(v: VoceComputo): string {
   const d = v.dettaglio;
   const euro = (k: string) => (typeof d[k] === "number" ? (d[k] as number) : null);
   const accessori = Object.entries(d).filter(([k]) => k.startsWith(PREFISSO_ACCESSORIO));
@@ -136,6 +136,44 @@ export function spiegaVoce(v: VoceComputo): string {
   const base = `${numero(v.quantita)} ${unita} × ${formatCent(v.prezzoUnitCent)}`;
   const zona = typeof d.zona === "string" && d.zona ? ` (zona ${d.zona})` : "";
   return base + zona;
+}
+
+/** Una voce corretta a mano lo dice, col valore che il motore aveva calcolato (08/09/2026). */
+export function spiegaVoce(v: VoceComputo): string {
+  const testo = spiegazioneCalcolo(v);
+  const c = correzioneDi(v);
+  if (!c) return testo;
+  const calcolato = c.limiteCalcolatoCent == null ? "" : ` (calcolato ${formatCent(c.limiteCalcolatoCent)})`;
+  return `${testo} · corretta a mano${calcolato}`;
+}
+
+export type CorrezioneVista = {
+  motivo: string;
+  limiteForzato: boolean;
+  quantitaCalcolata: number | null;
+  prezzoCalcolatoCent: number | null;
+  limiteCalcolatoCent: number | null;
+  inclusaCalcolata: boolean | null;
+};
+
+/**
+ * La correzione a mano di una voce, se c'è: il motore la lascia nel
+ * dettaglio insieme ai valori calcolati (`applicaCorrezione` in
+ * server/computo/motore.ts). Serve al badge, alla spiegazione e a
+ * precompilare il dialog «Correggi la voce».
+ */
+export function correzioneDi(v: Pick<VoceComputo, "dettaglio">): CorrezioneVista | null {
+  const d = v.dettaglio;
+  if (typeof d.correzione !== "string") return null;
+  const num = (k: string) => (typeof d[k] === "number" ? (d[k] as number) : null);
+  return {
+    motivo: d.correzione,
+    limiteForzato: d.limiteForzato === true,
+    quantitaCalcolata: num("quantitaCalcolata"),
+    prezzoCalcolatoCent: num("prezzoCalcolatoCent"),
+    limiteCalcolatoCent: num("limiteCalcolatoCent"),
+    inclusaCalcolata: typeof d.inclusaCalcolata === "boolean" ? d.inclusaCalcolata : null,
+  };
 }
 
 export function badgeStato(s: StatoComputoView): { testo: string; tono: "success" | "warning" | "muted" } {

@@ -48,6 +48,7 @@ export type PatchBozza = Partial<
     | "totaleCent"
     | "deltaPattuitoCent"
     | "markupCent"
+    | "markupForzatoCent"
     | "stornoCent"
     | "computoId"
     | "hashRighe"
@@ -232,6 +233,7 @@ export function createMemoryFattureRepository(): FattureRepository {
       const f: Fattura = {
         ...conSnapshot(clona(fattura)),
         origine: fattura.origine ?? "contratto",
+        markupForzatoCent: fattura.markupForzatoCent ?? null,
         id,
         revisione: 1,
         createdAt: now,
@@ -416,6 +418,7 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     totaleCent: Number(row.totale_cent),
     deltaPattuitoCent: Number(row.delta_pattuito_cent),
     markupCent: Number(row.markup_cent),
+    markupForzatoCent: row.markup_forzato_cent == null ? null : Number(row.markup_forzato_cent),
     stornoCent: Number(row.storno_cent),
     diciture: Array.isArray(row.diciture) ? row.diciture : [],
     note: row.note ?? null,
@@ -650,6 +653,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         )`;
         // Fatture libere (07/09/2026): la colonna nasce con il default per le righe già scritte.
         await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'contratto'`;
+        // Markup scritto a mano (08/09/2026): null = calcolato dal risolutore.
+        await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS markup_forzato_cent BIGINT`;
         await tx`CREATE INDEX IF NOT EXISTS fatture_sede_commessa_idx ON fatture (sede_id, commessa_id, id DESC)`;
         await tx`CREATE UNIQUE INDEX IF NOT EXISTS fatture_fic_document_idx ON fatture (sede_id, fic_document_id) WHERE fic_document_id IS NOT NULL`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_righe (
@@ -744,7 +749,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             diciture, note, intestazione_cantiere, detrazione_tipo,
             pdf_storage_key, xml_storage_key, xml_sha256, documento_id,
             ei_status_fic, ei_errore, inviata_dry_run, scavalco_limiti, scavalco_motivo,
-            created_by, emessa_da, emessa_at, revisione, created_at, updated_at, origine
+            created_by, emessa_da, emessa_at, revisione, created_at, updated_at, origine, markup_forzato_cent
           ) VALUES (
             ${f.sedeId}, ${f.commessaId}, ${f.computoId}, ${f.hashRighe}, ${f.tipo}, ${f.notaCreditoDi}, ${f.stato},
             ${f.ficDocumentId}, ${f.numero}, ${f.data},
@@ -754,7 +759,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             ${tx.json(f.diciture as any)}, ${f.note}, ${f.intestazioneCantiere}, ${f.detrazioneTipo},
             ${f.pdfStorageKey}, ${f.xmlStorageKey}, ${f.xmlSha256}, ${f.documentoId},
             ${f.eiStatusFic}, ${f.eiErrore}, ${f.inviataDryRun}, ${f.scavalcoLimiti}, ${f.scavalcoMotivo},
-            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}, ${f.origine ?? "contratto"}
+            ${f.createdBy}, ${f.emessaDa}, ${f.emessaAt}, 1, ${now}, ${now}, ${f.origine ?? "contratto"}, ${f.markupForzatoCent ?? null}
           ) RETURNING *`;
         const id = Number(rows[0].id);
         // Una fattura nuova non ha scadenze precedenti da conservare.
@@ -893,6 +898,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const deltaPattuitoCent =
           patch.deltaPattuitoCent === undefined ? corrente.deltaPattuitoCent : patch.deltaPattuitoCent;
         const markupCent = patch.markupCent === undefined ? corrente.markupCent : patch.markupCent;
+        const markupForzatoCent =
+          patch.markupForzatoCent === undefined ? corrente.markupForzatoCent : patch.markupForzatoCent;
         const stornoCent = patch.stornoCent === undefined ? corrente.stornoCent : patch.stornoCent;
         const computoId = patch.computoId === undefined ? corrente.computoId : patch.computoId;
         const hashRighe = patch.hashRighe === undefined ? corrente.hashRighe : patch.hashRighe;
@@ -908,6 +915,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             diciture = ${tx.json(diciture as any)}, note = ${note}, intestazione_cantiere = ${intestazioneCantiere},
             imponibile_cent = ${imponibileCent}, iva_cent = ${ivaCent}, totale_cent = ${totaleCent},
             delta_pattuito_cent = ${deltaPattuitoCent}, markup_cent = ${markupCent}, storno_cent = ${stornoCent},
+            markup_forzato_cent = ${markupForzatoCent},
             computo_id = ${computoId}, hash_righe = ${hashRighe}, scavalco_limiti = ${scavalcoLimiti},
             scavalco_motivo = ${scavalcoMotivo}, pattuito_cent = ${pattuitoCent}, pattuito_tipo = ${pattuitoTipo},
             detrazione_tipo = ${detrazioneTipo},

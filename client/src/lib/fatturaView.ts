@@ -213,7 +213,19 @@ export function riepilogoView(
 
   righe.push({ etichetta: "IVA", valore: formatCent(f.ivaCent) });
   righe.push({ etichetta: "Totale", valore: formatCent(f.totaleCent) });
-  if (opzioni?.libera) return righe;
+  if (opzioni?.libera) {
+    // Su una libera il markup è zero salvo quando è scritto a mano
+    // (08/09/2026): allora si vede; il Δ no, perché il pattuito segue righe
+    // e markup.
+    if (f.markupCent !== 0) {
+      righe.push({
+        etichetta: "Markup",
+        valore: formatCent(f.markupCent),
+        ...(f.markupCent < 0 ? { tono: "errore" as const } : {}),
+      });
+    }
+    return righe;
+  }
   righe.push({
     etichetta: "Markup",
     valore: formatCent(f.markupCent),

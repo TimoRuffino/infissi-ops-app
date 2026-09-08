@@ -4,6 +4,7 @@
 // mostra: zona mancante, piano alto, minimo 1 mq, controtelai, righe senza DEI.
 import { describe, expect, it } from "vitest";
 import { euroToCent } from "@shared/euroCent";
+import type { CorrezioneVoce } from "@shared/limiti/tipi";
 import casi from "./__fixtures__/casi-reali.json";
 import { calcolaLimiti, type ParametriMotore, type RigaMotore } from "./motore";
 import { tariffeAttive, tariffeEdizione } from "./tariffe";
@@ -235,5 +236,78 @@ describe("motore limiti — casi limite", () => {
     const e2 = calcolaLimiti([{ ...cassonetto, tipologia: "C25094" }], parametri, t);
     expect(voce(e2, "dei_riga_1")).toMatchObject({ limiteCent: 0, unita: "m" });
     expect(e2.avvertenze.join(" ")).toMatch(/misura DEI mancante/i);
+  });
+});
+
+describe("motore limiti — correzioni a mano (08/09/2026)", () => {
+  const caso = casi.casi[0];
+  const righe = () => caso.righe.map(rigaDaFixture);
+  const parametri = caso.parametri as ParametriMotore;
+  const con = (...correzioni: CorrezioneVoce[]): ParametriMotore => ({ ...parametri, opzioni: { ...parametri.opzioni, correzioni } });
+  const nessuna = { quantita: null, prezzoUnitCent: null, limiteCent: null, inclusa: null, motivo: null };
+  const base = calcolaLimiti(righe(), parametri, t);
+  const opereCheck2 = (e: ReturnType<typeof calcolaLimiti>) =>
+    e.voci.filter(v => v.inclusa && v.inCheck2 && v.gruppo !== "prodotti").reduce((s, v) => s + v.limiteCent, 0);
+
+  it("senza correzioni non cambia nulla", () => {
+    expect(calcolaLimiti(righe(), con(), t)).toEqual(base);
+  });
+
+  it("quantità corretta: il limite si ricalcola, la voce conserva i valori calcolati, i totali seguono, l'avvertenza lo dichiara", () => {
+    const e = calcolaLimiti(righe(), con({ ...nessuna, codice: "progettazione", quantita: 10, motivo: "progetto esecutivo" }), t);
+    const v = voce(e, "progettazione");
+    const b = voce(base, "progettazione");
+    expect(v.quantita).toBe(10);
+    expect(v.limiteCent).toBe(b.prezzoUnitCent * 10);
+    expect(v.dettaglio).toMatchObject({
+      correzione: "progetto esecutivo", limiteForzato: false, quantitaCalcolata: b.quantita,
+      prezzoCalcolatoCent: b.prezzoUnitCent, limiteCalcolatoCent: b.limiteCent, inclusaCalcolata: b.inclusa,
+    });
+    expect(e.check1Cent).toBe(base.check1Cent + (b.inclusa ? v.limiteCent - b.limiteCent : 0));
+    expect(e.avvertenze.some(a => a.includes("«") && a.includes("corretta a mano") && a.includes("progetto esecutivo"))).toBe(true);
+  });
+
+  it("la formula conserva il suo fattore (posa: ore × installatori × prezzo) e la parte fissa (pulizia)", () => {
+    const e = calcolaLimiti(righe(), con({ ...nessuna, codice: "posa", quantita: 8 }, { ...nessuna, codice: "pulizia", quantita: 10 }), t);
+    const posa = voce(e, "posa");
+    expect(posa.limiteCent).toBe(Math.round(posa.prezzoUnitCent * 8 * t.coefficienti.installatori));
+    expect(voce(base, "posa").dettaglio.fattore).toBe(t.coefficienti.installatori);
+    const pulizia = voce(e, "pulizia");
+    const fisso = euroToCent(voce(base, "pulizia").dettaglio.fisso as number);
+    expect(pulizia.limiteCent).toBe(fisso + pulizia.prezzoUnitCent * 10);
+    expect(voce(base, "pulizia").dettaglio.fattore).toBeUndefined();
+  });
+
+  it("prezzo corretto su un massimale: € 900/mq per i mq del blocco", () => {
+    const e = calcolaLimiti(righe(), con({ ...nessuna, codice: "massimale_A", prezzoUnitCent: 90000 }), t);
+    const v = voce(e, "massimale_A");
+    expect(v.limiteCent).toBe(Math.round(90000 * v.quantita));
+    expect(v.dettaglio.prezzoCalcolatoCent).toBe(voce(base, "massimale_A").prezzoUnitCent);
+  });
+
+  it("un limite forzato vince su quantità e prezzo; «esclusa» toglie la voce dai totali; un codice ignoto è ignorato con avvertenza", () => {
+    const e = calcolaLimiti(righe(), con(
+      { ...nessuna, codice: "sviluppo_ordine", quantita: 99, limiteCent: 123456 },
+      { ...nessuna, codice: "posa", inclusa: false, motivo: "posa del cliente" },
+      { ...nessuna, codice: "voce_che_non_esiste", quantita: 1 }
+    ), t);
+    const sviluppo = voce(e, "sviluppo_ordine");
+    expect(sviluppo.limiteCent).toBe(123456);
+    expect(sviluppo.dettaglio.limiteForzato).toBe(true);
+    const posa = voce(e, "posa");
+    expect(posa.inclusa).toBe(false);
+    expect(posa.limiteCent).toBe(voce(base, "posa").limiteCent);
+    expect(e.check1Cent).toBe(base.check1Cent - voce(base, "sviluppo_ordine").limiteCent + 123456 - voce(base, "posa").limiteCent);
+    expect(e.avvertenze.some(a => a.includes("esclusa dai totali") && a.includes("posa del cliente"))).toBe(true);
+    expect(e.avvertenze.some(a => a.includes("voce_che_non_esiste") && a.includes("ignorata"))).toBe(true);
+  });
+
+  it("una voce DEI corretta entra nel totale prodotti (T6) e nel CHECK 2 in centesimi", () => {
+    const e = calcolaLimiti(righe(), con({ ...nessuna, codice: "dei_riga_1", limiteCent: 100000, motivo: "prezzo concordato" }), t);
+    expect(voce(e, "dei_riga_1").limiteCent).toBe(100000);
+    const sommaDei = e.voci.filter(v => v.inclusa && v.codice.startsWith("dei_riga_")).reduce((s, v) => s + v.limiteCent, 0);
+    expect(e.deiProdottiCent).toBe(sommaDei);
+    expect(e.check2Cent).toBe(sommaDei + opereCheck2(e));
+    expect(e.limiteCent).toBe(Math.min(e.check1Cent, e.check2Cent!));
   });
 });

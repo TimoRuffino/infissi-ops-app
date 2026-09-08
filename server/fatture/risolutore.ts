@@ -12,6 +12,8 @@ export type InputRisolutore = {
   beniSignificativiCent: number;
   beniAltriCent: number;
   serviziCent: number;
+  /** Markup scritto a mano (08/09/2026): la prestazione diventa altri beni + servizi + markup e il totale segue, non il pattuito. */
+  markupForzatoCent?: number | null;
 };
 
 export type EsitoRisolutore = {
@@ -61,8 +63,13 @@ export function risolvi(input: InputRisolutore): EsitoRisolutore {
   const S = input.serviziCent;
   const avvertenze: string[] = [];
 
+  const forzato = input.markupForzatoCent ?? null;
   let P: number;
-  if (input.pattuitoTipo === "imponibile") {
+  if (forzato != null) {
+    // Markup scritto a mano: P = N + S + M, e il pattuito non comanda più il
+    // totale — lo scarto resta in `deltaPattuitoCent`, che lo dichiara.
+    P = N + S + forzato;
+  } else if (input.pattuitoTipo === "imponibile") {
     P = G - B;
   } else {
     P = Math.round((G - 1.22 * B) / 0.98);
@@ -71,7 +78,7 @@ export function risolvi(input: InputRisolutore): EsitoRisolutore {
 
   let scelto = riepilogoPer(B, P);
   let deltaPattuitoCent = input.pattuitoTipo === "lordo" ? scelto.totaleCent - G : scelto.imponibileCent - G;
-  if (input.pattuitoTipo === "lordo" && deltaPattuitoCent !== 0) {
+  if (forzato == null && input.pattuitoTipo === "lordo" && deltaPattuitoCent !== 0) {
     // Il centesimo che l'IVA non restituisce: si cerca intorno a P (spec §7.2).
     for (const passo of [1, -1, 2, -2, 3, -3]) {
       const tentativo = riepilogoPer(B, P + passo);

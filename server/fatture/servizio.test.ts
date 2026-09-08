@@ -1675,3 +1675,50 @@ describe("anagrafica in fattura", () => {
     expect(`${scheda.cognome} ${scheda.nome}`).toBe(`${privato.cognome} ${privato.nome}`);
   });
 });
+
+describe("markup scritto a mano (08/09/2026)", () => {
+  it("dal contratto: il markup forzato vince sul calcolo e il Δ pattuito lo dice; null torna al calcolo; il riequilibrio lo azzera", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const forzata = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE, ...dip(),
+      modifica: { markupForzatoCent: fattura.markupCent + 50000 },
+    });
+    expect(forzata.fattura.markupForzatoCent).toBe(fattura.markupCent + 50000);
+    expect(forzata.fattura.markupCent).toBe(fattura.markupCent + 50000);
+    expect(forzata.fattura.righe.find(r => r.tipo === "markup")?.importoCent).toBe(fattura.markupCent + 50000);
+    expect(forzata.fattura.deltaPattuitoCent).not.toBe(0);
+    const tornata = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: forzata.fattura.revisione, actorUserId: ATTORE, ...dip(),
+      modifica: { markupForzatoCent: null },
+    });
+    expect(tornata.fattura.markupForzatoCent).toBeNull();
+    expect(tornata.fattura.markupCent).toBe(fattura.markupCent);
+    expect(tornata.fattura.deltaPattuitoCent).toBe(fattura.deltaPattuitoCent);
+    const forzata2 = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: tornata.fattura.revisione, actorUserId: ATTORE, ...dip(),
+      modifica: { markupForzatoCent: 100000 },
+    });
+    const riequilibrata = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: forzata2.fattura.revisione, actorUserId: ATTORE, ...dip(),
+      modifica: { riequilibraBeniAMarkupCent: 200000 },
+    });
+    expect(riequilibrata.fattura.markupForzatoCent).toBeNull();
+  });
+
+  it("libera: il markup a mano entra nel totale, il pattuito lo segue e lo scarto resta zero", async () => {
+    const commessaId = await nuovaCommessa();
+    const { fattura } = await creaBozzaLibera({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const esito = await aggiornaBozza({
+      sedeId: SEDE, id: fattura.id, revisione: fattura.revisione, actorUserId: ATTORE, ...dip(),
+      modifica: {
+        righeAggiunte: [{ tipo: "bene", descrizione: "Porta", importoCent: 100000, aliquota: 22, beneSignificativo: true }],
+        markupForzatoCent: 20000,
+      },
+    });
+    expect(esito.fattura.markupCent).toBe(20000);
+    expect(esito.fattura.pattuitoCent).toBe(120000);
+    expect(esito.fattura.deltaPattuitoCent).toBe(0);
+    expect(esito.fattura.righe.some(r => r.tipo === "markup" && r.importoCent === 20000)).toBe(true);
+  });
+});

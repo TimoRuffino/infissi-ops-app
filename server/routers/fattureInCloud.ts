@@ -1229,7 +1229,12 @@ export const fattureInCloudRouter = router({
       const redirectUri =
         process.env.FIC_OAUTH_REDIRECT_URI?.trim() ||
         `${ctx.req.protocol}://${ctx.req.get("host")}${FIC_CALLBACK_PATH}`;
-      const scrittura = input?.scrittura ?? false;
+      // Un ricollegamento avviato senza dirlo («Ricollega account», «Ricollega e
+      // aggiorna permessi») non deve retrocedere un consenso di scrittura già
+      // dato: il token nuovo nascerebbe di sola lettura e il badge tornerebbe
+      // «non autorizzati» (visto in produzione, 08/09/2026). Chi non lo ha mai
+      // chiesto continua a partire in sola lettura.
+      const scrittura = input?.scrittura ?? (getCfg(ctx.sedeId).scopeScrittura ?? false);
       const state = issueFicOAuthState(
         ctx.sedeId ?? DEFAULT_SEDE_ID,
         redirectUri,

@@ -285,6 +285,10 @@ export default function BozzaFatturaEditor({
   const [nuovaRiga, setNuovaRiga] = useState<RigaAggiunta | null>(null);
   const [dialogoRiequilibrio, setDialogoRiequilibrio] = useState(false);
   const [markupTesto, setMarkupTesto] = useState("0,00");
+  // Markup scritto a mano (08/09/2026): `markupAMano` dice se il campo vale
+  // un importo forzato o mostra quello calcolato dal server.
+  const [markupAMano, setMarkupAMano] = useState(false);
+  const [markupTestoAMano, setMarkupTestoAMano] = useState("0,00");
   const [confermaEmissione, setConfermaEmissione] = useState(false);
   const [confermaRigenera, setConfermaRigenera] = useState(false);
   const [confermaAnnulla, setConfermaAnnulla] = useState(false);
@@ -320,6 +324,8 @@ export default function BozzaFatturaEditor({
     setScavalco({ attivo: f.scavalcoLimiti, motivo: f.scavalcoMotivo ?? "" });
     setAnagrafica(anagraficaDaSnapshot(f.clienteSnapshot));
     setDetrazione(f.detrazioneTipo);
+    setMarkupAMano(f.markupForzatoCent != null);
+    setMarkupTestoAMano(formatEuro((f.markupForzatoCent ?? f.markupCent) / 100));
   }, [dettaglio.data, sporco]);
 
   function ricarica(): void {
@@ -559,6 +565,14 @@ export default function BozzaFatturaEditor({
         motivo: scavalco.motivo.trim() || null,
       };
     }
+    // Markup scritto a mano (08/09/2026): un importo quando è a mano e diverso
+    // da quello salvato; `null` quando si torna al calcolo.
+    if (markupAMano) {
+      const cent = centDaTesto(markupTestoAMano);
+      if (cent != null && cent !== f.markupForzatoCent) modifica.markupForzatoCent = cent;
+    } else if (f.markupForzatoCent != null) {
+      modifica.markupForzatoCent = null;
+    }
     // Anagrafica: solo i campi cambiati; i campi opzionali vuoti vanno a null.
     const base = anagraficaDaSnapshot(f.clienteSnapshot);
     const cambiati = CAMPI_ANAGRAFICA.filter(c => anagrafica[c] !== base[c]);
@@ -715,9 +729,13 @@ export default function BozzaFatturaEditor({
                                 <Badge
                                   variant="outline"
                                   className="ml-2 align-middle"
-                                  title="La calcola il sistema: si rifà a ogni salvataggio, non si modifica a mano."
+                                  title={
+                                    r.tipo === "markup" && f.markupForzatoCent != null
+                                      ? "Markup scritto a mano: vale l'importo indicato, il totale lo segue."
+                                      : "La calcola il sistema: si rifà a ogni salvataggio, non si modifica a mano."
+                                  }
                                 >
-                                  calcolata
+                                  {r.tipo === "markup" && f.markupForzatoCent != null ? "a mano" : "calcolata"}
                                 </Badge>
                               )}
                             </TableCell>
@@ -777,9 +795,13 @@ export default function BozzaFatturaEditor({
                             <Badge
                               variant="outline"
                               className="shrink-0"
-                              title="La calcola il sistema: si rifà a ogni salvataggio."
+                              title={
+                                r.tipo === "markup" && f.markupForzatoCent != null
+                                  ? "Markup scritto a mano: vale l'importo indicato."
+                                  : "La calcola il sistema: si rifà a ogni salvataggio."
+                              }
                             >
-                              calcolata
+                              {r.tipo === "markup" && f.markupForzatoCent != null ? "a mano" : "calcolata"}
                             </Badge>
                           )}
                           {campi.rimozione}
@@ -880,7 +902,7 @@ export default function BozzaFatturaEditor({
                 disabled={!haBeniSignificativi || inCorso || f.origine === "libera"}
                 title={
                   f.origine === "libera"
-                    ? "Su una fattura libera il markup è sempre zero: il totale sono le righe."
+                    ? "Su una fattura libera non c'è un pattuito da tenere: il markup si scrive a mano qui accanto."
                     : haBeniSignificativi
                       ? undefined
                       : "Senza beni significativi non c'è nulla da riequilibrare."
@@ -892,6 +914,55 @@ export default function BozzaFatturaEditor({
               >
                 <Scale className="h-4 w-4 mr-1" /> Riequilibra i beni
               </Button>
+              {/* Markup scritto a mano (08/09/2026): cambia il totale, non il
+                  pattuito — lo scarto lo dice «Δ pattuito» nel riepilogo. */}
+              <div className="flex items-center gap-2 min-w-0">
+                <Label htmlFor="markup-a-mano" className="text-xs text-text-3 whitespace-nowrap">
+                  Markup
+                </Label>
+                <Input
+                  id="markup-a-mano"
+                  inputMode="decimal"
+                  className="h-9 w-32 text-right tabular-nums"
+                  aria-label="Markup, scritto a mano se cambiato"
+                  disabled={!puoModificare || inCorso}
+                  value={markupAMano ? markupTestoAMano : formatEuro(f.markupCent / 100)}
+                  onChange={e => {
+                    tocca();
+                    setMarkupAMano(true);
+                    setMarkupTestoAMano(e.target.value);
+                  }}
+                  onBlur={() => {
+                    if (markupAMano) {
+                      setMarkupTestoAMano(formatEuro((centDaTesto(markupTestoAMano) ?? f.markupCent) / 100));
+                    }
+                  }}
+                />
+                <Badge
+                  variant={markupAMano ? "warning" : "outline"}
+                  title={
+                    markupAMano
+                      ? "Scritto a mano: il totale segue, lo scarto dal pattuito è nel riepilogo (Δ pattuito). Per tenere il pattuito, scala i beni con «Riequilibra»."
+                      : "Calcolato dal sistema: prestazione − altri beni − servizi. Scrivi un importo per forzarlo."
+                  }
+                >
+                  {markupAMano ? "a mano" : "calcolato"}
+                </Badge>
+                {markupAMano && puoModificare && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    disabled={inCorso}
+                    onClick={() => {
+                      tocca();
+                      setMarkupAMano(false);
+                    }}
+                  >
+                    Torna al calcolo
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           </div>
