@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 
 beforeEach(() => {
@@ -118,5 +118,45 @@ describe("repository tenant in memoria", () => {
     expect((await repo.tenantSedi()).map(r => r.sedeId)).toEqual([1, 2]);
     await repo.sincronizzaTenantSedi([]);
     expect((await repo.tenantSedi()).length).toBe(2);
+  });
+
+  it("storage: la riga nasce al primo delta, incrementa, non scende sotto zero, porta la quota", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    expect(await repo.storageDi(1)).toBeNull();
+    const a = await repo.aggiornaStorage(1, 1000, 1);
+    expect(a).toMatchObject({ tenantId: 1, bytes: 1000, file: 1, quotaBytes: 100 * 1024 ** 3, sogliaAvvisata: 0, ricalcolatoIl: null });
+    const b = await repo.aggiornaStorage(1, -5000, -3);
+    expect(b).toMatchObject({ bytes: 0, file: 0 });
+    const c = await repo.impostaStorage(1, { bytes: 42, file: 2 });
+    expect(c.bytes).toBe(42);
+    expect(c.ricalcolatoIl).toBeInstanceOf(Date);
+    await repo.impostaSogliaAvvisata(1, 80);
+    expect((await repo.storageDi(1))?.sogliaAvvisata).toBe(80);
+    const t = await repo.impostaQuotaStorage(1, 10);
+    expect(t.storageQuotaBytes).toBe(10);
+    expect((await repo.storageDi(1))?.quotaBytes).toBe(10);
+  });
+
+  it("oauth_state: consumo unico, tipo giusto, scadenza", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    const state = await repo.emettiStateOAuth({ tipo: "fic", tenantId: 1, sedeId: 3, utenteId: 7, payload: { redirectUri: "https://x/cb", scrittura: true } });
+    expect(state).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(await repo.consumaStateOAuth(state, "gdrive")).toBeNull();
+    const riga = await repo.consumaStateOAuth(state, "fic");
+    expect(riga).toMatchObject({ tipo: "fic", tenantId: 1, sedeId: 3, utenteId: 7, payload: { redirectUri: "https://x/cb", scrittura: true } });
+    expect(await repo.consumaStateOAuth(state, "fic")).toBeNull(); // già consumato
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date"] });
+    const scaduto = await repo.emettiStateOAuth({ tipo: "gdrive", tenantId: 1, sedeId: null, utenteId: 7, payload: {} });
+    vi.setSystemTime(Date.now() + 11 * 60_000);
+    expect(await repo.consumaStateOAuth(scaduto, "gdrive")).toBeNull();
+    // 2, non 1: il primo state ("fic") ha lo stesso TTL di 10 minuti ed è
+    // nato pochi istanti prima dello snapshot dell'orologio finto; avanzare
+    // di 11 minuti lo scade anche se è già stato consumato. `pulisciStateScaduti`
+    // pulisce per scadenza (spec WS3 §5: «pulizia delle righe scadute»), senza
+    // eccezione per le righe già consumate.
+    expect(await repo.pulisciStateScaduti()).toBe(2);
+    vi.useRealTimers();
   });
 });

@@ -3,20 +3,26 @@
 // l'unico file che scrive `tenants`, `tenant_eventi`, `tenant_comandi`
 // (guardia strutturale in confine.test.ts). La cache dei tenant vive qui:
 // una replica sola, aggiornata da ogni scrittura.
+import { randomBytes } from "node:crypto";
 import { kvSql } from "../_core/persistence";
 import {
   MESSAGGI,
+  QUOTA_STORAGE_PREDEFINITA_BYTES,
   TENANT_PREDEFINITO_ID,
   TENANT_PREDEFINITO_NOME,
   TENANT_PREDEFINITO_SLUG,
+  TTL_STATE_OAUTH_MS,
 } from "./costanti";
 import type {
+  StateOAuth,
+  StatoStorage,
   StatoTenant,
   TenantComando,
   TenantEvento,
   TenantRecord,
   TipoComando,
   TipoEvento,
+  TipoStateOAuth,
 } from "./tipi";
 
 export type EsitoComando = Record<string, unknown>;
@@ -75,6 +81,27 @@ export type TenantRepository = {
     righe: ReadonlyArray<{ sedeId: number; tenantId: number }>
   ): Promise<void>;
   tenantSedi(): Promise<Array<{ sedeId: number; tenantId: number }>>;
+
+  // ── Contabilità storage (WS3 §3.2) ─────────────────────────────────────
+  storageDi(tenantId: number): Promise<StatoStorage | null>;
+  /** Upsert, incremento atomico; `bytes`/`file` non scendono mai sotto zero. */
+  aggiornaStorage(tenantId: number, deltaBytes: number, deltaFile: number): Promise<StatoStorage>;
+  /** Ricalcolo da zero (sostituisce, non somma) e timbra `ricalcolatoIl`. */
+  impostaStorage(tenantId: number, valori: { bytes: number; file: number }): Promise<StatoStorage>;
+  impostaSogliaAvvisata(tenantId: number, soglia: 0 | 50 | 80 | 100): Promise<void>;
+  impostaQuotaStorage(tenantId: number, quotaBytes: number): Promise<TenantRecord>;
+
+  // ── `state` OAuth (WS3 §5) ──────────────────────────────────────────────
+  emettiStateOAuth(input: {
+    tipo: TipoStateOAuth;
+    tenantId: number;
+    sedeId: number | null;
+    utenteId: number;
+    payload: Record<string, unknown>;
+  }): Promise<string>;
+  /** Consumo una tantum entro il TTL: la seconda chiamata restituisce `null`. */
+  consumaStateOAuth(state: string, tipo: TipoStateOAuth): Promise<StateOAuth | null>;
+  pulisciStateScaduti(): Promise<number>;
 };
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -104,9 +131,25 @@ function createMemoryTenantRepository(): TenantRepository {
   const eventi: TenantEvento[] = [];
   const comandi: TenantComando[] = [];
   const sedi = new Map<number, number>(); // sedeId → tenantId
+  const storage = new Map<number, StatoStorage>();
+  const states = new Map<string, StateOAuth & { consumatoIl: Date | null }>();
   let prossimoTenant = 1;
   let prossimoEvento = 1;
   let prossimoComando = 1;
+
+  // La quota vive su `tenants`, non sulla riga di `storage`: rileggerla ad
+  // ogni accesso evita che `impostaQuotaStorage` e la riga storage divergano.
+  const quotaDi = (tenantId: number) =>
+    tenants.find(t => t.id === tenantId)?.storageQuotaBytes ?? QUOTA_STORAGE_PREDEFINITA_BYTES;
+  const rigaStorage = (tenantId: number): StatoStorage => {
+    let s = storage.get(tenantId);
+    if (!s) {
+      s = { tenantId, bytes: 0, file: 0, quotaBytes: quotaDi(tenantId), sogliaAvvisata: 0, ricalcolatoIl: null, aggiornatoIl: new Date() };
+      storage.set(tenantId, s);
+    }
+    s.quotaBytes = quotaDi(tenantId);
+    return s;
+  };
 
   const repo: TenantRepository = {
     async ensureSchema() {},
@@ -130,6 +173,7 @@ function createMemoryTenantRepository(): TenantRepository {
         motivoStato: null,
         createdAt: now,
         updatedAt: now,
+        storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
       };
       tenants.push(t);
       return clone(t);
@@ -214,6 +258,52 @@ function createMemoryTenantRepository(): TenantRepository {
         .map(([sedeId, tenantId]) => ({ sedeId, tenantId }))
         .sort((a, b) => a.sedeId - b.sedeId);
     },
+    async storageDi(tenantId) {
+      const s = storage.get(tenantId);
+      return s ? clone({ ...s, quotaBytes: quotaDi(tenantId) }) : null;
+    },
+    async aggiornaStorage(tenantId, deltaBytes, deltaFile) {
+      const s = rigaStorage(tenantId);
+      s.bytes = Math.max(0, s.bytes + deltaBytes);
+      s.file = Math.max(0, s.file + deltaFile);
+      s.aggiornatoIl = new Date();
+      return clone(s);
+    },
+    async impostaStorage(tenantId, valori) {
+      const s = rigaStorage(tenantId);
+      s.bytes = Math.max(0, valori.bytes);
+      s.file = Math.max(0, valori.file);
+      s.ricalcolatoIl = new Date();
+      s.aggiornatoIl = s.ricalcolatoIl;
+      return clone(s);
+    },
+    async impostaSogliaAvvisata(tenantId, soglia) {
+      rigaStorage(tenantId).sogliaAvvisata = soglia;
+    },
+    async impostaQuotaStorage(tenantId, quotaBytes) {
+      const t = tenants.find(x => x.id === tenantId);
+      if (!t) throw new Error(`tenant ${tenantId} inesistente`);
+      t.storageQuotaBytes = quotaBytes;
+      t.updatedAt = new Date();
+      return clone(t);
+    },
+    async emettiStateOAuth(input) {
+      const state = randomBytes(24).toString("base64url");
+      states.set(state, { state, ...input, payload: clone(input.payload), scadeIl: new Date(Date.now() + TTL_STATE_OAUTH_MS), consumatoIl: null });
+      return state;
+    },
+    async consumaStateOAuth(state, tipo) {
+      const s = states.get(state);
+      if (!s || s.tipo !== tipo || s.consumatoIl || s.scadeIl.getTime() <= Date.now()) return null;
+      s.consumatoIl = new Date();
+      const { consumatoIl: _c, ...riga } = s;
+      return clone(riga);
+    },
+    async pulisciStateScaduti() {
+      let n = 0;
+      for (const [k, s] of states) if (s.scadeIl.getTime() <= Date.now()) { states.delete(k); n++; }
+      return n;
+    },
   };
   return repo;
 }
@@ -243,6 +333,8 @@ export function createPostgresTenantRepository(
     motivoStato: r.motivo_stato ?? null,
     createdAt: new Date(r.created_at),
     updatedAt: new Date(r.updated_at),
+    // `storage_quota_bytes` è BIGINT: postgres-js lo restituisce come stringa.
+    storageQuotaBytes: Number(r.storage_quota_bytes ?? QUOTA_STORAGE_PREDEFINITA_BYTES),
   });
   const rigaEvento = (r: any): TenantEvento => ({
     id: Number(r.id),
@@ -264,20 +356,44 @@ export function createPostgresTenantRepository(
     createdAt: new Date(r.created_at),
     eseguitoAt: r.eseguito_at ? new Date(r.eseguito_at) : null,
   });
+  const rigaStorage = (r: any, quotaBytes: number): StatoStorage => ({
+    tenantId: Number(r.tenant_id),
+    bytes: Number(r.bytes),
+    file: Number(r.file),
+    quotaBytes,
+    sogliaAvvisata: Number(r.soglia_avvisata) as StatoStorage["sogliaAvvisata"],
+    ricalcolatoIl: r.ricalcolato_il ? new Date(r.ricalcolato_il) : null,
+    aggiornatoIl: new Date(r.aggiornato_il),
+  });
+  const rigaState = (r: any): StateOAuth => ({
+    state: r.state,
+    tipo: r.tipo,
+    tenantId: Number(r.tenant_id),
+    sedeId: r.sede_id == null ? null : Number(r.sede_id),
+    utenteId: Number(r.utente_id),
+    payload: r.payload ?? {},
+    scadeIl: new Date(r.scade_il),
+  });
   const memorizza = (t: TenantRecord): TenantRecord => {
     cache.set(t.id, t);
     return clone(t);
   };
   const allineaSequenza = () =>
     sql`SELECT setval(pg_get_serial_sequence('tenants', 'id'), GREATEST((SELECT MAX(id) FROM tenants), 1))`;
+  // La quota vive sulla cache dei tenant (già caricata da caricaCache/inserisci
+  // /impostaQuotaStorage): niente una SELECT su `tenants` in più per ogni riga di storage.
+  const quotaDi = (tenantId: number) => cache.get(tenantId)?.storageQuotaBytes ?? QUOTA_STORAGE_PREDEFINITA_BYTES;
 
   // Sonda in sola lettura (spec WS1 §6.3): `to_regclass` è NULL se la tabella manca.
   const verificaSchema = async (): Promise<void> => {
     const rows = await sql`SELECT to_regclass('tenants') AS tenants,
       to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi,
-      to_regclass('tenant_sedi') AS sedi`;
+      to_regclass('tenant_sedi') AS sedi, to_regclass('tenant_storage') AS storage,
+      to_regclass('oauth_state') AS oauth`;
     const r = rows[0];
-    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi) throw new Error(MESSAGGI.schemaAssente);
+    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi || !r?.storage || !r?.oauth) {
+      throw new Error(MESSAGGI.schemaAssente);
+    }
   };
 
   const creaSchema = (): Promise<void> =>
@@ -313,7 +429,7 @@ export function createPostgresTenantRepository(
           FOR EACH ROW EXECUTE FUNCTION tenant_eventi_solo_insert()`;
         await tx`CREATE TABLE IF NOT EXISTS tenant_comandi (
           id BIGSERIAL PRIMARY KEY,
-          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario')),
+          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi')),
           tenant_id BIGINT,
           payload JSONB NOT NULL,
           stato TEXT NOT NULL DEFAULT 'in_attesa' CHECK (stato IN ('in_attesa','eseguito','errore')),
@@ -333,6 +449,42 @@ export function createPostgresTenantRepository(
           tenant_id BIGINT NOT NULL REFERENCES tenants(id),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Contabilità dei byte per azienda (WS3, spec §3.2): la riga nasce al
+        // primo upload o al ricalcolo; la quota sta su `tenants`. `tx.unsafe`
+        // (come in tabelle.ts): Postgres non riesce a dedurre il tipo di un
+        // parametro bindato dentro un DEFAULT di ALTER TABLE ("could not
+        // determine data type of parameter $1"); qui il valore è una costante
+        // interna, mai input utente, quindi inserirlo nel testo è sicuro.
+        await tx.unsafe(
+          `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS storage_quota_bytes BIGINT NOT NULL DEFAULT ${QUOTA_STORAGE_PREDEFINITA_BYTES}`
+        );
+        await tx`CREATE TABLE IF NOT EXISTS tenant_storage (
+          tenant_id BIGINT PRIMARY KEY REFERENCES tenants(id),
+          bytes BIGINT NOT NULL DEFAULT 0,
+          file INTEGER NOT NULL DEFAULT 0,
+          soglia_avvisata INTEGER NOT NULL DEFAULT 0,
+          ricalcolato_il TIMESTAMPTZ,
+          aggiornato_il TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`;
+        // `state` OAuth persistiti (spec §5): una replica sola oggi, ma una
+        // mappa in memoria muore a ogni deploy e non sa di quale azienda è.
+        await tx`CREATE TABLE IF NOT EXISTS oauth_state (
+          state TEXT PRIMARY KEY,
+          tipo TEXT NOT NULL CHECK (tipo IN ('fic','gdrive')),
+          tenant_id BIGINT NOT NULL REFERENCES tenants(id),
+          sede_id BIGINT,
+          utente_id BIGINT NOT NULL,
+          payload JSONB NOT NULL,
+          scade_il TIMESTAMPTZ NOT NULL,
+          consumato_il TIMESTAMPTZ
+        )`;
+        await tx`CREATE INDEX IF NOT EXISTS oauth_state_scade_idx ON oauth_state (scade_il)`;
+        // Tipi di comando nuovi: il CHECK di `tenant_comandi` è nato nel WS1 con
+        // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
+        // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
+        await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
+        await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
+          CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi'))`;
       })
       .then(() => undefined);
 
@@ -465,6 +617,62 @@ export function createPostgresTenantRepository(
       await ensureSchema();
       const rows = await sql`SELECT sede_id, tenant_id FROM tenant_sedi ORDER BY sede_id`;
       return rows.map(r => ({ sedeId: Number(r.sede_id), tenantId: Number(r.tenant_id) }));
+    },
+    async storageDi(tenantId) {
+      await ensureSchema();
+      const rows = await sql`SELECT * FROM tenant_storage WHERE tenant_id = ${tenantId}`;
+      return rows.length ? rigaStorage(rows[0], quotaDi(tenantId)) : null;
+    },
+    async aggiornaStorage(tenantId, deltaBytes, deltaFile) {
+      await ensureSchema();
+      const rows = await sql`INSERT INTO tenant_storage (tenant_id, bytes, file)
+        VALUES (${tenantId}, GREATEST(${deltaBytes}, 0), GREATEST(${deltaFile}, 0))
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          bytes = GREATEST(tenant_storage.bytes + ${deltaBytes}, 0),
+          file = GREATEST(tenant_storage.file + ${deltaFile}, 0),
+          aggiornato_il = NOW()
+        RETURNING *`;
+      return rigaStorage(rows[0], quotaDi(tenantId));
+    },
+    async impostaStorage(tenantId, valori) {
+      await ensureSchema();
+      const rows = await sql`INSERT INTO tenant_storage (tenant_id, bytes, file, ricalcolato_il)
+        VALUES (${tenantId}, GREATEST(${valori.bytes}, 0), GREATEST(${valori.file}, 0), NOW())
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          bytes = EXCLUDED.bytes, file = EXCLUDED.file, ricalcolato_il = NOW(), aggiornato_il = NOW()
+        RETURNING *`;
+      return rigaStorage(rows[0], quotaDi(tenantId));
+    },
+    async impostaSogliaAvvisata(tenantId, soglia) {
+      await ensureSchema();
+      // ON CONFLICT: la soglia può arrivare prima che un delta abbia mai
+      // creato la riga (es. ricalcolo a freddo su un tenant appena nato).
+      await sql`INSERT INTO tenant_storage (tenant_id, soglia_avvisata) VALUES (${tenantId}, ${soglia})
+        ON CONFLICT (tenant_id) DO UPDATE SET soglia_avvisata = EXCLUDED.soglia_avvisata, aggiornato_il = NOW()`;
+    },
+    async impostaQuotaStorage(tenantId, quotaBytes) {
+      await ensureSchema();
+      const rows = await sql`UPDATE tenants SET storage_quota_bytes = ${quotaBytes}, updated_at = NOW() WHERE id = ${tenantId} RETURNING *`;
+      if (!rows.length) throw new Error(`tenant ${tenantId} inesistente`);
+      return memorizza(rigaTenant(rows[0]));
+    },
+    async emettiStateOAuth(input) {
+      await ensureSchema();
+      const state = randomBytes(24).toString("base64url");
+      await sql`INSERT INTO oauth_state (state, tipo, tenant_id, sede_id, utente_id, payload, scade_il)
+        VALUES (${state}, ${input.tipo}, ${input.tenantId}, ${input.sedeId}, ${input.utenteId}, ${sql.json(input.payload as any)}, NOW() + make_interval(secs => ${TTL_STATE_OAUTH_MS / 1000}))`;
+      return state;
+    },
+    async consumaStateOAuth(state, tipo) {
+      await ensureSchema();
+      const rows = await sql`UPDATE oauth_state SET consumato_il = NOW()
+        WHERE state = ${state} AND tipo = ${tipo} AND consumato_il IS NULL AND scade_il > NOW() RETURNING *`;
+      return rows.length ? rigaState(rows[0]) : null;
+    },
+    async pulisciStateScaduti() {
+      await ensureSchema();
+      const rows = await sql`DELETE FROM oauth_state WHERE scade_il <= NOW() RETURNING state`;
+      return rows.length;
     },
   };
   return repo;

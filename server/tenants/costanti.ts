@@ -11,6 +11,12 @@ export const CAPABILITY_PROPRIETARI = "tenant.manage_proprietari" as const;
 
 export const INTERVALLO_COMANDI_MS = 30_000;
 
+/** Quota di storage per un'azienda nuova, finché nessuno la cambia (WS3 §3.2). */
+export const QUOTA_STORAGE_PREDEFINITA_BYTES = 100 * 1024 ** 3; // 100 GiB
+
+/** Un `state` OAuth non consumato entro questa finestra è scaduto (WS3 §5). */
+export const TTL_STATE_OAUTH_MS = 10 * 60_000;
+
 /** Minuscole, cifre, trattini interni; da 1 a 40 caratteri. */
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 

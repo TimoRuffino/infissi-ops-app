@@ -282,6 +282,12 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         else await revocaProprietario(id, utente.id, attore);
         return { tenantId: id, utenteId: utente.id };
       }
+      // `ricalcola_storage` (Task 4) e `ripristina_archivi` (Task 8/9) sono
+      // solo tipi ancora, accodabili ma non eseguibili: il control plane del
+      // WS3 (Task 2) nasce prima dei servizi che li gestiscono davvero.
+      case "ricalcola_storage":
+      case "ripristina_archivi":
+        throw new Error(`comando ${comando.tipo} non ancora implementato`);
     }
   } catch (e) {
     const tenantId = comando.tenantId ?? getTenantRepository().perSlug(String((comando.payload as any)?.slug ?? ""))?.id;

@@ -26,12 +26,12 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     // parallelo (senza, i DROP di qui cadrebbero in mezzo alle sue prove).
     riservata = await sql.reserve();
     await riservata`SELECT pg_advisory_lock(${LOCK_TENANT_PG})`;
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     resetTenantRepositoryForTesting();
   });
 
   afterAll(async () => {
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     if (riservata) {
       await riservata`SELECT pg_advisory_unlock(${LOCK_TENANT_PG})`;
       riservata.release();
@@ -117,7 +117,7 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
   });
 
   it("con creaSchema:false lo script non esegue DDL: si ferma se le tabelle mancano e non ricrea il trigger", async () => {
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     const soloLettura = createPostgresTenantRepository(sql, { creaSchema: false });
     await expect(soloLettura.caricaCache()).rejects.toThrow(/control plane del tenant assenti/);
     expect((await sql`SELECT to_regclass('tenants') AS t`)[0].t).toBeNull();
@@ -145,5 +145,41 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     resetTenantRepositoryForTesting();
     await getTenantRepository().ensureSchema();
     expect((await sql`SELECT to_regclass('tenant_sedi') AS t`)[0].t).not.toBeNull();
+  });
+
+  it("storage e oauth_state su Postgres: incremento atomico, soglia, quota, consumo unico, CHECK dei comandi nuovi", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    await repo.assicuraTenantPredefinito();
+    await Promise.all([repo.aggiornaStorage(1, 10, 1), repo.aggiornaStorage(1, 20, 1), repo.aggiornaStorage(1, -5, 0)]);
+    expect(await repo.storageDi(1)).toMatchObject({ bytes: 25, file: 2, quotaBytes: 100 * 1024 ** 3 });
+    await repo.impostaSogliaAvvisata(1, 50);
+    expect((await repo.storageDi(1))?.sogliaAvvisata).toBe(50);
+    expect((await repo.impostaQuotaStorage(1, 1234)).storageQuotaBytes).toBe(1234);
+    expect((await repo.storageDi(1))?.quotaBytes).toBe(1234);
+    const state = await repo.emettiStateOAuth({ tipo: "gdrive", tenantId: 1, sedeId: null, utenteId: 1, payload: { a: 1 } });
+    expect((await repo.consumaStateOAuth(state, "gdrive"))?.payload).toEqual({ a: 1 });
+    expect(await repo.consumaStateOAuth(state, "gdrive")).toBeNull();
+    const c = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: 1, payload: { slug: "ruffino-group" }, richiestoDa: "test" });
+    expect(c.tipo).toBe("ricalcola_storage");
+  });
+
+  it("lo schema del WS3 è idempotente anche sopra uno schema del WS2 (CHECK vecchio a terra)", async () => {
+    await sql`DROP TABLE IF EXISTS tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
+      stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')), motivo_stato TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+    await sql`CREATE TABLE tenant_comandi (id BIGSERIAL PRIMARY KEY,
+      tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario')),
+      tenant_id BIGINT, payload JSONB NOT NULL, stato TEXT NOT NULL DEFAULT 'in_attesa', esito JSONB,
+      richiesto_da TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), eseguito_at TIMESTAMPTZ)`;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.assicuraTenantPredefinito();
+    const c = await repo.accodaComando({ tipo: "ripristina_archivi", tenantId: 1, payload: {}, richiestoDa: "test" });
+    expect(c.tipo).toBe("ripristina_archivi");
+    expect((await sql`SELECT storage_quota_bytes FROM tenants WHERE id = 1`)[0].storage_quota_bytes).toBe(String(100 * 1024 ** 3));
   });
 });

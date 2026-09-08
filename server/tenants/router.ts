@@ -2,6 +2,7 @@
 import { router, sessionProcedure } from "../_core/trpc";
 import { interruttoreAttivo } from "../platform/interruttori";
 import {
+  QUOTA_STORAGE_PREDEFINITA_BYTES,
   RUOLO_PROPRIETARIO,
   TENANT_PREDEFINITO_ID,
   TENANT_PREDEFINITO_NOME,
@@ -21,6 +22,7 @@ function tenantPredefinitoSintetico(): TenantRecord {
     motivoStato: null,
     createdAt: now,
     updatedAt: now,
+    storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
   };
 }
 
