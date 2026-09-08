@@ -15,10 +15,11 @@ import {
   spiegaVoce,
 } from "@/lib/limitiView";
 import CorreggiVoceDialog from "@/components/computo/CorreggiVoceDialog";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, Calculator, Info, Pencil, Printer, ReceiptText } from "lucide-react";
+import { AlertTriangle, Calculator, Info, Pencil, Printer, ReceiptText, Trash2 } from "lucide-react";
 import { hrefStampaLimiti } from "@/lib/limitiStampaView";
 
 const TONO: Record<"success" | "warning" | "muted", string> = {
@@ -62,6 +63,20 @@ export default function LimitiTab({
   // La voce aperta nel dialog «Correggi la voce» (08/09/2026): hook prima
   // delle uscite anticipate qui sotto (React #310).
   const [daCorreggere, setDaCorreggere] = useState<VoceComputo | null>(null);
+  // Cancellazione dei computi (08/09/2026, «devo poter eliminare i limiti già
+  // fatti»): conferma umana, poi il passo torna «da fare».
+  const [confermaElimina, setConfermaElimina] = useState(false);
+  const elimina = trpc.computo.elimina.useMutation({
+    onSuccess: esito => {
+      utils.computo.ultimo.invalidate({ commessaId });
+      void utils.fatturazioneGuidata.passi.invalidate({ commessaId });
+      void utils.fatturazioneGuidata.daFare.invalidate();
+      setConfermaElimina(false);
+      toast.success(esito.eliminati > 0 ? "Limiti eliminati: si ricalcolano quando serve" : "Nessun computo da eliminare");
+      onCambiato?.();
+    },
+    onError: e => toast.error(e.message),
+  });
 
   if (q.error) return <p className="text-sm text-danger py-6">{q.error.message}</p>;
   if (!q.data) return <p className="text-sm text-muted-foreground py-6">Caricamento limiti…</p>;
@@ -146,6 +161,19 @@ export default function LimitiTab({
           >
             <Calculator className="h-3.5 w-3.5 mr-1" />
             {c ? "Ricalcola" : "Calcola i limiti"}
+          </Button>
+        )}
+        {c && stato.puoEseguire && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={`${guidata ? "min-h-11" : "h-7"} text-danger hover:text-danger hover:bg-danger-soft`}
+            aria-label="Elimina i limiti calcolati"
+            title="Cancella i computi di questa commessa: il passo torna da fare"
+            disabled={elimina.isPending}
+            onClick={() => setConfermaElimina(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> Elimina
           </Button>
         )}
       </div>
@@ -281,6 +309,16 @@ export default function LimitiTab({
           </p>
         </>
       )}
+      <ConfirmDialog
+        open={confermaElimina}
+        onOpenChange={setConfermaElimina}
+        title="Eliminare i limiti calcolati?"
+        description="Tutti i computi di questa commessa spariscono: il passo Limiti torna da fare, il passaggio di stato torna a chiedere il computo e una bozza di fattura resta senza limiti da controllare. Contratto e correzioni a mano restano: si ricalcola quando serve."
+        confirmLabel="Elimina i limiti"
+        cancelLabel="Resta"
+        busy={elimina.isPending}
+        onConfirm={() => elimina.mutate({ commessaId })}
+      />
       <CorreggiVoceDialog
         commessaId={commessaId}
         voce={daCorreggere}

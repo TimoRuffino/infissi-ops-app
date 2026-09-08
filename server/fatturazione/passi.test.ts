@@ -328,3 +328,15 @@ describe("calcolaPassi", () => {
     expect(r.passi.documenti).toBe("fatto");
   });
 });
+
+describe("calcolaPassi — fattura FiC collegata (08/09/2026)", () => {
+  it("(r) una fattura FiC collegata chiude il passo Fattura anche senza fatture CRM; il resto del percorso non cambia", () => {
+    const r = calcolaPassi(ingresso({ fattureFic: 1 }));
+    expect(r.passi.fattura).toBe("fatto");
+    expect(r.passi.documenti).toBe("da_fare");
+    expect(r.prossimoPasso).toBe("documenti");
+    expect(r.fatturaStato).toBeNull();
+    expect(calcolaPassi(ingresso({ fattureFic: 0 })).passi.fattura).toBe("da_fare");
+    expect(calcolaPassi(ingresso({ fattureFic: 1, flag: { limiti: true, fatturazione: false } })).passi.fattura).toBe("non_disponibile");
+  });
+});

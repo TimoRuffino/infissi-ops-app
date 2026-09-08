@@ -68,6 +68,13 @@ export default function FatturaTab({
   const [selezionata, setSelezionata] = useState<number | null>(null);
 
   const elenco = q.data?.fatture ?? [];
+  // Fatture FiC collegate (08/09/2026): la commessa è già fatturata da fuori.
+  // Si mostra la più recente; niente bozza dai limiti finché c'è.
+  const ficRecente = useMemo(() => {
+    const tutte = q.data?.fattureFic ?? [];
+    return [...tutte].sort((a, b) => a.data.localeCompare(b.data) || a.id - b.id).at(-1) ?? null;
+  }, [q.data?.fattureFic]);
+  const dataFic = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("it-IT");
 
   // Quale fattura si apre per prima: la bozza (il lavoro in corso), poi la
   // più recente ancora viva, infine l'ultima creata comunque sia finita.
@@ -178,6 +185,12 @@ export default function FatturaTab({
             </span>
             <span className="tabular-nums font-medium">{formatCent(fatturaLettura.totaleCent)}</span>
           </div>
+        ) : ficRecente ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
+            <Badge variant="success">Fatturata su Fatture in Cloud</Badge>
+            <span className="min-w-0 truncate">n. {ficRecente.numero} del {dataFic(ficRecente.data)}</span>
+            <span className="tabular-nums font-medium">{formatCent(ficRecente.lordoCent)}</span>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Nessuna fattura</p>
         )}
@@ -220,9 +233,9 @@ export default function FatturaTab({
 
   // Il server rifiuta una seconda fattura sulla commessa: finché ce n'è una
   // viva si passa dalla nota di credito, non da una bozza nuova.
-  const puoGenerare = elenco.every(
-    f => f.tipo !== "fattura" || f.stato === "annullata"
-  );
+  const puoGenerare =
+    ficRecente == null &&
+    elenco.every(f => f.tipo !== "fattura" || f.stato === "annullata");
   // Perché il pulsante è spento, detto a parole: prima si scopriva solo
   // dopo il click, con un errore. Finché contratto e computo non sono letti
   // il pulsante aspetta senza accusare nessuno.
@@ -299,7 +312,19 @@ export default function FatturaTab({
     // `mt-4` è lo stacco dalla linguetta della tab: nel percorso guidato la
     // spaziatura la porta la pagina.
     <div className={guidata ? "space-y-4 min-w-0" : "space-y-4 mt-4 min-w-0"}>
-      <FatturaPercorso passi={passiVisibili} onVai={vai} />
+      {/* Già fatturata da fuori: il percorso interno (bozza → SdI) non ha senso finché non nasce una fattura CRM. */}
+      {!(ficRecente && !fattura) && <FatturaPercorso passi={passiVisibili} onVai={vai} />}
+
+      {ficRecente && (
+        <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-success/40 bg-success-soft px-3 py-2 text-sm text-text-1">
+          <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
+          <span className="min-w-0">
+            <span className="font-semibold">Già fatturata su Fatture in Cloud:</span> n. {ficRecente.numero} del{" "}
+            {dataFic(ficRecente.data)} · {formatCent(ficRecente.lordoCent)}. La commessa conta come fatturata: nessuna
+            bozza dai limiti. Per un'altra fattura (acconto, lavori extra) usa la fattura libera.
+          </span>
+        </p>
+      )}
 
       {q.data.dryRun && (
         <p className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-text-1">

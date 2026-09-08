@@ -20,7 +20,7 @@ import { getFile } from "../_core/fileStorage";
 import { aggiornaDocumentoFic, contestoFicPerSede, creaSuFic, inviaAlloSdi } from "../fatture/emissione";
 import { creaClientFicEmissione } from "../fic/emissione";
 import { classificaRigheFic, confrontaLati, latoCrm } from "../fatture/confronto";
-import { ficFatture } from "./ficFatture";
+import { fattureFicCollegate, ficFatture } from "./ficFatture";
 import { creaNotaCredito } from "../fatture/notaCredito";
 import { getFattureRepository } from "../fatture/repository";
 import { sdiDryRun } from "../fatture/dryRun";
@@ -160,6 +160,11 @@ export const fattureRouter = router({
       ]);
       return {
         fatture: elenco.map(f => ({ ...f, righe: [], riepilogo: [], scadenze: [] })),
+        // Fatture FiC collegate (08/09/2026): la commessa è già fatturata da
+        // fuori; il tab lo dice e non propone la bozza dai limiti.
+        fattureFic: fattureFicCollegate(sedeId, input.commessaId).map(f => ({
+          id: f.id, numero: f.numero, data: f.data, lordoCent: Math.round(f.importoLordo * 100),
+        })),
         puoDraft: caps.has("fattura.draft"),
         puoEmettere: caps.has("fattura.emit"),
         puoNotaCredito: caps.has("fattura.credit_note"),

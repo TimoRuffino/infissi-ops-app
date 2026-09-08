@@ -57,6 +57,10 @@ export type CommessaMatchFic =
   // Aggancio deterministico su telefono, email, nome, indirizzo o identità
   // fiscale — la regola corrente (`ficMatch.ts`).
   | "automatico_segnali"
+  // Il cliente della fattura ha UNA sola commessa viva: è quella (08/09/2026,
+  // direzione: «l'ho fatta su Fatture in Cloud e nonostante ci fosse già una
+  // commessa riferimento Sica ne ha creata una nuova»).
+  | "automatico_cliente"
   | "automatico_fattura"
   // L'id del documento FiC coincide con una fattura già emessa dal CRM
   // (piano 2, fatturazione dal contratto): nasce collegata, salta il match
@@ -120,6 +124,22 @@ export type FatturaFic = {
   aggiornataAt: Date;
   pdfSync: PdfSyncFic;
 };
+
+/**
+ * Le fatture FiC che rendono una commessa «già fatturata» (08/09/2026): le
+ * fatture (non le note di credito) collegate alla commessa, della sede, non
+ * ignorate. Un solo posto per la regola: l'elenco «da fatturare» la usa per
+ * escludere, il passo Fattura per chiudersi, il tab Fattura per dirlo.
+ */
+export function fattureFicCollegate(sedeId: number, commessaId: number): FatturaFic[] {
+  return ficFatture.filter(
+    f =>
+      (f.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
+      f.commessaId === commessaId &&
+      f.tipo === "invoice" &&
+      !f.ignorata
+  );
+}
 
 function legacyRateSourceKey(
   documentoId: number,
@@ -619,11 +639,14 @@ export function collegaFattureAutomatiche(sedeId: number): {
 export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
   create: number;
   existing: number;
+  /** Collegate a una commessa viva del cliente invece di crearne una nuova. */
+  collegateAlCliente: number;
   ambiguous: number;
   skipped: number;
 }> {
   let create = 0;
   let existing = 0;
+  let collegateAlCliente = 0;
   let ambiguous = 0;
   let skipped = 0;
   for (const fattura of ficFatture) {
@@ -674,6 +697,30 @@ export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
       });
     }
     fattura.clienteId = cliente.id;
+    // Una commessa nuova solo se il cliente non ne ha già una viva: creare
+    // il doppione di un lavoro in corso è peggio che lasciare la fattura
+    // scollegata (direzione 08/09/2026). Con più commesse vive non si
+    // indovina: la fattura resta da collegare e decide una persona.
+    const vive = getCommesseStore().filter(
+      (c: any) =>
+        (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId &&
+        c.clienteId === cliente.id &&
+        !c.archivedAt &&
+        c.stato !== "archiviata"
+    );
+    if (vive.length === 1) {
+      fattura.commessaId = vive[0].id;
+      fattura.commessaMatch = "automatico_cliente";
+      fattura.collegataAMano = false;
+      fattura.pdfSync.stato = "in_attesa";
+      fattura.aggiornataAt = new Date();
+      collegateAlCliente++;
+      continue;
+    }
+    if (vive.length > 1) {
+      ambiguous++;
+      continue;
+    }
     const risultato = await createCommessaFromFic({
       sedeId,
       fatturaId: fattura.id,
@@ -692,8 +739,8 @@ export async function creaCommesseDaFattureFic(sedeId: number): Promise<{
     if (risultato.creata) create++;
     else existing++;
   }
-  if (create > 0 || existing > 0) saveFicFatture();
-  return { create, existing, ambiguous, skipped };
+  if (create > 0 || existing > 0 || collegateAlCliente > 0) saveFicFatture();
+  return { create, existing, collegateAlCliente, ambiguous, skipped };
 }
 
 /**
@@ -1273,6 +1320,47 @@ export const ficFattureRouter = router({
    * partire di straforo insieme al collegamento automatico significava
    * scoprire venti commesse create senza averlo chiesto.
    */
+  /**
+   * I doppioni nati dalle fatture: commesse create da FiC il cui cliente
+   * aveva già un lavoro aperto (08/09/2026). Sola lettura: dice che cosa
+   * sposterebbe, e chi decide è una persona, una riga alla volta.
+   */
+  doppioni: adminProcedure.query(async ({ ctx }) => {
+    const { doppioniDaFatture } = await import("../fic/doppioni");
+    return doppioniDaFatture(ctx.sedeId ?? DEFAULT_SEDE_ID);
+  }),
+
+  /** Unisce UN doppione nella commessa che resta, e lo elimina. */
+  unisciDoppione: adminProcedure
+    .input(
+      z.object({
+        duplicataId: z.number().int().positive(),
+        sopravviveId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { unisciDoppione } = await import("../fic/doppioni");
+      try {
+        return await unisciDoppione({
+          sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          duplicataId: input.duplicataId,
+          sopravviveId: input.sopravviveId,
+          utenteId: Number((ctx.user as any)?.id) || null,
+        });
+      } catch (errore) {
+        const messaggio =
+          errore instanceof Error ? errore.message : "Fusione non riuscita.";
+        throw new TRPCError({
+          code: messaggio.startsWith("NOT_FOUND")
+            ? "NOT_FOUND"
+            : messaggio.startsWith("PRECONDITION_FAILED")
+              ? "PRECONDITION_FAILED"
+              : "BAD_REQUEST",
+          message: messaggio.replace(/^[A-Z_]+:\s*/, ""),
+        });
+      }
+    }),
+
   creaCommesseMancanti: adminProcedure.mutation(async ({ ctx }) => {
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
     const esito = await creaCommesseDaFattureFic(sedeId);

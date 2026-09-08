@@ -571,6 +571,38 @@
 > «Riguarda questo messaggio» nel banner Tars
 > (`tars.smistamentoRiesamina`, esisteva già lato server, mancava il tasto).
 >
+> **08/09/2026 (sera) — «Le commesse vanno tenute aggiornate».** Tars non
+> proponeva mai un avanzamento di stato perché la fotografia dell'analisi
+> conosceva solo i gate MANCANTI: il documento già arrivato non era un
+> fatto. Aggiunta la sezione «Pronte per il passo successivo» in
+> `server/tars/analisi/fotografia.ts` (gate soddisfatto + stato successivo
+> dalla macchina a stati; fuori gli stati senza gate e il passo verso
+> `archiviata`) e la regola nel prompt (`analisi-v10`): lì la proposta è
+> `transizione_adiacente_commessa`, che era già fra le azioni eseguibili.
+> L'analisi si rigenera al cambio di versione del prompt, quindi le proposte
+> nuove arrivano col giro successivo.
+>
+> **08/09/2026 (sera) — Fatture FiC che creavano commesse doppie.**
+> `collegaFattureAutomatiche` lega solo se la fattura cita il codice
+> commessa; `creaCommesseDaFattureFic` controllava solo `ficSourceRef`,
+> quindi per il cliente che aveva già un lavoro aperto ne nasceva un altro.
+> Ora prima di creare guarda le commesse vive del cliente: una → collega
+> (`automatico_cliente`), più di una → lascia da collegare, nessuna → crea.
+> ATTENZIONE: in produzione ci sono **63 commesse già nate così** (una in
+> sede 2). Vanno unite a mano — scollegare la fattura, collegarla a quella
+> vera, eliminare la commessa vuota — oppure serve uno strumento di fusione,
+> che NON è stato scritto: cancellare commesse in produzione è una
+> decisione della direzione. Caso di riferimento: Sica Michele,
+> COM-2026-422 (da FiC) accanto a COM-2026-409 (quella vera, in
+> fatture_pagamento).
+>
+> Lo strumento ORA c'è (`server/fic/doppioni.ts`, sezione in Economia →
+> Fatture): elenca i doppioni con quello che sposterà e li unisce uno alla
+> volta. Rifiuta quando il cliente ha più di un'altra commessa viva o quando
+> dentro c'è lavoro vero (agenda, ticket, magazzino, costi, incassi).
+> I 63 casi in produzione restano da passare a mano, riga per riga: la
+> fusione elimina una commessa e non si annulla.
+>
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
 > unexpected error occurred», React #185 «Maximum update depth exceeded».
@@ -4343,6 +4375,18 @@ senza argomento eredita `cfg.scopeScrittura`. Da fare UNA volta in
 produzione: Integrazioni → Fatture in Cloud → «Ri-autorizza con permessi di
 scrittura», poi Contabilità → Fatturazione → «Verifica permessi». Non
 verificabile in demo. PRD 5.70.
+
+**Limiti eliminabili e fattura FiC collegata = già fatturata (08/09/2026,
+direzione).** `computo.elimina` + «Elimina» nel tab Limiti (tutti i computi
+della commessa, cascata sulle voci; contratto e correzioni restano).
+`fattureFicCollegate(sedeId, commessaId)` in `routers/ficFatture.ts` è la
+regola unica (fatture, non note, sede, non ignorate): elenco `/fatturazione`
+(che già escludeva), `calcolaPassi` (`fattureFic` → passo Fattura fatto),
+record dei passi (`fatturaFic`), `fatture.perCommessa` (`fattureFic`) e tab
+Fattura (avviso, niente bozza dai limiti, percorso interno nascosto).
+Sonda read-only prod: 7 commesse su 13 «da fatturare» con FiC collegata,
+già fuori dall'elenco; il buco era passo e tab. PRD 5.71. Verifica browser
+non eseguita.
 
 **Fatture libere, limiti opzionali, anagrafica in fattura (07/09/2026,
 direzione).** `fatture.creaBozzaLibera` apre una bozza vuota dentro la

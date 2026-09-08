@@ -4,7 +4,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { procedureConInterruttore, router } from "../_core/trpc";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
-import { correggiVoce, eseguiComputo, ultimoComputo } from "../computo/servizio";
+import { correggiVoce, eliminaComputi, eseguiComputo, ultimoComputo } from "../computo/servizio";
 import { getCommessaById } from "./commesse";
 import { DEFAULT_SEDE_ID } from "./sedi";
 
@@ -60,6 +60,19 @@ export const computoRouter = router({
         }
         throw errore;
       }
+    }),
+
+  /** Cancella i computi della commessa (08/09/2026): stessa capability del calcolo, conferma umana nella UI. */
+  elimina: procedura
+    .input(z.object({ commessaId: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      const sedeId = sedeCorrente(ctx);
+      commessaInSede(input.commessaId, sedeId);
+      await authorizeCoreOperation({
+        ctx, endpoint: "computo.elimina", capability: "computo.run",
+        resourceType: "computo", resource: { sedeId }, legacyAllowed: "capability",
+      });
+      return eliminaComputi({ sedeId, commessaId: input.commessaId, actorUserId: ctx.user?.id ?? null });
     }),
 
   /**

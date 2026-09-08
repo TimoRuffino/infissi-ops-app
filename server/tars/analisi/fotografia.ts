@@ -6,6 +6,7 @@ import { TZDate } from "@date-fns/tz";
 import { getActionCaseRepository } from "../../actionCenter/repository";
 import { OPEN_ACTION_STATUSES } from "../../actionCenter/service";
 import { getProposteStore } from "../../proposte/gateway";
+import { STATI_COMMESSA } from "../../commesse/transizioni";
 import { getCommesseStore } from "../../routers/commesse";
 import { ficFatture, statoFattura } from "../../routers/ficFatture";
 import { getOrdiniFornitoriStore } from "../../routers/fornitori";
@@ -65,6 +66,13 @@ function giornoLocale(istante: Date): string {
   const mm = String(locale.getMonth() + 1).padStart(2, "0");
   const dd = String(locale.getDate()).padStart(2, "0");
   return `${locale.getFullYear()}-${mm}-${dd}`;
+}
+
+/** Il passo avanti secondo la macchina a stati: nessuna regola nuova qui. */
+function statoSuccessivo(stato: string): string | null {
+  const stati = STATI_COMMESSA as readonly string[];
+  const i = stati.indexOf(stato);
+  return i >= 0 ? stati[i + 1] ?? null : null;
 }
 
 function etichettaCommessa(c: any): string {
@@ -262,6 +270,47 @@ export async function costruisciFotografia(input: {
       .map(({ c, gate }) => ({
         chiave: `commessa:${c.id}:gate`,
         testo: `${etichettaCommessa(c)}: in «${c.stato}» manca il documento del gate (serve: ${gate.mancano.join(" o ") || "documento di fase"}).`,
+        entita: [`commessa:${c.id}`],
+        link: `/commesse/${c.id}`,
+      })),
+  });
+
+  // 1-ter-ter. Il contrario del gate mancante: le commesse che il documento
+  // ce l'hanno già e possono andare avanti (direzione 08/09/2026: «se c'è
+  // già una fattura collegata a una commessa, perché Tars non propone di
+  // mandarla avanti? le commesse vanno tenute aggiornate»). Prima la
+  // fotografia diceva soltanto che cosa manca, quindi Tars non aveva modo
+  // di accorgersi che un passaggio era già dovuto.
+  const pronte = commesse
+    .map(c => ({
+      c,
+      giorni: giorniFermi(c.id),
+      gate: deps.gate(c.id, c.stato),
+      successivo: statoSuccessivo(c.stato),
+    }))
+    .filter(
+      x =>
+        x.giorni <= giorniDormiente() &&
+        x.gate.ok &&
+        // Solo dove il gate chiede davvero un documento: negli stati senza
+        // gate «pronta» non vorrebbe dire niente.
+        x.gate.mancano.length > 0 &&
+        x.successivo != null &&
+        // Archiviare è un'altra decisione, non un passo di avanzamento.
+        x.successivo !== "archiviata"
+    );
+  contatori.pronteAlPassoSuccessivo = pronte.length;
+  sezioni.push({
+    chiave: "pronte",
+    titolo: "Pronte per il passo successivo (il documento c'è già)",
+    fatti: [...pronte]
+      .sort((a, b) => b.giorni - a.giorni)
+      .slice(0, GATE_MASSIMI)
+      .map(({ c, giorni, gate, successivo }) => ({
+        chiave: `commessa:${c.id}:pronta`,
+        testo: `${etichettaCommessa(c)}: in «${c.stato}» il documento del gate c'è (${gate.mancano.join(" o ")}) — può passare a «${successivo}»${
+          giorni >= 1 ? `, ferma da ${giorni} giorni` : ""
+        }.`,
         entita: [`commessa:${c.id}`],
         link: `/commesse/${c.id}`,
       })),

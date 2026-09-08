@@ -65,4 +65,6 @@ export type CommessaDaFatturare = {
   fatturaPrevistaCent: number | null;
   fatturaPrevistaStima: boolean;
   fatturaStato: StatoFattura | null;
+  /** La fattura FiC collegata più recente (08/09/2026): la commessa è già fatturata da fuori. `lordoCent` solo con `economia.read`. */
+  fatturaFic: { numero: string; data: string; lordoCent: number | null } | null;
 };
