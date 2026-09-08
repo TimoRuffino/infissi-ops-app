@@ -1318,6 +1318,13 @@ export async function annullaBozza(
   if (!corrente) throw new Error("NOT_FOUND: Fattura non trovata.");
   if (corrente.stato === "in_emissione" && corrente.ficDocumentId == null) {
     // ok: niente da proteggere
+  } else if (corrente.ficDocumentId != null) {
+    // R46 ha reso correggibile la fattura nella finestra fra FiC e SdI, ma
+    // correggibile non vuol dire cancellabile: il numero è già uscito da
+    // Fatture in Cloud, e si torna indietro solo con una nota di credito.
+    throw new Error(
+      `FATTURA_IMMUTABILE: la fattura #${corrente.id} è già numerata su Fatture in Cloud: si storna con una nota di credito, non si annulla.`
+    );
   } else {
     await bozzaModificabile(repository, input.sedeId, input.id);
   }

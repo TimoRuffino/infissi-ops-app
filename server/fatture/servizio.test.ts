@@ -959,6 +959,16 @@ describe("modifica nella finestra fra FiC e SdI", () => {
     ).rejects.toThrow("FATTURA_IMMUTABILE:");
   });
 
+  // Una fattura numerata su Fatture in Cloud non si annulla: il numero è
+  // già uscito. Che sia correggibile (R46) non la rende cancellabile.
+  it("annullaBozza non tocca una fattura già numerata su Fatture in Cloud", async () => {
+    const f = await emessaSuFic();
+    await expect(
+      annullaBozza({ sedeId: SEDE, id: f.id, actorUserId: ATTORE, motivo: null, ...dip() })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
+    expect((await repository.perId(SEDE, f.id))!.stato).toBe("emessa");
+  });
+
   it("una fattura già partita resta immutabile", async () => {
     const f = await emessaSuFic({ eiStatusFic: "sent" } as any);
     await expect(

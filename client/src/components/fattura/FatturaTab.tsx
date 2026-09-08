@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { FileText, FlaskConical, Plus, ReceiptText, Trash2 } from "lucide-react";
 
+import { fatturaModificabile } from "@shared/fatturazione/tipi";
 import { trpc } from "@/lib/trpc";
 import {
   badgeStatoFattura,
@@ -92,9 +93,13 @@ export default function FatturaTab({
 
   // I controlli della bozza alimentano il passo «Controlli»: stessa query
   // dell'editor, quindi nessuna seconda richiesta.
+  // R46: la fattura resta modificabile finché allo SdI non è partita, non
+  // solo finché è bozza. `modificabile` decide sia quale vista si apre sia
+  // dove servono i controlli.
+  const modificabile = fattura != null && fatturaModificabile(fattura);
   const validazioni = trpc.fatture.validazioni.useQuery(
     { id: fattura?.id ?? 0 },
-    { enabled: !lettura && fattura?.stato === "bozza", retry: false }
+    { enabled: !lettura && modificabile, retry: false }
   );
 
   const crea = trpc.fatture.creaBozza.useMutation({
@@ -198,7 +203,7 @@ export default function FatturaTab({
       : null,
     fattura,
     controlli:
-      fattura?.stato === "bozza"
+      modificabile
         ? validazioni.data
           ? (() => {
               const r = riepilogoControlli(validazioni.data.controlli);
@@ -260,7 +265,7 @@ export default function FatturaTab({
   // sia essa in modifica o in emesso, va nello stesso posto del contenitore
   // qui sotto.
   const editor =
-    fattura?.stato === "bozza" ? (
+    fattura && modificabile ? (
       <BozzaFatturaEditor
         key={fattura.id}
         commessaId={commessaId}

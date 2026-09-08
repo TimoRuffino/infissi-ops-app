@@ -11,6 +11,7 @@ import type {
   TipoRiga,
 } from "@shared/fatturazione/tipi";
 import { DICITURE, type ChiaveDicitura } from "@shared/fatturazione/diciture";
+import { giorniPerInvioSdi, toniScadenzaSdi } from "@shared/fatturazione/scadenzaSdi";
 import { formatCent } from "./limitiView";
 
 type Tono = "neutro" | "ok" | "attenzione" | "errore";
@@ -363,7 +364,10 @@ export type IngressoPassi = {
   /** `null` finché la query non ha risposto: il passo resta «attesa». */
   contratto: { presente: boolean; righe: number } | null;
   computo: { eseguito: boolean; valido: boolean } | null;
-  fattura: Pick<Fattura, "stato" | "tipo" | "inviataDryRun" | "numero"> | null;
+  fattura: Pick<
+    Fattura,
+    "stato" | "tipo" | "inviataDryRun" | "numero" | "data"
+  > | null;
   /** Esito dei controlli della bozza; `null` quando non è ancora arrivato. */
   controlli: { errori: number; avvisi: number } | null;
 };
@@ -377,7 +381,10 @@ const STATI_USCITA: ReadonlySet<StatoFattura> = new Set([
   "mancata_consegna",
 ]);
 
-export function passiFattura(i: IngressoPassi): PassoFattura[] {
+export function passiFattura(
+  i: IngressoPassi,
+  oggi: Date = new Date()
+): PassoFattura[] {
   const contrattoOk = i.contratto?.presente === true;
   const computoOk = i.computo?.valido === true;
   const f = i.fattura;
@@ -505,7 +512,12 @@ export function passiFattura(i: IngressoPassi): PassoFattura[] {
           : f.stato === "emessa"
             ? f.inviataDryRun
               ? "Prova: non spedita davvero"
-              : "In attesa dell'invio"
+              : // I dodici giorni: finché la fattura è su Fatture in Cloud e
+                // non è partita, il passo dice quanto tempo resta. Senza
+                // data non si inventa un conto.
+                (giorni => (giorni == null ? "In attesa dell'invio" : toniScadenzaSdi(giorni).testo))(
+                  giorniPerInvioSdi(f.data, oggi)
+                )
             : badgeStatoFattura(f.stato, f.inviataDryRun).testo,
   };
 

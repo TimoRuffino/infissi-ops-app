@@ -486,6 +486,48 @@ describe("passiFattura", () => {
     expect(p[5]).toMatchObject({ stato: "attesa", dettaglio: "Prova: non spedita davvero" });
   });
 
+  // I due passi (08/09/2026): fra il documento su FiC e l'invio allo SdI
+  // ci sono dodici giorni, e il passo li conta.
+  it("emessa e non ancora spedita: il passo SdI conta i giorni che restano", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[4]).toMatchObject({ stato: "fatto", dettaglio: "N. 127/2026" });
+    expect(p[5]).toMatchObject({
+      stato: "corrente",
+      dettaglio: "11 giorni per l'invio allo SdI",
+    });
+  });
+
+  it("scaduta: il passo lo dice, ma non si blocca — inviare tardi resta meglio che non inviare", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-19T12:00:00Z")
+    );
+    expect(p[5]).toMatchObject({ stato: "corrente", dettaglio: "Scaduta da 3 giorni" });
+  });
+
+  it("senza data non si inventa un contatore", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: null },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[5]).toMatchObject({ stato: "corrente", dettaglio: "In attesa dell'invio" });
+  });
+
   it("consegnata: tutto fatto", () => {
     const p = passiFattura({
       ...base,
