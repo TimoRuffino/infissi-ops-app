@@ -12,10 +12,11 @@ import {
   fermaTenants,
   preparaTenants,
 } from "./boot";
-import { INTERVALLO_COMANDI_MS } from "./costanti";
+import { INTERVALLO_COMANDI_MS, TTL_STATE_OAUTH_MS } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import * as servizioModulo from "./servizio";
+import { ricalcolaStorageSeManca } from "./storage";
 import * as tabelleModulo from "./tabelle";
 
 const SEDE_A = 91201;
@@ -232,5 +233,60 @@ describe("avviaRicalcoloStorageIniziale", () => {
     expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
     await avviaRicalcoloStorageIniziale([1]);
     expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
+  });
+
+  // Fix wave finale, R17: la gara del primo boot. `preparaTenants()` gira
+  // prima del `listen`, il ricalcolo dopo: nel mezzo un `putFile` crea la
+  // riga del ledger con dentro un file solo. Se il ricalcolo si fermasse
+  // alla riga, quell'azienda resterebbe senza ricalcolo per sempre — con un
+  // ledger che conta uno su diecimila. Si guarda il timbro.
+  it("una riga senza timbro (un putFile arrivato prima) non conta come ricalcolo fatto", async () => {
+    const repo = getTenantRepository();
+    const primaDelBoot = await repo.aggiornaStorage(1, 10, 1);
+    expect(primaDelBoot.ricalcolatoIl).toBeNull();
+    await ricalcolaStorageSeManca([1]);
+    const dopo = await repo.storageDi(1);
+    expect(dopo?.ricalcolatoIl).toBeInstanceOf(Date);
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
+    // Timbrata una volta, la seconda chiamata non fa più niente.
+    await ricalcolaStorageSeManca([1]);
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
+  });
+});
+
+// Fix wave finale (minore): `pulisciStateScaduti()` esisteva, era provata e
+// non la chiamava nessuno — la tabella `oauth_state` cresceva e non calava
+// mai. Ora la chiama `preparaTenants()`, subito dopo `caricaCache()`.
+describe("preparaTenants: spazzata degli state OAuth scaduti", () => {
+  it("toglie gli state scaduti al boot e lo dice solo se ne ha tolti", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    await repo.emettiStateOAuth({ tipo: "gdrive", tenantId: 1, sedeId: null, utenteId: 7, payload: {} });
+    vi.advanceTimersByTime(TTL_STATE_OAUTH_MS + 1000);
+
+    const righe: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      righe.push(a.map(String).join(" "));
+    });
+    try {
+      await preparaTenants();
+    } finally {
+      log.mockRestore();
+    }
+    expect(righe).toContain("[tenants] oauth_state: 1 state scaduti rimossi");
+    // Non è rimasto niente da togliere: la spazzata ha fatto il suo lavoro.
+    expect(await repo.pulisciStateScaduti()).toBe(0);
+
+    // Secondo boot, nessuno state scaduto: nessuna riga di log.
+    const righe2: string[] = [];
+    const log2 = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      righe2.push(a.map(String).join(" "));
+    });
+    try {
+      await preparaTenants();
+    } finally {
+      log2.mockRestore();
+    }
+    expect(righe2.some(r => r.includes("oauth_state"))).toBe(false);
   });
 });

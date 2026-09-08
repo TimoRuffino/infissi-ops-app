@@ -237,7 +237,9 @@ async function main(): Promise<number> {
   if (sotto === "elenco") {
     for (const t of repo.tutti()) {
       console.log(`${t.id}\t${t.slug}\t${t.stato}\t${t.nome}`);
-      for (const w of workerSospesi(await repo.eventi(t.id))) {
+      // Solo gli ultimi 200: `elenco` vuole sapere chi è fermo ADESSO, non
+      // rileggere la cronologia intera di un'azienda a ogni lancio.
+      for (const w of workerSospesi(await repo.eventi(t.id, { ultimi: 200 }))) {
         console.log(`  worker sospeso: ${w.etichetta} fino a ${w.finoA.toISOString()} (${w.errore})`);
       }
     }

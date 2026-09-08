@@ -27,6 +27,7 @@ import {
   getTenantRepository,
   resetTenantRepositoryForTesting,
 } from "../tenants/repository";
+import { __azzeraStatiGiriPerTest, statoGiro } from "../tenants/giri";
 
 const TRANSIENTE_503 = JSON.stringify({
   error: {
@@ -382,6 +383,9 @@ describe("giro notturno per azienda (Task 7)", () => {
     }
     modalitaTenantStretta(true);
     __impostaAttesaRitentativoPerTest(0); // i tre tentativi senza i 20 minuti veri
+    // L'interruttore per (worker, azienda) vive in un modulo: senza questo
+    // azzeramento il conteggio di un caso arriverebbe al successivo.
+    __azzeraStatiGiriPerTest();
     resetTenantRepositoryForTesting();
     const tenants = getTenantRepository();
     await tenants.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
@@ -411,19 +415,24 @@ describe("giro notturno per azienda (Task 7)", () => {
     fs.rmSync(radiceFinta, { recursive: true, force: true });
   });
 
-  it("un'azienda senza Drive collegato non ferma il backup delle altre", async () => {
-    // La cwd finta vale SOLO per la durata del giro (il ripiego locale è
-    // l'unico a leggerla qui). I ritentativi del tenant 2 parlano
-    // (warn ×2 + error): rumore atteso, zittito perché l'output resti pulito.
+  // Fix wave finale, R16: un'azienda che non ha ancora collegato il suo
+  // Drive non è «in errore» — non ha collegato niente. Si salta con una
+  // riga di log, senza tentativi, senza log di backup e senza far scattare
+  // l'interruttore. (Prima faceva tre tentativi e due attese da 20 minuti
+  // ogni notte, davanti a tutte le altre aziende.)
+  it("un'azienda senza Drive collegato viene saltata, e il backup delle altre si fa", async () => {
+    // Le righe si raccolgono qui: `mockRestore()` azzera anche `mock.calls`,
+    // quindi dopo il `finally` non ci sarebbe più niente da leggere.
+    const righe: string[] = [];
     const cwd = vi.spyOn(process, "cwd").mockReturnValue(radiceFinta);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      righe.push(a.map(String).join(" "));
+    });
     try {
       await __eseguiGiroNotturnoPerTest();
     } finally {
       cwd.mockRestore();
-      warn.mockRestore();
-      error.mockRestore();
+      log.mockRestore();
     }
 
     const ultimo1 = conTenant(1, () => backupLog(1))[0];
@@ -434,14 +443,57 @@ describe("giro notturno per azienda (Task 7)", () => {
     // L'albero sul disco è quello dell'azienda 1: la sua sede, non l'altra.
     expect(fs.readdirSync(cartella).sort()).toEqual(["Sede Alfa", "database"]);
 
+    // Il tenant 2 non ha nemmeno provato: nessuna riga di log del backup.
+    expect(conTenant(2, () => backupLog(10))).toEqual([]);
+    expect(righe).toContain("[backup] tenant 2: Drive non collegato, salto");
+    // E il salto non è un errore: l'interruttore del worker resta a zero.
+    expect(statoGiro("backup", 2)).toEqual({ erroriConsecutivi: 0, sospesoFinoA: 0, sospensioni: 0 });
+    expect(conTenant(1, () => backupLog(10))).toHaveLength(1);
+  });
+
+  // L'altra metà di R16: un backup che fallisce davvero deve USCIRE dal
+  // corpo del giro, altrimenti l'interruttore per (worker, azienda) del
+  // Task 10 non potrebbe mai scattare per il backup. Il fallimento qui è
+  // deterministico e senza rete: il tenant 2 ha la riga OAuth (quindi non
+  // si salta) ma manca il client OAuth nell'ambiente, e per un'azienda
+  // diversa da Ruffino Group non ci sono ripieghi.
+  it("tre tentativi falliti fanno contare l'errore all'interruttore, e l'altra azienda gira lo stesso", async () => {
+    storeDi<any>(2, "backup_oauth").push({
+      id: 1,
+      refreshTokenCifrato: "finto",
+      email: "acme@example.com",
+      rootFolderId: null,
+      connectedAt: new Date(),
+    });
+    // I ritentativi del tenant 2 parlano (warn ×2 + error del giro e
+    // dell'interruttore): rumore atteso, zittito perché l'output resti pulito.
+    const errori: string[] = [];
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(radiceFinta);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
+      errori.push(a.map(String).join(" "));
+    });
+    try {
+      await __eseguiGiroNotturnoPerTest();
+    } finally {
+      cwd.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+
     const log2 = conTenant(2, () => backupLog(10));
+    expect(log2).toHaveLength(3); // le tre notti di tentativi
     expect(log2[0]?.ok).toBe(false);
     expect(log2[0]?.error).toBe(
       "Account Google non collegato: collega il Drive dell'azienda da Integrazioni → Backup"
     );
-    // Ha ritentato le tre volte della notte prima di arrendersi, e il tenant
-    // 1 non ne ha risentito: il suo log ha una riga sola, riuscita.
-    expect(log2).toHaveLength(3);
+    // L'errore è arrivato a `perOgniTenantAttivo`: dopo tre giri come
+    // questo l'azienda verrebbe sospesa per 15 minuti.
+    expect(statoGiro("backup", 2)).toMatchObject({ erroriConsecutivi: 1, sospensioni: 0 });
+    expect(errori.some(r => r.startsWith("[backup] tenant 2:"))).toBe(true);
+    // Il tenant 1 non ne ha risentito: il suo backup della notte c'è.
     expect(conTenant(1, () => backupLog(10))).toHaveLength(1);
+    expect(conTenant(1, () => backupLog(1))[0]?.ok).toBe(true);
+    expect(statoGiro("backup", 1)).toEqual({ erroriConsecutivi: 0, sospesoFinoA: 0, sospensioni: 0 });
   });
 });

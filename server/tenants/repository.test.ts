@@ -41,6 +41,22 @@ describe("repository tenant in memoria", () => {
     expect(eventi[1].motivo).toBe("insoluto");
   });
 
+  // `pnpm tenant elenco` legge gli eventi per sapere quali worker sono
+  // sospesi ADESSO: senza limite si porta a casa la cronologia intera di
+  // un'azienda vecchia (fix wave finale).
+  it("eventi({ ultimi }) dà solo la coda, sempre in ordine crescente", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    for (const motivo of ["a", "b", "c", "d", "e"]) {
+      await repo.registraEvento({ tenantId: t.id, tipo: "sospeso", attore: "boot", motivo });
+    }
+    expect((await repo.eventi(t.id, { ultimi: 2 })).map(e => e.motivo)).toEqual(["d", "e"]);
+    // Più di quanti ce ne sono: li dà tutti, senza lamentarsi.
+    expect((await repo.eventi(t.id, { ultimi: 99 })).map(e => e.motivo)).toEqual(["a", "b", "c", "d", "e"]);
+    // Senza opzione, il comportamento di sempre.
+    expect((await repo.eventi(t.id)).map(e => e.motivo)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
   it("i comandi passano da in_attesa a eseguito o errore, uno alla volta", async () => {
     const repo = getTenantRepository();
     const a = await repo.accodaComando({ tipo: "sospendi", tenantId: 1, payload: { slug: "ruffino-group", motivo: "prova" }, richiestoDa: "script:tenant@qui" });

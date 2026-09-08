@@ -111,6 +111,54 @@ describe("fileStorage per tenant", () => {
     expect(driver.file.size).toBe(0);
   });
 
+  // Fix wave finale: cancellazione e contabilità sono due guasti diversi.
+  // Con un `catch` solo, una contabilità che falliva scriveva «delete
+  // fallito» su un file cancellato benissimo, e chi leggeva il log andava a
+  // cercare un file che non c'era più.
+  it("una contabilità che fallisce non fa dire «delete fallito»: il file è cancellato, il conto no", async () => {
+    const avvisi: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      avvisi.push(a.map(String).join(" "));
+    });
+    impostaContabileStorage({
+      async aggiungi() {},
+      async togli() { throw new Error("ledger giù"); },
+    });
+    driver.file.set("tenant/2/a/1/1-00000000.bin", Buffer.from("12345"));
+    deleteFileQuiet("tenant/2/a/1/1-00000000.bin", 5);
+    await vi.waitFor(() => expect(avvisi.length).toBe(1));
+    expect(driver.file.has("tenant/2/a/1/1-00000000.bin")).toBe(false); // cancellato davvero
+    expect(avvisi[0]).toContain("[fileStorage] contabilità non aggiornata per tenant/2/a/1/1-00000000.bin");
+    expect(avvisi[0]).not.toContain("delete fallito");
+    warn.mockRestore();
+  });
+
+  it("un delete che fallisce lo dice, e non tocca il conto", async () => {
+    const avvisi: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      avvisi.push(a.map(String).join(" "));
+    });
+    const { c, chiamate } = contabileFinto();
+    impostaContabileStorage(c);
+    __impostaDriverPerTest({ ...driver, async delete() { throw new Error("R2 giù"); } });
+    deleteFileQuiet("tenant/2/a/1/1-00000000.bin", 5);
+    await vi.waitFor(() => expect(avvisi.length).toBe(1));
+    expect(avvisi[0]).toContain("[fileStorage] delete fallito per tenant/2/a/1/1-00000000.bin");
+    expect(chiamate).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("senza dimensione nota (nessun bytes, driver senza head) il file si cancella e il ledger non si tocca", async () => {
+    const { c, chiamate } = contabileFinto();
+    impostaContabileStorage(c);
+    const senzaHead = { ...driver, head: undefined };
+    __impostaDriverPerTest(senzaHead);
+    senzaHead.file.set("tenant/2/a/1/1-00000000.bin", Buffer.from("12345"));
+    deleteFileQuiet("tenant/2/a/1/1-00000000.bin");
+    await vi.waitFor(() => expect(senzaHead.file.has("tenant/2/a/1/1-00000000.bin")).toBe(false));
+    expect(chiamate).toEqual([]); // scontare «zero byte, un file» sballerebbe il conto
+  });
+
   it("statFile passa da head e risponde null senza head", async () => {
     driver.file.set("tenant/1/a/1/1-00000000.bin", Buffer.from("abcd"));
     expect(await statFile("tenant/1/a/1/1-00000000.bin")).toEqual({ bytes: 4 });

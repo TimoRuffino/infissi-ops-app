@@ -37,7 +37,8 @@ function riferisci(esito: { eseguiti: number; falliti: number }) {
 }
 
 /**
- * Control plane soltanto, PRIMA di `bootstrapAll`: schema, cache e
+ * Control plane soltanto, PRIMA di `bootstrapAll`: schema, cache, spazzata
+ * degli `state` OAuth scaduti e
  * `repo.assicuraTenantPredefinito()` — la riga `tenants` del tenant 1 — SEMPRE,
  * subito dopo `caricaCache()`, a prescindere dall'interruttore (Task 12 fix
  * round 1, Ruling R13): è control plane, additiva (`ON CONFLICT DO NOTHING`)
@@ -57,6 +58,17 @@ export async function preparaTenants(): Promise<number[]> {
   const repo = getTenantRepository();
   await repo.ensureSchema();
   await repo.caricaCache();
+  // Gli `state` OAuth scaduti (WS3 §5): due righe per collegamento, dieci
+  // minuti di vita, nessuno che le tolga. Sicurezza non ne dipende — la
+  // scadenza e il consumo unico sono in SQL — ma una tabella che cresce e
+  // non cala è debito: si spazza al boot, dove costa una DELETE sola.
+  // Un errore qui non deve fermare l'avvio: il control plane è già a posto.
+  try {
+    const rimossi = await repo.pulisciStateScaduti();
+    if (rimossi > 0) console.log(`[tenants] oauth_state: ${rimossi} state scaduti rimossi`);
+  } catch (errore) {
+    console.error("[tenants] pulizia oauth_state:", errore instanceof Error ? errore.message : errore);
+  }
   await repo.assicuraTenantPredefinito();
   // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
   // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.

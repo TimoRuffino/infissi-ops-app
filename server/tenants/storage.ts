@@ -64,14 +64,20 @@ export function creaContabileStorage(): ContabileStorage {
 /**
  * `comunicazioni`/`fatture` possono non esistere ancora su un database
  * appena creato (il WS3 le legge soltanto, non le crea): un `undefined_table`
- * (42P01) vale zero righe, non un ricalcolo fallito. Qualunque altro errore
- * risale come sempre.
+ * (42P01) vale zero righe, non un ricalcolo fallito. Stessa cosa per un
+ * `undefined_column` (42703, fix wave finale, R19): una tabella creata pigramente
+ * dal suo modulo DOPO `applicaTenantIdAlleTabelle` non ha ancora la colonna
+ * `tenant_id` — la aggiunge il boot successivo, e nel frattempo un ricalcolo
+ * non deve morire per questo. Qualunque altro errore risale come sempre.
  */
+const CODICI_TABELLA_INCOMPLETA = new Set(["42P01", "42703"]);
+
 async function righeOVuoto(query: Promise<any>): Promise<any[]> {
   try {
     return await query;
   } catch (errore) {
-    if ((errore as { code?: string } | null | undefined)?.code === "42P01") return [];
+    const codice = (errore as { code?: string } | null | undefined)?.code;
+    if (codice && CODICI_TABELLA_INCOMPLETA.has(codice)) return [];
     throw errore;
   }
 }
@@ -89,7 +95,15 @@ export async function ricalcolaStorage(tenantId: number, attore = "sistema"): Pr
     let bytes = 0;
     let file = 0;
     const conta = (n: number) => { bytes += Math.max(0, n); file++; };
-    const misura = async (chiave: string) => conta((await statFile(chiave))?.bytes ?? 0);
+    // Un `head` a vuoto significa che il file non c'è più nello storage (o
+    // che il driver non sa rispondere): non si conta né fra i byte né fra i
+    // file (fix wave finale). Prima entrava come «file da 0 byte» e gonfiava
+    // il conteggio con anteprime cancellate. Nessun log: un'anteprima assente
+    // non è un guasto, ed è la cosa più comune che ci sia qui dentro.
+    const misura = async (chiave: string) => {
+      const info = await statFile(chiave);
+      if (info) conta(info.bytes);
+    };
 
     for (const d of storeDi<any>(tenantId, "preventivi_documenti")) {
       if (d?.storageKey) conta(Number(d.size) || 0);
@@ -121,12 +135,23 @@ export async function ricalcolaStorage(tenantId: number, attore = "sistema"): Pr
   });
 }
 
-/** Primo boot del WS3: chi non ha ancora una riga nel ledger la riceve dal ricalcolo, in sottofondo. */
+/**
+ * Primo boot del WS3: chi non ha ancora un ricalcolo lo riceve qui, in
+ * sottofondo.
+ *
+ * Si guarda il TIMBRO (`ricalcolatoIl`), non l'esistenza della riga (fix
+ * wave finale, R17). La riga nasce anche dal primo delta del ledger: fra
+ * `preparaTenants()` e questo giro — che parte dopo il `listen` — basta un
+ * `putFile` di un utente già collegato perché `aggiornaStorage` crei la
+ * riga con un solo file dentro. Con la vecchia guardia quell'azienda
+ * sarebbe rimasta senza ricalcolo iniziale PER SEMPRE, con un ledger che
+ * conta un file su diecimila. Una riga non è un ricalcolo.
+ */
 export async function ricalcolaStorageSeManca(tenantIds: number[]): Promise<void> {
   const repo = getTenantRepository();
   for (const tenantId of tenantIds) {
     try {
-      if (await repo.storageDi(tenantId)) continue;
+      if ((await repo.storageDi(tenantId))?.ricalcolatoIl) continue;
       const inizio = Date.now();
       const stato = await ricalcolaStorage(tenantId, "boot");
       console.log(`[storage] ricalcolo iniziale tenant ${tenantId}: ${stato.file} file, ${stato.bytes} byte in ${Date.now() - inizio} ms`);

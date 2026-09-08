@@ -596,6 +596,17 @@ export async function statFile(storageKey: string): Promise<{ bytes: number } | 
  * manca si legge con `head`. Non passa dalla cintura in lettura: i
  * chiamanti sono già router che hanno verificato il record nel proprio
  * tenant (WS2) — qui si scioglie solo il conto dei byte.
+ *
+ * Cancellazione e contabilità hanno due `catch` distinti (fix wave finale):
+ * con uno solo, una contabilità che falliva lasciava nel log «delete
+ * fallito» su un file cancellato benissimo, e chi leggeva quel log andava a
+ * cercare un file che non c'era più. Sono due guasti diversi e si rimediano
+ * in due modi diversi (il secondo con `pnpm tenant storage --ricalcola`).
+ *
+ * Se la dimensione non si conosce — nessun `bytes` sul record e un driver
+ * senza `head` — il file si cancella e il ledger NON si tocca: scontare
+ * zero byte «ma un file» sballerebbe il conto dei file senza sistemare
+ * quello dei byte.
  */
 export function deleteFileQuiet(storageKey: string | null | undefined, bytes?: number | null): void {
   if (!storageKey) return;
@@ -608,8 +619,16 @@ export function deleteFileQuiet(storageKey: string | null | undefined, bytes?: n
       n = info.bytes;
     }
     await driver.delete(storageKey);
-    if (contabile) await contabile.togli(tenantDellaChiave(storageKey), n ?? 0, 1);
-  })().catch(e => console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e));
+    return n;
+  })()
+    .then(n => {
+      if (n == null || !contabile) return;
+      const tenantId = tenantDellaChiave(storageKey);
+      void contabile
+        .togli(tenantId, n, 1)
+        .catch(e => console.warn(`[fileStorage] contabilità non aggiornata per ${storageKey}:`, e));
+    })
+    .catch(e => console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e));
 }
 
 export type StorageProbeResult = {

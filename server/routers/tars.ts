@@ -404,13 +404,17 @@ export const tarsRouter = router({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-    try {
-      const contesto = await costruisciContesto(ctx);
-      return listaConversazioni(contesto.sedeId, contesto.utenteId, input);
-    } catch (errore) {
-      comeErrore(errore);
-    }
-  }),
+      try {
+        const contesto = await costruisciContesto(ctx);
+        return listaConversazioni(contesto.sedeId, contesto.utenteId, input);
+      } catch (errore) {
+        // Come negli altri 26 catch del file: un TRPCError è già la risposta
+        // giusta (NOT_FOUND, FORBIDDEN…) e `comeErrore` lo riscriverebbe in
+        // un 500.
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
 
   rinominaConversazione: procedura
     .input(z.object({
@@ -1034,7 +1038,13 @@ export const tarsRouter = router({
         const contesto = await costruisciContesto(ctx);
         // Capability assente: NOT_FOUND come un record mancante, non FORBIDDEN
         // (fail-closed, CLAUDE.md) — nessun "record" qui, solo il varco.
-        if (!contesto.capability.has("commessa.read")) oppureNotFound(null);
+        // Throw esplicito, non `oppureNotFound(null)`: quello è un helper
+        // che restringe un valore, e usarlo come lancio nudo su una
+        // costante `null` legge come un errore di scrittura (fix wave
+        // finale). Il messaggio è lo stesso.
+        if (!contesto.capability.has("commessa.read")) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+        }
         const fascicolo = oppureNotFound(await fascicoloCommessa({
           sedeId: contesto.sedeId,
           commessaId: input.commessaId,

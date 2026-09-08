@@ -1399,34 +1399,61 @@ export function __impostaAttesaRitentativoPerTest(ms: number | null): void {
   ATTESA_RITENTATIVO_MS = ms ?? 20 * 60_000;
 }
 
-async function backupNotturnoConRitentativi(): Promise<void> {
-  for (let tentativo = 1; tentativo <= RITENTATIVI_NOTTURNI; tentativo++) {
-    const log = await runBackup("schedulato");
-    if (log.ok) return;
-    if (tentativo === RITENTATIVI_NOTTURNI) {
-      console.error(
-        `[backup] notturno fallito ${RITENTATIVI_NOTTURNI} volte, ultimo errore: ${log.error}`
-      );
-      return;
-    }
+/**
+ * I tre tentativi della notte, e RESTITUISCE l'ultimo log invece di
+ * inghiottirlo (fix wave finale, R16): `runBackup` non lancia mai — scrive
+ * l'errore nel log — quindi senza questo valore di ritorno chi chiama non
+ * saprebbe mai che il backup di quell'azienda non c'è, e l'interruttore per
+ * (worker, azienda) non potrebbe scattare. I due log restano quelli di
+ * prima: un avviso a ogni ritentativo, un errore dopo l'ultimo.
+ */
+async function backupNotturnoConRitentativi(): Promise<BackupLog> {
+  let ultimo = await runBackup("schedulato");
+  for (let tentativo = 2; tentativo <= RITENTATIVI_NOTTURNI && !ultimo.ok; tentativo++) {
     console.warn(
-      `[backup] notturno fallito (${log.error}) — ritento tra 20 minuti (${tentativo}/${RITENTATIVI_NOTTURNI})`
+      `[backup] notturno fallito (${ultimo.error}) — ritento tra 20 minuti (${tentativo - 1}/${RITENTATIVI_NOTTURNI})`
     );
     await new Promise(r => setTimeout(r, ATTESA_RITENTATIVO_MS));
+    ultimo = await runBackup("schedulato");
   }
+  if (!ultimo.ok) {
+    console.error(
+      `[backup] notturno fallito ${RITENTATIVI_NOTTURNI} volte, ultimo errore: ${ultimo.error}`
+    );
+  }
+  return ultimo;
 }
 
 /**
  * La notte, un backup per ogni azienda attiva: ognuna nel suo contesto, col
  * suo Drive, la sua configurazione e il suo log. `perOgniTenantAttivo`
- * isola gli errori — un'azienda che non ha collegato il Drive fallisce da
- * sola e le altre hanno comunque il loro backup. `enabled` si legge DENTRO
- * il contesto perché è la riga di configurazione di quell'azienda.
+ * isola gli errori — un'azienda che fallisce non toglie il backup alle
+ * altre — e tiene l'interruttore per (worker, azienda). `enabled` si legge
+ * DENTRO il contesto perché è la riga di configurazione di quell'azienda.
+ *
+ * Due regole aggiunte dalla revisione finale (R16):
+ *  - un'azienda diversa da Ruffino Group che non ha ancora collegato il suo
+ *    Drive viene SALTATA con una riga di log, senza ritentativi e senza
+ *    errore. `backup_config` nasce con `enabled: true` per tutte, quindi
+ *    senza questo salto ogni notte l'azienda avrebbe fatto tre tentativi
+ *    con due attese da 20 minuti — davanti a tutte le altre, per un esito
+ *    noto in partenza. Non è un guasto: è un'azienda che non ha collegato
+ *    niente. Il tenant 1 non si salta mai (ha i suoi ripieghi: service
+ *    account e disco locale);
+ *  - un backup davvero fallito LANCIA, così `perOgniTenantAttivo` conta
+ *    l'errore: senza, l'interruttore del worker «backup» non sarebbe mai
+ *    potuto scattare, perché `runBackup` scrive l'errore nel log e non
+ *    lancia mai.
  */
 async function giroNotturno(): Promise<void> {
-  await perOgniTenantAttivo("backup", async () => {
+  await perOgniTenantAttivo("backup", async tenantId => {
     if (!getConfig().enabled) return;
-    await backupNotturnoConRitentativi();
+    if (tenantId !== TENANT_PREDEFINITO_ID && oauthRows.length === 0) {
+      console.log(`[backup] tenant ${tenantId}: Drive non collegato, salto`);
+      return;
+    }
+    const log = await backupNotturnoConRitentativi();
+    if (!log.ok) throw new Error(log.error ?? "backup fallito");
   });
 }
 

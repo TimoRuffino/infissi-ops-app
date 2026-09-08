@@ -26,6 +26,10 @@ export const MESSAGGI = {
   soloProprietari: "Solo un proprietario può nominare o revocare un proprietario.",
   proprietarioRichiedeFlag: "Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.",
   nonTrovato: "Risorsa non trovata.",
+  // Le sei tabelle sono quelle che `verificaSchema` chiede davvero
+  // (repository.ts): il messaggio ne nominava tre e mandava l'operatore a
+  // cercare il guasto sulla tabella sbagliata — di solito a mancare sono le
+  // due del WS3 (fix wave finale).
   schemaAssente:
-    "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
+    "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage, oauth_state): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
 } as const;

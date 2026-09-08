@@ -42,7 +42,14 @@ export type TenantRepository = {
     motivo?: string | null;
     dettagli?: Record<string, unknown> | null;
   }): Promise<TenantEvento>;
-  eventi(tenantId: number): Promise<TenantEvento[]>;
+  /**
+   * Gli eventi dell'azienda, dal più vecchio al più recente. `ultimi`
+   * riporta SOLO gli ultimi n, sempre in ordine crescente: `pnpm tenant
+   * elenco` deve vedere i worker sospesi di adesso, non scaricare la
+   * cronologia intera di un'azienda con anni di soglie ed eventi alle
+   * spalle. Senza `ultimi` il comportamento è quello di sempre (tutti).
+   */
+  eventi(tenantId: number, opzioni?: { ultimi?: number }): Promise<TenantEvento[]>;
   accodaComando(input: {
     tipo: TipoComando;
     tenantId: number | null;
@@ -199,8 +206,10 @@ function createMemoryTenantRepository(): TenantRepository {
       eventi.push(ev);
       return clone(ev);
     },
-    async eventi(tenantId) {
-      return eventi.filter(e => e.tenantId === tenantId).map(clone);
+    async eventi(tenantId, opzioni) {
+      const suoi = eventi.filter(e => e.tenantId === tenantId);
+      const ultimi = opzioni?.ultimi;
+      return (ultimi != null && ultimi < suoi.length ? suoi.slice(-ultimi) : suoi).map(clone);
     },
     async accodaComando(input) {
       const c: TenantComando = {
@@ -482,9 +491,21 @@ export function createPostgresTenantRepository(
         // Tipi di comando nuovi: il CHECK di `tenant_comandi` è nato nel WS1 con
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
-        await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
-        await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
-          CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi'))`;
+        //
+        // Si rifà SOLO se serve (fix wave finale): `DROP` + `ADD CONSTRAINT`
+        // prende un lock ACCESS EXCLUSIVE su `tenant_comandi` e rivalida
+        // tutte le righe — a ogni boot, anche quando il vincolo è già quello
+        // giusto. Si guarda prima com'è fatto: se nomina già
+        // `ripristina_archivi` (l'ultimo dei sette tipi) non si tocca niente.
+        const [vincoloTipo] = await tx<{ definizione: string }[]>`
+          SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
+           WHERE conname = 'tenant_comandi_tipo_check'
+             AND conrelid = 'tenant_comandi'::regclass`;
+        if (!vincoloTipo?.definizione?.includes("ripristina_archivi")) {
+          await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
+          await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
+            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi'))`;
+        }
       })
       .then(() => undefined);
 
@@ -546,8 +567,17 @@ export function createPostgresTenantRepository(
         VALUES (${e.tenantId}, ${e.tipo}, ${e.attore}, ${e.motivo ?? null}, ${dettagli}) RETURNING *`;
       return rigaEvento(rows[0]);
     },
-    async eventi(tenantId) {
+    async eventi(tenantId, opzioni) {
       await ensureSchema();
+      const ultimi = opzioni?.ultimi;
+      // Con `ultimi` si prendono le ultime n righe (`ORDER BY id DESC LIMIT
+      // n`, che usa l'indice) e si rovescia il risultato: il chiamante
+      // riceve sempre l'ordine crescente, come senza opzione.
+      if (ultimi != null) {
+        const rows = await sql`SELECT * FROM tenant_eventi WHERE tenant_id = ${tenantId}
+          ORDER BY id DESC LIMIT ${ultimi}`;
+        return rows.map(rigaEvento).reverse();
+      }
       const rows = await sql`SELECT * FROM tenant_eventi WHERE tenant_id = ${tenantId} ORDER BY id`;
       return rows.map(rigaEvento);
     },
