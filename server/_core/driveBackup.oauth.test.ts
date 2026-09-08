@@ -9,8 +9,21 @@ import { __alCaricamentoOAuthPerTest, backupStatus, handleOAuthCallback, issueOA
 
 const realFetch = global.fetch;
 
+// L'env di questo file si rimette com'era: `MAIL_ENCRYPTION_KEY` e
+// `FLAG_MULTI_AZIENDA` restavano cambiate per tutti i test che giravano dopo,
+// nello stesso processo — una chiave di prova al posto di quella vera è
+// esattamente il tipo di eredità che fa fallire un altro file.
+const CHIAVI_ENV = [
+  "MAIL_ENCRYPTION_KEY",
+  "GOOGLE_OAUTH_CLIENT_ID",
+  "GOOGLE_OAUTH_CLIENT_SECRET",
+  "FLAG_MULTI_AZIENDA",
+];
+const envSalvato: Record<string, string | undefined> = {};
+
 describe("backup per azienda", () => {
   beforeEach(async () => {
+    for (const k of CHIAVI_ENV) envSalvato[k] = process.env[k];
     process.env.MAIL_ENCRYPTION_KEY = "chiave-di-prova";
     process.env.GOOGLE_OAUTH_CLIENT_ID = "id";
     process.env.GOOGLE_OAUTH_CLIENT_SECRET = "segreto";
@@ -28,8 +41,10 @@ describe("backup per azienda", () => {
     global.fetch = realFetch;
     resetTenantRepositoryForTesting();
     modalitaTenantStretta(false);
-    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
-    delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    for (const k of CHIAVI_ENV) {
+      if (envSalvato[k] === undefined) delete process.env[k];
+      else process.env[k] = envSalvato[k];
+    }
   });
 
   it("gli store del backup sono per tenant e il token si salva cifrato nell'azienda dello state", async () => {

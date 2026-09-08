@@ -10,13 +10,13 @@ import { getFile, sha256Hex } from "./fileStorage";
 const autoTable: (doc: any, opts: any) => void =
   (autoTableImport as any)?.default ?? (autoTableImport as any);
 import {
-  chiaveStore,
   persistedStore,
   getAllStoreSnapshots,
   type LoadMeta,
 } from "./persistence";
-import { tenantIdDellaSede } from "../tenants/contesto";
-import { conTenantDellaSede } from "../tenants/giri";
+import { conTenantDellaSede, perOgniTenantAttivo } from "../tenants/giri";
+import { sediDelTenant } from "../routers/sedi";
+import { presidioDi } from "../tenants/regole";
 import { conTenant, tenantCorrente } from "../tenants/contestoCorrente";
 import { getTenantRepository } from "../tenants/repository";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
@@ -351,6 +351,10 @@ export function disconnectOAuth(): void {
   oauthRows.length = 0;
   oauthCachedToken.delete(tenantId);
   _oauthStore.save();
+  // La stessa guardia delle altre due strade dello specchio: un test che
+  // scollega il Drive non deve cancellare il `data/backup-oauth.json` di
+  // un'installazione vera (la suite gira anche lì).
+  if (specchioSuFileDisattivato()) return;
   try {
     fs.rmSync(fileOAuth(tenantId), { force: true });
   } catch {
@@ -709,8 +713,12 @@ function jsonFile(
   };
 }
 
+// Nel backup non finisce materiale di password, con nessuno dei due nomi che
+// il codice usa: `password` è il campo dello store (contiene l'hash),
+// `passwordHash` è il nome dell'input di `creaUtenteInterno` — un domani
+// potrebbe essere anche quello del campo.
 function sanitizeUtente(u: any) {
-  const { password, ...rest } = u ?? {};
+  const { password, passwordHash, ...rest } = u ?? {};
   return rest;
 }
 
@@ -914,9 +922,47 @@ function buildSchedaPdf(
   return Buffer.from(doc.output("arraybuffer"));
 }
 
-function snapshotByKey(): Record<string, any[]> {
+/**
+ * Gli store dell'azienda del contesto, per NOME (mai la chiave
+ * `tenant:n:…`), con le famiglie globali filtrate.
+ *
+ * `getAllStoreSnapshots()` è la fotografia dell'INTERA installazione: ogni
+ * istanza di ogni famiglia, tutte le aziende insieme. Finito nel Drive di
+ * un'azienda, quel dump le avrebbe consegnato l'archivio delle altre — il
+ * backup è l'unico punto in cui gli store si leggono senza passare dal
+ * Proxy del tenant, quindi il filtro è qui e non altrove. Le quattro
+ * famiglie globali (`server/_core/storeGlobali.test.ts`) non hanno un
+ * `tenantId` di istanza e vanno filtrate riga per riga: `sedi` e `utenti`
+ * per tenant, i due `platform_feature_flag*` per le sedi dell'azienda
+ * (i loro record sono per sede, non per tenant — v. `FAMIGLIE_GLOBALI_PER_SEDE`
+ * in server/tenants/verifica.ts).
+ */
+function snapshotDelTenant(tenantId: number): Record<string, any[]> {
   const out: Record<string, any[]> = {};
-  for (const s of getAllStoreSnapshots()) out[s.key] = s.items;
+  const sediMie = new Set(sediDelTenant(tenantId).map(s => s.id));
+  for (const s of getAllStoreSnapshots()) {
+    if (s.tenantId === tenantId) {
+      out[s.nome] = s.items;
+      continue;
+    }
+    if (s.tenantId != null) continue; // istanza di un'altra azienda
+    switch (s.nome) {
+      case "sedi":
+        out.sedi = s.items.filter(
+          (x: any) => (x.tenantId ?? TENANT_PREDEFINITO_ID) === tenantId
+        );
+        break;
+      case "utenti":
+        out.utenti = s.items.filter((u: any) => presidioDi(u).tenantId === tenantId);
+        break;
+      case "platform_feature_flags":
+      case "platform_feature_flag_audit":
+        out[s.nome] = s.items.filter((x: any) => sediMie.has(x.sedeId));
+        break;
+      default:
+        break; // nessun'altra famiglia globale (storeGlobali.test.ts)
+    }
+  }
   return out;
 }
 
@@ -960,7 +1006,10 @@ export async function buildBackupTree(): Promise<{
   rootName: string;
   files: BackupFile[];
 }> {
-  const stores = snapshotByKey();
+  // L'albero è di UN'AZIENDA: quella del contesto. Il timer notturno gira
+  // fuori da ogni richiesta e dichiara il tenant a ogni giro (giroNotturno).
+  const tenantId = tenantObbligatorio();
+  const stores = snapshotDelTenant(tenantId);
   const today = new Date();
   const y = today.getFullYear();
   const m = String(today.getMonth() + 1).padStart(2, "0");
@@ -969,37 +1018,45 @@ export async function buildBackupTree(): Promise<{
 
   const files: BackupFile[] = [];
 
-  // 1. Raw database dump — everything, restorable.
-  for (const [key, items] of Object.entries(stores)) {
-    if (key === "backup_log") continue; // noise
-    const value = key === "utenti" ? items.map(sanitizeUtente) : items;
-    files.push(jsonFile(["database"], `${key}.json`, value));
+  // 1. Raw database dump — l'archivio dell'azienda, ripristinabile. I nomi
+  // sono quelli delle famiglie (`clienti.json`), mai le chiavi di istanza
+  // (`tenant:2:clienti.json`): chi ripristina legge un albero che non
+  // racconta niente delle altre aziende.
+  for (const [nome, items] of Object.entries(stores)) {
+    if (nome === "backup_log") continue; // noise
+    const value = nome === "utenti" ? items.map(sanitizeUtente) : items;
+    files.push(jsonFile(["database"], `${nome}.json`, value));
   }
 
-  // `sedi` e `utenti` sono store globali: una chiave sola, condivisa.
+  // `sedi` e `utenti` sono store globali: `snapshotDelTenant` li ha già
+  // filtrati sull'azienda del contesto.
   const sedi: any[] = stores["sedi"] ?? [];
   const utenti: any[] = (stores["utenti"] ?? []).map(sanitizeUtente);
-  // Tutto il resto è per tenant, e la chiave dipende dall'azienda della
-  // sede: `stores["commesse"]` è l'alias del tenant 1, quindi la cartella
-  // di una sede di un'altra azienda si sarebbe riempita dei dati di
-  // Ruffino Group (o di niente). Il dump grezzo qui sopra resta completo:
-  // c'è già un file per ogni chiave, `tenant:n:*` comprese.
-  const di = (sede: { id: number }, nome: string): any[] =>
-    stores[chiaveStore(tenantIdDellaSede(sede.id), nome)] ?? [];
+  // Tutto il resto è già dell'azienda: `stores[nome]` è la sua istanza.
+  const di = (nome: string): any[] => stores[nome] ?? [];
 
-  const sediList = sedi.length > 0 ? sedi : [{ id: 1, nome: "Principale" }];
+  // Il ripiego «Principale» è la sede implicita di Ruffino Group prima che
+  // le sedi esistessero: un'altra azienda senza sedi non ha niente da
+  // salvare per sede, e inventargliene una la manderebbe su una sede che
+  // non è sua (`conTenantDellaSede` lancerebbe, giustamente).
+  const sediList =
+    sedi.length > 0
+      ? sedi
+      : tenantId === TENANT_PREDEFINITO_ID
+        ? [{ id: 1, nome: "Principale" }]
+        : [];
 
   for (const sede of sediList) {
     // Il backup gira su un timer, fuori da ogni richiesta: il contesto
     // del tenant della sede copre anche quel che il corpo chiama a valle.
     await conTenantDellaSede(sede.id, async () => {
-      const clienti = di(sede, "clienti");
-      const commesse = di(sede, "commesse");
-      const documenti = di(sede, "preventivi_documenti");
-      const tickets = di(sede, "tickets");
-      const ticketAllegati = di(sede, "ticket_allegati");
-      const interventi = di(sede, "interventi");
-      const garanzie = di(sede, "garanzie");
+      const clienti = di("clienti");
+      const commesse = di("commesse");
+      const documenti = di("preventivi_documenti");
+      const tickets = di("tickets");
+      const ticketAllegati = di("ticket_allegati");
+      const interventi = di("interventi");
+      const garanzie = di("garanzie");
 
       const sedeSeg = `Sede ${sanitizeName(sede.nome ?? `#${sede.id}`)}`;
 
@@ -1290,7 +1347,13 @@ let scheduled: NodeJS.Timeout | null = null;
 // copre il caso in cui Drive sia giù per qualche minuto — succede, e senza
 // questo la notte resta senza backup fino a 24 ore dopo.
 const RITENTATIVI_NOTTURNI = 3;
-const ATTESA_RITENTATIVO_MS = 20 * 60_000;
+let ATTESA_RITENTATIVO_MS = 20 * 60_000;
+
+/** Solo nei test: i tre tentativi senza i 20 minuti veri fra l'uno e l'altro. `null` rimette l'attesa di produzione. */
+export function __impostaAttesaRitentativoPerTest(ms: number | null): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_ATTESA_RITENTATIVO");
+  ATTESA_RITENTATIVO_MS = ms ?? 20 * 60_000;
+}
 
 async function backupNotturnoConRitentativi(): Promise<void> {
   for (let tentativo = 1; tentativo <= RITENTATIVI_NOTTURNI; tentativo++) {
@@ -1309,20 +1372,35 @@ async function backupNotturnoConRitentativi(): Promise<void> {
   }
 }
 
+/**
+ * La notte, un backup per ogni azienda attiva: ognuna nel suo contesto, col
+ * suo Drive, la sua configurazione e il suo log. `perOgniTenantAttivo`
+ * isola gli errori — un'azienda che non ha collegato il Drive fallisce da
+ * sola e le altre hanno comunque il loro backup. `enabled` si legge DENTRO
+ * il contesto perché è la riga di configurazione di quell'azienda.
+ */
+async function giroNotturno(): Promise<void> {
+  await perOgniTenantAttivo("backup", async () => {
+    if (!getConfig().enabled) return;
+    await backupNotturnoConRitentativi();
+  });
+}
+
+/** Solo nei test: la stessa funzione che chiama il timer di mezzanotte. */
+export function __eseguiGiroNotturnoPerTest(): Promise<void> {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_GIRO_NOTTURNO");
+  return giroNotturno();
+}
+
 export function startBackupScheduler(): void {
   if (scheduled) return;
   const arm = () => {
     const delay = msUntilRomeMidnight();
     scheduled = setTimeout(async () => {
       try {
-        // Il timer gira fuori da ogni richiesta: il tenant va dichiarato.
-        // Oggi è Ruffino Group, cioè il comportamento di sempre; il giro su
-        // tutte le aziende attive arriva col Task 7.
-        await conTenant(TENANT_PREDEFINITO_ID, async () => {
-          if (getConfig().enabled) {
-            await backupNotturnoConRitentativi();
-          }
-        });
+        // Il timer gira fuori da ogni richiesta: il tenant lo dichiara
+        // `giroNotturno`, un'azienda attiva alla volta.
+        await giroNotturno();
       } catch (e) {
         console.error("[backup] nightly run failed:", e);
       } finally {

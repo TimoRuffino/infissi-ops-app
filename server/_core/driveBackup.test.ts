@@ -3,9 +3,15 @@
 // risposta giusta è riprovare: questi test tengono in piedi la differenza fra
 // un errore che passa da solo e uno che non passerà mai.
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  __eseguiGiroNotturnoPerTest,
+  __impostaAttesaRitentativoPerTest,
   attesaMs,
+  backupLog,
   buildBackupTree,
   driveFetch,
   erroreTransitorio,
@@ -15,7 +21,8 @@ import { sha256Hex } from "./fileStorage";
 import { __registraTenantNotoPerTest, storeDi } from "./persistence";
 import { getSediStore } from "../routers/sedi";
 import { getCommesseStore } from "../routers/commesse";
-import { modalitaTenantStretta } from "../tenants/contestoCorrente";
+import { getUtentiStore } from "../routers/utenti";
+import { conTenant, modalitaTenantStretta } from "../tenants/contestoCorrente";
 import {
   getTenantRepository,
   resetTenantRepositoryForTesting,
@@ -220,6 +227,11 @@ describe("resolveBackupFileData", () => {
 // «Sede …» di un'azienda diversa restava vuota — o, peggio, si sarebbe
 // riempita dei dati di Ruffino Group. Ogni sede deve leggere le chiavi del
 // SUO tenant.
+//
+// WS3 Task 7: la garanzia è diventata più forte. L'albero non è più uno per
+// tutta l'installazione — è UNO PER AZIENDA, quella del contesto: la sede
+// dell'altra azienda non compare affatto, né la sua cartella né le sue
+// commesse nel dump `database/`.
 describe("buildBackupTree per tenant (Task 10)", () => {
   beforeEach(async () => {
     delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
@@ -234,6 +246,7 @@ describe("buildBackupTree per tenant (Task 10)", () => {
       { id: 10, tenantId: 1, nome: "Alfa", attiva: true } as any,
       { id: 20, tenantId: 2, nome: "Beta", attiva: true } as any
     );
+    getUtentiStore().length = 0;
     getCommesseStore(); // registra la famiglia prima di storeDi
     storeDi(1, "commesse").length = 0;
     storeDi(2, "commesse").length = 0;
@@ -252,30 +265,181 @@ describe("buildBackupTree per tenant (Task 10)", () => {
   });
   afterEach(() => modalitaTenantStretta(false));
 
-  it("la cartella di ogni sede porta le commesse del suo tenant, non quelle dell'altra azienda", async () => {
-    const { files } = await buildBackupTree();
-    const percorsi = files.map(f => [...f.segments, f.name].join("/"));
+  const percorsiDi = async (tenantId: number): Promise<string[]> => {
+    const { files } = await conTenant(tenantId, () => buildBackupTree());
+    return files.map(f => [...f.segments, f.name].join("/"));
+  };
 
-    expect(percorsi).toContain(
+  it("la cartella di ogni sede porta le commesse del suo tenant, non quelle dell'altra azienda", async () => {
+    const percorsi1 = await percorsiDi(1);
+    const percorsi2 = await percorsiDi(2);
+
+    expect(percorsi1).toContain(
       "Sede Alfa/Commesse senza cliente/COM-T1/commessa.json"
     );
-    expect(percorsi).toContain(
+    expect(percorsi2).toContain(
       "Sede Beta/Commesse senza cliente/COM-T2/commessa.json"
     );
-    expect(percorsi).not.toContain(
-      "Sede Beta/Commesse senza cliente/COM-T1/commessa.json"
-    );
-    expect(percorsi).not.toContain(
-      "Sede Alfa/Commesse senza cliente/COM-T2/commessa.json"
-    );
+    // L'altra azienda non c'è proprio: né la sua sede né le sue commesse.
+    expect(percorsi1.some(p => p.startsWith("Sede Beta/"))).toBe(false);
+    expect(percorsi1.some(p => p.includes("COM-T2"))).toBe(false);
+    expect(percorsi2.some(p => p.startsWith("Sede Alfa/"))).toBe(false);
+    expect(percorsi2.some(p => p.includes("COM-T1"))).toBe(false);
   });
 
-  it("il dump grezzo resta completo: una chiave per istanza, tenant compresi", async () => {
-    const { files } = await buildBackupTree();
-    const dump = files
-      .filter(f => f.segments.join("/") === "database")
-      .map(f => f.name);
-    expect(dump).toContain("commesse.json");
-    expect(dump).toContain("tenant:2:commesse.json");
+  // WS3 Task 7: il dump grezzo NON è più completo di tutta l'installazione.
+  // Fino a ieri `database/` portava una chiave per istanza (`commesse.json` e
+  // `tenant:2:commesse.json` insieme): finito nel Drive di un'azienda, quel
+  // file le consegnava l'archivio di tutte le altre. Ora l'albero è di
+  // un'azienda sola — quella del contesto — e le quattro famiglie globali
+  // arrivano filtrate.
+  it("buildBackupTree produce solo l'azienda del contesto: database/, sedi e utenti filtrati, nomi degli store senza prefisso", async () => {
+    __registraTenantNotoPerTest(2);
+    storeDi<any>(2, "clienti").length = 0;
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: 10, tenantId: 1, nome: "Sarzana", attiva: true } as any,
+      { id: 20, tenantId: 2, nome: "Acme HQ", attiva: true } as any
+    );
+    const utenti = getUtentiStore();
+    utenti.length = 0;
+    utenti.push(
+      { id: 1, tenantId: 1, email: "a@1", passwordHash: "x", sediIds: [10] } as any,
+      { id: 2, tenantId: 2, email: "b@2", passwordHash: "x", sediIds: [20] } as any
+    );
+    storeDi<any>(2, "clienti").push({
+      id: 5,
+      tenantId: 2,
+      sedeId: 20,
+      nome: "Cliente",
+      cognome: "Due",
+    });
+
+    const albero = await conTenant(2, () => buildBackupTree());
+    const nomi = albero.files.map(f => [...f.segments, f.name].join("/"));
+
+    expect(nomi).toContain("database/clienti.json");
+    expect(nomi.some(n => n.startsWith("database/tenant:"))).toBe(false);
+    expect(nomi).not.toContain("database/backup_log.json");
+    expect(nomi.some(n => n.startsWith("Sede Sarzana/"))).toBe(false);
+
+    const utentiJson = JSON.parse(
+      albero.files
+        .find(f => f.name === "Utenti.json" && f.segments[0] === "Sede Acme HQ")!
+        .data.toString("utf8")
+    );
+    expect(utentiJson.map((u: any) => u.id)).toEqual([2]);
+    expect(JSON.stringify(utentiJson)).not.toContain("passwordHash");
+
+    const dbUtenti = JSON.parse(
+      albero.files
+        .find(f => f.segments[0] === "database" && f.name === "utenti.json")!
+        .data.toString("utf8")
+    );
+    expect(dbUtenti.map((u: any) => u.id)).toEqual([2]);
+    const dbSedi = JSON.parse(
+      albero.files
+        .find(f => f.segments[0] === "database" && f.name === "sedi.json")!
+        .data.toString("utf8")
+    );
+    expect(dbSedi.map((s: any) => s.id)).toEqual([20]);
+    const clientiDb = JSON.parse(
+      albero.files
+        .find(f => f.segments[0] === "database" && f.name === "clienti.json")!
+        .data.toString("utf8")
+    );
+    expect(clientiDb.map((c: any) => c.id)).toEqual([5]);
+  });
+});
+
+// WS3 Task 7: il backup notturno non è più «il backup di Ruffino Group» —
+// è un giro su ogni azienda attiva, ognuna nel suo contesto, col suo Drive e
+// il suo log. Un'azienda che non ha collegato il Drive fallisce da sola:
+// le altre devono comunque avere il loro backup quella notte.
+describe("giro notturno per azienda (Task 7)", () => {
+  const envSalvato: Record<string, string | undefined> = {};
+  const CHIAVI_ENV = [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_SERVICE_ACCOUNT_FILE",
+  ];
+  // Il ripiego locale del tenant 1 scrive davvero su disco, sotto
+  // `<cwd>/backups`. Il test gli dà una cwd tutta sua (una cartella
+  // temporanea, tolta dopo): così non scrive dentro i backup locali veri di
+  // chi esegue la suite, e «la cartella esiste» significa che l'ha creata
+  // questo giro, non che c'era già.
+  let radiceFinta = "";
+
+  beforeEach(async () => {
+    radiceFinta = fs.mkdtempSync(path.join(os.tmpdir(), "backup-notturno-"));
+    delete process.env.FLAG_MULTI_AZIENDA; // nei test = acceso
+    for (const k of CHIAVI_ENV) {
+      envSalvato[k] = process.env[k];
+      delete process.env[k]; // né OAuth né service account: nessuna rete
+    }
+    modalitaTenantStretta(true);
+    __impostaAttesaRitentativoPerTest(0); // i tre tentativi senza i 20 minuti veri
+    resetTenantRepositoryForTesting();
+    const tenants = getTenantRepository();
+    await tenants.inserisci({ id: 1, slug: "ruffino-group", nome: "RG" });
+    await tenants.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    __registraTenantNotoPerTest(2);
+    getSediStore().length = 0;
+    getSediStore().push(
+      { id: 10, tenantId: 1, nome: "Alfa", attiva: true } as any,
+      { id: 20, tenantId: 2, nome: "Beta", attiva: true } as any
+    );
+    getUtentiStore().length = 0;
+    getCommesseStore(); // registra la famiglia prima di storeDi
+    for (const t of [1, 2]) {
+      for (const nome of ["commesse", "clienti", "backup_oauth", "backup_config", "backup_log"]) {
+        storeDi<any>(t, nome).length = 0;
+      }
+    }
+  });
+
+  afterEach(() => {
+    modalitaTenantStretta(false);
+    __impostaAttesaRitentativoPerTest(null);
+    for (const k of CHIAVI_ENV) {
+      if (envSalvato[k] === undefined) delete process.env[k];
+      else process.env[k] = envSalvato[k];
+    }
+    fs.rmSync(radiceFinta, { recursive: true, force: true });
+  });
+
+  it("un'azienda senza Drive collegato non ferma il backup delle altre", async () => {
+    // La cwd finta vale SOLO per la durata del giro (il ripiego locale è
+    // l'unico a leggerla qui). I ritentativi del tenant 2 parlano
+    // (warn ×2 + error): rumore atteso, zittito perché l'output resti pulito.
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(radiceFinta);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await __eseguiGiroNotturnoPerTest();
+    } finally {
+      cwd.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+
+    const ultimo1 = conTenant(1, () => backupLog(1))[0];
+    expect(ultimo1?.ok).toBe(true);
+    expect(ultimo1?.target).toBe("locale");
+    expect(ultimo1?.trigger).toBe("schedulato");
+    const cartella = path.join(radiceFinta, "backups", ultimo1!.rootName);
+    // L'albero sul disco è quello dell'azienda 1: la sua sede, non l'altra.
+    expect(fs.readdirSync(cartella).sort()).toEqual(["Sede Alfa", "database"]);
+
+    const log2 = conTenant(2, () => backupLog(10));
+    expect(log2[0]?.ok).toBe(false);
+    expect(log2[0]?.error).toBe(
+      "Account Google non collegato: collega il Drive dell'azienda da Integrazioni → Backup"
+    );
+    // Ha ritentato le tre volte della notte prima di arrendersi, e il tenant
+    // 1 non ne ha risentito: il suo log ha una riga sola, riuscita.
+    expect(log2).toHaveLength(3);
+    expect(conTenant(1, () => backupLog(10))).toHaveLength(1);
   });
 });
