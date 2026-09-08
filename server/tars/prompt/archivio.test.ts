@@ -48,7 +48,7 @@ describe("archivio dei prompt di Tars", () => {
 
   it("fa dire a Tars il nome nuovo", () => {
     const v9 = readFileSync(join(CARTELLA, "v9.ts"), "utf8");
-    expect(v9).toContain("il cervello operativo di Wyndor");
+    expect(v9).toContain("il cervello operativo di Wyndoor");
     expect(v9).not.toContain(VECCHIO_NOME);
   });
 });

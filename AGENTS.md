@@ -1,4 +1,4 @@
-# AGENTS.md - Wyndor
+# AGENTS.md - Wyndoor
 
 Questa è la guida operativa per agenti AI che modificano il repository. Il CRM
 è in uso reale e contiene dati di produzione: leggere il codice circostante,

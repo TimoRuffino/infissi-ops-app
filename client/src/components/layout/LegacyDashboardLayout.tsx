@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { WyndorLockup } from "@/components/brand/WyndorLockup";
+import { WyndoorLockup } from "@/components/brand/WyndoorLockup";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -252,7 +252,7 @@ function DashboardLayoutContent({
                       .sidebar-logo, senza appiattire il marchio a
                       silhouette. `display: contents` tiene il wrapper fuori
                       dal layout flex. Nessuna nuova prop su
-                      WyndorLockup/WyndorMark: solo token CSS. */}
+                      WyndoorLockup/WyndoorMark: solo token CSS. */}
                   <span
                     className="contents"
                     style={
@@ -262,7 +262,7 @@ function DashboardLayoutContent({
                       } as CSSProperties
                     }
                   >
-                    <WyndorLockup className="max-w-[132px] shrink-0" />
+                    <WyndoorLockup className="max-w-[132px] shrink-0" />
                   </span>
                   <div className="ml-auto text-sidebar-foreground [&_button]:hover:bg-sidebar-accent [&_button]:focus-visible:ring-sidebar-ring [&_svg]:text-sidebar-foreground">
                     <NotificheDropdown />

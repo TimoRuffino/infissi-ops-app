@@ -32,7 +32,7 @@ describe("notification delivery", () => {
     const serialized = JSON.stringify(payload);
     expect(payload).toEqual({
       notificationId: 12,
-      title: "Wyndor",
+      title: "Wyndoor",
       genericBody: "Hai una nuova attivita critica da gestire.",
       link: "/commesse/42",
     });

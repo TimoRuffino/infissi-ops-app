@@ -1,14 +1,31 @@
-# Handoff - Wyndor (`infissi-ops-app`)
+# Handoff - Wyndoor (`infissi-ops-app`)
 
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 07/09/2026<br>
+**Aggiornato:** 08/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
-> **Novità 07/09/2026 — il CRM si chiama Wyndor** (spec
+> **Novità 08/09/2026 — la grafia definitiva è Wyndoor, e il dominio è
+> wyndoor.com.** Il nome scelto il 07/09 aveva una o sola; l'08/09 la direzione
+> ha fissato la forma a due o, che rende esplicita l'etimologia (*window* +
+> *door*), e ha registrato il dominio. Rinominati il testo dell'interfaccia, i
+> due componenti del marchio (`WyndoorMark`, `WyndoorLockup`, con i file), i
+> titoli dentro `favicon.svg` e `logo.svg`, e il gemello PDF del PRD. Le due
+> icone PNG non sono state rigenerate: contengono il segno, non il nome. La
+> spazzata di `shared/brand.test.ts` insegue ora **entrambe** le forme lasciate
+> indietro, e la regola sulla grafia intermedia cerca il nome solo dove non è
+> seguito da una seconda o — altrimenti troverebbe sé stessa dentro ogni
+> occorrenza corretta. Restano com'erano i verbali datati 07/09, nomi dei file
+> compresi: sono cronaca del giorno in cui il nome era diverso. Fuori
+> perimetro e ancora da fare sulla piattaforma, non nel testo: rinominare il
+> servizio Railway, il cui nome non è mai stato toccato da nessuno dei due
+> rebranding, e portare la produzione sul dominio nuovo — oggi risponde ancora
+> all'indirizzo qui sopra.
+
+> **Novità 07/09/2026 — il CRM si chiama Wyndoor** (spec
 > `docs/superpowers/specs/2026-09-07-rebranding-wyndor-design.md`, piano
 > `docs/superpowers/plans/2026-09-07-rebranding-wyndor.md`). Nome e marchio
 > nuovi: due ante in prospettiva, borgogna e ambra, montate come componente
@@ -93,7 +110,7 @@
 > fail-closed su una sede sconosciuta a interruttore acceso (mai più un
 > ripiego silenzioso sul tenant 1), e gli script di manutenzione
 > (`reset-pattuiti`, `importa-clienti`) accettano `--tenant=<id>`. Il branch
-> ha poi assorbito `main` (PRD a **5.58**, rebranding Wyndor nei documenti
+> ha poi assorbito `main` (PRD a **5.58**, rebranding Wyndoor nei documenti
 > vivi, `fornitori_archivio` con id globali e `archivioWorker` per tenant,
 > R22). Resta **non fuso su `main` e non pushato** — la scelta fra merge
 > diretto e PR è della direzione — e i test su Postgres (`*.pg.test.ts`)
@@ -166,7 +183,7 @@
 
 > **Novità 06/09/2026 sera — SaaS multi-azienda: design approvato e
 > registrato, nessun codice.** La direzione ha approvato in chat il modello
-> commerciale e l'architettura per distribuire Wyndor a più
+> commerciale e l'architettura per distribuire Wyndoor a più
 > rivenditori: testo integrale in
 > `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (sezioni
 > 1–18), riassunto in PRD §60 (v5.49). Decisioni fisse: un solo prodotto
@@ -177,7 +194,7 @@
 > sessione e mai dal client, `NOT_FOUND` cross-tenant; Proprietario azienda
 > in più ai sette ruoli; Platform Admin globale con MFA che non legge i dati
 > delle aziende; abbonamenti omaggio senza oggetti sul provider; marchio
-> Wyndor con personalizzazione del rivenditore; Ruffino Group =
+> Wyndoor con personalizzazione del rivenditore; Ruffino Group =
 > tenant 1, migrazione con backup, dry-run, chiavi `tenant:1:<store>`
 > accanto alle legacy in sola lettura, rollback. Otto workstream ordinati
 > (fondazione tenant → migrazione → file, comunicazioni e integrazioni →
@@ -197,7 +214,7 @@
 > del workstream 1 servono la sua spec tecnica e, fuori dal codice, prezzo,
 > budget Tars incluso, tolleranze, prezzo degli extra e provider di
 > pagamento. Voce 21 del debito. Aggiunta la stessa sera: il prodotto si
-> chiamerà **Wyndor** (spec §18-bis); rebranding dell'app a parte, fuori
+> chiamerà **Wyndoor** (spec §18-bis); rebranding dell'app a parte, fuori
 > dal workstream 1. Poi, sempre la sera del 06/09, la **spec tecnica del
 > WS1** approvata a sezioni in chat:
 > `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md` (PRD
@@ -536,7 +553,7 @@
 
 ## 1. Contesto
 
-Wyndor è il gestionale operativo di Ruffino Group per clienti, commesse,
+Wyndoor è il gestionale operativo di Ruffino Group per clienti, commesse,
 rilievi, ordini, produzione, posa, pagamenti e post-vendita. È usato su dati
 reali: compatibilità dei record esistenti, isolamento tra sedi e possibilità di
 rollback hanno priorità sulle riscritture estese.
@@ -4552,9 +4569,9 @@ a vuoto e dice «57 saltati»).
     `scripts/importa-clienti.ts` accettano `--tenant=<id>`. La guardia
     strutturale R18 (sopra), nata in una sessione parallela, è stata
     integrata come commit a sé dopo revisione (decisione R22). Il branch ha
-    poi assorbito `origin/main` (26 commit: rebranding Wyndor, magazzino
+    poi assorbito `origin/main` (26 commit: rebranding Wyndoor, magazzino
     riscritto, fatture libere, pagina Fornitori — arrivati nel frattempo,
-    in parte dalla PR #3 del WS1): PRD a 5.58, rebranding Wyndor nei
+    in parte dalla PR #3 del WS1): PRD a 5.58, rebranding Wyndoor nei
     documenti vivi ancora scoperti, `fornitori_archivio` (pagina Fornitori)
     con id globali e `server/fornitori/archivioWorker.ts` per tenant.
     Verifica finale:
