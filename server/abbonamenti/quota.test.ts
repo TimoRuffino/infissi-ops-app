@@ -387,7 +387,15 @@ describe("politicaTarsAzienda — dopoPrenotazione", () => {
   const tipi = async (tenantId: number) =>
     (await getTenantRepository().eventi(tenantId)).map(e => e.tipo);
 
+  // La deduplicazione «un evento al giorno» di `dopoPrenotazione` confronta il
+  // giorno di `adesso` con quello di `createdAt`, che il repository in memoria
+  // timbra con l'orologio vero: senza orologio finto i due giorni coincidono
+  // solo l'8/9/2026 e la suite diventa rossa da sola il giorno dopo. Come nel
+  // blocco `verificaCaricamento`: si congela a T0 e si sposta con
+  // `vi.setSystemTime` quando il caso avanza `adesso` (in produzione
+  // `created_at DEFAULT NOW()` e `adesso` condividono l'orologio).
   beforeEach(async () => {
+    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
     delete process.env.FLAG_MULTI_AZIENDA;
     resetTenantRepositoryForTesting();
     const repo = getTenantRepository();
@@ -398,6 +406,7 @@ describe("politicaTarsAzienda — dopoPrenotazione", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetTenantRepositoryForTesting();
     delete process.env.FLAG_MULTI_AZIENDA;
   });
@@ -478,10 +487,16 @@ describe("politicaTarsAzienda — dopoPrenotazione", () => {
     expect((await tipi(5)).filter(t => t === "tars_bloccato")).toHaveLength(1);
 
     // Giorno dopo, ancora bloccata: un secondo evento (uno al giorno).
+    vi.setSystemTime(giorni(1));
+    await politica.dopoPrenotazione(5, BUDGET * 1.2, giorni(1), { rifiutata: true });
+    expect((await tipi(5)).filter(t => t === "tars_bloccato")).toHaveLength(2);
+
+    // Ancora lo stesso giorno: la dedup regge anche col timbro di ieri in coda.
     await politica.dopoPrenotazione(5, BUDGET * 1.2, giorni(1), { rifiutata: true });
     expect((await tipi(5)).filter(t => t === "tars_bloccato")).toHaveLength(2);
 
     // La chiamata passa di nuovo (mese nuovo o budget alzato): sblocco, una volta sola.
+    vi.setSystemTime(giorni(2));
     await politica.dopoPrenotazione(5, BUDGET * 0.2, giorni(2), { rifiutata: false });
     await politica.dopoPrenotazione(5, BUDGET * 0.3, giorni(2), { rifiutata: false });
     expect((await tipi(5)).filter(t => t === "tars_sbloccato")).toHaveLength(1);
