@@ -90,7 +90,10 @@ const FAMIGLIE_GLOBALI_PER_SEDE = new Set<string>(["platform_feature_flags", "pl
  *  - `ticket_allegati` è per `ticketId` (`ticketInSede`, stesso schema);
  *  - `backup_config`/`backup_log`/`backup_oauth` sono per azienda dal WS3
  *    (§4.1) e non hanno sede affatto: il backup è dell'azienda intera, non
- *    di una sua sede.
+ *    di una sua sede;
+ *  - `onboarding_integrazioni` è il percorso di attivazione dell'AZIENDA
+ *    (WS5, spec §5): registra quali integrazioni sono state saltate, e un
+ *    passo saltato lo è per l'azienda intera, non per una sua sede.
  * Un controllo "grezzo" su `sedeId` qui segnalerebbe TUTTI i record come
  * sede sconosciuta a ogni giro: non è un bug, è la forma del record. Chi
  * aggiunge una famiglia con questa stessa forma aggiorna questa lista;
@@ -105,6 +108,7 @@ const FAMIGLIE_SENZA_SEDE_DIRETTA = new Set<string>([
   "backup_config",
   "backup_log",
   "backup_oauth",
+  "onboarding_integrazioni",
 ]);
 
 type RecordGrezzo = { id?: unknown; tenantId?: unknown; sedeId?: unknown };

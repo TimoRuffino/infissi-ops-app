@@ -10,8 +10,9 @@ import { agente } from "./adattatori/agente";
 import { backup } from "./adattatori/backup";
 import { email } from "./adattatori/email";
 import { fic } from "./adattatori/fic";
+import { whatsapp } from "./adattatori/whatsapp";
 
-export const REGISTRO: Adattatore[] = [fic, email, backup, agente];
+export const REGISTRO: Adattatore[] = [fic, email, whatsapp, backup, agente];
 
 export function adattatoreDi(chiave: Chiave): Adattatore | null {
   return REGISTRO.find(a => a.chiave === chiave) ?? null;

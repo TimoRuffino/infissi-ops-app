@@ -63,6 +63,7 @@ const FORMA_DEL_RECORD: Record<string, Forma> = {
   backup_config: "nessuna", // per azienda dal WS3: il backup non ha sede
   backup_log: "nessuna",
   backup_oauth: "nessuna",
+  onboarding_integrazioni: "nessuna",
   notifiche_read: "userId", // riga { id, userId, readIds } costruita in notifiche.ts (any)
   timeline_steps: "commessaId",
   preventivi_documenti: "commessaId",
@@ -132,13 +133,14 @@ describe("inventario delle famiglie", () => {
     expect(Object.keys(FORMA_DEL_RECORD).sort()).toEqual(NOMI);
   });
 
-  it("sono 51 l'08/09/2026: 4 globali (2 con sedeId) e 47 per tenant (8 senza sedeId)", () => {
+  it("sono 52 l'08/09/2026: 4 globali (2 con sedeId) e 48 per tenant (9 senza sedeId)", () => {
     // I tre store del backup sono passati per azienda col WS3: fino a ieri
-    // le globali erano 7 e le famiglie per tenant senza sedeId 5.
-    expect(NOMI).toHaveLength(51);
+    // le globali erano 7 e le famiglie per tenant senza sedeId 5. Il WS5
+    // aggiunge `onboarding_integrazioni`, per azienda e senza sede.
+    expect(NOMI).toHaveLength(52);
     expect(NOMI.filter(n => globale(n))).toHaveLength(4);
     expect(NOMI.filter(n => globale(n) && conSedeId(n))).toHaveLength(2);
-    expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(8);
+    expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(9);
   });
 });
 

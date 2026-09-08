@@ -283,12 +283,18 @@ export const saveAppWhatsApp = () => _appStore.save();
 /** Vista sicura: l'app secret non esce mai. */
 export function appPubblica(sedeId: number | null) {
   const a = appEffettiva(sedeId);
+  const propria = getAppWhatsApp(sedeId);
   return {
     appId: a.appId,
     configId: a.configId,
     appSecretConfigurato: a.appSecretConfigurato,
     verifyToken: a.verifyToken,
     pronta: !!a.appId && !!a.configId && a.appSecretConfigurato,
+    // Vera quando l'app viene dalla piattaforma e la sede non ha un
+    // override suo. Il client la usa per non mostrare al cliente campi che
+    // non deve né vedere né compilare.
+    diPiattaforma:
+      !propria.appId && !propria.configId && !propria.appSecretCifrato,
   };
 }
 

@@ -29,12 +29,15 @@ function ctx(sedeId = 1): TrpcContext {
 
 describe("registro delle integrazioni", () => {
   it("l'ordine è quello dell'attivazione, non l'alfabeto", () => {
-    // Sottosuccessione: gli adattatori entrano nel registro man mano che i
-    // loro task atterrano, ma sempre in quest'ordine. Il Task 12 sostituisce
-    // questa asserzione con l'elenco completo.
-    const atteso = ["fic", "email", "whatsapp", "backup", "agente"];
-    const presenti = REGISTRO.map(a => a.chiave);
-    expect(presenti).toEqual(atteso.filter(c => presenti.includes(c)));
+    // `calendario` manca di proposito: arriva col piano della fase 4, dopo
+    // 'gcal' nel CHECK di oauth_state e la verifica del consent screen Google.
+    expect(REGISTRO.map(a => a.chiave)).toEqual([
+      "fic",
+      "email",
+      "whatsapp",
+      "backup",
+      "agente",
+    ]);
   });
 
   it("una chiave sconosciuta non risolve", () => {

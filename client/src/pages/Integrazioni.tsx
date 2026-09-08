@@ -209,7 +209,17 @@ export default function Integrazioni() {
           ) : (
             <CaselleEmailCard />
           )}
-          <WhatsAppCard />
+          {statoDi("whatsapp") ? (
+            <SchedaIntegrazione
+              stato={statoDi("whatsapp")!}
+              titolo="WhatsApp"
+              descrizione="Il numero dell'azienda, con contatti e conversazioni."
+            >
+              <WhatsAppCard />
+            </SchedaIntegrazione>
+          ) : (
+            <WhatsAppCard />
+          )}
         </SezioneHub>
       )}
 
