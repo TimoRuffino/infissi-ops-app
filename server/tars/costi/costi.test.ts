@@ -975,3 +975,63 @@ describe("governor — classi di costo (T9)", () => {
     expect(messaggioPerLimite("classe")).not.toBe(MESSAGGIO_BUDGET);
   });
 });
+
+// ── Consumo del mese per azienda (WS4 §8, ruling R12) ───────────────────
+//
+// `tenants.consumi` ha bisogno del solo numero — quanto ha speso QUESTA
+// azienda in QUESTO mese — senza passare da una prenotazione: la stessa
+// somma di `prenota`, in sola lettura e senza lock.
+
+describe("ledger — consumoAziendaMese", () => {
+  const NANO = 1_000_000;
+  const prenota = (
+    chiamataId: string,
+    tenantId: number,
+    adesso: Date,
+    costoPrenotatoNano = NANO
+  ) =>
+    ledger.prenota({
+      chiamataId,
+      runId: `run-${tenantId}`,
+      tenantId,
+      sedeId: 1,
+      utenteId: 1,
+      conversazioneId: null,
+      modello: MODELLO,
+      costoPrenotatoNano,
+      limiti: { runNano: null, giornoNano: null, meseNano: null },
+      adesso,
+    });
+
+  const settembre = new Date("2026-09-08T09:00:00.000Z");
+  const ottobre = new Date("2026-10-02T09:00:00.000Z");
+
+  it("somma solo le righe di quell'azienda e di quel mese", async () => {
+    await prenota("a1", 2, settembre);
+    await prenota("a2", 2, settembre);
+    await prenota("b1", 3, settembre);
+    await prenota("a-ottobre", 2, ottobre);
+
+    expect(await ledger.consumoAziendaMese({ tenantId: 2, adesso: settembre })).toBe(2 * NANO);
+    expect(await ledger.consumoAziendaMese({ tenantId: 3, adesso: settembre })).toBe(NANO);
+    expect(await ledger.consumoAziendaMese({ tenantId: 2, adesso: ottobre })).toBe(NANO);
+  });
+
+  it("azienda senza righe: zero, non un errore", async () => {
+    expect(await ledger.consumoAziendaMese({ tenantId: 99, adesso: settembre })).toBe(0);
+  });
+
+  it("conta come la prenotazione: released vale zero, settled il costo reale", async () => {
+    await prenota("r1", 4, settembre);
+    await prenota("r2", 4, settembre);
+    await ledger.chiudi({ chiamataId: "r1", stato: "released", motivo: "4xx" });
+    await ledger.riconcilia({
+      chiamataId: "r2",
+      costoRealeNano: NANO / 4,
+      tokenInput: 1,
+      tokenCached: 0,
+      tokenOutput: 1,
+    });
+    expect(await ledger.consumoAziendaMese({ tenantId: 4, adesso: settembre })).toBe(NANO / 4);
+  });
+});

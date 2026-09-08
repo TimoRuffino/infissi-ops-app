@@ -145,5 +145,29 @@ describe.skipIf(!conDatabase)(
       });
       expect(esito.esito).toBe("prenotata");
     });
+
+    // WS4 §8 (ruling R12): `tenants.consumi` legge il consumo del mese senza
+    // prenotare nulla. Deve dare lo STESSO numero che la prenotazione calcola
+    // dentro la transazione, altrimenti la barra della scheda e il blocco del
+    // governor racconterebbero due storie diverse.
+    it("consumoAziendaMese dà lo stesso numero che la prenotazione legge", async () => {
+      const adesso = new Date();
+      const primaDellaSonda = await ledger.consumoAziendaMese({
+        tenantId: TENANT_A,
+        adesso,
+      });
+      const sonda = await prenota("a-consumo", TENANT_A);
+      expect(sonda.esito).toBe("prenotata");
+      expect(sonda.consumo?.aziendaMeseNano).toBe(primaDellaSonda);
+
+      // Dopo la prenotazione il consumo comprende anche la riga appena scritta.
+      expect(await ledger.consumoAziendaMese({ tenantId: TENANT_A, adesso })).toBe(
+        primaDellaSonda + quota
+      );
+      // Un'azienda che non ha mai speso: zero, non le righe delle altre.
+      expect(
+        await ledger.consumoAziendaMese({ tenantId: 90299, adesso })
+      ).toBe(0);
+    });
   }
 );

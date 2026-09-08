@@ -68,6 +68,17 @@ export function nanoInEur(nano: number): number {
   return nano / cambioEurUsd() / 1e9;
 }
 
+/**
+ * Percentuale del budget Tars consumata, con un decimale — la stessa forma di
+ * `percentualeStorage`, così le due barre della scheda si leggono allo stesso
+ * modo. Un tetto a zero (piano senza Tars incluso) è esaurito per definizione,
+ * come in `sogliaTars`: cento, non una divisione per zero.
+ */
+export function percentualeBudget(consumoNano: number, tettoNano: number): number {
+  if (tettoNano <= 0) return 100;
+  return Math.round((consumoNano / tettoNano) * 1000) / 10;
+}
+
 export const MESSAGGI_ABBONAMENTO = {
   spazioEsaurito: (gb: number) =>
     `Spazio esaurito: l'azienda ha superato i ${gb} GB inclusi. Libera spazio o chiedi capacità aggiuntiva.`,
@@ -80,6 +91,17 @@ export const MESSAGGI_ABBONAMENTO = {
 /** «AAAA-MM» nel fuso del dominio (Europe/Rome): il mese non cambia in UTC. */
 export function meseLocale(adesso: Date): string {
   return periodiLocali(adesso).mese;
+}
+
+/**
+ * «GG/MM/AAAA» nel fuso del dominio, per i testi che l'azienda legge (avvisi
+ * di scadenza, date di blocco). Si passa da `periodiLocali` invece che da
+ * `toLocaleDateString`: la data che si scrive dev'essere lo stesso giorno di
+ * Roma che il dominio usa per contare, non quello del fuso del processo.
+ */
+export function dataItaliana(istante: Date): string {
+  const [anno, mese, giorno] = periodiLocali(istante).giorno.split("-");
+  return `${giorno}/${mese}/${anno}`;
 }
 
 const MS_GIORNO = 86_400_000;

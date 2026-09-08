@@ -15,11 +15,57 @@ import {
 import { periodiLocali } from "../tars/costi/ledger";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import { getTenantRepository } from "../tenants/repository";
+import { percentualeStorage, sogliaRaggiunta } from "../tenants/storage";
 import type { StatoStorage, TenantEvento } from "../tenants/tipi";
-import { MESSAGGI_ABBONAMENTO, meseLocale, TOLLERANZA_PREDEFINITA_GIORNI } from "./costanti";
+import {
+  dataItaliana,
+  MESSAGGI_ABBONAMENTO,
+  meseLocale,
+  percentualeBudget,
+  TOLLERANZA_PREDEFINITA_GIORNI,
+} from "./costanti";
+import { notificaAzienda, type TipoNotificaAzienda } from "./notifiche";
 import type { Abbonamento } from "./tipi";
 
 const MS_GIORNO = 86_400_000;
+
+// ── Avvisi dei consumi (spec §8) ────────────────────────────────────────
+//
+// Le due funzioni qui sotto girano su percorsi caldi: `verificaCaricamento` a
+// ogni file caricato, `dopoPrenotazione` a ogni chiamata governata di Tars.
+// La chiave dell'avviso porta già la soglia e il giorno (o il mese), quindi il
+// repository delle notifiche scarterebbe comunque i doppioni — ma scartarli
+// costa un giro di database. Questo set ricorda che cosa QUESTO processo ha
+// già annunciato oggi: un'azienda ferma all'85 % che carica cinquanta file non
+// paga cinquanta scritture. Dopo un riavvio riparte vuoto e la deduplicazione
+// vera resta quella della `canonicalKey`.
+const avvisiDelGiorno = new Set<string>();
+let giornoDegliAvvisi = "";
+
+/** Solo per i test: lo stato di modulo non deve attraversare i casi. */
+export function azzeraMemoriaAvvisiPerTest(): void {
+  avvisiDelGiorno.clear();
+  giornoDegliAvvisi = "";
+}
+
+async function avvisaConsumi(input: {
+  tenantId: number;
+  tipo: TipoNotificaAzienda;
+  titolo: string;
+  corpo: string;
+  chiave: string;
+  priorita: "high" | "normal";
+  adesso: Date;
+}): Promise<void> {
+  const oggi = periodiLocali(input.adesso).giorno;
+  if (giornoDegliAvvisi !== oggi) {
+    avvisiDelGiorno.clear();
+    giornoDegliAvvisi = oggi;
+  }
+  if (avvisiDelGiorno.has(input.chiave)) return;
+  avvisiDelGiorno.add(input.chiave);
+  await notificaAzienda(input);
+}
 
 // Fix round 1 (R11): tenant visti bloccati in QUESTO processo. Serve solo a
 // non perdere lo sblocco pendente quando `applicaSoglie` ha già azzerato
@@ -59,6 +105,49 @@ export function bloccoStorage(
 }
 
 /**
+ * L'avviso dell'azienda sullo spazio (spec §8), dall'80 % in su: la soglia
+ * del 50 % resta un fatto del registro, non qualcosa che vale la pena
+ * annunciare. Il testo dice la percentuale vera (non la soglia) e, quando la
+ * tolleranza sta ancora correndo, il giorno in cui i caricamenti si fermano.
+ */
+async function avvisaConsumiStorage(
+  tenantId: number,
+  stato: StatoStorage,
+  blocco: { bloccato: boolean; bloccoDal: Date | null },
+  adesso: Date
+): Promise<void> {
+  const soglia = sogliaRaggiunta(stato.bytes, stato.quotaBytes);
+  if (soglia < 80) return;
+  const oggi = periodiLocali(adesso).giorno;
+  const occupato = `L'azienda occupa il ${percentualeStorage(stato.bytes, stato.quotaBytes)} % dello spazio incluso.`;
+  if (blocco.bloccato) {
+    await avvisaConsumi({
+      tenantId,
+      tipo: "consumi.storage",
+      titolo: "Spazio esaurito: i caricamenti sono bloccati",
+      corpo: `${occupato} Finché resta oltre quota, i file nuovi non si caricano: libera spazio o chiedi capacità aggiuntiva.`,
+      chiave: `consumi:${tenantId}:storage:bloccato:${oggi}`,
+      priorita: "high",
+      adesso,
+    });
+    return;
+  }
+  const stacco =
+    soglia === 100 && blocco.bloccoDal
+      ? ` Dal ${dataItaliana(blocco.bloccoDal)} i caricamenti nuovi si fermano.`
+      : "";
+  await avvisaConsumi({
+    tenantId,
+    tipo: "consumi.storage",
+    titolo: soglia === 100 ? "Spazio esaurito" : "Spazio quasi esaurito",
+    corpo: `${occupato}${stacco}`,
+    chiave: `consumi:${tenantId}:storage:${soglia}:${oggi}`,
+    priorita: soglia === 100 ? "high" : "normal",
+    adesso,
+  });
+}
+
+/**
  * Il gancio di `fileStorage.ts` (spec §6). `bytes` (la dimensione del file
  * in arrivo) fa parte del contratto di `VerificaQuota` ma non entra nel
  * calcolo: si blocca sui byte GIÀ occupati dall'azienda, non su quanto sta
@@ -81,6 +170,12 @@ export async function verificaCaricamento(
   if (!stato) return null; // nessun byte mai contato per questa azienda: niente da bloccare
   const abbonamento = repo.abbonamentoDi(tenantId);
   const { bloccato, bloccoDal } = bloccoStorage(stato, abbonamento, adesso);
+
+  // Prima della via corta di R11: l'avviso all'80 % vive proprio nel caso in
+  // cui non c'è ancora nulla da deduplicare né da sbloccare. Costa una
+  // lettura in memoria per l'azienda tranquilla (`avvisiDelGiorno`), non un
+  // giro di database.
+  await avvisaConsumiStorage(tenantId, stato, { bloccato, bloccoDal }, adesso);
 
   // Fix round 1 (R11): `repo.eventi` è un giro DB in più (~147ms, la voce di
   // costo dominante qui) ad OGNI caricamento — inutile per un'azienda
@@ -264,6 +359,25 @@ export function politicaTarsAzienda(): PoliticaTarsAzienda {
         });
         prossimo = { ...prossimo, tarsSogliaAvvisata: raggiunta };
         daSalvare = true;
+        // Dall'80 % in su l'azienda va avvisata (spec §8): il 50 % resta un
+        // fatto del registro. Il testo dice la percentuale vera, non la
+        // soglia, e al 100 % la data in cui Tars smette davvero.
+        if (raggiunta >= 80) {
+          const stacco = bloccoDa(prossimo);
+          await avvisaConsumi({
+            tenantId,
+            tipo: "consumi.tars",
+            titolo: raggiunta === 100 ? "Budget Tars esaurito" : "Budget Tars quasi esaurito",
+            corpo:
+              `Tars ha usato il ${percentualeBudget(aziendaMeseNano, tetto)} % del budget di ${mese}.` +
+              (raggiunta === 100 && stacco
+                ? ` Dal ${dataItaliana(stacco)} le funzioni a pagamento si fermano fino al mese nuovo.`
+                : ""),
+            chiave: `consumi:${tenantId}:tars:${raggiunta}:${mese}`,
+            priorita: raggiunta === 100 ? "high" : "normal",
+            adesso,
+          });
+        }
       } else if (raggiunta === 0 && prossimo.tarsSogliaAvvisata > 0) {
         // Sotto il 50 % si riarma, come le soglie dello storage.
         prossimo = { ...prossimo, tarsSogliaAvvisata: 0 };
@@ -293,6 +407,15 @@ export function politicaTarsAzienda(): PoliticaTarsAzienda {
             },
           });
         }
+        await avvisaConsumi({
+          tenantId,
+          tipo: "consumi.tars",
+          titolo: "Budget Tars esaurito: Tars è in pausa",
+          corpo: MESSAGGI_ABBONAMENTO.budgetTars,
+          chiave: `consumi:${tenantId}:tars:bloccato:${oggi}`,
+          priorita: "high",
+          adesso,
+        });
         return;
       }
       if (!bloccatiTars.has(tenantId)) return;

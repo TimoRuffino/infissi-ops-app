@@ -156,6 +156,15 @@ export type LedgerCosti = {
   }): Promise<void>;
   scadiPrenotazioniVecchie(scadenzaMs: number, adesso: Date): Promise<number>;
   consumoCorrente(input: { runId: string; adesso: Date }): Promise<ConsumoCorrente>;
+  /**
+   * Quanto ha speso QUESTA azienda in QUESTO mese, in nano-dollari (WS4,
+   * spec §8, ruling R12): la stessa somma che `prenota` calcola dentro la
+   * transazione, qui in sola lettura per la scheda «Abbonamento e consumi».
+   * Nessun lock: non decide nulla, legge soltanto — e una lettura serializzata
+   * col budget globale metterebbe la scheda in coda dietro ogni chiamata di
+   * Tars.
+   */
+  consumoAziendaMese(input: { tenantId: number; adesso: Date }): Promise<number>;
   riepilogo(adesso: Date): Promise<RiepilogoCosti>;
 };
 
@@ -549,6 +558,24 @@ export function creaLedgerPostgres(): LedgerCosti {
       };
     },
 
+    async consumoAziendaMese(input) {
+      const db = sql();
+      await ensureCostiSchema();
+      // Stessa somma della quinta colonna di `prenota` (`AS azienda`), con
+      // lo stesso `COALESCE(tenant_id, 1)` per le righe più vecchie della
+      // colonna: due formule diverse darebbero due percentuali diverse fra
+      // la scheda e il blocco del governor.
+      const [somma] = await db`SELECT
+          COALESCE(SUM(CASE stato
+            WHEN 'released' THEN 0
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
+            ELSE costo_prenotato_nano END), 0) AS azienda
+        FROM tars_costi
+        WHERE mese_locale = ${periodiLocali(input.adesso).mese}
+          AND COALESCE(tenant_id, 1) = ${input.tenantId}`;
+      return Number(somma?.azienda ?? 0);
+    },
+
     async riepilogo(adesso) {
       const db = sql();
       await ensureCostiSchema();
@@ -728,6 +755,15 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
             .filter(r => r.meseLocale === mese)
             .reduce((s, r) => s + costoContato(r), 0),
         };
+      });
+    },
+
+    consumoAziendaMese(input) {
+      return inSequenza(() => {
+        const { mese } = periodiLocali(input.adesso);
+        return righe
+          .filter(r => r.meseLocale === mese && r.tenantId === input.tenantId)
+          .reduce((s, r) => s + costoContato(r), 0);
       });
     },
 

@@ -5,6 +5,7 @@
 //
 // Ogni funzione che ragiona sul tempo riceve `adesso`: il worker (§4.1) e i
 // comandi passano l'istante, i test lo scelgono. Niente `new Date()` sparso.
+import { PRODOTTO } from "@shared/brand";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import { getTenantRepository } from "../tenants/repository";
 import { riattiva, sospendi } from "../tenants/servizio";
@@ -16,10 +17,12 @@ import {
   MESSAGGI_ABBONAMENTO,
   TOLLERANZA_PREDEFINITA_GIORNI,
   budgetTarsPredefinitoEur,
+  dataItaliana,
   eurInNano,
   giorniInteriFino,
   meseLocale,
 } from "./costanti";
+import { notificaAzienda } from "./notifiche";
 import type { Abbonamento, Attore, Omaggio, StatoAbbonamento } from "./tipi";
 import { providerCorrente, type EventoProvider } from "./provider";
 
@@ -422,6 +425,38 @@ export function giorniAllaScadenza(a: Abbonamento, adesso: Date): number | null 
 }
 
 /**
+ * La chiave dell'evento notificato (spec §8): identifica il FATTO, non il
+ * destinatario né il giro del worker. Il worker ripassa ogni sei ore e la
+ * stessa scadenza produrrebbe la stessa chiave: `notificaAzienda` la scarta.
+ * `discriminante` è ciò che rende diverso un fatto dall'altro — la data di
+ * fine periodo, e per gli avvisi anche la soglia (7, 3 e 1 giorno sono tre
+ * avvisi distinti sulla stessa scadenza).
+ */
+function chiaveAvviso(tenantId: number, tipo: string, discriminante: string): string {
+  return `abbonamento:${tenantId}:${tipo}:${discriminante}`;
+}
+
+const giorniScritti = (n: number) => `${n} ${n === 1 ? "giorno" : "giorni"}`;
+
+/**
+ * Sola lettura: stesso testo per `suspended` e `cancelled`. Dal posto di chi
+ * lavora sono la stessa cosa — si legge, si scarica, non si scrive — e il
+ * perché (insoluto scaduto o disdetta) lo racconta il registro.
+ */
+function avvisaSolaLettura(tenantId: number, discriminante: string, adesso: Date) {
+  return notificaAzienda({
+    tenantId,
+    tipo: "abbonamento.sospeso",
+    titolo: "Azienda in sola lettura",
+    corpo:
+      "L'abbonamento è sospeso: i dati restano leggibili e scaricabili, ma non si può più modificare nulla. Un omaggio o una proroga riaprono l'azienda.",
+    chiave: chiaveAvviso(tenantId, "sospeso", discriminante),
+    priorita: "high",
+    adesso,
+  });
+}
+
+/**
  * Il giro del worker su una sola azienda (spec §4.1). Nell'ordine: mese
  * nuovo, insoluto scaduto, periodo finito, avvisi — così una scadenza appena
  * superata diventa insoluto invece di produrre l'ennesimo avviso.
@@ -456,19 +491,36 @@ export async function valutaAbbonamento(
     a.insolutoDal &&
     adesso.getTime() - a.insolutoDal.getTime() > GIORNI_TOLLERANZA_INSOLUTO * MS_GIORNO
   ) {
+    const insolutoDal = a.insolutoDal;
     await cambiaStato(a, "suspended", "tolleranza dell'insoluto scaduta", SISTEMA);
+    await avvisaSolaLettura(tenantId, insolutoDal.toISOString(), adesso);
     return { transizione: "suspended", avviso: null };
   }
 
   // Periodo finito senza pagamento né rinnovo: insoluto, o chiusura se disdetto.
   if ((a.stato === "trialing" || a.stato === "active") && a.finePeriodo && adesso.getTime() > a.finePeriodo.getTime()) {
+    const fineIso = a.finePeriodo.toISOString();
     if (a.disdettaAFinePeriodo) {
       await cambiaStato(a, "cancelled", "disdetta a fine periodo", SISTEMA);
+      await avvisaSolaLettura(tenantId, fineIso, adesso);
       return { transizione: "cancelled", avviso: null };
     }
     const motivo =
       a.stato === "trialing" ? "prova scaduta senza pagamento" : "periodo scaduto senza rinnovo";
+    const finePeriodo = a.finePeriodo;
     await cambiaStato(a, "past_due", motivo, SISTEMA, { insolutoDal: adesso });
+    await notificaAzienda({
+      tenantId,
+      tipo: "abbonamento.insoluto",
+      titolo: `Abbonamento scaduto: ${giorniScritti(GIORNI_TOLLERANZA_INSOLUTO)} per regolarizzare`,
+      corpo:
+        `Il periodo è finito il ${dataItaliana(finePeriodo)}. ` +
+        `Dal ${dataItaliana(new Date(adesso.getTime() + GIORNI_TOLLERANZA_INSOLUTO * MS_GIORNO))} ` +
+        "l'azienda passa in sola lettura.",
+      chiave: chiaveAvviso(tenantId, "insoluto", fineIso),
+      priorita: "high",
+      adesso,
+    });
     return { transizione: "past_due", avviso: null };
   }
 
@@ -491,6 +543,22 @@ export async function valutaAbbonamento(
         await evento(tenantId, "abbonamento_avviso", SISTEMA, {
           giorniAllaScadenza: soglia,
           fineIso,
+        });
+        // Un omaggio con scadenza non è «la prova»: chi l'ha ricevuto non
+        // deve leggere che gli sta finendo un periodo di prova che non ha.
+        const omaggio = a.tipo === "complimentary";
+        await notificaAzienda({
+          tenantId,
+          tipo: "abbonamento.avviso",
+          titolo: omaggio
+            ? `L'abbonamento omaggio finisce fra ${giorniScritti(soglia)}`
+            : `La prova di ${PRODOTTO} finisce fra ${giorniScritti(soglia)}`,
+          corpo:
+            `Scade il ${dataItaliana(a.finePeriodo)}. Dopo la scadenza l'azienda entra in ` +
+            `insoluto e, passati ${giorniScritti(GIORNI_TOLLERANZA_INSOLUTO)}, in sola lettura.`,
+          chiave: chiaveAvviso(tenantId, "avviso", `${soglia}:${fineIso}`),
+          priorita: "normal",
+          adesso,
         });
         return { transizione: null, avviso: soglia };
       }
