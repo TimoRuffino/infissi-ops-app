@@ -390,6 +390,9 @@ export function passiFattura(
   const f = i.fattura;
   const bozza = f?.stato === "bozza";
   const uscita = f != null && STATI_USCITA.has(f.stato);
+  // Nella finestra fra Fatture in Cloud e SdI la fattura è su FiC ma si
+  // corregge ancora: dire che la bozza è «chiusa» sarebbe falso.
+  const nellaFinestra = f != null && f.stato === "emessa" && !f.inviataDryRun;
 
   const contratto: PassoFattura = {
     chiave: "contratto",
@@ -439,7 +442,9 @@ export function passiFattura(
           ? "corrente"
           : "da_fare",
     dettaglio: uscita
-      ? "Chiusa con l'emissione"
+      ? nellaFinestra
+        ? "Correggibile fino all'invio"
+        : "Chiusa con l'emissione"
       : bozza
         ? "In revisione"
         : contrattoOk && computoOk

@@ -504,6 +504,32 @@ describe("passiFattura", () => {
     });
   });
 
+  // Nella finestra la fattura è ancora correggibile: dire «chiusa» sarebbe
+  // falso, e chi legge crederebbe di non poterci più mettere mano.
+  it("nella finestra il passo Bozza non si dichiara chiuso", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "emessa", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[2].dettaglio).toBe("Correggibile fino all'invio");
+  });
+
+  it("dopo l'invio la bozza è chiusa davvero", () => {
+    const p = passiFattura(
+      {
+        ...base,
+        fattura: { stato: "inviata", tipo: "fattura", inviataDryRun: false, numero: "127/2026", data: "2026-09-04" },
+        controlli: null,
+      },
+      new Date("2026-09-05T12:00:00Z")
+    );
+    expect(p[2].dettaglio).toBe("Chiusa con l'emissione");
+  });
+
   it("scaduta: il passo lo dice, ma non si blocca — inviare tardi resta meglio che non inviare", () => {
     const p = passiFattura(
       {
