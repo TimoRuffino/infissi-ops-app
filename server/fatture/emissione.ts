@@ -31,6 +31,7 @@ import type {
   RigaFattura,
   TipoEvento,
 } from "@shared/fatturazione/tipi";
+import { fatturaModificabile } from "@shared/fatturazione/tipi";
 import { putFile, sha256Hex } from "../_core/fileStorage";
 import {
   creaClientFicEmissione,
@@ -833,6 +834,69 @@ export async function creaSuFic(
   });
 
   return { fattura, passi };
+}
+
+/**
+ * Porta su Fatture in Cloud una modifica fatta nel CRM, mentre la fattura
+ * è nella finestra fra i due gesti (R47). È la `SincronizzaFic` che
+ * `aggiornaBozza` invoca PRIMA di scrivere: qui si fallisce, e nel CRM non
+ * cambia niente.
+ *
+ * Il lock è l'`updated_at` di FiC, non il nostro: si rilegge il documento
+ * e, se di là è cambiato da quando l'abbiamo visto, ci si ferma invece di
+ * sovrascrivere il lavoro di qualcun altro. Un `ficUpdatedAt` nullo vuol
+ * dire «non l'ho mai letto», non «è cambiato»: ci si riallinea.
+ */
+export async function aggiornaDocumentoFic(
+  input: {
+    sedeId: number;
+    /** La fattura come sarà dopo la modifica: è questa che si manda. */
+    fattura: Fattura;
+    actorUserId: number | null;
+    ctx?: ContestoFic;
+  } & DipendenzeEmissione
+): Promise<{ ficUpdatedAt: string | null }> {
+  const repository = repo(input);
+  const client = input.client ?? creaClientFicEmissione();
+  const fattura = input.fattura;
+  const ficDocumentId = fattura.ficDocumentId;
+  if (ficDocumentId == null) {
+    throw new Error(
+      "PRECONDIZIONE: la fattura non ha un documento su Fatture in Cloud da aggiornare."
+    );
+  }
+  const ctx =
+    input.ctx ?? (await (input.contesto ?? contestoFicPerSede)(input.sedeId));
+
+  const attuale = await client.leggiDocumento(ctx, ficDocumentId);
+  if (!fatturaModificabile({ stato: fattura.stato, eiStatusFic: attuale.ei_status })) {
+    throw new Error(
+      `FATTURA_IMMUTABILE: la fattura #${fattura.id} è già partita allo SdI: correggi con una nota di credito.`
+    );
+  }
+  if (
+    fattura.ficUpdatedAt != null &&
+    attuale.updatedAt != null &&
+    attuale.updatedAt !== fattura.ficUpdatedAt
+  ) {
+    throw new Error(
+      "CONFLITTO_FIC: la fattura è cambiata su Fatture in Cloud dopo l'ultima volta che l'abbiamo letta. Ricarica prima di salvare."
+    );
+  }
+
+  const config = await repository.config(input.sedeId);
+  const commessa: any = getCommessaById(fattura.commessaId);
+  const aggiornato = await client.modificaDocumento(
+    ctx,
+    ficDocumentId,
+    costruisciDocumentoFic(
+      fattura,
+      config,
+      fattura.clienteSnapshot?.ficEntityId ?? 0,
+      String(commessa?.codice ?? "")
+    )
+  );
+  return { ficUpdatedAt: aggiornato.updatedAt };
 }
 
 /**

@@ -58,6 +58,13 @@ export type PatchBozza = Partial<
     | "pattuitoTipo"
     | "detrazioneTipo"
     | "clienteSnapshot"
+    // Modifica nella finestra fra FiC e SdI: l'orologio di Fatture in
+    // Cloud si riscrive col PUT, e l'archivio di prima descrive un
+    // documento che non esiste più.
+    | "ficUpdatedAt"
+    | "xmlStorageKey"
+    | "xmlSha256"
+    | "pdfStorageKey"
   >
 >;
 
@@ -916,6 +923,10 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         const detrazioneTipo = patch.detrazioneTipo === undefined ? corrente.detrazioneTipo : patch.detrazioneTipo;
         const clienteSnapshot =
           patch.clienteSnapshot === undefined ? corrente.clienteSnapshot : patch.clienteSnapshot;
+        const ficUpdatedAt = patch.ficUpdatedAt === undefined ? corrente.ficUpdatedAt : patch.ficUpdatedAt;
+        const xmlStorageKey = patch.xmlStorageKey === undefined ? corrente.xmlStorageKey : patch.xmlStorageKey;
+        const xmlSha256 = patch.xmlSha256 === undefined ? corrente.xmlSha256 : patch.xmlSha256;
+        const pdfStorageKey = patch.pdfStorageKey === undefined ? corrente.pdfStorageKey : patch.pdfStorageKey;
 
         const rows = await tx`UPDATE fatture SET
             diciture = ${tx.json(diciture as any)}, note = ${note}, intestazione_cantiere = ${intestazioneCantiere},
@@ -926,6 +937,8 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
             scavalco_motivo = ${scavalcoMotivo}, pattuito_cent = ${pattuitoCent}, pattuito_tipo = ${pattuitoTipo},
             detrazione_tipo = ${detrazioneTipo},
             cliente_snapshot = ${clienteSnapshot == null ? null : tx.json(clienteSnapshot as any)},
+            fic_updated_at = ${ficUpdatedAt}, xml_storage_key = ${xmlStorageKey},
+            xml_sha256 = ${xmlSha256}, pdf_storage_key = ${pdfStorageKey},
             revisione = revisione + 1, updated_at = ${now}
           WHERE id = ${id} AND sede_id = ${sedeId} AND revisione = ${revisioneAttesa}
           RETURNING *`;

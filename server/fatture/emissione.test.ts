@@ -29,6 +29,7 @@ import { creaCommessa, getCommessaById } from "../routers/commesse";
 import { getDocumentoRecordById } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
 import {
+  aggiornaDocumentoFic,
   costruisciClienteFic,
   costruisciDocumentoFic,
   creaSuFic,
@@ -1258,6 +1259,115 @@ describe("i due passi: creaSuFic e inviaAlloSdi", () => {
       inviaAlloSdi({ sedeId: ALTRA_SEDE, id: fattura.id, actorUserId: ATTORE, revisione: fattura.revisione, ...b.dip })
     ).rejects.toThrow(/NOT_FOUND/);
     expect(b.registro).toEqual([]);
+  });
+});
+
+// ── La sincronizzazione verso Fatture in Cloud (R47) ───────────────────
+describe("aggiornaDocumentoFic", () => {
+  async function emessa() {
+    const { fattura } = await bozzaEmettibile();
+    const esito = await creaSuFic({
+      sedeId: SEDE,
+      id: fattura.id,
+      actorUserId: ATTORE,
+      revisione: fattura.revisione,
+      ...banco(copioneFelice(fattura), { dryRun: false }).dip,
+    });
+    // Il documento creato porta un `updated_at`: da lì parte il confronto.
+    return repository.aggiornaStato({
+      sedeId: SEDE,
+      id: fattura.id,
+      patch: { ficUpdatedAt: "2026-09-04 10:00:00" },
+      now: ora,
+    });
+  }
+
+  it("rilegge, confronta l'orologio e riscrive il documento", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-04 10:00:00" }),
+        modificaDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-08 11:22:33" }),
+      })
+    );
+
+    const esito = await aggiornaDocumentoFic({
+      sedeId: SEDE,
+      fattura: { ...f, note: "corretta" },
+      actorUserId: ATTORE,
+      ...b.dip,
+    });
+
+    expect(metodi(b.registro)).toEqual(["leggiDocumento", "modificaDocumento"]);
+    expect(esito.ficUpdatedAt).toBe("2026-09-08 11:22:33");
+    // Il corpo è il documento intero, ricostruito dalla fattura corretta.
+    const put = b.registro[1].body as any;
+    expect(put.documentId).toBe(FIC_DOCUMENT_ID);
+    expect(put.documento.notes).toContain("corretta");
+  });
+
+  it("se il documento è cambiato su Fatture in Cloud non lo si sovrascrive", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "not_sent", updatedAt: "2026-09-07 18:00:00" }),
+      })
+    );
+
+    await expect(
+      aggiornaDocumentoFic({
+        sedeId: SEDE,
+        fattura: { ...f, note: "la mia versione" },
+        actorUserId: ATTORE,
+        ...b.dip,
+      })
+    ).rejects.toThrow(/CONFLITTO_FIC/);
+    expect(metodi(b.registro)).not.toContain("modificaDocumento");
+  });
+
+  it("una fattura già partita allo SdI non si riscrive più", async () => {
+    const f = await emessa();
+    const b = banco(
+      copioneFelice(f, {
+        leggiDocumento: async () =>
+          documentoFicDa(f, { ei_status: "sent", updatedAt: "2026-09-04 10:00:00" }),
+      })
+    );
+
+    await expect(
+      aggiornaDocumentoFic({
+        sedeId: SEDE,
+        fattura: { ...f, note: "tardi" },
+        actorUserId: ATTORE,
+        ...b.dip,
+      })
+    ).rejects.toThrow(/FATTURA_IMMUTABILE/);
+    expect(metodi(b.registro)).not.toContain("modificaDocumento");
+  });
+
+  // `ficUpdatedAt` nullo vuol dire «non l'ho mai letto»: si riallinea a
+  // quello di FiC invece di dichiarare un conflitto che non c'è.
+  it("senza un orologio nostro non c'è conflitto: si prende quello di FiC", async () => {
+    const f = await emessa();
+    const senzaOrologio = await repository.aggiornaStato({
+      sedeId: SEDE, id: f.id, patch: { ficUpdatedAt: null }, now: ora,
+    });
+    const b = banco(
+      copioneFelice(senzaOrologio, {
+        leggiDocumento: async () =>
+          documentoFicDa(senzaOrologio, { ei_status: "not_sent", updatedAt: "2026-09-07 18:00:00" }),
+        modificaDocumento: async () =>
+          documentoFicDa(senzaOrologio, { ei_status: "not_sent", updatedAt: "2026-09-08 09:00:00" }),
+      })
+    );
+
+    const esito = await aggiornaDocumentoFic({
+      sedeId: SEDE, fattura: senzaOrologio, actorUserId: ATTORE, ...b.dip,
+    });
+    expect(esito.ficUpdatedAt).toBe("2026-09-08 09:00:00");
   });
 });
 

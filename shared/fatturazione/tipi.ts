@@ -238,11 +238,28 @@ export const FATTURAZIONE_CONFIG_DEFAULT = {
   scopeVerificatoAt: null,
 } satisfies Omit<FatturazioneConfig, "sedeId" | "updatedAt">;
 
-/** Solo la bozza si modifica liberamente: dall'emissione in poi la fattura è tracciata verso SdI. */
-export const STATI_MODIFICABILI: ReadonlySet<StatoFattura> = new Set(["bozza"]);
+/**
+ * Gli `ei_status` di Fatture in Cloud che significano «non è ancora
+ * partita». Tutto il resto — anche un `error` — vuol dire che il
+ * documento allo SdI è già stato consegnato o ci sta andando, e da lì si
+ * corregge solo con una nota di credito.
+ */
+const EI_NON_PARTITA: ReadonlySet<string> = new Set(["", "not_sent", "missing"]);
 
-export function fatturaModificabile(stato: StatoFattura): boolean {
-  return stato === "bozza";
+/**
+ * Fino a dove si può correggere (R46, 08/09/2026). Prima erano gli stati:
+ * solo `bozza`. Ora conta anche il documento su Fatture in Cloud, perché
+ * fra il primo gesto e l'invio allo SdI c'è la finestra dei dodici giorni,
+ * ed è lì che le correzioni servono davvero. Non basta lo stato: una
+ * fattura `emessa` è modificabile solo finché allo SdI non è partita.
+ */
+export function fatturaModificabile(f: {
+  stato: StatoFattura;
+  eiStatusFic: string | null;
+}): boolean {
+  if (f.stato === "bozza") return true;
+  if (f.stato !== "emessa") return false;
+  return EI_NON_PARTITA.has(f.eiStatusFic ?? "");
 }
 
 /**

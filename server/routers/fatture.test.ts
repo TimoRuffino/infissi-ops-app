@@ -152,6 +152,38 @@ describe("router fatture — autorizzazione", () => {
     expect(creaSuFic).not.toHaveBeenCalled();
   });
 
+  // R47: la modifica di una fattura già su Fatture in Cloud DEVE passare
+  // di là prima di essere scritta qui. Senza collegamento FiC il
+  // salvataggio fallisce — che è il punto: meglio un errore che due
+  // versioni diverse della stessa fattura.
+  it("modificare una fattura già su FiC senza collegamento fallisce, e non scrive", async () => {
+    const commessaId = await commessaConContratto();
+    const amministrazione = appRouter.createCaller(context(1, 26, ["amministrazione"]));
+    const { fattura } = await amministrazione.fatture.creaBozza({ commessaId });
+    await getFattureRepository().aggiornaStato({
+      sedeId: 1,
+      id: fattura.id,
+      patch: { stato: "emessa", ficDocumentId: 9911, eiStatusFic: "not_sent" },
+      now: new Date(),
+    });
+    const emessa = (await getFattureRepository().perId(1, fattura.id))!;
+
+    // Il fallimento deve venire da Fatture in Cloud (nessun collegamento
+    // nei test), non dal router che si è dimenticato di passare la
+    // sincronizzazione: quello sarebbe un difetto, non una protezione.
+    await expect(
+      amministrazione.fatture.aggiornaBozza({
+        id: fattura.id,
+        revisione: emessa.revisione,
+        modifica: { note: "non deve restare" },
+      })
+    ).rejects.toThrow(/^(?!.*richiede la sincronizzazione)/s);
+
+    const dopo = await getFattureRepository().perId(1, fattura.id);
+    expect(dopo!.note).toBe(emessa.note);
+    expect(dopo!.revisione).toBe(emessa.revisione);
+  });
+
   it("il commerciale non può mandare allo SdI", async () => {
     const commerciale = appRouter.createCaller(context(1, 24, ["commerciale"]));
     await expect(

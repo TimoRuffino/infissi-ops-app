@@ -17,7 +17,7 @@ import { procedureConInterruttore, router } from "../_core/trpc";
 import { assicuraInterruttore } from "../platform/interruttori";
 import { authorizeCoreOperation, effectiveCapabilitySet } from "../authz/enforcement";
 import { getFile } from "../_core/fileStorage";
-import { contestoFicPerSede, creaSuFic, inviaAlloSdi } from "../fatture/emissione";
+import { aggiornaDocumentoFic, contestoFicPerSede, creaSuFic, inviaAlloSdi } from "../fatture/emissione";
 import { creaClientFicEmissione } from "../fic/emissione";
 import { classificaRigheFic, confrontaLati, latoCrm } from "../fatture/confronto";
 import { ficFatture } from "./ficFatture";
@@ -283,6 +283,11 @@ export const fattureRouter = router({
           revisione: input.revisione,
           actorUserId: ctx.user.id,
           modifica: input.modifica,
+          // R47: se la fattura è già su Fatture in Cloud, la modifica ci
+          // arriva prima di essere scritta qui. Iniettata e non importata
+          // dal servizio: `emissione.ts` importa da `servizio.ts`, e il
+          // contrario chiuderebbe un anello.
+          sincronizzaFic: aggiornaDocumentoFic,
         });
       } catch (errore) {
         erroreServizioComeTrpc(errore);

@@ -8,7 +8,8 @@
 // voce di computo 817926 (R25, `describe("verificaLimiti")`).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Computo, ContrattoInput, RigaContrattoInput } from "@shared/limiti/tipi";
-import type { ClienteSnapshot, FatturazioneConfig } from "@shared/fatturazione/tipi";
+import type { ClienteSnapshot, Fattura, FatturazioneConfig } from "@shared/fatturazione/tipi";
+import { fatturaModificabile } from "@shared/fatturazione/tipi";
 import casi from "../computo/__fixtures__/casi-reali.json";
 import { _resetComputiRepositoryForTests } from "../computo/repository";
 import { eseguiComputo, ultimoComputo } from "../computo/servizio";
@@ -467,7 +468,7 @@ describe("aggiornaBozza", () => {
     );
   });
 
-  it("revisione vecchia → CONFLITTO; fattura emessa → FATTURA_IMMUTABILE", async () => {
+  it("revisione vecchia → CONFLITTO; fattura già partita allo SdI → FATTURA_IMMUTABILE", async () => {
     const { commessaId } = await scenario127();
     const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
 
@@ -490,7 +491,15 @@ describe("aggiornaBozza", () => {
       })
     ).rejects.toThrow("CONFLITTO:");
 
-    await repository.aggiornaStato({ sedeId: SEDE, id: fattura.id, patch: { stato: "emessa" }, now: ora });
+    // R46: «emessa» da sola non basta più a rendere immutabile una
+    // fattura — nella finestra fra FiC e SdI si corregge. Immutabile lo
+    // diventa quando allo SdI è partita davvero.
+    await repository.aggiornaStato({
+      sedeId: SEDE,
+      id: fattura.id,
+      patch: { stato: "emessa", eiStatusFic: "sent" },
+      now: ora,
+    });
     await expect(
       aggiornaBozza({
         sedeId: SEDE,
@@ -831,6 +840,137 @@ describe("aggiornaBozza", () => {
       ...dip(),
     });
     expect(spento.fattura.scavalcoLimiti).toBe(false);
+  });
+});
+
+// ── La finestra fra Fatture in Cloud e SdI (08/09/2026) ────────────────
+//
+// Finché la fattura non è partita si può ancora correggere, e la
+// correzione deve arrivare su FiC PRIMA di essere scritta qui (R47): se
+// il PUT fallisce non deve cambiare niente da nessuna parte.
+describe("modifica nella finestra fra FiC e SdI", () => {
+  async function emessaSuFic(over: Partial<Fattura> = {}) {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    const su = await repository.aggiornaStato({
+      sedeId: SEDE,
+      id: fattura.id,
+      patch: {
+        stato: "emessa",
+        ficDocumentId: 8811,
+        numero: "127/2026",
+        data: "2026-09-04",
+        eiStatusFic: "not_sent",
+        ficUpdatedAt: "2026-09-04 10:00:00",
+        xmlStorageKey: "fatture_xml/vecchio",
+        pdfStorageKey: "fatture_pdf/vecchio",
+        ...over,
+      } as any,
+      now: ora,
+    });
+    return su;
+  }
+
+  it("una emessa non ancora partita si modifica; una già inviata no", () => {
+    expect(fatturaModificabile({ stato: "bozza", eiStatusFic: null })).toBe(true);
+    expect(fatturaModificabile({ stato: "emessa", eiStatusFic: null })).toBe(true);
+    expect(fatturaModificabile({ stato: "emessa", eiStatusFic: "not_sent" })).toBe(true);
+    expect(fatturaModificabile({ stato: "emessa", eiStatusFic: "missing" })).toBe(true);
+    // Partita: da qui si corregge con una nota di credito.
+    expect(fatturaModificabile({ stato: "emessa", eiStatusFic: "sent" })).toBe(false);
+    expect(fatturaModificabile({ stato: "inviata", eiStatusFic: "sent" })).toBe(false);
+    expect(fatturaModificabile({ stato: "consegnata", eiStatusFic: "delivered" })).toBe(false);
+  });
+
+  it("il salvataggio passa da Fatture in Cloud prima di scrivere nel CRM", async () => {
+    const f = await emessaSuFic();
+    const ordine: string[] = [];
+    const esito = await aggiornaBozza({
+      sedeId: SEDE,
+      id: f.id,
+      revisione: f.revisione,
+      actorUserId: ATTORE,
+      modifica: { note: "corretta nella finestra" },
+      sincronizzaFic: async () => {
+        ordine.push("fic");
+        return { ficUpdatedAt: "2026-09-08 11:22:33" };
+      },
+      ...dip(),
+    });
+    ordine.push("crm");
+
+    expect(ordine).toEqual(["fic", "crm"]);
+    expect(esito.fattura.note).toBe("corretta nella finestra");
+    expect(esito.fattura.ficUpdatedAt).toBe("2026-09-08 11:22:33");
+    // L'archivio di prima descrive un documento che non esiste più.
+    expect(esito.fattura.xmlStorageKey).toBeNull();
+    expect(esito.fattura.pdfStorageKey).toBeNull();
+    expect((await repository.eventi(SEDE, f.id)).map(e => e.tipo)).toContain("aggiornata_fic");
+  });
+
+  it("se Fatture in Cloud rifiuta la modifica, nel CRM non cambia niente", async () => {
+    const f = await emessaSuFic();
+    await expect(
+      aggiornaBozza({
+        sedeId: SEDE,
+        id: f.id,
+        revisione: f.revisione,
+        actorUserId: ATTORE,
+        modifica: { note: "non deve restare" },
+        sincronizzaFic: async () => {
+          throw new Error("CONFLITTO_FIC: la fattura è cambiata su Fatture in Cloud, rileggi.");
+        },
+        ...dip(),
+      })
+    ).rejects.toThrow("CONFLITTO_FIC:");
+
+    const dopo = await repository.perId(SEDE, f.id);
+    expect(dopo!.note).toBe(f.note);
+    expect(dopo!.revisione).toBe(f.revisione);
+    expect(dopo!.xmlStorageKey).toBe("fatture_xml/vecchio");
+  });
+
+  it("su una bozza non si chiama Fatture in Cloud: non c'è ancora niente là", async () => {
+    const { commessaId } = await scenario127();
+    const { fattura } = await creaBozza({ sedeId: SEDE, commessaId, actorUserId: ATTORE, ...dip() });
+    let chiamate = 0;
+    await aggiornaBozza({
+      sedeId: SEDE,
+      id: fattura.id,
+      revisione: fattura.revisione,
+      actorUserId: ATTORE,
+      modifica: { note: "ancora bozza" },
+      sincronizzaFic: async () => {
+        chiamate++;
+        return { ficUpdatedAt: null };
+      },
+      ...dip(),
+    });
+    expect(chiamate).toBe(0);
+  });
+
+  // Rigenerare vuol dire buttare le righe e rifarle dal contratto: su un
+  // documento già numerato su FiC è un'altra cosa dal correggere, e non
+  // passa dalla sincronizzazione. Si ferma prima.
+  it("rigeneraBozza non tocca una fattura già su Fatture in Cloud", async () => {
+    const f = await emessaSuFic();
+    await expect(
+      rigeneraBozza({ sedeId: SEDE, id: f.id, revisione: f.revisione, actorUserId: ATTORE, ...dip() })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
+  });
+
+  it("una fattura già partita resta immutabile", async () => {
+    const f = await emessaSuFic({ eiStatusFic: "sent" } as any);
+    await expect(
+      aggiornaBozza({
+        sedeId: SEDE,
+        id: f.id,
+        revisione: f.revisione,
+        actorUserId: ATTORE,
+        modifica: { note: "tardi" },
+        ...dip(),
+      })
+    ).rejects.toThrow("FATTURA_IMMUTABILE:");
   });
 });
 
