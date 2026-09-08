@@ -4775,6 +4775,26 @@ a vuoto e dice «57 saltati»).
     e PR è della direzione. Il gemello PDF del PRD
     (`PRD_infissi_ops_v4.pdf`) non è stato rigenerato in questa fusione.
 
+22. **Pagina Tars riscritta come coda di decisioni (08/09/2026)**: su
+    `main` (PRD §62). Le proposte si leggono come azioni — il testo lo
+    prepara `client/src/lib/tarsDecisioniView.ts`, puro e con 22 test — e
+    il pannello laterale della chat, che ripeteva «Da fare oggi» e la coda
+    stessa, è stato tolto insieme a `TarsContextPanel`,
+    `SezioneAnalisiAzienda` e `ProposteDallAnalisi`; al suo posto
+    `TarsBarraContesto`, una riga con l'entità attiva. «Rigenera
+    l'analisi» vive ora nell'intestazione della coda. Aperti: (1) la riga
+    di contesto è provata dai test ma mai vista dal vivo — il demo in
+    memoria non ha commesse da cui aprire Tars con un'entità attiva, e
+    serve un harness che ne semini una; (2) **due test rossi che non
+    vengono da lì**: `shared/brand.test.ts` cammina sul filesystem invece
+    che sui file tracciati da git, quindi entra in `Video/`,
+    `graphify-out/` e `.worktrees/` (le ultime due ignorate da git) — nel
+    checkout con un worktree locale sono mezzo milione di file e il
+    `push(...)` sull'array esaurisce lo stack. Il rimedio è scandire
+    `git ls-files`; è la guardia del lavoro sul marchio e non è stata
+    toccata da qui. (3) La voce di changelog della **5.75** manca nel PRD:
+    l'intestazione la dichiara, `## 33` no.
+
 ## 13. Cosa resta della piattaforma
 
 Eventi, notifiche realtime, SSE, Web Push, policy e Centro Azioni restano e
