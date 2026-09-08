@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { oppureNotFound } from "../_core/permissions";
 import { conTenant } from "../tenants/contestoCorrente";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import {
@@ -333,11 +334,8 @@ export const timelineRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const idx = steps.findIndex((s) => s.id === input.id);
-      if (idx === -1) throw new Error("Step non trovato");
-      const commessa = commessaInSede(steps[idx].commessaId, ctx.sedeId);
-      if (!commessa) {
-        throw new Error("Step non trovato");
-      }
+      oppureNotFound(idx === -1 ? undefined : steps[idx]);
+      const commessa = oppureNotFound(commessaInSede(steps[idx].commessaId, ctx.sedeId));
 
       const targetStato = STATO_PER_MILESTONE[steps[idx].stepNumber];
       const isNewCompletion =

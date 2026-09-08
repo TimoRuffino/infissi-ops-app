@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { assertSedeScope } from "../_core/permissions";
+import { recordOppureNotFound } from "../_core/permissions";
 
 const _verbaliStore = persistedStore<any>("verbali", (loaded) => {
   for (const v of loaded) {
@@ -72,8 +72,7 @@ export const verbaliRouter = router({
     )
     .mutation(({ input, ctx }) => {
       const idx = verbali.findIndex((v) => v.id === input.id);
-      if (idx === -1) throw new Error("Verbale non trovato");
-      assertSedeScope(verbali[idx], ctx.sedeId);
+      recordOppureNotFound(verbali[idx], ctx.sedeId);
       const { id, ...updates } = input;
       verbali[idx] = { ...verbali[idx], ...updates, updatedAt: new Date() };
       if (updates.firmaClienteData) verbali[idx].firmaCliente = true;

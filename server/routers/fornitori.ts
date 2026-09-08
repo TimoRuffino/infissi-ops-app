@@ -4,7 +4,8 @@ import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import {
-  assertSedeScope,
+  oppureNotFound,
+  recordOppureNotFound,
   requireDirezioneOAmministrazione,
 } from "../_core/permissions";
 import {
@@ -184,10 +185,9 @@ export function aggiornaDataConsegnaOrdine(
   sedeId: number,
   nuovaData: string
 ): OrdineFornitore {
-  const ordine = ordini.find(
+  const ordine = oppureNotFound(ordini.find(
     (o) => o.id === ordineId && ((o as any).sedeId ?? DEFAULT_SEDE_ID) === sedeId
-  );
-  if (!ordine) throw new Error("Ordine non trovato.");
+  ));
   ordine.dataConsegnaPrevista = nuovaData;
   ordine.updatedAt = new Date();
   _ordiniStore.save();
@@ -277,8 +277,7 @@ export const fornitoriRouter = router({
     )
     .mutation(({ input, ctx }) => {
       const idx = fornitori.findIndex((f) => f.id === input.id);
-      if (idx === -1) throw new Error("Fornitore non trovato");
-      assertSedeScope(fornitori[idx] as any, ctx.sedeId);
+      recordOppureNotFound(fornitori[idx] as any, ctx.sedeId);
       const { id, ...updates } = input;
       fornitori[idx] = { ...fornitori[idx], ...updates, updatedAt: new Date() };
       _fornitoriStore.save();
@@ -287,8 +286,7 @@ export const fornitoriRouter = router({
 
   delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
     const idx = fornitori.findIndex((f) => f.id === input);
-    if (idx === -1) throw new Error("Fornitore non trovato");
-    assertSedeScope(fornitori[idx] as any, ctx.sedeId);
+    recordOppureNotFound(fornitori[idx] as any, ctx.sedeId);
     fornitori.splice(idx, 1);
     _fornitoriStore.save();
     return { success: true };
@@ -420,8 +418,7 @@ export const fornitoriRouter = router({
       )
       .mutation(({ input, ctx }) => {
         const idx = ordini.findIndex((o) => o.id === input.id);
-        if (idx === -1) throw new Error("Ordine non trovato");
-        assertSedeScope(ordini[idx] as any, ctx.sedeId);
+        recordOppureNotFound(ordini[idx] as any, ctx.sedeId);
         ordini[idx].stato = input.stato;
         ordini[idx].updatedAt = new Date();
         if (input.noteRicevimento) ordini[idx].noteRicevimento = input.noteRicevimento;
@@ -440,8 +437,7 @@ export const fornitoriRouter = router({
 
     delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = ordini.findIndex((o) => o.id === input);
-      if (idx === -1) throw new Error("Ordine non trovato");
-      assertSedeScope(ordini[idx] as any, ctx.sedeId);
+      recordOppureNotFound(ordini[idx] as any, ctx.sedeId);
       ordini.splice(idx, 1);
       _ordiniStore.save();
       return { success: true };
@@ -482,8 +478,7 @@ export const fornitoriRouter = router({
 
     delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = listini.findIndex((l) => l.id === input);
-      if (idx === -1) throw new Error("Listino non trovato");
-      assertSedeScope(listini[idx] as any, ctx.sedeId);
+      recordOppureNotFound(listini[idx] as any, ctx.sedeId);
       listini.splice(idx, 1);
       _listiniStore.save();
       return { success: true };

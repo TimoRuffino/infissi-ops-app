@@ -2,6 +2,7 @@ import type { FatturaFic } from "./ficFatture";
 import { ficFatture, saveFicFatture } from "./ficFatture";
 import { scaricaFatturaPdf } from "./fattureInCloud";
 import { findDocumentoFic, upsertDocumentoFic } from "./preventiviContratti";
+import { oppureNotFound } from "../_core/permissions";
 
 export type FicPdfEnsureResult = {
   stato: "archiviata" | "errore" | "non_collegata";
@@ -37,9 +38,10 @@ const attachmentQueues = new Map<string, Promise<FicPdfEnsureResult>>();
 async function ensureFicInvoiceAttachmentUnlocked(
   input: EnsureFicInvoiceAttachmentInput
 ): Promise<FicPdfEnsureResult> {
-  if (input.fattura.sedeId !== input.sedeId) {
-    throw new Error("Fattura non trovata");
-  }
+  // Helper di modulo senza `ctx` (chiamato anche da worker come
+  // `archiviaPdfFattureCollegate`): `oppureNotFound` sul confine di sede,
+  // stessa logica di prima (assenza/mismatch → NOT_FOUND generico).
+  oppureNotFound(input.fattura.sedeId === input.sedeId ? input.fattura : null);
   if (input.fattura.commessaId == null) {
     input.fattura.pdfSync = {
       stato: "non_collegata",

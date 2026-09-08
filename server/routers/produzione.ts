@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
-import { assertSedeScope } from "../_core/permissions";
+import { oppureNotFound, recordOppureNotFound } from "../_core/permissions";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -183,8 +183,7 @@ export const produzioneRouter = router({
       )
       .mutation(({ input, ctx }) => {
         const idx = distinteBasi.findIndex((d) => d.id === input.id);
-        if (idx === -1) throw new Error("Distinta base non trovata");
-        assertSedeScope(distinteBasi[idx] as any, ctx.sedeId);
+        recordOppureNotFound(distinteBasi[idx] as any, ctx.sedeId);
         if (distinteBasi[idx].stato !== "bozza") throw new Error("Solo le distinte in bozza possono essere validate");
         distinteBasi[idx].stato = "validata";
         distinteBasi[idx].validataDa = input.validataDa;
@@ -199,8 +198,7 @@ export const produzioneRouter = router({
       .input(z.object({ id: z.number(), stato: z.enum(["bozza", "validata", "in_produzione", "completata"]) }))
       .mutation(({ input, ctx }) => {
         const idx = distinteBasi.findIndex((d) => d.id === input.id);
-        if (idx === -1) throw new Error("Distinta base non trovata");
-        assertSedeScope(distinteBasi[idx] as any, ctx.sedeId);
+        recordOppureNotFound(distinteBasi[idx] as any, ctx.sedeId);
         distinteBasi[idx].stato = input.stato;
         distinteBasi[idx].updatedAt = new Date();
         _distinteStore.save();
@@ -209,8 +207,7 @@ export const produzioneRouter = router({
 
     delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = distinteBasi.findIndex((d) => d.id === input);
-      if (idx === -1) throw new Error("Distinta base non trovata");
-      assertSedeScope(distinteBasi[idx] as any, ctx.sedeId);
+      recordOppureNotFound(distinteBasi[idx] as any, ctx.sedeId);
       distinteBasi.splice(idx, 1);
       _distinteStore.save();
       return { success: true };
@@ -251,8 +248,7 @@ export const produzioneRouter = router({
       )
       .mutation(({ input, ctx }) => {
         const idx = fasiProduzione.findIndex((f) => f.id === input.id);
-        if (idx === -1) throw new Error("Fase non trovata");
-        assertSedeScope(fasiProduzione[idx] as any, ctx.sedeId);
+        recordOppureNotFound(fasiProduzione[idx] as any, ctx.sedeId);
         fasiProduzione[idx].stato = input.stato;
         if (input.operatore) fasiProduzione[idx].operatore = input.operatore;
         if (input.note) fasiProduzione[idx].note = input.note;
@@ -271,10 +267,9 @@ export const produzioneRouter = router({
       .input(z.object({ faseId: z.number(), checklistItemId: z.number(), completato: z.boolean(), esito: z.enum(["ok", "non_conforme"]).optional() }))
       .mutation(({ input, ctx }) => {
         const faseIdx = fasiProduzione.findIndex((f) => f.id === input.faseId);
-        if (faseIdx === -1) throw new Error("Fase non trovata");
-        assertSedeScope(fasiProduzione[faseIdx] as any, ctx.sedeId);
+        recordOppureNotFound(fasiProduzione[faseIdx] as any, ctx.sedeId);
         const itemIdx = fasiProduzione[faseIdx].checklistItems.findIndex((c) => c.id === input.checklistItemId);
-        if (itemIdx === -1) throw new Error("Checklist item non trovato");
+        oppureNotFound(itemIdx === -1 ? undefined : fasiProduzione[faseIdx].checklistItems[itemIdx]);
         fasiProduzione[faseIdx].checklistItems[itemIdx].completato = input.completato;
         if (input.esito) fasiProduzione[faseIdx].checklistItems[itemIdx].esito = input.esito;
         fasiProduzione[faseIdx].updatedAt = new Date();
@@ -284,8 +279,7 @@ export const produzioneRouter = router({
 
     delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = fasiProduzione.findIndex((f) => f.id === input);
-      if (idx === -1) throw new Error("Fase non trovata");
-      assertSedeScope(fasiProduzione[idx] as any, ctx.sedeId);
+      recordOppureNotFound(fasiProduzione[idx] as any, ctx.sedeId);
       fasiProduzione.splice(idx, 1);
       _fasiStore.save();
       return { success: true };
@@ -353,8 +347,7 @@ export const produzioneRouter = router({
       )
       .mutation(({ input, ctx }) => {
         const idx = nonConformita.findIndex((n) => n.id === input.id);
-        if (idx === -1) throw new Error("Non conformita non trovata");
-        assertSedeScope(nonConformita[idx] as any, ctx.sedeId);
+        recordOppureNotFound(nonConformita[idx] as any, ctx.sedeId);
         nonConformita[idx].stato = input.stato;
         if (input.azioneCorrettiva) nonConformita[idx].azioneCorrettiva = input.azioneCorrettiva;
         if (input.stato === "chiusa") nonConformita[idx].dataChiusura = new Date().toISOString().split("T")[0];
@@ -365,8 +358,7 @@ export const produzioneRouter = router({
 
     delete: adminProcedure.input(z.number()).mutation(({ input, ctx }) => {
       const idx = nonConformita.findIndex((n) => n.id === input);
-      if (idx === -1) throw new Error("Non conformita non trovata");
-      assertSedeScope(nonConformita[idx] as any, ctx.sedeId);
+      recordOppureNotFound(nonConformita[idx] as any, ctx.sedeId);
       nonConformita.splice(idx, 1);
       _ncStore.save();
       return { success: true };

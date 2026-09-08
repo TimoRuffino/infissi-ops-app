@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione, assertSedeScope } from "../_core/permissions";
+import { requireOwnershipOrDirezione, recordOppureNotFound } from "../_core/permissions";
 
 // --- Reclami (complaints) ---
 
@@ -82,8 +82,7 @@ export const reclamiRifacimentiRouter = router({
       }))
       .mutation(({ input, ctx }) => {
         const idx = reclami.findIndex((r) => r.id === input.id);
-        if (idx === -1) throw new Error("Reclamo non trovato");
-        assertSedeScope(reclami[idx], ctx.sedeId);
+        recordOppureNotFound(reclami[idx], ctx.sedeId);
         const { id, ...updates } = input;
         // "risolto" retired → folded into chiuso (legacy clients still send it).
         if (updates.stato === "risolto") updates.stato = "chiuso";
@@ -99,8 +98,7 @@ export const reclamiRifacimentiRouter = router({
       .input(z.number())
       .mutation(({ input, ctx }) => {
         const idx = reclami.findIndex((r) => r.id === input);
-        if (idx === -1) throw new Error("Reclamo non trovato");
-        assertSedeScope(reclami[idx], ctx.sedeId);
+        recordOppureNotFound(reclami[idx], ctx.sedeId);
         requireOwnershipOrDirezione(
           getCommessaById(reclami[idx].commessaId),
           ctx.user
@@ -182,8 +180,7 @@ export const reclamiRifacimentiRouter = router({
       }))
       .mutation(({ input, ctx }) => {
         const idx = rifacimenti.findIndex((r) => r.id === input.id);
-        if (idx === -1) throw new Error("Rifacimento non trovato");
-        assertSedeScope(rifacimenti[idx], ctx.sedeId);
+        recordOppureNotFound(rifacimenti[idx], ctx.sedeId);
         const { id, ...updates } = input;
         if (updates.stato === "completato" || updates.stato === "chiuso") {
           (updates as any).dataChiusura = new Date().toISOString().split("T")[0];
@@ -197,8 +194,7 @@ export const reclamiRifacimentiRouter = router({
       .input(z.number())
       .mutation(({ input, ctx }) => {
         const idx = rifacimenti.findIndex((r) => r.id === input);
-        if (idx === -1) throw new Error("Rifacimento non trovato");
-        assertSedeScope(rifacimenti[idx], ctx.sedeId);
+        recordOppureNotFound(rifacimenti[idx], ctx.sedeId);
         requireOwnershipOrDirezione(
           getCommessaById(rifacimenti[idx].commessaId),
           ctx.user

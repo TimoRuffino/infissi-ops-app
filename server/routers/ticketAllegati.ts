@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getTicketById } from "./ticket";
-import { isDirezione } from "../_core/permissions";
+import { isDirezione, oppureNotFound } from "../_core/permissions";
 import { TRPCError } from "@trpc/server";
 import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
 import { registerMigratableCollection } from "../_core/fileStorageMigrate";
@@ -127,9 +127,7 @@ export const ticketAllegatiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      if (!ticketInSede(input.ticketId, ctx.sedeId)) {
-        throw new Error("Ticket non trovato");
-      }
+      oppureNotFound(ticketInSede(input.ticketId, ctx.sedeId));
       if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
         throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
       }
@@ -179,10 +177,8 @@ export const ticketAllegatiRouter = router({
     .input(z.number())
     .mutation(({ input, ctx }) => {
       const idx = allegati.findIndex((a) => a.id === input);
-      if (idx === -1) throw new Error("Allegato non trovato");
-      if (!ticketInSede(allegati[idx].ticketId, ctx.sedeId)) {
-        throw new Error("Allegato non trovato");
-      }
+      oppureNotFound(idx === -1 ? undefined : allegati[idx]);
+      oppureNotFound(ticketInSede(allegati[idx].ticketId, ctx.sedeId));
       // Uploader or direzione only — non-uploaders shouldn't be able to
       // remove someone else's evidence.
       const uid = ctx.user?.id ?? null;

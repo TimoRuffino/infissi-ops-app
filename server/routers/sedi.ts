@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getSessionCookieOptions } from "../_core/cookies";
-import { assertTenantScope } from "../_core/permissions";
+import { assertTenantScope, oppureNotFound } from "../_core/permissions";
 import { SEDE_COOKIE } from "@shared/const";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getUtentiStore } from "./utenti";
@@ -213,7 +213,7 @@ export const sediRouter = router({
     .mutation(({ input, ctx }) => {
       const idx = sedi.findIndex((s) => s.id === input.id);
       if (interruttoreAttivo("multiAzienda")) assertTenantScope(sedi[idx] ?? null, ctx.tenantId);
-      if (idx === -1) throw new Error("Sede non trovata");
+      oppureNotFound(idx === -1 ? null : sedi[idx]);
       const { id, ...updates } = input;
       const sede = sedi[idx];
       // Guardia sull'ultima sede attiva (Important 2): senza, disattivarla
@@ -244,8 +244,7 @@ export const sediRouter = router({
       if (!allowed.has(input.sedeId)) {
         throw new Error("Non sei assegnato a questa sede");
       }
-      const sede = getSedeById(input.sedeId);
-      if (!sede) throw new Error("Sede non trovata");
+      const sede = oppureNotFound(getSedeById(input.sedeId));
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(SEDE_COOKIE, String(input.sedeId), {
         ...cookieOptions,
