@@ -54,7 +54,7 @@ import { Writable } from "node:stream";
 import { hashPassword } from "../server/_core/password";
 import { elencaChiaviDaDb, kvSql, leggiBlobDaDb } from "../server/_core/persistence";
 import { interruttoreAttivo } from "../server/platform/interruttori";
-import { anteprima, opzioni } from "../server/tenants/cli";
+import { anteprima, opzioni, workerSospesi } from "../server/tenants/cli";
 import {
   richiestoDa,
   schemaPayloadCrea,
@@ -235,7 +235,12 @@ async function main(): Promise<number> {
   await repo.caricaCache();
 
   if (sotto === "elenco") {
-    for (const t of repo.tutti()) console.log(`${t.id}\t${t.slug}\t${t.stato}\t${t.nome}`);
+    for (const t of repo.tutti()) {
+      console.log(`${t.id}\t${t.slug}\t${t.stato}\t${t.nome}`);
+      for (const w of workerSospesi(await repo.eventi(t.id))) {
+        console.log(`  worker sospeso: ${w.etichetta} fino a ${w.finoA.toISOString()} (${w.errore})`);
+      }
+    }
     const attesa = await repo.comandiInAttesa();
     console.log(`${attesa.length} comandi in attesa`);
     for (const c of attesa) {
