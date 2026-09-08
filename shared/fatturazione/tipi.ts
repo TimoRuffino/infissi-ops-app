@@ -50,6 +50,10 @@ export const TIPI_EVENTO = [
   "pdf_archiviato",
   "xml_archiviato",
   "scavalco_limiti",
+  // Fattura in due passi (08/09/2026): la finestra fra FiC e SdI.
+  "aggiornata_fic",
+  "modificata_fic",
+  "scavalco_scostamento",
 ] as const;
 export type TipoEvento = (typeof TIPI_EVENTO)[number];
 
@@ -178,6 +182,15 @@ export type Fattura = {
   xmlSha256: string | null;
   documentoId: number | null;
   eiStatusFic: string | null;
+  /**
+   * `updated_at` del documento su Fatture in Cloud, tenuto com'è: una
+   * stringa opaca che serve solo a rispondere «è cambiato di là?». Non è
+   * un istante da confrontare o formattare — reinterpretarlo lo
+   * riscriverebbe in un'altra forma e ogni salvataggio diventerebbe un
+   * falso conflitto. `null` = non l'abbiamo ancora letto, e allora il
+   * lock non blocca niente.
+   */
+  ficUpdatedAt: string | null;
   eiErrore: string | null;
   inviataDryRun: boolean;
   scavalcoLimiti: boolean;

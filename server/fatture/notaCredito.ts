@@ -286,6 +286,7 @@ export async function creaNotaCredito(
       xmlSha256: null,
       documentoId: null,
       eiStatusFic: null,
+      ficUpdatedAt: null,
       eiErrore: null,
       inviataDryRun: false,
       scavalcoLimiti: false,

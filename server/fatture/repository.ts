@@ -74,6 +74,7 @@ export type PatchStato = Partial<
     | "xmlSha256"
     | "documentoId"
     | "eiStatusFic"
+    | "ficUpdatedAt"
     | "eiErrore"
     | "inviataDryRun"
     | "emessaDa"
@@ -234,6 +235,7 @@ export function createMemoryFattureRepository(): FattureRepository {
         ...conSnapshot(clona(fattura)),
         origine: fattura.origine ?? "contratto",
         markupForzatoCent: fattura.markupForzatoCent ?? null,
+        ficUpdatedAt: fattura.ficUpdatedAt ?? null,
         id,
         revisione: 1,
         createdAt: now,
@@ -304,7 +306,7 @@ export function createMemoryFattureRepository(): FattureRepository {
         .filter(
           f =>
             f.ficDocumentId != null &&
-            (f.stato === "inviata" || (f.stato === "emessa" && f.inviataDryRun))
+            (f.stato === "inviata" || f.stato === "emessa")
         )
         .map(f => ({
           id: f.id,
@@ -429,6 +431,7 @@ function rowToFatturaParziale(row: any): Omit<Fattura, "righe" | "riepilogo" | "
     xmlSha256: row.xml_sha256 ?? null,
     documentoId: row.documento_id == null ? null : Number(row.documento_id),
     eiStatusFic: row.ei_status_fic ?? null,
+    ficUpdatedAt: row.fic_updated_at ?? null,
     eiErrore: row.ei_errore ?? null,
     inviataDryRun: Boolean(row.inviata_dry_run),
     scavalcoLimiti: Boolean(row.scavalco_limiti),
@@ -655,6 +658,9 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'contratto'`;
         // Markup scritto a mano (08/09/2026): null = calcolato dal risolutore.
         await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS markup_forzato_cent BIGINT`;
+        // Fattura in due passi (08/09/2026): l'orologio di Fatture in Cloud.
+        // TEXT e non TIMESTAMPTZ di proposito — v. `Fattura.ficUpdatedAt`.
+        await tx`ALTER TABLE fatture ADD COLUMN IF NOT EXISTS fic_updated_at TEXT`;
         await tx`CREATE INDEX IF NOT EXISTS fatture_sede_commessa_idx ON fatture (sede_id, commessa_id, id DESC)`;
         await tx`CREATE UNIQUE INDEX IF NOT EXISTS fatture_fic_document_idx ON fatture (sede_id, fic_document_id) WHERE fic_document_id IS NOT NULL`;
         await tx`CREATE TABLE IF NOT EXISTS fattura_righe (
@@ -860,7 +866,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
       await ensureSchema();
       const rows = await sql`SELECT id, sede_id, fic_document_id, stato, inviata_dry_run FROM fatture
         WHERE fic_document_id IS NOT NULL
-          AND (stato = 'inviata' OR (stato = 'emessa' AND inviata_dry_run))`;
+          AND stato IN ('inviata', 'emessa')`;
       return rows.map(row => ({
         id: Number(row.id),
         sedeId: Number(row.sede_id),
@@ -980,6 +986,7 @@ export function createPostgresFattureRepository(sql: NonNullable<typeof kvSql>):
         if (patch.documentoId !== undefined) colonne.documento_id = patch.documentoId;
         if (patch.eiStatusFic !== undefined) colonne.ei_status_fic = patch.eiStatusFic;
         if (patch.eiErrore !== undefined) colonne.ei_errore = patch.eiErrore;
+        if (patch.ficUpdatedAt !== undefined) colonne.fic_updated_at = patch.ficUpdatedAt;
         if (patch.inviataDryRun !== undefined) colonne.inviata_dry_run = patch.inviataDryRun;
         if (patch.emessaDa !== undefined) colonne.emessa_da = patch.emessaDa;
         if (patch.emessaAt !== undefined) colonne.emessa_at = patch.emessaAt;
