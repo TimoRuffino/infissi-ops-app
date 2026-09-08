@@ -344,7 +344,7 @@ export const DOC_TIPI_NOME_ORIGINALE: readonly DocTipo[] = [
 export function deleteDocumentiByCommessa(commessaId: number) {
   for (let i = documenti.length - 1; i >= 0; i--) {
     if (documenti[i].commessaId === commessaId) {
-      deleteFileQuiet(documenti[i].storageKey);
+      deleteFileQuiet(documenti[i].storageKey, documenti[i].size);
       documenti.splice(i, 1);
     }
   }
@@ -553,6 +553,7 @@ export async function archiviaAllegatoComunicazione(args: {
     const id = existing?.id ?? _documentiStore.prossimoId();
     const nome = dedupeName(args.nome, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
+    const oldSize = existing?.size ?? null;
     const documento: Documento = existing
       ? { ...existing }
       : {
@@ -600,7 +601,7 @@ export async function archiviaAllegatoComunicazione(args: {
     else documenti.push(documento);
     _documentiStore.save();
     if (oldStorageKey && oldStorageKey !== documento.storageKey) {
-      deleteFileQuiet(oldStorageKey);
+      deleteFileQuiet(oldStorageKey, oldSize);
     }
     return documento;
   });
@@ -637,6 +638,7 @@ export async function upsertDocumentoFic(args: {
     existing?.id
   );
   const oldStorageKey = existing?.storageKey;
+  const oldSize = existing?.size ?? null;
   const doc: Documento = existing
     ? { ...existing }
     : {
@@ -682,7 +684,7 @@ export async function upsertDocumentoFic(args: {
   else documenti.push(doc);
   _documentiStore.save();
   if (oldStorageKey && oldStorageKey !== doc.storageKey) {
-    deleteFileQuiet(oldStorageKey);
+    deleteFileQuiet(oldStorageKey, oldSize);
   }
   return doc;
 }
@@ -729,6 +731,7 @@ export async function registraDocumentoFatturaCrm(args: {
     existing?.id
   );
   const oldStorageKey = existing?.storageKey;
+  const oldSize = existing?.size ?? null;
   const doc: Documento = existing
     ? { ...existing }
     : {
@@ -787,7 +790,7 @@ export async function registraDocumentoFatturaCrm(args: {
   else documenti.push(doc);
   _documentiStore.save();
   if (oldStorageKey && oldStorageKey !== doc.storageKey) {
-    deleteFileQuiet(oldStorageKey);
+    deleteFileQuiet(oldStorageKey, oldSize);
   }
   return doc;
 }
@@ -814,7 +817,7 @@ export function deleteDocumentoFic(sedeId: number, ficId: number): void {
   if (idx === -1) return;
   const [doc] = documenti.splice(idx, 1);
   _documentiStore.save();
-  deleteFileQuiet(doc.storageKey);
+  deleteFileQuiet(doc.storageKey, doc.size);
 }
 
 /** Verifica idempotente usata dal sync FIC per riparare i fascicoli storici. */
@@ -1274,8 +1277,9 @@ export const preventiviContrattiRouter = router({
     }
     documenti.splice(idx, 1);
     _documentiStore.save();
-    deleteFileQuiet(doc.storageKey);
+    deleteFileQuiet(doc.storageKey, doc.size);
     // Le pagine rese per le anteprime sono derivate: spariscono con il file.
+    // Nessuna dimensione registrata per queste chiavi: la scoprirà `head`.
     for (const chiave of doc.anteprime?.chiavi ?? []) deleteFileQuiet(chiave);
     // Costo e merce nati da questa conferma se ne vanno con lei.
     rimuoviCostoDelDocumento(doc.id, doc.commessaId);

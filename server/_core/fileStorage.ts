@@ -28,6 +28,8 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
+import { tenantCorrente } from "../tenants/contestoCorrente";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 
 // ── Driver interface ────────────────────────────────────────────────────────
 
@@ -44,6 +46,7 @@ export type StorageDriver = {
     contentLength: number;
   } | null>;
   delete(key: string): Promise<void>;
+  head?(key: string): Promise<{ bytes: number } | null>;
 };
 
 // ── Key helpers ─────────────────────────────────────────────────────────────
@@ -72,6 +75,55 @@ export function buildStorageKey(
 
 export function sha256Hex(buffer: Buffer): string {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+// ── Chiavi per azienda (WS3, spec §3.1) ─────────────────────────────────────
+// Ogni file NUOVO nasce sotto `tenant/<id>/…`, tenant 1 compreso; le chiavi
+// nude sono i file di Ruffino Group caricati prima del WS3 e restano
+// leggibili dove sono (decisione 2). La cintura in lettura confronta il
+// tenant della chiave con quello del contesto: i record sono già per
+// tenant (WS2), qui si ferma il record corrotto o l'errore di programmazione.
+const RE_CHIAVE_TENANT = /^tenant\/(\d+)\//;
+
+export function chiaveStorage(
+  tenantId: number,
+  collezione: string,
+  parentId: number,
+  recordId: number,
+  nome: string
+): string {
+  return `tenant/${tenantId}/${buildStorageKey(collezione, parentId, recordId, nome)}`;
+}
+
+export function tenantDellaChiave(storageKey: string): number {
+  const m = RE_CHIAVE_TENANT.exec(storageKey);
+  return m ? Number(m[1]) : TENANT_PREDEFINITO_ID;
+}
+
+function tenantPerStorage(operazione: string): number {
+  const t = tenantCorrente();
+  if (t == null) throw new Error(`[fileStorage] ${operazione} senza tenant nel contesto`);
+  return t;
+}
+
+function chiaveDelTenantCorrente(storageKey: string, operazione: string): boolean {
+  if (tenantDellaChiave(storageKey) === tenantPerStorage(operazione)) return true;
+  // Mai la chiave nel log: dice l'id di un record di un'altra azienda.
+  console.warn(`[fileStorage] ${operazione} rifiutata: chiave di un'altra azienda`);
+  return false;
+}
+
+// ── Contabile dei byte (spec §3.2) ──────────────────────────────────────────
+// Iniettato al boot da server/tenants (come il resolver del tenant in
+// persistence.ts): questo modulo non importa il control plane. Best effort:
+// un errore di contabilità è un log, mai un upload rifiutato.
+export type ContabileStorage = {
+  aggiungi(tenantId: number, bytes: number, file: number): Promise<void>;
+  togli(tenantId: number, bytes: number, file: number): Promise<void>;
+};
+let contabile: ContabileStorage | null = null;
+export function impostaContabileStorage(c: ContabileStorage | null): void {
+  contabile = c;
 }
 
 // ── Local driver ────────────────────────────────────────────────────────────
@@ -133,6 +185,15 @@ const localDriver: StorageDriver = {
       await fs.promises.unlink(localPathFor(key));
     } catch (e: any) {
       if (e?.code !== "ENOENT") throw e;
+    }
+  },
+  async head(key) {
+    try {
+      const stat = await fs.promises.stat(localPathFor(key));
+      return { bytes: stat.size };
+    } catch (e: any) {
+      if (e?.code === "ENOENT") return null;
+      throw e;
     }
   },
 };
@@ -251,7 +312,7 @@ function parseContentLengthFromS3Headers(headers: Headers): {
 // no query params, single object per request, payload hash always computed.
 async function s3Fetch(
   cfg: S3Config,
-  method: "PUT" | "GET" | "DELETE",
+  method: "PUT" | "GET" | "DELETE" | "HEAD",
   key: string,
   body?: Buffer,
   mimeType?: string,
@@ -327,7 +388,7 @@ async function s3Fetch(
 // Minimal AWS Signature V4 for path-style S3 requests.
 async function s3Request(
   cfg: S3Config,
-  method: "PUT" | "GET" | "DELETE",
+  method: "PUT" | "GET" | "DELETE" | "HEAD",
   key: string,
   body?: Buffer,
   mimeType?: string
@@ -415,6 +476,14 @@ function makeS3Driver(cfg: S3Config): StorageDriver {
         throw new Error(`STORAGE S3: delete fallito (${res.status})`);
       }
     },
+    async head(key) {
+      const res = await s3Fetch(cfg, "HEAD", key);
+      if (res.status === 404) return null;
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(`STORAGE S3: head fallito (${res.status})`);
+      }
+      return { bytes: Number(res.headers.get("content-length") ?? 0) };
+    },
   };
 }
 
@@ -440,6 +509,16 @@ export function getStorageDriver(): StorageDriver {
   return _driver;
 }
 
+/**
+ * Solo test: inietta un driver finto (o azzera per tornare alla risoluzione
+ * pigra dall'env al prossimo `getStorageDriver()`). Stesso pattern di
+ * `modalitaTenantStretta` in contestoCorrente.ts.
+ */
+export function __impostaDriverPerTest(driver: StorageDriver | null): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_DRIVER_STORAGE");
+  _driver = driver;
+}
+
 // On Railway WITHOUT a volume the container filesystem is ephemeral: a
 // local-driver write would succeed today and silently vanish at the next
 // deploy. Until s3 is configured (or a volume is attached and the opt-in
@@ -457,7 +536,7 @@ function assertDurableDriver(driver: StorageDriver): void {
   }
 }
 
-/** Store a buffer; returns { storageKey, checksum }. */
+/** Store a buffer; returns { storageKey, checksum }. Il tenant viene dal contesto (WS3). */
 export async function putFile(
   collection: string,
   parentId: number,
@@ -466,19 +545,29 @@ export async function putFile(
   buffer: Buffer,
   mimeType: string
 ): Promise<{ storageKey: string; checksum: string }> {
+  const tenantId = tenantPerStorage("scrittura");
   const driver = getStorageDriver();
   assertDurableDriver(driver);
-  const storageKey = buildStorageKey(
+  const storageKey = chiaveStorage(
+    tenantId,
     collection,
     parentId,
     recordId,
     originalName
   );
   await driver.put(storageKey, buffer, mimeType);
+  if (contabile) {
+    // Fire-and-forget: un guasto della contabilità non deve bloccare
+    // l'upload, solo farlo sapere.
+    void contabile
+      .aggiungi(tenantId, buffer.length, 1)
+      .catch(e => console.warn(`[fileStorage] contabilità non aggiornata (${tenantId}):`, e));
+  }
   return { storageKey, checksum: sha256Hex(buffer) };
 }
 
 export async function getFile(storageKey: string): Promise<Buffer | null> {
+  if (!chiaveDelTenantCorrente(storageKey, "lettura")) return null;
   return getStorageDriver().get(storageKey);
 }
 
@@ -486,19 +575,41 @@ export async function openFileReadStream(
   storageKey: string,
   range?: { start: number; end: number }
 ): Promise<{ stream: Readable; totalBytes: number; contentLength: number } | null> {
+  if (!chiaveDelTenantCorrente(storageKey, "lettura")) return null;
   const driver = getStorageDriver();
   if (!driver.openRead) return null;
   return driver.openRead(storageKey, range);
 }
 
-/** Best-effort delete — storage orphans are harmless, missing files are not. */
-export function deleteFileQuiet(storageKey: string | null | undefined): void {
+// Dimensione del file sullo storage, se il driver la sa dare. Non passa
+// dalla cintura in lettura: la usano il ricalcolo e `deleteFileQuiet`,
+// sempre su chiavi già scoperte tramite un record dell'azienda del
+// contesto — qui si leggono solo i byte, non il contenuto.
+export async function statFile(storageKey: string): Promise<{ bytes: number } | null> {
+  const driver = getStorageDriver();
+  if (!driver.head) return null;
+  return driver.head(storageKey);
+}
+
+/**
+ * Best-effort delete; `bytes` è la dimensione registrata sul record, se
+ * manca si legge con `head`. Non passa dalla cintura in lettura: i
+ * chiamanti sono già router che hanno verificato il record nel proprio
+ * tenant (WS2) — qui si scioglie solo il conto dei byte.
+ */
+export function deleteFileQuiet(storageKey: string | null | undefined, bytes?: number | null): void {
   if (!storageKey) return;
-  getStorageDriver()
-    .delete(storageKey)
-    .catch(e =>
-      console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e)
-    );
+  const driver = getStorageDriver();
+  void (async () => {
+    let n = bytes ?? null;
+    if (n == null && driver.head) {
+      const info = await driver.head(storageKey);
+      if (!info) return; // già assente: niente da cancellare né da scontare
+      n = info.bytes;
+    }
+    await driver.delete(storageKey);
+    if (contabile) await contabile.togli(tenantDellaChiave(storageKey), n ?? 0, 1);
+  })().catch(e => console.warn(`[fileStorage] delete fallito per ${storageKey}:`, e));
 }
 
 export type StorageProbeResult = {

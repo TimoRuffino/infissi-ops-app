@@ -72,7 +72,7 @@ function base64ByteLength(b64: string): number {
 export function deleteAllegatiByTicket(ticketId: number) {
   for (let i = allegati.length - 1; i >= 0; i--) {
     if (allegati[i].ticketId === ticketId) {
-      deleteFileQuiet(allegati[i].storageKey);
+      deleteFileQuiet(allegati[i].storageKey, allegati[i].size);
       allegati.splice(i, 1);
     }
   }
@@ -197,7 +197,7 @@ export const ticketAllegatiRouter = router({
       }
       const [removed] = allegati.splice(idx, 1);
       _store.save();
-      deleteFileQuiet(removed?.storageKey);
+      deleteFileQuiet(removed?.storageKey, removed?.size);
       return { success: true };
     }),
 });
