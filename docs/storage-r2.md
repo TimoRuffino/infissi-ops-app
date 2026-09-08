@@ -84,10 +84,17 @@ nei siti di upload quell'errore viene rilanciato prima di qualunque ripiego,
 perché il ripiego su `dataBase64` inline nacque per lo storage non durevole e
 qui aggirerebbe il blocco. Dalla rotta Express dei documenti di commessa
 arriva al browser come HTTP `400` con lo stesso messaggio. Si fermano solo i
-caricamenti: lettura, download, ricerca, backup, ripristino e migrazione
-continuano; la posta, le anteprime e i media WhatsApp hanno già il loro
-`try/catch` (allegato elencato ma non scaricato, anteprima assente, media
-lasciato su Meta).
+caricamenti: lettura, download, ricerca, backup e ripristino continuano; la
+posta, le anteprime e i media WhatsApp hanno già il loro `try/catch` (allegato
+elencato ma non scaricato, anteprima assente, media lasciato su Meta).
+
+La **migrazione dei record legacy** (questa pagina, `pnpm storage:migrate`)
+sposta ogni file con `putFile`, quindi rispetta il blocco: se l'azienda è oltre
+quota e tolleranza la run si ferma al primo rifiuto e stampa il messaggio della
+quota una volta sola, invece di contare N file «falliti» (R17 della spec WS4).
+Nessun `dataBase64` viene toccato: si cancella solo dopo una scrittura
+verificata. In pratica riguarda solo Ruffino Group, l'unica con record legacy
+da spostare — e lei, per R16, non si blocca mai.
 
 Le due leve dell'operatore, quando un'azienda si ferma:
 

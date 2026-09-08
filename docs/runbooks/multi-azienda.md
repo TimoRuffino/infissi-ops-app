@@ -851,6 +851,12 @@ una seconda sede o un secondo utente). Il worker non crea niente da solo.
   WhatsApp hanno già il loro `try/catch`: l'allegato resta elencato e non
   scaricato, l'anteprima non si genera, il media resta su Meta — il messaggio
   arriva lo stesso.
+- La **migrazione dei file legacy** (`pnpm storage:migrate`, `docs/storage-r2.md`)
+  passa da `putFile` come tutto il resto: oltre la tolleranza si ferma al primo
+  rifiuto, con il messaggio della quota una volta sola nel rapporto
+  (`interrotta: "quota"`), e nessun record perde il suo `dataBase64` (R17). Si
+  riprende dopo aver alzato la quota o liberato spazio: la migrazione è
+  idempotente, i record già spostati vengono saltati.
 - Le due leve dell'operatore, quando un'azienda si ferma e non può liberare
   spazio subito:
 

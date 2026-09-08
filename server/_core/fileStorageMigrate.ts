@@ -11,12 +11,25 @@
 //     inline dataBase64. A failed verify leaves the record untouched.
 //   - idempotent: records that already have storageKey are skipped, so the
 //     run can be interrupted and resumed freely.
+//   - R17 (WS4): la migrazione passa da `putFile`, quindi rispetta il blocco
+//     della quota. Un `ErroreQuotaStorage` non è il fallimento di un record:
+//     è l'azienda che non può più scrivere, e ogni record successivo
+//     fallirebbe uguale. La run si ferma subito e mette il messaggio della
+//     quota UNA volta in `errori`, con `interrotta: "quota"` nel risultato,
+//     invece di contare N `falliti` silenziosi. `dataBase64` non si tocca
+//     mai: si cancella solo dopo una scrittura verificata.
 
 import {
   getAllStoreSnapshots,
   type PersistedStore,
 } from "./persistence";
-import { getFile, getStorageDriver, putFile, sha256Hex } from "./fileStorage";
+import {
+  ErroreQuotaStorage,
+  getFile,
+  getStorageDriver,
+  putFile,
+  sha256Hex,
+} from "./fileStorage";
 import { tenantCorrente } from "../tenants/contestoCorrente";
 
 type LegacyFileRecord = {
@@ -42,6 +55,8 @@ export type MigrateReport = {
     errori: string[];
   }>;
   refusedReason?: string;
+  /** R17: la run si è fermata a metà — oggi solo per la quota dell'azienda. */
+  interrotta?: "quota";
 };
 
 function lastBackupOkWithin(hours: number): boolean {
@@ -104,6 +119,7 @@ export async function migrateFilesToStorage(opts: {
     }
   }
 
+  let fermataDallaQuota = false;
   for (const coll of collections) {
     const stat = {
       key: coll.key,
@@ -153,6 +169,18 @@ export async function migrateFilesToStorage(opts: {
           );
         }
       } catch (e: any) {
+        // R17: oltre la quota (e la tolleranza) l'azienda non può più
+        // scrivere: insistere sui record successivi produrrebbe solo altri
+        // rifiuti. Si ferma qui, con il messaggio della quota una volta
+        // sola; i byte restano nel `dataBase64`, dove sono sempre stati.
+        if (e instanceof ErroreQuotaStorage) {
+          fermataDallaQuota = true;
+          stat.errori.push(`migrazione interrotta: ${e.message}`);
+          console.error(
+            `[fileStorageMigrate] ${coll.key}: migrazione interrotta dalla quota dell'azienda: ${e.message}`
+          );
+          break;
+        }
         stat.falliti++;
         stat.errori.push(`#${rec.id} ${rec.nome}: ${e?.message ?? e}`);
         console.error(
@@ -163,6 +191,10 @@ export async function migrateFilesToStorage(opts: {
     }
     if (opts.apply && stat.migrati > 0) coll.store.save();
     report.collections.push(stat);
+    if (fermataDallaQuota) {
+      report.interrotta = "quota";
+      break;
+    }
   }
   return report;
 }

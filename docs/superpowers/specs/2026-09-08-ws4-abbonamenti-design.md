@@ -56,8 +56,8 @@ quota e la tolleranza, fermano solo ciò che costa. Con
 
 ## 2-bis. Decisioni in corso d'opera (08/09/2026)
 
-Diciannove scelte prese mentre il piano veniva eseguito — tre nella
-scansione pre-volo, quattordici durante i 9 task, due nella fix wave finale
+Venti scelte prese mentre il piano veniva eseguito — tre nella
+scansione pre-volo, quattordici durante i 9 task, tre nella fix wave finale
 (la revisione dell'intero branch, `final-review-report.md`) — quando il codice
 vero ha contraddetto la lettera della spec o del piano. Ognuna è un emendamento
 a questo documento: le sezioni che ne sono cambiate sono già corrette qui sotto
@@ -92,6 +92,8 @@ Registro completo, con implementer, reviewer e commit:
 | R15 | l'abbonamento è la fonte di verità: un contratto `suspended` o `cancelled` con il tenant `attivo` viene risospeso dal giro successivo del worker (entro 6 ore) col marcatore `abbonamento: `; per riaprire un'azienda si usano omaggio o proroga, mai `stato --riattiva` | due strade ci arrivano senza che nessuno abbia sbagliato — la riattivazione a mano e il ripristino archivi del WS3, che riapre il tenant proprio mentre il worker porta il contratto a `suspended` — e la coppia incoerente resterebbe tale per sempre, con l'azienda che lavora senza contratto | un'azienda insolvente che continua a scrivere; nel verso opposto, se il ramo non guardasse lo stato del tenant, un ripristino disturbato a metà |
 
 | R16 | il tenant 1 è esente dal blocco dello spazio: `bloccoStorage` ritorna sempre «non bloccato» per `TENANT_PREDEFINITO_ID`, che resta avvisato dalle soglie 50/80/100 | esenzione simmetrica a quella del tetto Tars: la proprietaria della piattaforma paga i propri costi, e il giorno che `FLAG_MULTI_AZIENDA` si accende Ruffino Group, se è già oltre i 100 GiB, si fermerebbe da sola dopo la tolleranza | i byte della piattaforma non hanno più un freno automatico: restano le soglie e `pnpm tenant storage` a dirlo |
+
+| R17 | la migrazione dei record legacy (`fileStorageMigrate.ts`) rispetta il blocco della quota e si ferma alla prima `ErroreQuotaStorage`, con il messaggio una volta sola in `errori` e `interrotta: "quota"` nel rapporto | sposta ogni file con `putFile`, quindi il gancio la rifiuta: contare N `falliti` silenziosi la faceva sembrare «quasi riuscita» e ripartire uguale la volta dopo. `dataBase64` non si tocca mai: si cancella solo dopo una scrittura verificata | una run che sembra un elenco di guasti invece di un blocco solo; nessun byte a rischio in nessuno dei due casi |
 
 **Ancora aperti**, minori accettati dalle revisioni per task e registrati nel
 progress — alla chiusura del Task 9 non era stata fatta una revisione
@@ -313,6 +315,9 @@ nasce ora.
   percentuale, senza parlare di una tolleranza che per lei non esiste. Se
   Ruffino Group è al 100 % la leva è `--quota-gb`, così le soglie tornano
   significative.
+- Anche la **migrazione dei record legacy** passa da `putFile` e quindi
+  rispetta il blocco: alla prima `ErroreQuotaStorage` la run si ferma con il
+  messaggio della quota, senza toccare nessun `dataBase64` (R17).
 - Tolleranza e quota cambiano per azienda con `pnpm tenant abbonamento`.
 
 ## 7. Budget Tars per azienda
