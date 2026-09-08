@@ -429,7 +429,7 @@ Avvolge il backup di WS3 senza toccarlo. Dopo WS3 il backup è **per azienda**, 
 - Test: `server/integrazioni/adattatori/backup.test.ts`
 
 **Interfaces:**
-- Consumes: `backupStatus()`, `checkBackupRoot()`, `oauthClientFromEnv()`, `issueOAuthState(utenteId)`, `buildAuthUrl(redirectUri, state)`, `disconnectOAuth()` da `server/_core/driveBackup` (nessuna modifica a quel file).
+- Consumes: `backupStatus()`, `checkBackupRoot(): Promise<{ok: boolean; error?: string}>` (il campo è `error`, non `errore`), `oauthClientFromEnv()`, `issueOAuthState(utenteId)`, `buildAuthUrl(redirectUri, state)`, `disconnectOAuth()` da `server/_core/driveBackup` (nessuna modifica a quel file).
 - Produces: `backup: Adattatore` esportato da `adattatori/backup.ts`.
 
 - [ ] **Step 1: Scrivere il test che fallisce**
@@ -481,7 +481,7 @@ describe("adattatore backup", () => {
   it("la cartella non è più raggiungibile: problema con rimedio «ricollega»", async () => {
     vi.spyOn(drive, "checkBackupRoot").mockResolvedValue({
       ok: false,
-      errore: "File not found",
+      error: "File not found",
     } as any);
 
     const p = await backup.verifica(ctx);
@@ -1375,7 +1375,7 @@ Un componente solo disegna tutte le integrazioni. È qui che «cosa si è rotto 
 - Create: `client/src/integrazioni/SchedaIntegrazione.tsx`
 
 **Interfaces:**
-- Consumes: `trpc.integrazioni.*` dal Task 1; `DataSurface` (props: `density`, `tone`, `title`, `description`, `toolbar`, `footer`, `children`) da `client/src/components/`.
+- Consumes: `trpc.integrazioni.*` dal Task 1; `DataSurface` — **default export** da `@/components/patterns/DataSurface`, props `density`, `tone`, `title`, `description`, `toolbar`, `footer`, `children`.
 - Produces: `useIntegrazioni()` → `{ stati, inCaricamento, verifica(chiave), avvia(chiave, opzioni) }`; `<SchedaIntegrazione stato={...} azioni={...} />`.
 
 - [ ] **Step 1: Scrivere l'hook**
@@ -1412,7 +1412,7 @@ export function useIntegrazioni() {
 ```tsx
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Circle } from "lucide-react";
-import { DataSurface } from "@/components/DataSurface";
+import DataSurface from "@/components/patterns/DataSurface";
 import { Button } from "@/components/ui/button";
 
 type Problema = {
@@ -1530,8 +1530,9 @@ export function SchedaIntegrazione({
 
 Run: `grep -n "text-warning\|text-success\|radius-control" client/src/index.css`
 Expected: i token esistono. Se un nome differisce, usa quello reale del file — **mai un hex locale**.
-Run: `grep -rn "export function DataSurface\|export const DataSurface" client/src/components/`
-Expected: conferma il percorso d'import usato sopra; correggilo se differisce.
+Run: `grep -n "export default" client/src/components/patterns/DataSurface.tsx`
+Expected: conferma che è un default export. L'import corretto è
+`import DataSurface from "@/components/patterns/DataSurface";` — non un named import.
 
 - [ ] **Step 4: Controllo dei tipi**
 
@@ -1813,7 +1814,7 @@ git commit -m "feat(integrazioni): il percorso di attivazione ricomincia da dove
 ```tsx
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { DataSurface } from "@/components/DataSurface";
+import DataSurface from "@/components/patterns/DataSurface";
 
 /**
  * Gli stessi componenti della pagina Impostazioni, in ordine.
