@@ -3250,8 +3250,17 @@ numerazioni, i conti e i metodi di pagamento — il conto si auto-assegna se
 Restano da compilare IBAN, banca, intestatario, metodo di pagamento,
 numerazione FiC e spese di documentazione (default 150,00 € per sede).
 
-**Runbook della prima fattura reale.**
+**Runbook della prima fattura reale.** Riscritto l'08/09/2026: da quando
+l'emissione è in due gesti, la protezione non è più il dry-run ma il fatto
+che l'invio allo SdI è un click a sé. Il passo 4 crea il documento e basta;
+il passo 6 è quello che spedisce.
 
+0. **Prima del deploy**, chiudere le fatture ferme in `emessa` con
+   `inviata_dry_run = true`: la direzione ha dichiarato che sono tutte
+   prove (08/09/2026). Col pulsante nuovo diventerebbero spedibili con un
+   click, quindi vanno chiuse — annullate se non hanno un `ficDocumentId`,
+   stornate con una nota di credito se ce l'hanno — prima che il branch
+   arrivi in produzione.
 1. Sede/ambiente di prova, `FLAG_LIMITI` e `FLAG_FATTURAZIONE` accesi lì
    soltanto; `FATTURAZIONE_SDI_DRY_RUN` resta al suo default (attivo:
    nessuna variabile da toccare).
@@ -3266,7 +3275,8 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    `numeration` solo se `config.numerazioneFic` è valorizzata, e nessuna
    validazione la pretende — se resta «Numerazione predefinita», FiC
    numera con la propria serie e non lo segnala come errore.
-4. «Emetti» in dry-run: FiC **numera davvero** il documento (non ha bozze).
+4. «Invia a Fatture in Cloud»: FiC **numera davvero** il documento (non ha
+   bozze), ma allo SdI non parte niente — quello è il passo 6.
    Usare la company di prova FiC consigliata dalla spec §11 (licenza trial
    dal supporto), oppure accettare il numero e stornarlo subito con una
    nota di credito. Un operatore, una scheda, e nessun retry finché la
@@ -3275,22 +3285,58 @@ numerazione FiC e spese di documentazione (default 150,00 € per sede).
    lease, R35); una chiamata API diretta avviata dopo il lease e prima che
    FiC risponda resta scoperta (R40, chiusura rinviata alla ricerca su FiC
    di R11): per questo la regola operativa resta aspettare.
-5. XML scaricato dalla tab Fattura e verificato dal commercialista.
-6. Solo dopo la conferma sull'XML: `FATTURAZIONE_SDI_DRY_RUN=off`. È una
-   variabile Railway di **tutto il deployment**, non un campo per sede nel
-   database — si spegne su un ambiente dedicato alla sede di prova, come
-   già `FLAG_LIMITI` nel runbook del piano 1 (§11-vicies terdecies).
+5. XML scaricato dalla tab Fattura e verificato dal commercialista. Da qui
+   ci sono **dodici giorni**: il contatore in testa all'editor li conta, e
+   in quella finestra la fattura si corregge ancora — dal CRM (il
+   salvataggio la riporta su FiC da solo) o dentro Fatture in Cloud (la
+   sonda se ne accorge entro un quarto d'ora).
+6. Solo dopo la conferma sull'XML: **«Invia allo SdI»**. Se i totali di FiC
+   nel frattempo non sono più i nostri l'invio si ferma e chiede un motivo
+   («Invia comunque»), che resta nella cronologia. Da qui non si torna
+   indietro: si corregge con una nota di credito.
+7. `FATTURAZIONE_SDI_DRY_RUN` non è più la protezione della prima fattura,
+   ma resta utile su un ambiente di collaudo: acceso, il secondo click
+   simula l'invio invece di spedirlo. È una variabile Railway di **tutto il
+   deployment**, non un campo per sede nel database.
 
 Con dry-run acceso l'invio è simulato: lo stato resta `emessa` (mai
 `inviata`) con l'etichetta «Emessa (prova SdI)». La sonda
 (`startSondaFattureWorker`) gira ogni 15 minuti in un solo processo e **non
-ritenta l'invio**, solo la lettura dello stato SdI e l'archivio mancante.
+ritenta l'invio**: legge lo stato SdI, recupera l'archivio mancante, si
+accorge delle modifiche fatte dentro Fatture in Cloud (evento
+`modificata_fic`) e, sullo stesso tick, manda gli avvisi di scadenza a chi
+ha mandato la fattura su FiC — a 7, 3 e 1 giorno, poi ogni giorno.
 Alla **prima nota di credito reale**: verificare sul PDF FiC il segno del
 totale — il CRM manda righe positive speculari all'origine con
 intestazione «Accredito su ns. fattura n. X del Y», le note reali del 2026
 in mano alla commercialista stampano il totale in negativo; se FiC inverte
 da sé il segno in output va bene così, altrimenti il generatore va
 corretto prima della seconda nota (v. spec §7.6, «Aperto»).
+
+**I due gesti (08/09/2026, R43–R51,** `docs/superpowers/specs/2026-09-08-fattura-due-passi-fic-sdi-design.md`**).**
+La fattura non esce più con un click solo. «Invia a Fatture in Cloud» crea e
+numera il documento e si ferma (`creaSuFic`, mutation `fatture.emetti`, che
+conserva il nome); «Invia allo SdI» spedisce (`inviaAlloSdi`, mutation
+`fatture.inviaSdi`), stessa capability `fattura.emit`. Nessuno stato nuovo:
+cambia il significato di `emessa`, che da stato di passaggio diventa la
+finestra dei dodici giorni. Da sapere prima di rimetterci le mani:
+
+- `fatturaModificabile` non è più una funzione dello stato ma del record
+  (stato + `eiStatusFic`): immutabile da `inviata` in poi, non da
+  `in_emissione` (R46). Ma **correggibile non è cancellabile**:
+  `annullaBozza` e `rigeneraBozza` rifiutano una fattura con un
+  `ficDocumentId` (R51) — il numero è uscito, si storna.
+- La correzione va su FiC **prima** del commit nel CRM (R47), con
+  `fatture.fic_updated_at` (`TEXT`, token opaco) come lock ottimistico. Se
+  di là è cambiato: `CONFLITTO_FIC`, e non si scrive niente da nessuna
+  parte.
+- La rilettura da FiC **non rimappa le nostre righe** (R48): FiC non
+  distingue un bene significativo da un markup. Lo scostamento si mostra,
+  non si assorbe — e la verifica dei limiti non lo segue.
+- Il documento del fascicolo nasce con l'invio, non con la creazione (R45).
+- Lo scostamento dei totali blocca l'invio, non la creazione (R49).
+- Il contatore vive in `shared/fatturazione/scadenzaSdi.ts`: giorni di
+  calendario Europe/Rome da `fattura.data` + 12.
 
 **Decisioni prese in corso d'opera che cambiano un contratto (ruling R1–R41,
 ledger completo in** `.superpowers/sdd/2026-09-04-fatturazione-dal-contratto/progress.md`

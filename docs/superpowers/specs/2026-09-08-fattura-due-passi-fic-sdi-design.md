@@ -1,11 +1,14 @@
 # Fattura in due passi: «Invia a Fatture in Cloud» e «Invia allo SdI» (spec tecnica)
 
 **Data:** 08/09/2026 · **Stato:** design approvato in chat dalla direzione
-(quattro decisioni, §2); non implementato · **Spec madre:**
+(quattro decisioni, §2) e **implementato** sul branch
+`claude/fattura-sdi-fic-auto-6bda3f` (`5139e36`…`b30d868`); non su `main`,
+non in produzione. Le decisioni prese durante l'esecuzione sono in §2-bis,
+e le sezioni che ne sono cambiate lo dicono · **Spec madre:**
 `docs/superpowers/specs/2026-09-03-limiti-e-fatturazione-design.md` (§7,
 emissione) · **Precedente:**
 `docs/superpowers/specs/2026-09-05-fatturazione-guidata-design.md` ·
-**PRD:** §56 (fatturazione), da aggiornare · **Ruling nuovi:** R43–R49.
+**PRD:** §56 (fatturazione), da aggiornare · **Ruling nuovi:** R43–R51.
 
 > Oggi «Emetti» fa tutto in un colpo: crea il documento su Fatture in Cloud
 > e nello stesso giro lo spedisce allo SdI. Da qui in poi sono due gesti
@@ -71,10 +74,35 @@ e chiede di rileggere, non indovina.
    tocca (CLAUDE.md: i residui di compatibilità non si rimuovono senza
    decisione registrata e matrice campo→consumer).
 
-**Rimasta senza risposta:** quante fatture ci siano in produzione ferme in
-`emessa` con `inviata_dry_run = true`, e se siano prove o fatture vere. Il
-piano parte da lì con un controllo in sola lettura (§11.1) e non accende
-il pulsante nuovo su quelle finché la direzione non decide.
+5. **Le fatture in prova erano tutte prove** (direzione, 08/09/2026). Non
+   c'è niente da spedire fra le fatture ferme in `emessa` con
+   `inviata_dry_run = true`: si chiudono come prove. Il controllo in sola
+   lettura di §11.1 resta utile per contarle prima di chiuderle, ma non è
+   più un bivio.
+
+## 2-bis. Deciso durante l'esecuzione
+
+**R50 — `fic_updated_at` è `TEXT`, non `TIMESTAMPTZ`.** L'`updated_at` di
+Fatture in Cloud è un token opaco che serve solo al confronto di
+uguaglianza. Riletto come istante verrebbe riscritto in un altro formato a
+ogni giro, e ogni salvataggio diventerebbe un falso conflitto. §10 è
+aggiornata di conseguenza.
+
+**R51 — correggibile non vuol dire cancellabile.** R46 ha aperto un buco:
+con `emessa` reso modificabile, `annullaBozza` avrebbe accettato una
+fattura già numerata su Fatture in Cloud. Il numero è uscito: si storna con
+una nota di credito. `annullaBozza` rifiuta ogni fattura con un
+`ficDocumentId`, e nell'editor spariscono «Annulla bozza» e «Rigenera dal
+contratto».
+
+**`rigeneraBozza` resta solo sulla bozza.** Rigenerare butta le righe e le
+rifà dal contratto: su un documento già numerato è un'altra cosa dal
+correggerlo, e non passa dalla sincronizzazione. Si ferma prima, con
+`FATTURA_IMMUTABILE`.
+
+**Le soglie dell'allarme sono 7, 3 e 1, poi ogni giorno da zero in giù**
+(§7.1): sotto i tre giorni la fattura si fa vedere tutti i giorni, sopra i
+sette non disturba.
 
 ## 3. Come funziona oggi
 
@@ -389,8 +417,10 @@ Una colonna sola, additiva, con il pattern già usato da `origine` e
 `markup_forzato_cent` nel bootstrap del repository:
 
 ```sql
-ALTER TABLE fatture ADD COLUMN IF NOT EXISTS fic_updated_at TIMESTAMPTZ;
+ALTER TABLE fatture ADD COLUMN IF NOT EXISTS fic_updated_at TEXT;
 ```
+
+`TEXT` e non `TIMESTAMPTZ`: v. R50 in §2-bis.
 
 `fattura_eventi.tipo` non ha vincolo `CHECK`: i tipi nuovi
 (`aggiornata_fic`, `modificata_fic`, `scavalco_scostamento`) si aggiungono
@@ -403,10 +433,10 @@ si comporta come «non so, quindi rileggo».
 ## 11. Ordine dei lavori
 
 1. **Prima di tutto, in sola lettura:** contare le fatture in produzione
-   ferme in `emessa` con `inviata_dry_run = true`, e portarle alla
-   direzione. Il pulsante «Invia allo SdI» non si accende su di loro
-   finché non è deciso caso per caso se sono prove (da annullare o
-   stornare) o fatture vere (da spedire).
+   ferme in `emessa` con `inviata_dry_run = true`. La direzione ha
+   dichiarato che sono tutte prove (§2 decisione 5): vanno chiuse come
+   tali, non spedite. Con il pulsante nuovo diventerebbero spedibili con
+   un click, quindi la chiusura precede il deploy.
 2. Client FiC: `modificaDocumento` (`PUT`) e `updated_at` nel modello.
 3. Colonna `fic_updated_at`, tipo, repository.
 4. Scissione di `emettiFattura` in `creaSuFic` e `inviaAlloSdi`, con i
@@ -416,7 +446,7 @@ si comporta come «non so, quindi rileggo».
 7. Contatore (§6) e sua comparsa nel percorso e nella vista emessa.
 8. Notifiche (§7.1), Cassa (§7.2), fascicolo Tars (§7.3).
 9. Scostamento e «Invia comunque» (§8).
-10. PRD §56 e `handoff.md`: invariante di §5.1, R43–R49, runbook nuovo.
+10. PRD §56 e `handoff.md`: invariante di §5.1, R43–R51, runbook nuovo.
 
 ## 12. Test di accettazione
 
