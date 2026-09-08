@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import type { Adattatore, Chiave, Ctx } from "./contratto";
+import { verificaConCache } from "./cache";
 import { REGISTRO, adattatoreDi } from "./registro";
 
 const chiaveSchema = z.enum([
@@ -50,7 +51,11 @@ export const integrazioniRouter = router({
 
   verifica: protectedProcedure
     .input(z.object({ chiave: chiaveSchema }))
-    .mutation(({ ctx, input }) => risolvi(ctx, input.chiave).verifica(ctx)),
+    .mutation(({ ctx, input }) => {
+      const a = risolvi(ctx, input.chiave);
+      const sede = a.ambito === "sede" ? ctx.sedeId : null;
+      return verificaConCache(input.chiave, sede, () => a.verifica(ctx));
+    }),
 
   avvia: protectedProcedure
     .input(z.object({ chiave: chiaveSchema, opzioni: z.unknown().optional() }))
