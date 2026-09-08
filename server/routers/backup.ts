@@ -34,10 +34,15 @@ export const backupRouter = router({
   // Begin the "connect your Google account" flow. The one-shot state is
   // issued here (direzione-only) so the anonymous express callback can
   // verify the redirect really originated from an authorized session.
-  oauthStartUrl: adminProcedure.mutation(({ ctx }) => {
+  // Dal WS3 lo state vive in `oauth_state` e porta l'azienda della sessione:
+  // il collegamento finisce nell'archivio di chi l'ha avviato.
+  oauthStartUrl: adminProcedure.mutation(async ({ ctx }) => {
     const req = ctx.req;
     const redirectUri = `${req.protocol}://${req.get("host")}/api/oauth/gdrive/callback`;
-    const url = buildAuthUrl(redirectUri, issueOAuthState());
+    const url = buildAuthUrl(
+      redirectUri,
+      await issueOAuthState(Number((ctx.user as any)?.id ?? 0))
+    );
     if (!url) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",

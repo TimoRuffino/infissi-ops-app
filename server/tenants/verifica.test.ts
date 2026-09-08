@@ -104,19 +104,20 @@ describe("verificaStore su una famiglia per tenant", () => {
 
 describe("verificaStore sulle famiglie globali", () => {
   // Le famiglie `{ ambito: "globale" }` SENZA un sedeId utilizzabile (sedi,
-  // utenti, backup_config, backup_log, backup_oauth) sono UNA sola istanza
-  // per tutta l'installazione: la stessa chiave "sedi" contiene per
-  // costruzione righe di tenant diversi (ogni sede porta il proprio
-  // tenantId), quindi confrontarle con il (finto) tenant della chiave non ha
-  // senso. `utenti`/`backup_*` in più non hanno mai avuto un campo `sedeId`
-  // singolare (utenti usa `sediIds`, i backup_* nessuno dei due): un
-  // conteggio "grezzo" segnalerebbe un'anomalia su OGNI riga a OGNI giro,
-  // sempre. `platform_feature_flags`/`platform_feature_flag_audit` sono
+  // utenti) sono UNA sola istanza per tutta l'installazione: la stessa
+  // chiave "sedi" contiene per costruzione righe di tenant diversi (ogni
+  // sede porta il proprio tenantId), quindi confrontarle con il (finto)
+  // tenant della chiave non ha senso. `utenti` in più non ha mai avuto un
+  // campo `sedeId` singolare (usa `sediIds`): un conteggio "grezzo"
+  // segnalerebbe un'anomalia su OGNI riga a OGNI giro, sempre. I tre store
+  // del backup stavano qui fino al WS3: ora sono per azienda e vivono nel
+  // describe delle famiglie senza sedeId diretto.
+  // `platform_feature_flags`/`platform_feature_flag_audit` sono
   // globali ma hanno un `sedeId` vero: v. il describe dedicato sotto, la
   // loro `sedeSconosciuta` resta attiva (Fix round 1, Task 13).
   const sedi = new Map<number, number>([[1, 1]]);
 
-  it.each(["sedi", "utenti", "backup_config", "backup_log", "backup_oauth"])(
+  it.each(["sedi", "utenti"])(
     "%s non conta senzaTenant, tenantDiscorde né sedeSconosciuta",
     nome => {
       const record = [
@@ -180,14 +181,26 @@ describe("verificaStore sulle famiglie senza sedeId diretto", () => {
   // `commessaId`, non `sedeId` — la sede si legge risalendo alla commessa
   // (commessaInSede). Stessa forma per `notifiche_read` (userId),
   // `preventivi_documenti`/`aperture` (commessaId), `ticket_allegati`
-  // (ticketId). Sono famiglie PER TENANT vere (non globali): il backfill le
+  // (ticketId). Dal WS3 la stessa forma vale per `backup_config`,
+  // `backup_log` e `backup_oauth`: sono per azienda e una sede non ce
+  // l'hanno affatto (il backup è dell'azienda intera).
+  // Sono famiglie PER TENANT vere (non globali): il backfill le
   // timbra comunque con `tenantId`, quindi senzaTenant/tenantDiscorde
   // restano significativi. Solo sedeSconosciuta va a zero: un controllo
   // "grezzo" su un campo che il record non ha mai avuto segnalerebbe ogni
   // riga a ogni giro.
   const sedi = new Map<number, number>([[1, 1]]);
 
-  it.each(["notifiche_read", "timeline_steps", "preventivi_documenti", "aperture", "ticket_allegati"])(
+  it.each([
+    "notifiche_read",
+    "timeline_steps",
+    "preventivi_documenti",
+    "aperture",
+    "ticket_allegati",
+    "backup_config",
+    "backup_log",
+    "backup_oauth",
+  ])(
     "%s: sedeSconosciuta resta 0 anche senza sedeId, ma senzaTenant/tenantDiscorde restano attivi",
     nome => {
       const record = [

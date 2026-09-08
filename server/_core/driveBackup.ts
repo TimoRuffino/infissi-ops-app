@@ -9,9 +9,18 @@ import { getFile, sha256Hex } from "./fileStorage";
 // either on the namespace itself or on .default.
 const autoTable: (doc: any, opts: any) => void =
   (autoTableImport as any)?.default ?? (autoTableImport as any);
-import { chiaveStore, persistedStore, getAllStoreSnapshots } from "./persistence";
+import {
+  chiaveStore,
+  persistedStore,
+  getAllStoreSnapshots,
+  type LoadMeta,
+} from "./persistence";
 import { tenantIdDellaSede } from "../tenants/contesto";
 import { conTenantDellaSede } from "../tenants/giri";
+import { conTenant, tenantCorrente } from "../tenants/contestoCorrente";
+import { getTenantRepository } from "../tenants/repository";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import { decryptSecret, encryptSecret, secretBoxConfigured } from "./secretBox";
 import { PRODOTTO } from "@shared/brand";
 
 // ── Nightly Google Drive backup ──────────────────────────────────────────────
@@ -54,12 +63,33 @@ type BackupConfig = {
   enabled: boolean;
 };
 
-const _configStore = persistedStore<BackupConfig>("backup_config", () => {}, { ambito: "globale" });
+const _configStore = persistedStore<BackupConfig>("backup_config", (rows, meta) => {
+  // Per azienda (WS3): il tenant 1 tiene la riga di sempre (alias della chiave
+  // nuda); le altre partono senza cartella condivisa — il loro Drive è il loro.
+  if (rows.length === 0 && meta.tenantId != null && meta.tenantId !== TENANT_PREDEFINITO_ID) {
+    rows.push({ id: 1, folderId: "", enabled: true });
+  }
+});
 const configRows = _configStore.items;
+
+/**
+ * L'azienda del contesto, o un errore. Dal WS3 il backup è di un'azienda
+ * sola: token, cartella radice, configurazione e log sono i suoi. Un
+ * chiamante fuori contesto (un timer, una rotta anonima) deve dichiarare il
+ * tenant con `conTenant`, non ripiegare in silenzio su Ruffino Group.
+ */
+function tenantObbligatorio(): number {
+  const t = tenantCorrente();
+  if (t == null) throw new Error("[backup] operazione senza tenant nel contesto");
+  return t;
+}
 
 function getConfig(): BackupConfig {
   if (configRows.length === 0) {
-    configRows.push({ id: 1, folderId: DEFAULT_FOLDER_ID, enabled: true });
+    // La cartella condivisa del service account è di Ruffino Group: nessuna
+    // altra azienda la eredita (il suo backup passa dal proprio OAuth).
+    const folderId = tenantObbligatorio() === TENANT_PREDEFINITO_ID ? DEFAULT_FOLDER_ID : "";
+    configRows.push({ id: 1, folderId, enabled: true });
     _configStore.save();
   }
   return configRows[0];
@@ -88,7 +118,7 @@ type BackupLog = {
   error: string | null;
 };
 
-const _logStore = persistedStore<BackupLog>("backup_log", () => {}, { ambito: "globale" });
+const _logStore = persistedStore<BackupLog>("backup_log", () => {});
 const logRows = _logStore.items;
 
 // ── Service account / Drive REST ─────────────────────────────────────────────
@@ -103,48 +133,110 @@ const logRows = _logStore.items;
 
 type OAuthRow = {
   id: number;
-  refreshToken: string;
+  /** Cifrato con MAIL_ENCRYPTION_KEY (WS3): il campo in chiaro `refreshToken` esiste solo nei blob del WS2 e sparisce al caricamento. */
+  refreshTokenCifrato: string;
+  refreshToken?: string;
   email: string | null;
   rootFolderId: string | null;
   connectedAt: Date;
 };
 
-const _oauthStore = persistedStore<OAuthRow>("backup_oauth", () => {}, { ambito: "globale" });
-const oauthRows = _oauthStore.items;
-
-// ── File fallback for OAuth credentials ─────────────────────────────────────
+// ── Specchio su file delle credenziali OAuth, uno per azienda ───────────────
 // persistedStore is Postgres-backed; without DATABASE_URL (local installs)
 // it's memory-only and the refresh token would die on every restart, forcing
 // a re-authorization. The token is too important for that: mirror it to a
 // mode-600 file under ./data and reload it at boot when the store is empty.
-const OAUTH_FILE = path.join(process.cwd(), "data", "backup-oauth.json");
+// Il tenant 1 conserva `data/backup-oauth.json` — il file esiste già in
+// produzione; ogni altra azienda ha il suo, come ha il suo archivio.
+function fileOAuth(tenantId: number): string {
+  return path.join(
+    process.cwd(),
+    "data",
+    tenantId === TENANT_PREDEFINITO_ID
+      ? "backup-oauth.json"
+      : `backup-oauth-${tenantId}.json`
+  );
+}
 
-function saveOAuthFile(): void {
+/**
+ * Nei test lo specchio su disco non si tocca, né in lettura né in scrittura.
+ * La suite gira anche su un'installazione vera: senza questa guardia un giro
+ * di `pnpm test` leggeva `data/backup-oauth.json`, lo cifrava con la chiave
+ * di prova e lo riscriveva — il token buono diventava illeggibile. (È
+ * successo la prima volta che questi test sono girati.)
+ */
+function specchioSuFileDisattivato(): boolean {
+  return process.env.NODE_ENV === "test";
+}
+
+function salvaOAuthSuFile(rows: OAuthRow[], tenantId: number): void {
+  if (specchioSuFileDisattivato()) return;
   try {
-    fs.mkdirSync(path.dirname(OAUTH_FILE), { recursive: true });
-    fs.writeFileSync(OAUTH_FILE, JSON.stringify(oauthRows[0] ?? null), {
-      mode: 0o600,
-    });
+    const file = fileOAuth(tenantId);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // La riga è già cifrata: sul disco finisce ciphertext, mai il token.
+    fs.writeFileSync(file, JSON.stringify(rows[0] ?? null), { mode: 0o600 });
   } catch (e) {
     console.error("[backup] impossibile salvare il token su file:", e);
   }
 }
 
-function loadOAuthFile(): void {
+function caricaOAuthDaFile(rows: OAuthRow[], tenantId: number): void {
+  if (specchioSuFileDisattivato()) return;
   try {
-    if (oauthRows.length > 0) return; // DB row wins
-    if (!fs.existsSync(OAUTH_FILE)) return;
-    const row = JSON.parse(fs.readFileSync(OAUTH_FILE, "utf8"));
-    if (row?.refreshToken) {
-      oauthRows.push({ ...row, connectedAt: new Date(row.connectedAt) });
+    if (rows.length > 0) return; // DB row wins
+    const file = fileOAuth(tenantId);
+    if (!fs.existsSync(file)) return;
+    const row = JSON.parse(fs.readFileSync(file, "utf8"));
+    // Accetta sia lo specchio nuovo (cifrato) sia quello del WS2 (in chiaro):
+    // il secondo lo cifra la migrazione qui sotto, subito dopo.
+    if (row?.refreshTokenCifrato || row?.refreshToken) {
+      rows.push({ ...row, connectedAt: new Date(row.connectedAt) });
     }
   } catch (e) {
     console.error("[backup] impossibile leggere il token da file:", e);
   }
 }
-// Load eagerly at module init (after bootstrapAll the DB rows, if any, are
-// already in; this only fills the gap when the DB is absent/empty).
-setTimeout(loadOAuthFile, 0);
+
+/** L'`onLoad` di `backup_oauth`: specchio su file e cifratura dei blob del WS2. */
+function alCaricamentoOAuth(rows: OAuthRow[], meta: LoadMeta): void {
+  const tenantId = meta.tenantId ?? TENANT_PREDEFINITO_ID;
+  if (rows.length === 0) caricaOAuthDaFile(rows, tenantId);
+  // Migrazione a senso unico (spec §4.2, §11): un rollback al codice precedente
+  // non rilegge il token cifrato e il Drive va ricollegato — è scritto nel runbook.
+  for (const r of rows) {
+    if (r.refreshToken && !r.refreshTokenCifrato) {
+      if (!secretBoxConfigured()) {
+        console.warn(
+          `[backup] tenant ${tenantId}: MAIL_ENCRYPTION_KEY assente, il refresh token resta in chiaro`
+        );
+        continue;
+      }
+      r.refreshTokenCifrato = encryptSecret(r.refreshToken);
+      delete r.refreshToken;
+      // `save()` del Proxy salva l'istanza del tenant NEL CONTESTO, e il
+      // caricamento gira fuori da ogni contesto: si dichiara il tenant.
+      conTenant(tenantId, () => _oauthStore.save());
+      salvaOAuthSuFile(rows, tenantId);
+    }
+  }
+}
+
+const _oauthStore = persistedStore<OAuthRow>("backup_oauth", alCaricamentoOAuth);
+const oauthRows = _oauthStore.items;
+
+/** Solo nei test: la stessa funzione che `persistedStore` riceve come `onLoad`. */
+export function __alCaricamentoOAuthPerTest(rows: OAuthRow[], meta: LoadMeta): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_CARICAMENTO_OAUTH");
+  alCaricamentoOAuth(rows, meta);
+}
+
+/** Il refresh token della riga: cifrato di norma, in chiaro solo se la migrazione non ha potuto girare. */
+function refreshTokenDi(row: OAuthRow): string {
+  if (row.refreshTokenCifrato) return decryptSecret(row.refreshTokenCifrato);
+  if (row.refreshToken) return row.refreshToken;
+  throw new Error("Account Google non collegato");
+}
 
 export function oauthClientFromEnv(): {
   clientId: string;
@@ -156,20 +248,18 @@ export function oauthClientFromEnv(): {
   return { clientId, clientSecret };
 }
 
-// One-shot anti-CSRF states for the authorize redirect, issued only to
-// direzione via tRPC. 10 minute TTL.
-const pendingStates = new Map<string, number>();
-
-export function issueOAuthState(): string {
-  const state = crypto.randomBytes(16).toString("hex");
-  pendingStates.set(state, Date.now() + 10 * 60_000);
-  return state;
-}
-
-function consumeOAuthState(state: string): boolean {
-  const exp = pendingStates.get(state);
-  pendingStates.delete(state);
-  return exp != null && Date.now() < exp;
+// Lo `state` anti-CSRF vive in `oauth_state` (control plane, WS3 spec §5),
+// non più in una mappa di processo: sopravvive a un deploy fra l'avvio del
+// collegamento e il ritorno da Google, e dice da quale azienda e da quale
+// utente era partito. Consumo una tantum, TTL di 10 minuti.
+export async function issueOAuthState(utenteId: number): Promise<string> {
+  return getTenantRepository().emettiStateOAuth({
+    tipo: "gdrive",
+    tenantId: tenantObbligatorio(),
+    sedeId: null,
+    utenteId,
+    payload: {},
+  });
 }
 
 export function buildAuthUrl(
@@ -195,10 +285,18 @@ export async function handleOAuthCallback(
   state: string,
   redirectUri: string
 ): Promise<void> {
-  if (!consumeOAuthState(state))
-    throw new Error("Stato OAuth non valido o scaduto");
+  // La rotta è anonima: quale sia l'azienda lo dice lo state, non il contesto.
+  const riga = await getTenantRepository().consumaStateOAuth(state, "gdrive");
+  if (!riga) throw new Error("Stato OAuth non valido o scaduto");
   const client = oauthClientFromEnv();
   if (!client) throw new Error("Client OAuth non configurato");
+  // Il refresh token vive solo cifrato (spec §4.2): senza chiave non si
+  // salva, e lo si dice prima di andare a prenderlo da Google.
+  if (!secretBoxConfigured()) {
+    throw new Error(
+      "MAIL_ENCRYPTION_KEY non configurata sul server: senza chiave il refresh token di Drive non può essere salvato."
+    );
+  }
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -232,36 +330,42 @@ export async function handleOAuthCallback(
   } catch {
     /* non-fatal */
   }
-  oauthRows.length = 0;
-  oauthRows.push({
-    id: 1,
-    refreshToken: j.refresh_token,
-    email,
-    rootFolderId: null,
-    connectedAt: new Date(),
+  // Da qui in giù si scrive nell'archivio dell'azienda dello state.
+  conTenant(riga.tenantId, () => {
+    oauthRows.length = 0;
+    oauthRows.push({
+      id: 1,
+      refreshTokenCifrato: encryptSecret(j.refresh_token),
+      email,
+      rootFolderId: null,
+      connectedAt: new Date(),
+    });
+    oauthCachedToken.delete(riga.tenantId);
+    _oauthStore.save();
+    salvaOAuthSuFile(oauthRows, riga.tenantId);
   });
-  oauthCachedToken = null;
-  _oauthStore.save();
-  saveOAuthFile();
 }
 
 export function disconnectOAuth(): void {
+  const tenantId = tenantObbligatorio();
   oauthRows.length = 0;
-  oauthCachedToken = null;
+  oauthCachedToken.delete(tenantId);
   _oauthStore.save();
   try {
-    fs.rmSync(OAUTH_FILE, { force: true });
+    fs.rmSync(fileOAuth(tenantId), { force: true });
   } catch {
     /* ignore */
   }
 }
 
-let oauthCachedToken: { token: string; expiresAt: number } | null = null;
+// Un token d'accesso per azienda: la cache non deve mai servire a un'azienda
+// il token di un'altra (spec §4.1).
+const oauthCachedToken = new Map<number, { token: string; expiresAt: number }>();
 
 async function getOAuthAccessToken(): Promise<string> {
-  if (oauthCachedToken && Date.now() < oauthCachedToken.expiresAt - 60_000) {
-    return oauthCachedToken.token;
-  }
+  const tenantId = tenantObbligatorio();
+  const inCache = oauthCachedToken.get(tenantId);
+  if (inCache && Date.now() < inCache.expiresAt - 60_000) return inCache.token;
   const client = oauthClientFromEnv();
   const row = oauthRows[0];
   if (!client || !row) throw new Error("Account Google non collegato");
@@ -271,7 +375,7 @@ async function getOAuthAccessToken(): Promise<string> {
     body: new URLSearchParams({
       client_id: client.clientId,
       client_secret: client.clientSecret,
-      refresh_token: row.refreshToken,
+      refresh_token: refreshTokenDi(row),
       grant_type: "refresh_token",
     }).toString(),
   });
@@ -281,17 +385,26 @@ async function getOAuthAccessToken(): Promise<string> {
     );
   }
   const j: any = await res.json();
-  oauthCachedToken = {
-    token: j.access_token,
+  const nuovo = {
+    token: j.access_token as string,
     expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000,
   };
-  return oauthCachedToken.token;
+  oauthCachedToken.set(tenantId, nuovo);
+  return nuovo.token;
+}
+
+/** 1 → la cartella di sempre; ogni altra azienda ha la sua, col suo nome. */
+export function nomeCartellaRadice(tenantId: number): string {
+  if (tenantId === TENANT_PREDEFINITO_ID) return "Backup CRM Ruffino";
+  const nome = getTenantRepository().perId(tenantId)?.nome ?? `azienda ${tenantId}`;
+  return `Backup ${PRODOTTO} — ${nome}`;
 }
 
 // Find-or-create the app-owned backup root in the connected account's Drive.
 // drive.file only sees files this app created, so the lookup is cheap and the
 // folder survives being moved or renamed by the operator (we track its id).
 async function ensureOAuthRoot(token: string): Promise<string> {
+  const tenantId = tenantObbligatorio();
   const row = oauthRows[0];
   if (!row) throw new Error("Account Google non collegato");
   if (row.rootFolderId) {
@@ -304,11 +417,22 @@ async function ensureOAuthRoot(token: string): Promise<string> {
       if (!j.trashed) return row.rootFolderId;
     }
   }
-  const id = await driveCreateFolder(token, "Backup CRM Ruffino", "root");
+  // Il nome della cartella del tenant 1 è la chiave con cui si ritrovano i
+  // backup già fatti (driveBackup.brand.test.ts): non si rinomina.
+  const id =
+    tenantId === TENANT_PREDEFINITO_ID
+      ? await driveCreateFolder(token, "Backup CRM Ruffino", "root")
+      : await driveCreateFolder(token, nomeCartellaRadice(tenantId), "root");
   row.rootFolderId = id;
   _oauthStore.save();
-  saveOAuthFile();
+  salvaOAuthSuFile(oauthRows, tenantId);
   return id;
+}
+
+/** Token e cartella radice dell'azienda del contesto (Task 8). */
+export async function tokenERadiceDelTenant(): Promise<{ token: string; rootId: string }> {
+  const token = await getOAuthAccessToken();
+  return { token, rootId: await ensureOAuthRoot(token) };
 }
 
 // Where does the backup root live right now? Lets the UI/operator verify the
@@ -1074,13 +1198,16 @@ async function writeDrive(
 
 // ── Runner + scheduler ───────────────────────────────────────────────────────
 
-let running = false;
+// Un backup per volta PER AZIENDA: due aziende diverse possono girare
+// insieme, la stessa azienda no (spec §4.1).
+const running = new Set<number>();
 
 export async function runBackup(
   trigger: "schedulato" | "manuale"
 ): Promise<BackupLog> {
-  if (running) throw new Error("Backup già in corso");
-  running = true;
+  const tenantId = tenantObbligatorio();
+  if (running.has(tenantId)) throw new Error("Backup già in corso");
+  running.add(tenantId);
   const cfg = getConfig();
   const log: BackupLog = {
     id: _logStore.prossimoId(),
@@ -1108,8 +1235,12 @@ export async function runBackup(
     // Mode priority: connected user account (OAuth) → service account →
     // local disk fallback. OAuth first because personal Google accounts
     // reject service-account uploads (no storage quota).
+    // I due ripieghi valgono SOLO per Ruffino Group: il service account
+    // scrive nella sua cartella condivisa e il disco è quello del server.
+    // Per un'altra azienda il Drive è il suo: senza OAuth il backup fallisce
+    // e lo dice nel log, invece di finire da qualche altra parte.
     const oauthReady = oauthClientFromEnv() && oauthRows.length > 0;
-    const sa = loadServiceAccount();
+    const sa = tenantId === TENANT_PREDEFINITO_ID ? loadServiceAccount() : null;
     if (oauthReady) {
       const token = await getOAuthAccessToken();
       const base = await ensureOAuthRoot(token);
@@ -1119,9 +1250,13 @@ export async function runBackup(
       const token = await getAccessToken(sa);
       await writeDrive(token, cfg.folderId, rootName, files);
       log.target = "drive";
-    } else {
+    } else if (tenantId === TENANT_PREDEFINITO_ID) {
       await writeLocal(rootName, files);
       log.target = "locale";
+    } else {
+      throw new Error(
+        "Account Google non collegato: collega il Drive dell'azienda da Integrazioni → Backup"
+      );
     }
     log.ok = true;
   } catch (e: any) {
@@ -1130,7 +1265,7 @@ export async function runBackup(
   } finally {
     log.finishedAt = new Date();
     _logStore.save();
-    running = false;
+    running.delete(tenantId);
   }
   return log;
 }
@@ -1180,9 +1315,14 @@ export function startBackupScheduler(): void {
     const delay = msUntilRomeMidnight();
     scheduled = setTimeout(async () => {
       try {
-        if (getConfig().enabled) {
-          await backupNotturnoConRitentativi();
-        }
+        // Il timer gira fuori da ogni richiesta: il tenant va dichiarato.
+        // Oggi è Ruffino Group, cioè il comportamento di sempre; il giro su
+        // tutte le aziende attive arriva col Task 7.
+        await conTenant(TENANT_PREDEFINITO_ID, async () => {
+          if (getConfig().enabled) {
+            await backupNotturnoConRitentativi();
+          }
+        });
       } catch (e) {
         console.error("[backup] nightly run failed:", e);
       } finally {
@@ -1199,8 +1339,11 @@ export function startBackupScheduler(): void {
 }
 
 export function backupStatus() {
+  const tenantId = tenantObbligatorio();
   const cfg = getConfig();
-  const sa = loadServiceAccount();
+  // Il service account (e la sua cartella condivisa) è di Ruffino Group: per
+  // un'altra azienda quella modalità non esiste proprio.
+  const sa = tenantId === TENANT_PREDEFINITO_ID ? loadServiceAccount() : null;
   const oauthRow = oauthRows[0] ?? null;
   const oauthClientReady = !!oauthClientFromEnv();
   const mode: "oauth" | "service_account" | null =
@@ -1215,7 +1358,7 @@ export function backupStatus() {
     serviceAccountEmail: sa?.client_email ?? null,
     folderId: cfg.folderId,
     enabled: cfg.enabled,
-    inCorso: running,
+    inCorso: running.has(tenantId),
     ultimoBackup: last,
     prossimoTraMs: cfg.enabled ? msUntilRomeMidnight() : null,
   };

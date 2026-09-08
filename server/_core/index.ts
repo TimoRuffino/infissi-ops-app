@@ -346,6 +346,9 @@ async function startServer() {
   // ── Google Drive backup — OAuth callback ────────────────────────────────────
   // Anonymous by necessity (Google redirects the browser here), but it only
   // accepts one-shot states issued to direzione via backup.oauthStartUrl.
+  // Dal WS3 lo state sta in `oauth_state` e dice a quale azienda appartiene
+  // il collegamento: il tenant lo dichiara `handleOAuthCallback`, non la
+  // rotta, che di sessione non ne ha. Nel log non finisce mai lo `state`.
   app.get("/api/oauth/gdrive/callback", async (req, res) => {
     const { handleOAuthCallback } = await import("./driveBackup");
     const code = String(req.query.code ?? "");
