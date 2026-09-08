@@ -14,6 +14,10 @@ import "../routers/clienti";
 import "../routers";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
+// WS4 (Task 3): solo per leggere `eurInNano` nelle asserzioni sul comando
+// `imposta_abbonamento` — nessuna logica di dominio importata qui, resta in
+// `./servizio` via `await import` (v. il commento nel sorgente).
+import { eurInNano } from "../abbonamenti/costanti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import { __impostaDriveRipristinoPerTest } from "./ripristino";
 import {
@@ -43,6 +47,7 @@ afterEach(() => {
   utenti.splice(nU);
   delete process.env.FLAG_MULTI_AZIENDA;
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 const inputAcme = () => ({
@@ -64,8 +69,19 @@ describe("crea", () => {
     expect(utente.sediIds).toEqual([esito.sedeId]);
     expect(utente.tenantId).toBe(esito.tenant.id);
     const eventi = await getTenantRepository().eventi(esito.tenant.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato", "proprietario_assegnato"]);
+    // `abbonamento_creato` (WS4, Task 3): la prova di 30 giorni nasce subito
+    // dopo l'evento `creato`, prima ancora che sede e proprietario esistano.
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato", "proprietario_assegnato"]);
     expect(eventi[0].attore).toBe("script:tenant@test");
+  });
+
+  it("semina la prova di 30 giorni per il nuovo tenant (WS4, interruttore acceso)", async () => {
+    const ora = new Date("2026-09-08T09:00:00Z");
+    vi.useFakeTimers({ now: ora, toFake: ["Date"] });
+    const esito = await crea(inputAcme(), script);
+    const abbonamento = getTenantRepository().abbonamentoDi(esito.tenant.id);
+    expect(abbonamento).toMatchObject({ tenantId: esito.tenant.id, tipo: "paid", stato: "trialing" });
+    expect(abbonamento?.finePeriodo?.toISOString()).toBe(new Date(ora.getTime() + 30 * 86_400_000).toISOString());
   });
 
   it("è idempotente per slug e rifiuta slug non validi ed email di altre aziende", async () => {
@@ -112,7 +128,9 @@ describe("crea", () => {
     expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
     expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
     const eventi = await getTenantRepository().eventi(tenant!.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
+    // La prova (WS4) nasce PRIMA della transazione di sede/utente: resta,
+    // come l'evento `creato`, anche se il commit fallisce dopo.
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato"]);
   });
 
   it("se istanziaStoresPerTenant fallisce, la sede e l'utente creati in questo giro vengono tolti e il tenant resta", async () => {
@@ -125,7 +143,7 @@ describe("crea", () => {
     expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
     expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
     const eventi = await getTenantRepository().eventi(tenant!.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato"]);
   });
 });
 
@@ -326,5 +344,63 @@ describe("eseguiComandiInAttesa", () => {
       __impostaDriveRipristinoPerTest(null);
       storeDi<any>(acme.id, "clienti").length = 0;
     }
+  });
+
+  it("imposta_abbonamento: omaggio porta a complimentary/active; budget_tars e quota aggiornano i campi (Task 3)", async () => {
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: in un repo appena azzerato il primo tenant
+    // creato prenderebbe proprio l'id 1 (il tenant "intoccabile"), come già
+    // annotato per `ripristina_archivi` più sopra.
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const omaggio = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "omaggio", slug: "acme", motivo: "pilota", scadenza: null },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(omaggio.id))?.esito).toMatchObject({
+      tenantId: tenant.id,
+      azione: "omaggio",
+      stato: "active",
+      tipo: "complimentary",
+    });
+    expect(repo.abbonamentoDi(tenant.id)?.omaggio?.motivo).toBe("pilota");
+
+    const budget = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "budget_tars", slug: "acme", eur: 40 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(budget.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.budgetTarsNanoMese).toBe(eurInNano(40));
+
+    const quota = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "quota", slug: "acme", quotaGb: 200 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(quota.id))?.stato).toBe("eseguito");
+    expect(repo.perId(tenant.id)?.storageQuotaBytes).toBe(200 * 1024 ** 3);
+    const eventoQuota = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "abbonamento_modificato");
+    expect(eventoQuota?.dettagli).toMatchObject({ campo: "quota_storage_gb", dopo: 200 });
+  });
+
+  it("imposta_abbonamento su uno slug inesistente fallisce senza bloccare i comandi successivi", async () => {
+    const repo = getTenantRepository();
+    const comando = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: null,
+      payload: { azione: "quota", slug: "non-esiste", quotaGb: 10 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 1 });
+    expect((await repo.comando(comando.id))?.esito).toMatchObject({ errore: expect.stringMatching(/non-esiste/) });
   });
 });

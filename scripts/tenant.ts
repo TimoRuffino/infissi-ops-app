@@ -11,6 +11,11 @@
 //   pnpm tenant storage --slug=acme [--ricalcola] [--scrivi] [--attendi]
 //   pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=a,b] \
 //        --prova|--scrivi [--anche-tenant-1] [--attendi]
+//   pnpm tenant abbonamento --slug=acme UNA azione [--scrivi] [--attendi]:
+//        --omaggio [--scadenza=AAAA-MM-GG] --motivo="…" | --proroga=<giorni> --motivo="…" |
+//        --quota-gb=<n> | --budget-tars-eur=<n|nessuno> | --extra-tars-eur=<n> |
+//        --tolleranza-storage=<gg> e/o --tolleranza-tars=<gg> | --disdetta|--annulla-disdetta
+//        (il tenant 1 rifiuta omaggio/proroga/disdetta: è la proprietaria della piattaforma)
 //   pnpm tenant verifica [--json]
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
@@ -57,11 +62,13 @@ import { interruttoreAttivo } from "../server/platform/interruttori";
 import { anteprima, opzioni, workerSospesi } from "../server/tenants/cli";
 import {
   richiestoDa,
+  schemaPayloadAbbonamento,
   schemaPayloadCrea,
   schemaPayloadProprietario,
   schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
+  type PayloadAbbonamento,
 } from "../server/tenants/comandi";
 import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
 import {
@@ -81,8 +88,13 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | abbonamento | verifica [--json] " +
+  "(vedi docs/runbooks/multi-azienda.md). " +
   "ripristina --slug=<slug> --backup=<AAAA-MM-GG|folderId> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]. " +
+  "abbonamento --slug=<slug> UNA azione: --omaggio [--scadenza=AAAA-MM-GG] --motivo=… | --proroga=<giorni> --motivo=… | " +
+  "--quota-gb=<n> | --budget-tars-eur=<n|nessuno> | --extra-tars-eur=<n> | " +
+  "--tolleranza-storage=<gg> e/o --tolleranza-tars=<gg> | --disdetta|--annulla-disdetta, poi [--scrivi] [--attendi] " +
+  "(il tenant 1 rifiuta omaggio/proroga/disdetta: quota, budget e tolleranze restano ammessi). " +
   "Automazione: `pnpm --silent tenant verifica --json` oppure `npx tsx scripts/tenant.ts verifica --json` " +
   "(un `pnpm tenant verifica --json` semplice non è JSON valido su stdout: pnpm ci scrive intorno il banner " +
   "e, con anomalie, il trailer ELIFECYCLE). L'exit è 1 con anomalie in ogni forma: gestirlo sotto `set -e`.";
@@ -237,6 +249,17 @@ async function main(): Promise<number> {
   if (sotto === "elenco") {
     for (const t of repo.tutti()) {
       console.log(`${t.id}\t${t.slug}\t${t.stato}\t${t.nome}`);
+      // WS4 (Task 3): l'abbonamento viene dalla cache già caricata da
+      // `caricaCache()` qui sopra, come `tutti()` — nessuna lettura in più.
+      const a = repo.abbonamentoDi(t.id);
+      if (a) {
+        console.log(
+          `  abbonamento: ${a.tipo} ${a.stato}, fine ${a.finePeriodo?.toISOString() ?? "nessuna"}, ` +
+            `insoluto dal ${a.insolutoDal?.toISOString() ?? "-"}`
+        );
+      } else {
+        console.log("  abbonamento: nessuno");
+      }
       // Solo gli ultimi 200: `elenco` vuole sapere chi è fermo ADESSO, non
       // rileggere la cronologia intera di un'azienda a ogni lancio.
       for (const w of workerSospesi(await repo.eventi(t.id, { ultimi: 200 }))) {
@@ -324,6 +347,77 @@ async function main(): Promise<number> {
     tipo = flag.has("assegna") ? "assegna_proprietario" : "revoca_proprietario";
     tenantId = t.id;
     payload = schemaPayloadProprietario.parse({ slug, email: obbligatoria("email") });
+  } else if (sotto === "abbonamento") {
+    const slug = obbligatoria("slug");
+    const t = repo.perSlug(slug);
+    if (!t) throw new Error(`Tenant ${slug} inesistente`);
+
+    // Un'azione per comando (spec §9): i flag si raggruppano in sette azioni
+    // possibili, `--tolleranza-storage`/`--tolleranza-tars` valgono UNA sola
+    // azione `tolleranze` anche insieme, `--disdetta`/`--annulla-disdetta`
+    // sono le due facce della stessa azione `disdetta`.
+    const gruppi: Array<{ azione: PayloadAbbonamento["azione"]; presente: boolean }> = [
+      { azione: "omaggio", presente: flag.has("omaggio") },
+      { azione: "proroga", presente: valori.proroga != null },
+      { azione: "quota", presente: valori["quota-gb"] != null },
+      { azione: "budget_tars", presente: valori["budget-tars-eur"] != null },
+      { azione: "extra_tars", presente: valori["extra-tars-eur"] != null },
+      { azione: "tolleranze", presente: valori["tolleranza-storage"] != null || valori["tolleranza-tars"] != null },
+      { azione: "disdetta", presente: flag.has("disdetta") || flag.has("annulla-disdetta") },
+    ];
+    const attive = gruppi.filter(g => g.presente);
+    if (attive.length !== 1) {
+      throw new Error(`Un'azione per comando (trovate ${attive.length}: ${attive.map(g => g.azione).join(", ") || "nessuna"}).\n${USO}`);
+    }
+    const azione = attive[0].azione;
+
+    if (azione === "disdetta" && flag.has("disdetta") === flag.has("annulla-disdetta")) {
+      throw new Error("Indica --disdetta oppure --annulla-disdetta");
+    }
+    // Il tenant 1 è la proprietaria della piattaforma (spec §10): il
+    // servizio lo rifiuta comunque, ma fermarsi qui evita di accodare un
+    // comando che il server scarterebbe con un evento `comando_fallito`.
+    if (t.id === TENANT_PREDEFINITO_ID && (azione === "omaggio" || azione === "proroga" || azione === "disdetta")) {
+      throw new Error("Il tenant 1 è la proprietaria della piattaforma: niente omaggio, proroga o disdetta (quota, budget e tolleranze restano ammessi).");
+    }
+
+    let payloadAzione: Record<string, unknown>;
+    switch (azione) {
+      case "omaggio":
+        payloadAzione = { azione, slug, motivo: obbligatoria("motivo"), scadenza: valori.scadenza ?? null };
+        break;
+      case "proroga":
+        payloadAzione = { azione, slug, motivo: obbligatoria("motivo"), giorni: Number(valori.proroga) };
+        break;
+      case "quota":
+        payloadAzione = { azione, slug, quotaGb: Number(valori["quota-gb"]) };
+        break;
+      case "budget_tars":
+        payloadAzione = {
+          azione,
+          slug,
+          eur: valori["budget-tars-eur"] === "nessuno" ? null : Number(valori["budget-tars-eur"]),
+        };
+        break;
+      case "extra_tars":
+        payloadAzione = { azione, slug, eur: Number(valori["extra-tars-eur"]) };
+        break;
+      case "tolleranze":
+        payloadAzione = {
+          azione,
+          slug,
+          storage: valori["tolleranza-storage"] != null ? Number(valori["tolleranza-storage"]) : undefined,
+          tars: valori["tolleranza-tars"] != null ? Number(valori["tolleranza-tars"]) : undefined,
+        };
+        break;
+      case "disdetta":
+        payloadAzione = { azione, slug, disdetta: flag.has("disdetta") };
+        break;
+    }
+
+    tipo = "imposta_abbonamento";
+    tenantId = t.id;
+    payload = schemaPayloadAbbonamento.parse(payloadAzione);
   } else {
     console.error(USO);
     return 2;

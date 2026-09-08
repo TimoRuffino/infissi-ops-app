@@ -17,6 +17,13 @@ import { impostaContabileStorage } from "../_core/fileStorage";
 import { kvSql } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getSediStore } from "../routers/sedi";
+// WS4 (Task 3): nessun ciclo a importare questi due da qui — `boot.ts` non è
+// fra i moduli che `abbonamenti/servizio.ts` o `abbonamenti/worker.ts`
+// risalgono (a differenza di `tenants/servizio.ts`, importato da
+// `abbonamenti/servizio.ts` per `sospendi`/`riattiva`: lì l'import resta
+// dinamico). Import statico qui, come gli altri di questo file.
+import { assicuraAbbonamentoPredefinito } from "../abbonamenti/servizio";
+import { avviaWorkerAbbonamenti } from "../abbonamenti/worker";
 import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
@@ -79,11 +86,11 @@ export async function preparaTenants(): Promise<number[]> {
 
 /**
  * DOPO `bootstrapAll`: gli store dei tenant sono già caricati, quindi si può
- * allineare il proprietario di ripiego, eseguire i comandi in attesa e
- * avviare il ciclo ogni 30 s — questi TRE restano condizionati
- * all'interruttore. Non tocca mai lo schema: quello è compito, una volta
- * sola, di `preparaTenants`, che ha già seminato la riga del tenant 1 anche
- * a interruttore spento (Ruling R13).
+ * allineare il proprietario di ripiego, eseguire i comandi in attesa,
+ * avviare il ciclo ogni 30 s e il worker degli abbonamenti — questi QUATTRO
+ * restano condizionati all'interruttore. Non tocca mai lo schema: quello è
+ * compito, una volta sola, di `preparaTenants`, che ha già seminato la riga
+ * del tenant 1 anche a interruttore spento (Ruling R13).
  */
 export async function completaTenants(): Promise<void> {
   const repo = getTenantRepository();
@@ -94,6 +101,16 @@ export async function completaTenants(): Promise<void> {
   // sedi sono sue e questa sincronizzazione le scrive davvero nello
   // specchio, non resta un no-op silenzioso.
   await repo.sincronizzaTenantSedi(righeTenantSedi(getSediStore()));
+  // L'omaggio del tenant 1 (WS4 spec §4) è control plane quanto la sua riga
+  // `tenants`: nasce SEMPRE, anche a interruttore spento (l'unica aggiunta
+  // visibile in quel caso, decisione 6 dell'08/09). Un errore qui non deve
+  // impedire l'avvio — come lo schema, ma qui non c'è nulla che debba
+  // fermare il boot per un'unica riga del control plane.
+  try {
+    await assicuraAbbonamentoPredefinito(new Date());
+  } catch (errore) {
+    console.error("[tenants] abbonamento del tenant 1:", errore instanceof Error ? errore.message : errore);
+  }
   if (!interruttoreAttivo("multiAzienda")) {
     const attesa = await repo.comandiInAttesa();
     console.log(
@@ -104,6 +121,9 @@ export async function completaTenants(): Promise<void> {
   }
   await allineaTenantPredefinito();
   riferisci(await eseguiComandiInAttesa());
+  // Il worker degli abbonamenti (spec §4.1): subito un giro, poi ogni 6 ore.
+  // Idempotente, come il ciclo comandi qui sotto è riarmato da `fermaTenants`.
+  avviaWorkerAbbonamenti();
   fermaTenants();
   intervallo = setInterval(() => {
     eseguiComandiInAttesa()

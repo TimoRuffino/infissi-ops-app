@@ -433,6 +433,9 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
+  // WS4 (Task 3): import dinamico come gli altri di questo blocco.
+  const { avviaWorkerAbbonamenti } = await import("../abbonamenti/worker");
+
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     // Il backfill di `tenant_id` gira dopo il listen, a lotti, così il primo
@@ -442,6 +445,9 @@ async function startServer() {
     // Il ledger dello storage (WS3) si popola in sottofondo, una volta per
     // azienda: dopo, lo tengono aggiornato put e delete.
     void avviaRicalcoloStorageIniziale(tenantIds);
+    // Il worker degli abbonamenti (WS4 §4.1): subito un giro, poi ogni 6 ore;
+    // a interruttore spento non fa nulla (se lo verifica da sé).
+    avviaWorkerAbbonamenti();
   });
 }
 

@@ -28,6 +28,21 @@ describe("opzioni della CLI", () => {
     expect(testo).not.toContain("scrypt$");
     expect(testo).toContain("<hash>");
   });
+
+  // WS4 (Task 3): `imposta_abbonamento` non porta mai un `proprietario` nel
+  // payload, quindi non ha nulla da mascherare — smoke che l'anteprima non
+  // esplode e non introduce segreti su un tipo di comando nuovo.
+  it("l'anteprima di imposta_abbonamento non ha segreti da mascherare", () => {
+    const testo = anteprima({
+      tipo: "imposta_abbonamento",
+      tenantId: 2,
+      payload: { azione: "omaggio", slug: "acme", motivo: "pilota", scadenza: null },
+    });
+    expect(testo).toContain('"azione": "omaggio"');
+    expect(testo).toContain('"slug": "acme"');
+    expect(testo).not.toContain("passwordHash");
+    expect(testo).not.toContain("<hash>");
+  });
 });
 
 describe("workerSospesi", () => {

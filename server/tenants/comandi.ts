@@ -55,6 +55,56 @@ export const schemaPayloadRipristino = z.object({
   ancheTenant1: z.boolean().optional(),
 });
 
+// `imposta_abbonamento` (Task 3, spec §9): un'unica azione per comando,
+// discriminata su `azione` — lo script (`pnpm tenant abbonamento`) traduce i
+// suoi flag in ESATTAMENTE una di queste sette forme, mai due insieme.
+// L'input resta nelle unità che un umano scrive (euro, GB, giorni): la
+// conversione in nano-dollari/byte è del servizio (`server/abbonamenti/`),
+// mai dello schema. `eur: null` in `budget_tars` toglie il tetto
+// dell'azienda (nessun limite); in `extra_tars` l'importo è sempre positivo,
+// un extra pari a zero non avrebbe senso da concedere.
+export const schemaPayloadAbbonamento = z.discriminatedUnion("azione", [
+  z.object({
+    azione: z.literal("omaggio"),
+    slug,
+    motivo: testo(500),
+    scadenza: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  }),
+  z.object({
+    azione: z.literal("proroga"),
+    slug,
+    motivo: testo(500),
+    giorni: z.number().int().min(1).max(365),
+  }),
+  z.object({
+    azione: z.literal("quota"),
+    slug,
+    quotaGb: z.number().int().min(1).max(100_000),
+  }),
+  z.object({
+    azione: z.literal("budget_tars"),
+    slug,
+    eur: z.number().min(0).max(100_000).nullable(),
+  }),
+  z.object({
+    azione: z.literal("extra_tars"),
+    slug,
+    eur: z.number().positive().max(100_000),
+  }),
+  z.object({
+    azione: z.literal("tolleranze"),
+    slug,
+    storage: z.number().int().min(0).max(365).optional(),
+    tars: z.number().int().min(0).max(365).optional(),
+  }),
+  z.object({
+    azione: z.literal("disdetta"),
+    slug,
+    disdetta: z.boolean(),
+  }),
+]);
+export type PayloadAbbonamento = z.infer<typeof schemaPayloadAbbonamento>;
+
 export function richiestoDa(): string {
   return `script:tenant@${hostname()}`;
 }

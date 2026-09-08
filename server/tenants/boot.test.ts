@@ -4,6 +4,11 @@ import * as persistenza from "../_core/persistence";
 // `avviaRicalcoloStorageIniziale` (Task 4) legge con `storeDi`.
 import "../routers";
 import { getSediStore } from "../routers/sedi";
+// WS4 (Task 3): `completaTenants` avvia il worker degli abbonamenti nel ramo
+// acceso — va fermato fra un test e l'altro come `fermaTenants` qui sotto,
+// altrimenti il suo intervallo (creato sotto i timer finti di un test) resta
+// vivo per i test successivi del file.
+import { fermaWorkerAbbonamenti } from "../abbonamenti/worker";
 import {
   avviaBackfillTabelleTenant,
   avviaRicalcoloStorageIniziale,
@@ -42,6 +47,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fermaTenants();
+  fermaWorkerAbbonamenti();
   vi.useRealTimers();
   delete process.env.FLAG_MULTI_AZIENDA;
 });
@@ -172,6 +178,26 @@ describe("completaTenants", () => {
     } finally {
       ripristina();
     }
+  });
+
+  // WS4 (Task 3, spec §4): l'omaggio del tenant 1 è control plane, come la
+  // sua riga `tenants` — nasce sempre, prima ancora del ramo condizionato
+  // all'interruttore qui sotto.
+  it("acceso: semina l'abbonamento omaggio del tenant 1", async () => {
+    await preparaTenants();
+    await completaTenants();
+    const a = getTenantRepository().abbonamentoDi(1);
+    expect(a).not.toBeNull();
+    expect(a).toMatchObject({ tenantId: 1, tipo: "complimentary", stato: "active", finePeriodo: null });
+  });
+
+  it("spento: lo semina lo stesso (control plane, sempre, come la riga del tenant 1)", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    await preparaTenants();
+    await completaTenants();
+    const a = getTenantRepository().abbonamentoDi(1);
+    expect(a).not.toBeNull();
+    expect(a?.tipo).toBe("complimentary");
   });
 });
 

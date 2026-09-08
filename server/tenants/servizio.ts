@@ -8,6 +8,7 @@ import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } f
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import {
+  schemaPayloadAbbonamento,
   schemaPayloadCrea,
   schemaPayloadProprietario,
   schemaPayloadRipristino,
@@ -89,6 +90,14 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
       attore: attoreTesto(attore),
       dettagli: { slug: input.slug, nome: input.nome },
     });
+    // Prova gratuita di 30 giorni (WS4 spec §4): un fatto del tenant tanto
+    // quanto l'evento appena sopra, quindi nasce qui e non dopo la
+    // transazione di sede/utente — se quella fallisse la prova resterebbe
+    // comunque. Import dinamico: `abbonamenti/servizio.ts` importa
+    // `sospendi`/`riattiva` da QUESTO file, e un import statico chiuderebbe
+    // il ciclo fra i due moduli (come `ripristina_archivi` più sotto).
+    const { creaProva } = await import("../abbonamenti/servizio");
+    await creaProva(tenant.id, new Date(), attore);
   }
   const tenantId = tenant.id;
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
@@ -311,14 +320,85 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         });
         return { tenantId: id, ...esito };
       }
-      case "imposta_abbonamento":
-        // Il tipo esiste già nel control plane (WS4 T1, spec §3); il gestore
-        // arriva con il dominio degli abbonamenti (server/abbonamenti/, WS4
-        // successivo). Nessuno lo accoda ancora: se capitasse, fallisce
-        // rumorosamente invece di restituire `undefined` in silenzio, e il
-        // `catch` qui sotto lo registra come `comando_fallito`, come ogni
-        // altro errore di questa funzione.
-        throw new Error("comando imposta_abbonamento non ancora gestito");
+      case "imposta_abbonamento": {
+        const p = schemaPayloadAbbonamento.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const adesso = new Date();
+        // Import dinamico: stesso ciclo di `crea` più sopra fra
+        // `tenants/servizio.ts` e `abbonamenti/servizio.ts` (che importa
+        // `sospendi`/`riattiva` da qui). `costanti.ts` non lo richiederebbe
+        // (nessun percorso di ritorno verso questo file), ma lo importiamo
+        // allo stesso modo per restare a un solo stile in questo case.
+        const {
+          concediOmaggio,
+          prorogaProva,
+          impostaBudgetTars,
+          aggiungiExtraTars,
+          impostaTolleranze,
+          impostaDisdetta,
+        } = await import("../abbonamenti/servizio");
+        const { eurInNano } = await import("../abbonamenti/costanti");
+        const repoAbbonamenti = getTenantRepository();
+        switch (p.azione) {
+          case "omaggio":
+            await concediOmaggio(
+              id,
+              {
+                motivo: p.motivo,
+                // Fine giornata in Europe/Rome; l'ora legale (+01:00 in
+                // inverno) non si considera qui: per un comando manuale
+                // un'ora di scarto sulla scadenza non è un problema, ed è
+                // la stessa approssimazione che la CLI propone all'operatore.
+                scadenza: p.scadenza ? new Date(`${p.scadenza}T23:59:59+02:00`) : null,
+              },
+              attore,
+              adesso
+            );
+            break;
+          case "proroga":
+            await prorogaProva(id, p.giorni, p.motivo, attore, adesso);
+            break;
+          case "quota": {
+            // La quota vive su `tenants.storage_quota_bytes` (WS3), non
+            // sull'abbonamento: qui solo l'evento del registro, in GB come
+            // lo scrive un umano (`campo` è un'etichetta di lettura, non il
+            // nome della colonna — stesso criterio di `impostaTolleranze`).
+            const primaBytes = repoAbbonamenti.perId(id)?.storageQuotaBytes ?? null;
+            await repoAbbonamenti.impostaQuotaStorage(id, p.quotaGb * 1024 ** 3);
+            await repoAbbonamenti.registraEvento({
+              tenantId: id,
+              tipo: "abbonamento_modificato",
+              attore: attoreTesto(attore),
+              dettagli: {
+                campo: "quota_storage_gb",
+                prima: primaBytes != null ? primaBytes / 1024 ** 3 : null,
+                dopo: p.quotaGb,
+              },
+            });
+            break;
+          }
+          case "budget_tars":
+            await impostaBudgetTars(id, p.eur == null ? null : eurInNano(p.eur), attore);
+            break;
+          case "extra_tars":
+            await aggiungiExtraTars(id, eurInNano(p.eur), attore, adesso);
+            break;
+          case "tolleranze":
+            await impostaTolleranze(id, { storage: p.storage, tars: p.tars }, attore);
+            break;
+          case "disdetta":
+            await impostaDisdetta(id, p.disdetta, attore);
+            break;
+        }
+        const a = repoAbbonamenti.abbonamentoDi(id);
+        return {
+          tenantId: id,
+          azione: p.azione,
+          tipo: a?.tipo ?? null,
+          stato: a?.stato ?? null,
+          finePeriodo: a?.finePeriodo?.toISOString() ?? null,
+        };
+      }
     }
   } catch (e) {
     const tenantId = comando.tenantId ?? getTenantRepository().perSlug(String((comando.payload as any)?.slug ?? ""))?.id;
