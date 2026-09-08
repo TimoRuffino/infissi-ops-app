@@ -17,13 +17,14 @@ import { impostaContabileStorage } from "../_core/fileStorage";
 import { kvSql } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getSediStore } from "../routers/sedi";
-// WS4 (Task 3): nessun ciclo a importare questi due da qui — `boot.ts` non è
-// fra i moduli che `abbonamenti/servizio.ts` o `abbonamenti/worker.ts`
-// risalgono (a differenza di `tenants/servizio.ts`, importato da
-// `abbonamenti/servizio.ts` per `sospendi`/`riattiva`: lì l'import resta
-// dinamico). Import statico qui, come gli altri di questo file.
+// WS4 (Task 3): nessun ciclo a importare questo da qui — `boot.ts` non è fra
+// i moduli che `abbonamenti/servizio.ts` risale (a differenza di
+// `tenants/servizio.ts`, importato da lì per `sospendi`/`riattiva`: lì
+// l'import resta dinamico). Import statico qui, come gli altri di questo
+// file. Il worker degli abbonamenti (`abbonamenti/worker.ts`) NON si importa
+// più da questo modulo (Task 3 fix round 1, Ruling R7): parte SOLO dopo il
+// `listen`, in `_core/index.ts` — mai dal boot, che gira prima.
 import { assicuraAbbonamentoPredefinito } from "../abbonamenti/servizio";
-import { avviaWorkerAbbonamenti } from "../abbonamenti/worker";
 import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
@@ -86,11 +87,14 @@ export async function preparaTenants(): Promise<number[]> {
 
 /**
  * DOPO `bootstrapAll`: gli store dei tenant sono già caricati, quindi si può
- * allineare il proprietario di ripiego, eseguire i comandi in attesa,
- * avviare il ciclo ogni 30 s e il worker degli abbonamenti — questi QUATTRO
- * restano condizionati all'interruttore. Non tocca mai lo schema: quello è
- * compito, una volta sola, di `preparaTenants`, che ha già seminato la riga
- * del tenant 1 anche a interruttore spento (Ruling R13).
+ * allineare il proprietario di ripiego, eseguire i comandi in attesa e
+ * avviare il ciclo ogni 30 s — questi TRE restano condizionati
+ * all'interruttore. Non tocca mai lo schema: quello è compito, una volta
+ * sola, di `preparaTenants`, che ha già seminato la riga del tenant 1 anche a
+ * interruttore spento (Ruling R13). Il worker degli abbonamenti NON parte da
+ * qui (Task 3 fix round 1, Ruling R7): questa funzione gira PRIMA di
+ * `server.listen`, e il worker deve partire dopo — lo avvia `_core/index.ts`,
+ * nel callback del `listen`.
  */
 export async function completaTenants(): Promise<void> {
   const repo = getTenantRepository();
@@ -121,9 +125,6 @@ export async function completaTenants(): Promise<void> {
   }
   await allineaTenantPredefinito();
   riferisci(await eseguiComandiInAttesa());
-  // Il worker degli abbonamenti (spec §4.1): subito un giro, poi ogni 6 ore.
-  // Idempotente, come il ciclo comandi qui sotto è riarmato da `fermaTenants`.
-  avviaWorkerAbbonamenti();
   fermaTenants();
   intervallo = setInterval(() => {
     eseguiComandiInAttesa()

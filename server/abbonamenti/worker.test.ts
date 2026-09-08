@@ -64,6 +64,25 @@ describe("giroAbbonamenti", () => {
     // Il tenant 2 non è mai stato guardato: la sua prova, scaduta, resta trialing.
     expect(repo.abbonamentoDi(2)?.stato).toBe("trialing");
   });
+
+  it("un tenant attivo senza abbonamento (diverso dal tenant 1) viene segnalato e saltato, senza lanciare (Task 3 fix round 1, Ruling R8)", async () => {
+    const repo = getTenantRepository();
+    // Il tenant 2 non ha mai una prova in questo test (nessuna `creaProva`):
+    // è l'anomalia che il worker deve segnalare, non riparare da solo.
+    const spia = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(giroAbbonamenti(T0)).resolves.toBeUndefined();
+
+    // Le asserzioni PRIMA di `mockRestore()`: restituire l'implementazione
+    // originale azzera anche `mock.calls` (come `mockReset`), quindi
+    // controllarle dopo troverebbe sempre zero chiamate.
+    expect(spia).toHaveBeenCalledWith("[abbonamenti] tenant 2 senza abbonamento: rilancia pnpm tenant crea");
+    // Il tenant 1 non ha un abbonamento nemmeno lui in questo test, ma per
+    // lui non è un'anomalia (spec §4: `valutaAbbonamento` esce subito per
+    // id) — nessun avviso a suo nome.
+    expect(spia.mock.calls.some(args => String(args[0]).includes("tenant 1 "))).toBe(false);
+    spia.mockRestore();
+    expect(repo.abbonamentoDi(2)).toBeNull();
+  });
 });
 
 describe("avviaWorkerAbbonamenti / fermaWorkerAbbonamenti", () => {
