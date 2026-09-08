@@ -38,7 +38,12 @@ import { consegneInArrivo, type ConsegnaInArrivo } from "../../fornitori/archivi
 // Le fonti mute: l'unico difetto che mente in modo rassicurante (punto 7).
 import { guastiDiSede, type GuastoIntegrazione } from "./guasti";
 import { dipendenzeConfermeReali } from "../strumenti/ricerca";
-import type { FattoAnalisi, FotografiaAzienda, SezioneFotografia } from "./types";
+import type {
+  FattoAnalisi,
+  FiduciaFatto,
+  FotografiaAzienda,
+  SezioneFotografia,
+} from "./types";
 
 const COMMESSE_FERME = 6;
 const CASI_MASSIMI = 12;
@@ -423,6 +428,9 @@ export async function costruisciFotografia(input: {
     }): il costo va registrato a mano dalla scheda commessa.`,
     entita: [`commessa:${riga.commessaId}`, `documento:${riga.documentoId}`],
     link: riga.link,
+    // Il costo non si è letto: qualunque cosa si dica su questa conferma va
+    // verificata aprendo il file.
+    fiducia: "da_verificare" as FiduciaFatto,
   }));
   sezioni.push({
     chiave: "conferme_ordine",
@@ -446,6 +454,9 @@ export async function costruisciFotografia(input: {
           ...(primo ? [`comunicazione:${primo.comunicazioneId}`] : []),
         ],
         link: primo?.link ?? `/commesse/${riga.commessaId}`,
+        // Un file letto da una macchina: col riscontro sulla commessa è una
+        // lettura affidabile, senza riscontro va guardata da una persona.
+        fiducia: (certo ? "letta" : "da_verificare") as FiduciaFatto,
       };
     })],
   });
@@ -850,6 +861,29 @@ export function entitaDellaFotografia(fotografia: FotografiaAzienda): Map<string
   return mappa;
 }
 
+/**
+ * Quanto è solido ogni riferimento: la fiducia PIÙ DEBOLE fra i fatti che
+ * lo citano. Una commessa che compare sia in un fatto certo sia in una
+ * lettura da verificare resta da verificare (punto 23 del piano).
+ */
+export function fiduciaDellaFotografia(
+  fotografia: FotografiaAzienda
+): Map<string, FiduciaFatto> {
+  const peso: Record<FiduciaFatto, number> = { certa: 0, letta: 1, da_verificare: 2 };
+  const mappa = new Map<string, FiduciaFatto>();
+  for (const sezione of fotografia.sezioni) {
+    for (const fatto of sezione.fatti) {
+      const fiducia = fatto.fiducia ?? "certa";
+      for (const rif of fatto.entita) {
+        const attuale = mappa.get(rif) ?? "certa";
+        if (peso[fiducia] > peso[attuale]) mappa.set(rif, fiducia);
+        else if (!mappa.has(rif)) mappa.set(rif, attuale);
+      }
+    }
+  }
+  return mappa;
+}
+
 /** Il testo che il modello legge: sezioni fisse, fatti numerati con i riferimenti. */
 export function testoFotografia(fotografia: FotografiaAzienda): string {
   const righe: string[] = [];
@@ -861,7 +895,9 @@ export function testoFotografia(fotografia: FotografiaAzienda): string {
   );
   for (const sezione of fotografia.sezioni) {
     righe.push("");
-    righe.push(`## ${sezione.titolo}`);
+    // La chiave accanto al titolo: è quella che una proposta dichiara come
+    // `fonte`, e senza vederla il modello non potrebbe citarla (punto 12).
+    righe.push(`## [${sezione.chiave}] ${sezione.titolo}`);
     if (sezione.fatti.length === 0) {
       righe.push("(nessun fatto)");
       continue;

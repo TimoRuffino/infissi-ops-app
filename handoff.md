@@ -8,6 +8,26 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 (sera) — le proposte del mattino hanno un destinatario,
+> una memoria e una misura** (piano
+> `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco B;
+> PRD §54.10). `tars.analisiAzienda` **non è più riservata alla direzione**:
+> la chiama chiunque abbia `commessa.read` e vede sintesi, punti e domande
+> (comuni) più le sole proposte indirizzate a sé — l'amministrazione le
+> fatture, chi ha la commessa il suo gate. Il destinatario si deriva dalla
+> sezione da cui la proposta nasce e dall'assegnatario, con la stessa regola
+> T6 della chat; eseguire o scartare una proposta che non è la propria dà
+> `NOT_FOUND`, la rigenerazione resta della direzione. Nessuna modifica al
+> client: la voce di menu chiedeva già `tars.use`, che hanno tutti i ruoli.
+> Una proposta **rifiutata non torna per quattordici giorni** (prima la
+> memoria durava un giorno solo). Ogni proposta dichiara da quale sezione
+> nasce, e da lì si misura quante ne produce ciascuna, quante eseguite e
+> quante rifiutate: la sezione «Cosa accetti e cosa scarti» entra nella
+> fotografia e il prompt la usa per decidere dove spendere i sei posti — il
+> tasso si dichiara solo da tre decisioni in su. Una proposta che poggia su
+> una lettura senza riscontro apre il testo con «Da verificare:». Prompt
+> `analisi-v12`, prove in `server/tars/analisi/bloccoB.test.ts`.
+
 > **Novità 08/09/2026 — Tars si accorge di quando è cieco** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, blocco A;
 > PRD §54.9). Fino a oggi la fotografia del mattino contava solo ciò che era

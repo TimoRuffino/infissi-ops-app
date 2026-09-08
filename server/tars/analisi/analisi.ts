@@ -6,7 +6,7 @@ import { descrittoreAzione } from "../azioni/registry";
 import { strumentiProponibili } from "./proponibili";
 import type { RichiestaProvider, TarsProvider } from "../provider";
 import { senzaImportiEuro } from "../smistamento/analisi";
-import { entitaDellaFotografia, testoFotografia } from "./fotografia";
+import { entitaDellaFotografia, fiduciaDellaFotografia, testoFotografia } from "./fotografia";
 import { PROMPT_ANALISI, PROMPT_ANALISI_VERSIONE, SCHEMA_JSON_ANALISI } from "./prompt";
 import {
   PRIORITA_PUNTO,
@@ -15,6 +15,7 @@ import {
   type AzionePropostaAnalisi,
   type EsitoAnalisiAzienda,
   type FotografiaAzienda,
+  type FiduciaFatto,
   type PropostaAnalisi,
   type PuntoAnalisi,
 } from "./types";
@@ -55,6 +56,7 @@ const schemaEsitoModello = z.object({
       z.object({
         testo: z.string(),
         richiestaPerTars: z.string(),
+        fonte: z.string().nullable().default(null),
         entita: z.array(z.string()),
         azione: z
           .object({ strumento: z.string(), input: z.string().max(2000) })
@@ -122,6 +124,22 @@ export function verificaEsito(
     return { strumento: azione.strumento, input: JSON.stringify(valido.data) };
   };
 
+  // La fonte dichiarata vale solo se è una sezione vera: una chiave
+  // inventata falserebbe la misura invece di alimentarla.
+  const sezioniVere = new Set(fotografia.sezioni.map(s => s.chiave));
+  // La fiducia della proposta è la più debole fra quelle dei fatti che cita:
+  // se poggia su una lettura senza riscontro, lo dice invece di sembrare
+  // una certezza (punto 23 del piano 08/09/2026).
+  const fiducie = fiduciaDellaFotografia(fotografia);
+  const peso: Record<FiduciaFatto, number> = { certa: 0, letta: 1, da_verificare: 2 };
+  const fiduciaDi = (entita: string[]): FiduciaFatto =>
+    entita.reduce<FiduciaFatto>((peggiore, rif) => {
+      const sua = fiducie.get(rif) ?? "certa";
+      return peso[sua] > peso[peggiore] ? sua : peggiore;
+    }, "certa");
+  const verificaFonte = (fonte: string | null | undefined): string | null =>
+    fonte && sezioniVere.has(fonte) ? fonte : null;
+
   const punti: PuntoAnalisi[] = grezzo.punti
     .filter(p => p.testo.trim().length > 0)
     .map(p => ({ tipo: p.tipo, priorita: p.priorita, testo: pulisci(p.testo, TESTO_MASSIMO), ...filtraEntita(p.entita) }))
@@ -129,12 +147,25 @@ export function verificaEsito(
     .slice(0, PUNTI_MASSIMI);
   const proposte: PropostaAnalisi[] = grezzo.proposte
     .filter(p => p.testo.trim().length > 0 && p.richiestaPerTars.trim().length > 0)
-    .map(p => ({
-      testo: pulisci(p.testo, TESTO_MASSIMO),
-      richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
-      ...filtraEntita(p.entita),
-      azione: verificaAzione(p.azione),
-    }))
+    .map(p => {
+      const entita = filtraEntita(p.entita);
+      const fiducia = fiduciaDi(entita.entita);
+      const testo = pulisci(p.testo, TESTO_MASSIMO);
+      return {
+        // Finché la pagina non mostra la fiducia con un segno suo, la porta
+        // il testo: chi legge deve sapere che sotto c'è una lettura non
+        // riscontrata, non una certezza.
+        testo:
+          fiducia === "da_verificare" && !/^da verificare/i.test(testo)
+            ? `Da verificare: ${testo}`.slice(0, TESTO_MASSIMO)
+            : testo,
+        richiestaPerTars: pulisci(p.richiestaPerTars, TESTO_MASSIMO),
+        fonte: verificaFonte(p.fonte),
+        fiducia,
+        ...entita,
+        azione: verificaAzione(p.azione),
+      };
+    })
     .slice(0, PROPOSTE_MASSIME);
   const domande = grezzo.domande
     .map(d => pulisci(d, TESTO_MASSIMO))

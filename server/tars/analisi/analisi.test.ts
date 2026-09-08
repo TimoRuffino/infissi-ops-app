@@ -113,7 +113,7 @@ describe("fotografia", () => {
     expect(entita.has("commessa:3")).toBe(false); // archiviata
     expect(entita.get("caso:30")).toBe("/commesse/2");
     const testo = testoFotografia(f);
-    expect(testo).toContain("## Commesse");
+    expect(testo).toContain("## [commesse] Commesse");
     expect(testo).toContain("[commessa:1]");
     expect(testo).toContain("Sollecito");
     // L'attività VERA (non updatedAt) decide chi è dormiente: la commessa 1
@@ -130,7 +130,7 @@ describe("fotografia", () => {
     const fatture = f.sezioni.find(s => s.chiave === "fatture")!;
     expect(fatture.fatti.some(x => x.testo.includes("12/B"))).toBe(true);
     expect(fatture.fatti.some(x => x.testo.includes("14/B"))).toBe(false);
-    expect(testo).toContain("## Perimetro");
+    expect(testo).toContain("## [perimetro] Perimetro");
     expect(testo).toContain("Ordini fornitore: 0");
     expect(testo).not.toContain("Ritardi fornitore");
     const conferme = f.sezioni.find(s => s.chiave === "conferme_ordine")!;
@@ -235,8 +235,8 @@ describe("fotografia", () => {
 });
 
 describe("prompt", () => {
-  it("analisi-v11: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
-    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v11");
+  it("analisi-v12: perimetro vietato, preventivi e gate spiegati, azioni proponibili elencate", () => {
+    expect(PROMPT_ANALISI_VERSIONE).toBe("analisi-v12");
     expect(PROMPT_ANALISI).toContain("Perimetro");
     expect(PROMPT_ANALISI).toContain("Preventivi fermi");
     expect(PROMPT_ANALISI).toMatch(/gate/i);
@@ -256,6 +256,11 @@ describe("prompt", () => {
     expect(PROMPT_ANALISI).toContain("non elencate qui");
     expect(PROMPT_ANALISI).toContain("chiudi_ticket:");
     expect(PROMPT_ANALISI).toContain("aggiorna_commessa:");
+    // 08/09 (blocco B): la proposta dichiara da quale sezione nasce, le
+    // scartate non tornano e il riscontro dice dove conviene insistere.
+    expect(PROMPT_ANALISI).toContain("fonte è la CHIAVE della sezione");
+    expect(PROMPT_ANALISI).toContain("Già scartate");
+    expect(PROMPT_ANALISI).toContain("Cosa accetti e cosa scarti");
   });
 
   it("archivia_allegato_comunicazione è eseguibile da una proposta, ma mai senza riscontro", () => {
