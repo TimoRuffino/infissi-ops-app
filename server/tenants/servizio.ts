@@ -7,7 +7,7 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
-import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
+import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato, schemaPayloadStorage } from "./comandi";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
@@ -17,6 +17,7 @@ import {
   slugValido,
 } from "./regole";
 import { getTenantRepository } from "./repository";
+import { ricalcolaStorage } from "./storage";
 import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
 
 export type CreaTenantInput = {
@@ -282,10 +283,15 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         else await revocaProprietario(id, utente.id, attore);
         return { tenantId: id, utenteId: utente.id };
       }
-      // `ricalcola_storage` (Task 4) e `ripristina_archivi` (Task 8/9) sono
-      // solo tipi ancora, accodabili ma non eseguibili: il control plane del
-      // WS3 (Task 2) nasce prima dei servizi che li gestiscono davvero.
-      case "ricalcola_storage":
+      case "ricalcola_storage": {
+        const p = schemaPayloadStorage.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const stato = await ricalcolaStorage(id, attoreTesto(attore));
+        return { tenantId: id, bytes: stato.bytes, file: stato.file };
+      }
+      // `ripristina_archivi` (Task 8/9) è ancora solo un tipo, accodabile ma
+      // non eseguibile: il control plane del WS3 (Task 2) nasce prima del
+      // servizio che lo gestisce davvero.
       case "ripristina_archivi":
         throw new Error(`comando ${comando.tipo} non ancora implementato`);
     }

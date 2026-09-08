@@ -171,7 +171,7 @@ async function startServer() {
   // `lock_timeout`: le tabelle assenti o occupate vengono saltate e
   // segnalate, e le prende il boot successivo. Il backfill delle righe già a
   // terra è più giù, dopo il `listen`.
-  const { applicaSchemaTabelleTenant, avviaBackfillTabelleTenant } = await import(
+  const { applicaSchemaTabelleTenant, avviaBackfillTabelleTenant, avviaRicalcoloStorageIniziale } = await import(
     "../tenants/boot"
   );
   await applicaSchemaTabelleTenant();
@@ -436,6 +436,9 @@ async function startServer() {
     // deploy spento non tiene il server fuori dalla porta (Ruling R14);
     // `pnpm tenant verifica` dice se restano righe a NULL.
     void avviaBackfillTabelleTenant();
+    // Il ledger dello storage (WS3) si popola in sottofondo, una volta per
+    // azienda: dopo, lo tengono aggiornato put e delete.
+    void avviaRicalcoloStorageIniziale(tenantIds);
   });
 }
 

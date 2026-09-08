@@ -8,6 +8,7 @@
 //        --email=titolare@acme.it --nome-utente=Mario --cognome=Rossi [--citta=Sarzana] [--scrivi] [--attendi]
 //   pnpm tenant stato --slug=acme --sospendi|--riattiva --motivo="…" [--anche-tenant-1] [--scrivi] [--attendi]
 //   pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna|--revoca [--scrivi] [--attendi]
+//   pnpm tenant storage --slug=acme [--ricalcola] [--scrivi] [--attendi]
 //   pnpm tenant verifica [--json]
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
@@ -51,12 +52,14 @@ import {
   schemaPayloadCrea,
   schemaPayloadProprietario,
   schemaPayloadStato,
+  schemaPayloadStorage,
 } from "../server/tenants/comandi";
 import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
 import {
   createPostgresTenantRepository,
   type TenantRepository,
 } from "../server/tenants/repository";
+import { percentualeStorage } from "../server/tenants/storage";
 import { TABELLE_PER_SEDE } from "../server/tenants/tabelle";
 import type { TipoComando } from "../server/tenants/tipi";
 import {
@@ -69,7 +72,7 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | verifica [--json] (vedi docs/runbooks/multi-azienda.md). " +
   "Automazione: `pnpm --silent tenant verifica --json` oppure `npx tsx scripts/tenant.ts verifica --json` " +
   "(un `pnpm tenant verifica --json` semplice non è JSON valido su stdout: pnpm ci scrive intorno il banner " +
   "e, con anomalie, il trailer ELIFECYCLE). L'exit è 1 con anomalie in ogni forma: gestirlo sotto `set -e`.";
@@ -235,7 +238,25 @@ async function main(): Promise<number> {
   let tenantId: number | null = null;
   let payload: Record<string, unknown>;
 
-  if (sotto === "crea") {
+  if (sotto === "storage") {
+    const slug = obbligatoria("slug");
+    const t = repo.perSlug(slug);
+    if (!t) throw new Error(`Tenant ${slug} inesistente`);
+    if (!flag.has("ricalcola")) {
+      // Sola lettura: il ledger lo scrive solo il ricalcolo (server o
+      // --ricalcola --scrivi), mai questo ramo.
+      const s = await repo.storageDi(t.id);
+      if (!s) {
+        console.log(`${slug}: nessun ledger ancora (il server lo calcola al primo boot del WS3, oppure --ricalcola --scrivi)`);
+      } else {
+        console.log(`${slug}: ${s.file} file, ${s.bytes} byte su ${s.quotaBytes} (${percentualeStorage(s.bytes, s.quotaBytes)} %), soglia avvisata ${s.sogliaAvvisata} %, ricalcolato ${s.ricalcolatoIl?.toISOString() ?? "mai"}`);
+      }
+      return 0;
+    }
+    tipo = "ricalcola_storage";
+    tenantId = t.id;
+    payload = schemaPayloadStorage.parse({ slug });
+  } else if (sotto === "crea") {
     const password = await passwordProprietario();
     payload = schemaPayloadCrea.parse({
       slug: obbligatoria("slug"),

@@ -37,6 +37,11 @@ export const schemaPayloadProprietario = z.object({
   email: z.string().trim().email(),
 });
 
+// `ricalcola_storage` (Task 4): il tenant si risolve dallo slug come gli
+// altri comandi da script; il server accetta anche `comando.tenantId` diretto
+// (es. dal ciclo interno), lo slug serve solo quando arriva da `pnpm tenant`.
+export const schemaPayloadStorage = z.object({ slug });
+
 export function richiestoDa(): string {
   return `script:tenant@${hostname()}`;
 }

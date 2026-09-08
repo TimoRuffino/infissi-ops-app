@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as persistenza from "../_core/persistence";
+// Side-effect: registra "preventivi_documenti"/"ticket_allegati", che
+// `avviaRicalcoloStorageIniziale` (Task 4) legge con `storeDi`.
+import "../routers";
 import { getSediStore } from "../routers/sedi";
 import {
   avviaBackfillTabelleTenant,
+  avviaRicalcoloStorageIniziale,
   avviaTenants,
   completaTenants,
   fermaTenants,
@@ -213,5 +217,20 @@ describe("avviaBackfillTabelleTenant", () => {
     spiaErrore.mockRestore();
     spiaBackfill.mockRestore();
     spiaSql.mockRestore();
+  });
+});
+
+// Task 4 (WS3): stessa cautela del backfill qui sopra, ma il ledger nasce
+// SOLO per un tenant che non ce l'ha ancora — una seconda chiamata non deve
+// ricalcolarlo una seconda volta (da lì in poi ci pensano put e delete).
+describe("avviaRicalcoloStorageIniziale", () => {
+  it("popola il ledger di un tenant senza riga; una seconda chiamata non lo ricalcola di nuovo", async () => {
+    const repo = getTenantRepository();
+    expect(await repo.storageDi(1)).toBeNull();
+    await avviaRicalcoloStorageIniziale([1]);
+    expect(await repo.storageDi(1)).not.toBeNull();
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
+    await avviaRicalcoloStorageIniziale([1]);
+    expect((await repo.eventi(1)).filter(e => e.tipo === "storage_ricalcolato")).toHaveLength(1);
   });
 });

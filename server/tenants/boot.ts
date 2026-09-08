@@ -21,7 +21,7 @@ import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
 import { allineaTenantPredefinito, eseguiComandiInAttesa } from "./servizio";
-import { creaContabileStorage } from "./storage";
+import { creaContabileStorage, ricalcolaStorageSeManca } from "./storage";
 import {
   applicaTenantIdAlleTabelle,
   backfillTenantIdSulleTabelle,
@@ -152,6 +152,22 @@ export async function avviaBackfillTabelleTenant(): Promise<void> {
     );
   } catch (errore) {
     console.error("[tenants] backfill tenant_id:", errore);
+  }
+}
+
+/**
+ * Il ledger dello storage (WS3, Task 4), dopo il `listen` come il backfill
+ * qui sopra: un'azienda alla volta, senza tenere giù l'avvio. Chi ha già una
+ * riga la salta (`ricalcolaStorageSeManca`); da lì in poi ci pensano put e
+ * delete. Ogni tenant ha già il proprio try/catch interno — questo strato in
+ * più è la stessa cautela di `avviaBackfillTabelleTenant`, per l'imprevisto
+ * in cui il giro stesso fallisca.
+ */
+export async function avviaRicalcoloStorageIniziale(tenantIds: number[]): Promise<void> {
+  try {
+    await ricalcolaStorageSeManca(tenantIds);
+  } catch (errore) {
+    console.error("[tenants] ricalcolo storage iniziale:", errore);
   }
 }
 

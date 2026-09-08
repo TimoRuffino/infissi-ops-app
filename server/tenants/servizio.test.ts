@@ -1,12 +1,17 @@
 // server/tenants/servizio.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __impostaDriverPerTest, type StorageDriver } from "../_core/fileStorage";
 import { hashPassword } from "../_core/password";
 import * as persistenceModulo from "../_core/persistence";
-import { storeDi, tenantsNoti } from "../_core/persistence";
+import { __registraTenantNotoPerTest, storeDi, tenantsNoti } from "../_core/persistence";
 // Side-effect only: registra la famiglia "clienti" (persistedStore) così i
 // test di questo file possono verificare `istanziaStoresPerTenant` su uno
 // store per-tenant vero, senza importare l'intero appRouter.
 import "../routers/clienti";
+// Il test di `ricalcola_storage` (Task 4) legge anche "preventivi_documenti"
+// e "ticket_allegati": qui l'intero albero, più semplice che elencare i
+// singoli router che li registrano.
+import "../routers";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
@@ -236,5 +241,46 @@ describe("eseguiComandiInAttesa", () => {
     expect((comandoInvalido?.esito as any)?.errore.length).toBeGreaterThan(0);
     expect((await repo.comando(valido.id))?.stato).toBe("eseguito");
     expect(getTenantRepository().perSlug("acme")).not.toBeNull();
+  });
+
+  it("ricalcola_storage: ricalcola il ledger del tenant indicato e il comando risulta eseguito", async () => {
+    __registraTenantNotoPerTest(2);
+    storeDi<any>(2, "preventivi_documenti").length = 0;
+    storeDi<any>(2, "ticket_allegati").length = 0;
+    const file = new Map<string, Buffer>([["tenant/2/anteprime/9/9-bbbbbbbb.jpg", Buffer.alloc(11)]]);
+    const driver: StorageDriver = {
+      name: "local",
+      async put() {}, async get() { return null; }, async openRead() { return null; }, async delete() {},
+      async head(k) { const b = file.get(k); return b ? { bytes: b.length } : null; },
+    };
+    __impostaDriverPerTest(driver);
+    try {
+      storeDi<any>(2, "preventivi_documenti").push({
+        id: 9,
+        tenantId: 2,
+        sedeId: 20,
+        commessaId: 1,
+        nome: "a.pdf",
+        size: 200,
+        storageKey: "tenant/2/preventivi_documenti/9/9-aaaaaaaa.pdf",
+        anteprime: { chiavi: ["tenant/2/anteprime/9/9-bbbbbbbb.jpg"] },
+      });
+      const repo = getTenantRepository();
+      const comando = await repo.accodaComando({
+        tipo: "ricalcola_storage",
+        tenantId: 2,
+        payload: { slug: "acme" },
+        richiestoDa: "script:tenant@test",
+      });
+      const esito = await eseguiComandiInAttesa();
+      expect(esito).toEqual({ eseguiti: 1, falliti: 0 });
+      const eseguito = await repo.comando(comando.id);
+      expect(eseguito?.stato).toBe("eseguito");
+      expect(eseguito?.esito).toEqual({ tenantId: 2, bytes: 211, file: 2 });
+    } finally {
+      __impostaDriverPerTest(null);
+      storeDi<any>(2, "preventivi_documenti").length = 0;
+      storeDi<any>(2, "ticket_allegati").length = 0;
+    }
   });
 });

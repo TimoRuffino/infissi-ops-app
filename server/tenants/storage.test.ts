@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applicaSoglie, creaContabileStorage, percentualeStorage, sogliaRaggiunta } from "./storage";
+import { __impostaDriverPerTest, type StorageDriver } from "../_core/fileStorage";
+import { __registraTenantNotoPerTest, storeDi } from "../_core/persistence";
+// Side-effect only: registra le famiglie "preventivi_documenti" e
+// "ticket_allegati" (persistedStore), che il ricalcolo (Task 4) legge con
+// `storeDi`.
+import "../routers";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+import { applicaSoglie, creaContabileStorage, percentualeStorage, ricalcolaStorage, sogliaRaggiunta } from "./storage";
 
 describe("contabile dello storage", () => {
   beforeEach(async () => {
@@ -48,5 +54,37 @@ describe("contabile dello storage", () => {
     const stato = await repo.aggiornaStorage(1, 10, 1);
     expect(await applicaSoglie(stato)).toBeNull();
     expect(await repo.eventi(1)).toEqual([]);
+  });
+
+  it("ricalcolaStorage somma size registrate e head delle anteprime, timbra e avvisa", async () => {
+    // Mai `__resetPersistenzaPerTest()` in un file che importa i router: azzera
+    // le famiglie registrate all'import. Si registra il tenant 2 e si puliscono gli array.
+    __registraTenantNotoPerTest(2);
+    storeDi<any>(2, "preventivi_documenti").length = 0;
+    storeDi<any>(2, "ticket_allegati").length = 0;
+    const file = new Map<string, Buffer>([["tenant/2/anteprime/1/1-aaaaaaaa.jpg", Buffer.alloc(7)]]);
+    const driver: StorageDriver = {
+      name: "local",
+      async put() {}, async get() { return null; }, async openRead() { return null; }, async delete() {},
+      async head(k) { const b = file.get(k); return b ? { bytes: b.length } : null; },
+    };
+    __impostaDriverPerTest(driver);
+    try {
+      storeDi<any>(2, "preventivi_documenti").push(
+        { id: 1, tenantId: 2, sedeId: 20, commessaId: 1, nome: "a.pdf", size: 100, storageKey: "tenant/2/preventivi_documenti/1/1-aaaaaaaa.pdf", anteprime: { chiavi: ["tenant/2/anteprime/1/1-aaaaaaaa.jpg"] } },
+        { id: 2, tenantId: 2, sedeId: 20, commessaId: 1, nome: "b.pdf", size: 999, dataBase64: "QUJD" } // legacy inline: non conta
+      );
+      storeDi<any>(2, "ticket_allegati").push({ id: 3, tenantId: 2, ticketId: 1, nome: "c.png", size: 50, storageKey: "tenant/2/ticket_allegati/1/3-aaaaaaaa.png" });
+      const stato = await ricalcolaStorage(2, "test");
+      expect(stato).toMatchObject({ tenantId: 2, bytes: 157, file: 3 });
+      expect(stato.ricalcolatoIl).toBeInstanceOf(Date);
+      const eventi = await getTenantRepository().eventi(2);
+      expect(eventi.map(e => e.tipo)).toEqual(["storage_ricalcolato"]);
+      expect(eventi[0].dettagli).toEqual({ bytes: 157, file: 3 });
+    } finally {
+      __impostaDriverPerTest(null);
+      storeDi<any>(2, "preventivi_documenti").length = 0;
+      storeDi<any>(2, "ticket_allegati").length = 0;
+    }
   });
 });
