@@ -2434,6 +2434,12 @@ finirebbero in JSONB), tetto 15 MB per file, e un media che non si scarica
 non ferma gli altri né fa perdere il messaggio. I media più vecchi di trenta
 giorni sono già persi: restano elencati, e l'anteprima lo dice.
 
+**Recuperare quello che c'è ancora.** I media arrivati prima dell'08/09/2026
+non hanno i byte, ma quelli degli ultimi trenta giorni si possono ancora
+scaricare da Meta: `pnpm media:whatsapp-dry-run` conta quanti sono,
+`pnpm media:whatsapp` li conserva (idempotente, un media scaduto non ferma
+gli altri). È una finestra che si chiude da sola, giorno per giorno.
+
 **Vedere.** Ogni allegato — email e WhatsApp — ha anteprima, apertura in una
 scheda e download (§8.5). Le immagini WhatsApp si vedono direttamente nella
 bolla.

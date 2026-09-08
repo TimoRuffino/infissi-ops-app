@@ -511,6 +511,11 @@
 > modifica. Suite 2.752 test. Verifica browser fatta con la console armata:
 > zero errori su /messaggi/whatsapp, /messaggi/email e /fornitori a 1440x900
 > e 390x844.
+> DA DECIDERE SUBITO: in produzione ci sono **170 allegati WhatsApp senza
+> byte, tutti degli ultimi trenta giorni** — cioè ancora scaricabili da Meta,
+> ma non per molto. `pnpm media:whatsapp-dry-run` li conta,
+> `pnpm media:whatsapp` li conserva (da lanciare dentro il servizio, dove
+> DATABASE_URL e lo storage ci sono). Passata la finestra non tornano.
 >
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
