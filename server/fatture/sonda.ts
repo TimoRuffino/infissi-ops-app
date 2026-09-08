@@ -13,6 +13,7 @@
 import type { Fattura, StatoFattura } from "@shared/fatturazione/tipi";
 import { creaClientFicEmissione, type ContestoFic } from "../fic/emissione";
 import { interruttoreAttivo } from "../platform/interruttori";
+import { avvisaScadenzeSdi } from "./avvisiSdi";
 import { conTenantDellaSede } from "../tenants/giri";
 import {
   archiviaFattura,
@@ -285,9 +286,12 @@ export function startSondaFattureWorker(dip?: {
     cambiate: number;
     errori: number;
   }>;
+  /** L'allarme che insegue (§7.1): stesso tick, dopo la sonda degli stati. */
+  avvisi?: () => Promise<{ avvisate: number[] }>;
 }): void {
   if (timer) return;
   const giro = dip?.giro ?? giroSonda;
+  const avvisi = dip?.avvisi ?? avvisaScadenzeSdi;
   const tick = async () => {
     if (inCorso || !interruttoreAttivo("fatturazione")) return;
     inCorso = true;
@@ -295,9 +299,15 @@ export function startSondaFattureWorker(dip?: {
       await giro();
     } catch (errore) {
       console.error("[fatture] sonda:", messaggio(errore));
-    } finally {
-      inCorso = false;
     }
+    // Gli avvisi hanno il loro try: un guasto delle notifiche non deve
+    // portarsi via il giro della sonda, e viceversa.
+    try {
+      await avvisi();
+    } catch (errore) {
+      console.error("[fatture] avvisi SdI:", messaggio(errore));
+    }
+    inCorso = false;
   };
   timer = setInterval(() => void tick(), INTERVALLO_MS);
   timer.unref?.();

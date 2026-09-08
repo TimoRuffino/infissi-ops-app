@@ -682,6 +682,57 @@ describe("startSondaFattureWorker", () => {
     vi.restoreAllMocks();
   });
 
+  // §7.1: lo stesso tick che sonda gli stati va anche a cercare
+  // l'operatore per le fatture in scadenza. Un avviso che fallisce non
+  // deve portarsi via il giro della sonda.
+  it("ogni tick sonda gli stati e poi manda gli avvisi di scadenza", async () => {
+    vi.useFakeTimers();
+    const flagOriginale = process.env.FLAG_FATTURAZIONE;
+    try {
+      process.env.FLAG_FATTURAZIONE = "on";
+      const ordine: string[] = [];
+      const giro = vi.fn(async () => {
+        ordine.push("giro");
+        return { controllate: 0, cambiate: 0, errori: 0 };
+      });
+      const avvisi = vi.fn(async () => {
+        ordine.push("avvisi");
+        return { avvisate: [] };
+      });
+      startSondaFattureWorker({ giro, avvisi });
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(ordine).toEqual(["giro", "avvisi"]);
+      stopSondaFattureWorker();
+    } finally {
+      if (flagOriginale === undefined) delete process.env.FLAG_FATTURAZIONE;
+      else process.env.FLAG_FATTURAZIONE = flagOriginale;
+    }
+  });
+
+  it("un avviso che fallisce non porta via il giro della sonda", async () => {
+    vi.useFakeTimers();
+    const flagOriginale = process.env.FLAG_FATTURAZIONE;
+    try {
+      process.env.FLAG_FATTURAZIONE = "on";
+      const giro = vi.fn(async () => ({ controllate: 3, cambiate: 0, errori: 0 }));
+      const avvisi = vi.fn(async () => {
+        throw new Error("notifiche non disponibili");
+      });
+      startSondaFattureWorker({ giro, avvisi });
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(giro).toHaveBeenCalledTimes(1);
+      // Il tick successivo riparte lo stesso: `inCorso` non è rimasto su.
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      expect(giro).toHaveBeenCalledTimes(2);
+      stopSondaFattureWorker();
+    } finally {
+      if (flagOriginale === undefined) delete process.env.FLAG_FATTURAZIONE;
+      else process.env.FLAG_FATTURAZIONE = flagOriginale;
+    }
+  });
+
   it("una seconda chiamata non registra un secondo intervallo", () => {
     vi.useFakeTimers();
     const setIntervalSpy = vi.spyOn(global, "setInterval");
