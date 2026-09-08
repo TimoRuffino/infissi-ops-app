@@ -428,3 +428,80 @@ describe("niente proposte su lavoro morto (02/09 notte)", () => {
     expect(certaVecchia.esito.collegamento.esito).toBe("certo");
   });
 });
+
+describe("documenti fotografati (08/09/2026)", () => {
+  const comunicazione = (canale: "email" | "whatsapp") =>
+    ({
+      id: 900,
+      sedeId: 1,
+      canale,
+      oggetto: "doc identita sica",
+      testo: "",
+      allegati: [],
+      commessaId: 418,
+    }) as any;
+
+  const allegato = (patch: Record<string, unknown> = {}) =>
+    ({
+      indice: 0,
+      nome: "IMG_1042.jpg",
+      mimeType: "image/jpeg",
+      size: 900_000,
+      testo: "REPUBBLICA ITALIANA CARTA D'IDENTITA' SICA MARIO COMUNE DI SARZANA",
+      stato: "testo",
+      ...patch,
+    }) as any;
+
+  const analisi = (patch: Record<string, unknown> = {}) =>
+    ({
+      allegati: [
+        {
+          indice: 0,
+          tipo: "documento_identita",
+          confidenza: "alta",
+          archiviareSecondoModello: true,
+          motivo: "È una carta d'identità.",
+          ...patch,
+        },
+      ],
+    }) as any;
+
+  it("una foto letta e riconosciuta entra nel fascicolo, anche da email", () => {
+    const piano = pianificaAllegati({
+      comunicazione: comunicazione("email"),
+      allegati: [allegato()],
+      analisi: analisi(),
+    });
+    expect(piano[0]).toMatchObject({ tipo: "documento_identita", archiviare: true });
+    expect(piano[0].motivo).toContain("Documento fotografato");
+  });
+
+  it("la stessa foto su WhatsApp si comporta uguale", () => {
+    const piano = pianificaAllegati({
+      comunicazione: comunicazione("whatsapp"),
+      allegati: [allegato()],
+      analisi: analisi(),
+    });
+    expect(piano[0].archiviare).toBe(true);
+  });
+
+  it("un'immagine non letta non si archivia da sola: non si sa cosa sia", () => {
+    const piano = pianificaAllegati({
+      comunicazione: comunicazione("email"),
+      allegati: [allegato({ testo: null, stato: "immagine" })],
+      analisi: analisi(),
+    });
+    expect(piano[0].archiviare).toBe(false);
+    expect(piano[0].motivo).toContain("non leggibile");
+  });
+
+  it("un logo resta un logo, anche se letto", () => {
+    const piano = pianificaAllegati({
+      comunicazione: comunicazione("email"),
+      allegati: [allegato({ nome: "logo.png", mimeType: "image/png", size: 2_000 })],
+      analisi: analisi(),
+    });
+    expect(piano[0].archiviare).toBe(false);
+    expect(piano[0].motivo).toContain("Immagine piccola");
+  });
+});

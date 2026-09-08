@@ -129,26 +129,77 @@ describe("candidatiDagliAllegati", () => {
     expect(esito.candidati.candidati[1].motivi[0]).toContain("cita cliente pistone");
   });
 
-  it("nessuna lettura se l'allegato non è una conferma, se la mail è già collegata o se c'è già un verdetto certo", async () => {
+  it("legge qualunque allegato che possa contenere qualcosa, non solo le conferme", async () => {
+    // Il caso vero (08/09/2026): «doc identita sica», una scansione Lexmark
+    // in PDF. Col vecchio filtro sul nome non veniva mai aperta, e di quel
+    // documento non si sapeva né il tipo né di chi fosse.
     let letture = 0;
     const cerca = async () => {
       letture += 1;
-      return ricerca({ esito: "unica", commessaId: 1, candidati: [{ commessaId: 1, prove: ["cliente pistone"], forza: "forte", attesaConferma: true }] });
+      return ricerca({
+        esito: "unica",
+        commessaId: 1,
+        candidati: [{ commessaId: 1, prove: ["cliente pistone"], forza: "forte", attesaConferma: true }],
+      });
     };
-    await candidatiDagliAllegati({
-      comunicazione: comunicazione({ allegati: [{ nome: "fattura_123.pdf", mimeType: "application/pdf", size: 10 }] }),
+    const esito = await candidatiDagliAllegati({
+      comunicazione: comunicazione({
+        allegati: [
+          {
+            nome: "Scanned_from_a_Lexmark_Multifunction_Product08-09-2026.pdf",
+            mimeType: "application/pdf",
+            size: 240_000,
+          },
+        ],
+      }),
       candidati: nessuno,
       commesse: COMMESSE,
       leggiRaw,
       cerca,
     });
+    expect(letture).toBe(1);
+    expect(esito.candidati.certo?.commessaId).toBe(1);
+  });
+
+  it("un logo o una firma non si leggono: sotto i 30 KB un'immagine non è un documento", async () => {
+    let letture = 0;
+    const cerca = async () => {
+      letture += 1;
+      return ricerca({ esito: "nessuna", commessaId: null, candidati: [] });
+    };
     await candidatiDagliAllegati({
+      comunicazione: comunicazione({
+        allegati: [{ nome: "logo.png", mimeType: "image/png", size: 2_000 }],
+      }),
+      candidati: nessuno,
+      commesse: COMMESSE,
+      leggiRaw,
+      cerca,
+    });
+    expect(letture).toBe(0);
+  });
+
+  it("con la commessa già nota legge lo stesso — serve a sapere CHE COSA è il file — ma i candidati non cambiano", async () => {
+    let letture = 0;
+    const cerca = async () => {
+      letture += 1;
+      return ricerca({
+        esito: "unica",
+        commessaId: 1,
+        candidati: [{ commessaId: 1, prove: ["cliente pistone"], forza: "forte", attesaConferma: true }],
+      });
+    };
+    const giaCollegata = await candidatiDagliAllegati({
       comunicazione: comunicazione({ commessaId: 2 }),
       candidati: nessuno,
       commesse: COMMESSE,
       leggiRaw,
       cerca,
     });
+    expect(letture).toBe(1);
+    expect(giaCollegata.letture.size).toBe(1);
+    expect(giaCollegata.candidati.certo ?? null).toBeNull();
+
     const giaCerta = await candidatiDagliAllegati({
       comunicazione: comunicazione({}),
       candidati: { ...nessuno, certo: { commessaId: 2, clienteId: 12, motivo: "Il codice compare nel messaggio." } },
@@ -156,7 +207,6 @@ describe("candidatiDagliAllegati", () => {
       leggiRaw,
       cerca,
     });
-    expect(letture).toBe(0);
     expect(giaCerta.candidati.certo?.commessaId).toBe(2);
   });
 

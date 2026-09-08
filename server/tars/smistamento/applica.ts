@@ -127,28 +127,46 @@ export function pianificaAllegati(input: {
     const tipo: DocTipo = modello?.tipo ?? lessicale.tipo;
     const immagine = MIME_IMMAGINE.test(a.mimeType);
     const documento = MIME_DOCUMENTO.test(a.mimeType);
+    // Il tipo è deciso: adesso conta quanto se ne è sicuri. Le stesse tre
+    // prove valgono per un PDF e per una foto, purché la foto sia stata
+    // LETTA davvero (OCR o modello): un documento fotografato è un
+    // documento (08/09/2026).
+    const concordi = modello ? modello.tipo === lessicale.tipo : false;
+    const tipoForte = TIPI_ARCHIVIABILI.has(tipo);
+    const modelloDeciso =
+      modello?.archiviareSecondoModello === true && modello.confidenza === "alta";
+    const lessicaleDeciso =
+      lessicale.confidenza === "alta" && TIPI_ARCHIVIABILI.has(lessicale.tipo);
+    const riconosciuto = tipoForte && (concordi || modelloDeciso || lessicaleDeciso);
+    const comeRiconosciuto = concordi
+      ? " (modello e regole concordi)"
+      : modelloDeciso
+        ? " (modello, confidenza alta)"
+        : " (regole, confidenza alta)";
     let archiviare = false;
     let motivo = "";
     if (immagine) {
+      const abbastanzaGrande = a.size >= IMMAGINE_MINIMA_BYTE;
+      const letta = a.stato === "testo";
+      const documentoFotografato = abbastanzaGrande && letta && riconosciuto;
       const fotoCantiere =
         comunicazione.canale === "whatsapp" &&
-        a.size >= IMMAGINE_MINIMA_BYTE &&
+        abbastanzaGrande &&
         (tipo === "foto" || modello?.archiviareSecondoModello === true);
-      archiviare = fotoCantiere;
-      motivo = fotoCantiere
-        ? "Foto da conversazione WhatsApp collegata alla commessa."
-        : a.size < IMMAGINE_MINIMA_BYTE
-          ? "Immagine piccola (logo/firma/icona): non archiviata."
-          : "Immagine da email: si archivia solo su richiesta.";
+      archiviare = documentoFotografato || fotoCantiere;
+      motivo = documentoFotografato
+        ? `Documento fotografato, letto e riconosciuto come ${tipo}${comeRiconosciuto}.`
+        : fotoCantiere
+          ? "Foto da conversazione WhatsApp collegata alla commessa."
+          : !abbastanzaGrande
+            ? "Immagine piccola (logo/firma/icona): non archiviata."
+            : letta
+              ? `Immagine letta ma tipo «${tipo}» incerto: non archiviata da sola.`
+              : "Immagine non leggibile: si archivia solo su richiesta.";
     } else if (documento) {
-      const concordi = modello ? modello.tipo === lessicale.tipo : false;
-      const tipoForte = TIPI_ARCHIVIABILI.has(tipo);
-      const modelloDeciso =
-        modello?.archiviareSecondoModello === true && modello.confidenza === "alta";
-      const lessicaleDeciso = lessicale.confidenza === "alta" && TIPI_ARCHIVIABILI.has(lessicale.tipo);
-      archiviare = tipoForte && (concordi || modelloDeciso || lessicaleDeciso);
+      archiviare = riconosciuto;
       motivo = archiviare
-        ? `Riconosciuto come ${tipo}${concordi ? " (modello e regole concordi)" : modelloDeciso ? " (modello, confidenza alta)" : " (regole, confidenza alta)"}.`
+        ? `Riconosciuto come ${tipo}${comeRiconosciuto}.`
         : tipoForte
           ? `Tipo ${tipo} incerto: modello e regole non concordano.`
           : `Tipo «${tipo}»: non è un documento del fascicolo.`;

@@ -537,6 +537,21 @@
 > non si risolve (lo script se ne accorge e lo dice, invece di leggere zero
 > messaggi come è successo la prima volta). Passata la finestra non tornano.
 >
+> **08/09/2026 (pomeriggio) — Tars non apriva gli allegati.** Caso reale:
+> mail interna «doc identita sica» (sede 2), scansione Lexmark in PDF senza
+> testo, commessa 418. Registro dello smistamento: candidati `[]`,
+> collegamento `nessuno`, allegato `documento_identita` con confidenza media
+> e `archiviare: false`. Causa: `candidatiDagliAllegati` leggeva SOLO gli
+> allegati il cui nome passava `nomeDaConferma` — una scansione col nome
+> della stampante non veniva mai aperta. Corretto: `allegatoDaLeggere`
+> (PDF, office, immagini ≥ 30 KB; tre letture per messaggio), lettura anche
+> a commessa nota (serve per il TIPO), testo letto passato all'analisi
+> (prima `ocr: false` su una scansione = niente), e immagini archiviabili
+> quando sono state lette e riconosciute — email e WhatsApp allo stesso
+> modo. Per i messaggi GIÀ smistati la coda non li ripesca: c'è il tasto
+> «Riguarda questo messaggio» nel banner Tars
+> (`tars.smistamentoRiesamina`, esisteva già lato server, mancava il tasto).
+>
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
 > unexpected error occurred», React #185 «Maximum update depth exceeded».

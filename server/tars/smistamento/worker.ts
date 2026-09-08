@@ -75,6 +75,32 @@ export function smistamentoAttivo(): boolean {
 }
 
 const MIME_CON_TESTO = /pdf|msword|officedocument|text\/plain/i;
+/** Sotto questa soglia un'immagine è un logo o una firma, non un documento. */
+const IMMAGINE_MINIMA_BYTE = 30 * 1024;
+/** Quanti allegati si leggono davvero per messaggio: le scansioni costano. */
+const LETTURE_PER_MESSAGGIO = 3;
+
+/**
+ * Vale la pena leggerlo? (08/09/2026, mandato della direzione: «per essere
+ * sicuro che erano effettivamente i documenti Tars deve leggere e capire il
+ * file»). Prima si leggevano SOLO gli allegati il cui NOME sembrava una
+ * conferma d'ordine: una scansione chiamata
+ * «Scanned_from_a_Lexmark_Multifunction_Product…pdf» non veniva mai aperta,
+ * quindi di quel documento d'identità non si sapeva né il tipo né di chi
+ * fosse. Ora si legge tutto ciò che può contenere qualcosa: PDF, immagini
+ * grandi abbastanza da non essere loghi, documenti d'ufficio.
+ */
+export function allegatoDaLeggere(allegato: {
+  nome: string;
+  mimeType: string;
+  size?: number;
+}): boolean {
+  const mime = allegato.mimeType ?? "";
+  if (/^image\//i.test(mime)) return (allegato.size ?? 0) >= IMMAGINE_MINIMA_BYTE;
+  if (MIME_CON_TESTO.test(mime)) return true;
+  // Un nome che parla da sé vale anche con un mime generico.
+  return !!nomeDaConferma(allegato.nome, mime);
+}
 const ALLEGATI_CON_TESTO = 1;
 const TESTO_ALLEGATO = 1_500;
 
@@ -180,9 +206,10 @@ export async function candidatiDagliAllegati(input: {
 }): Promise<{ candidati: EsitoCandidati; letture: Map<number, string[]> }> {
   const letture = new Map<number, string[]>();
   const { comunicazione } = input;
-  if (input.candidati.certo || comunicazione.commessaId != null) {
-    return { candidati: input.candidati, letture };
-  }
+  // Anche con la commessa già nota si legge: serve a capire CHE COSA è il
+  // file (e quindi come archiviarlo), non solo di chi è. In quel caso i
+  // candidati restano quelli che erano.
+  const soloLettura = !!input.candidati.certo || comunicazione.commessaId != null;
   const commesse = input.commesse.filter(c => !c.archivedAt && c.stato !== "archiviata");
   const perId = new Map(commesse.map(c => [c.id, c] as const));
   const lista: CandidatoCollegamento[] = input.candidati.candidati.map(c => ({ ...c, motivi: [...c.motivi] }));
@@ -204,8 +231,11 @@ export async function candidatiDagliAllegati(input: {
     });
   };
 
+  let lette = 0;
   for (const [indice, allegato] of comunicazione.allegati.entries()) {
-    if (!nomeDaConferma(allegato.nome, allegato.mimeType)) continue;
+    if (!allegatoDaLeggere(allegato)) continue;
+    if (lette >= LETTURE_PER_MESSAGGIO) break;
+    lette += 1;
     let ricerca;
     try {
       ricerca = await input.cerca(
@@ -221,9 +251,10 @@ export async function candidatiDagliAllegati(input: {
       continue;
     }
     if (ricerca.pagine) letture.set(indice, ricerca.pagine);
+    if (soloLettura) continue;
     if (ricerca.esito === "unica" && ricerca.commessaId != null) {
       const commessa = perId.get(ricerca.commessaId)!;
-      const motivo = `La conferma «${allegato.nome}» cita ${ricerca.candidati.find(c => c.commessaId === ricerca.commessaId)?.prove.join(", ") ?? "la commessa"}: candidato unico fra le commesse vive.`;
+      const motivo = `Il file «${allegato.nome}» cita ${ricerca.candidati.find(c => c.commessaId === ricerca.commessaId)?.prove.join(", ") ?? "la commessa"}: candidato unico fra le commesse vive.`;
       return {
         candidati: {
           certo: { commessaId: commessa.id, clienteId: commessa.clienteId ?? null, motivo },
@@ -285,7 +316,9 @@ function contestoSede(sedeId: number) {
 
 async function allegatiPerAnalisi(
   comunicazione: Comunicazione,
-  deps: Pick<DipendenzeWorker, "leggiRaw" | "estraiTesto">
+  deps: Pick<DipendenzeWorker, "leggiRaw" | "estraiTesto">,
+  /** Le pagine già lette (anche con OCR o col modello): non si rilegge. */
+  letture: ReadonlyMap<number, string[]> = new Map()
 ): Promise<AllegatoPerAnalisi[]> {
   const esiti: AllegatoPerAnalisi[] = [];
   let conTesto = 0;
@@ -296,6 +329,13 @@ async function allegatiPerAnalisi(
       mimeType: a.mimeType,
       size: a.size ?? 0,
     };
+    const giaLetto = letture.get(indice);
+    if (giaLetto?.length) {
+      const testo = giaLetto.join("\n").replace(/\s+/g, " ").trim().slice(0, TESTO_ALLEGATO);
+      esiti.push({ ...base, testo: testo || null, stato: testo ? "testo" : "non_letto" });
+      if (testo) conTesto += 1;
+      continue;
+    }
     if (/^image\//i.test(a.mimeType)) {
       esiti.push({ ...base, testo: null, stato: "immagine" });
       continue;
@@ -367,7 +407,7 @@ export async function smistaComunicazione(input: {
   // La mail non dice di chi è, ma la conferma allegata sì: si legge dentro.
   let letture = new Map<number, string[]>();
   const cerca = deps.cercaCommessaNelDocumento;
-  if (cerca && !candidati.certo && comunicazione.commessaId == null) {
+  if (cerca) {
     const arricchiti = await candidatiDagliAllegati({
       comunicazione,
       candidati,
@@ -378,7 +418,7 @@ export async function smistaComunicazione(input: {
     candidati = arricchiti.candidati;
     letture = arricchiti.letture;
   }
-  const allegati = await allegatiPerAnalisi(comunicazione, deps);
+  const allegati = await allegatiPerAnalisi(comunicazione, deps, letture);
   const contestoCandidati = new Map(
     candidati.candidati
       .filter(c => c.tipo === "commessa")
