@@ -807,6 +807,33 @@ export async function creaCommessa(
   return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
 }
 
+/**
+ * Elimina una commessa senza passare dal router: serve alla fusione dei
+ * doppioni nati dalle fatture FiC (08/09/2026), che prima sposta altrove
+ * fatture, documenti e messaggi. I permessi li controlla chi chiama.
+ *
+ * Stessa cascata della procedura: indice del cliente, merce e documenti
+ * (che qui sono già stati spostati, quindi non muore niente di utile).
+ */
+export async function eliminaCommessaSvuotata(
+  commessaId: number,
+  sedeId: number
+): Promise<boolean> {
+  const idx = commesse.findIndex(
+    c => c.id === commessaId && (c.sedeId ?? DEFAULT_SEDE_ID) === sedeId
+  );
+  if (idx === -1) return false;
+  const clienteId: number | null = commesse[idx].clienteId ?? null;
+  commesse.splice(idx, 1);
+  if (clienteId != null) removeCommessaFromCliente(clienteId, commessaId);
+  const { deleteMagazzinoByCommessa } = await import("./magazzino");
+  deleteMagazzinoByCommessa(commessaId);
+  const { deleteDocumentiByCommessa } = await import("./preventiviContratti");
+  deleteDocumentiByCommessa(commessaId);
+  _store.save();
+  return true;
+}
+
 export const commesseRouter = router({
   list: protectedProcedure
     .input(

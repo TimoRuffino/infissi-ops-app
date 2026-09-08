@@ -596,6 +596,13 @@
 > COM-2026-422 (da FiC) accanto a COM-2026-409 (quella vera, in
 > fatture_pagamento).
 >
+> Lo strumento ORA c'è (`server/fic/doppioni.ts`, sezione in Economia →
+> Fatture): elenca i doppioni con quello che sposterà e li unisce uno alla
+> volta. Rifiuta quando il cliente ha più di un'altra commessa viva o quando
+> dentro c'è lavoro vero (agenda, ticket, magazzino, costi, incassi).
+> I 63 casi in produzione restano da passare a mano, riga per riga: la
+> fusione elimina una commessa e non si annulla.
+>
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
 > unexpected error occurred», React #185 «Maximum update depth exceeded».

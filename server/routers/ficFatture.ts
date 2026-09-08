@@ -1320,6 +1320,47 @@ export const ficFattureRouter = router({
    * partire di straforo insieme al collegamento automatico significava
    * scoprire venti commesse create senza averlo chiesto.
    */
+  /**
+   * I doppioni nati dalle fatture: commesse create da FiC il cui cliente
+   * aveva già un lavoro aperto (08/09/2026). Sola lettura: dice che cosa
+   * sposterebbe, e chi decide è una persona, una riga alla volta.
+   */
+  doppioni: adminProcedure.query(async ({ ctx }) => {
+    const { doppioniDaFatture } = await import("../fic/doppioni");
+    return doppioniDaFatture(ctx.sedeId ?? DEFAULT_SEDE_ID);
+  }),
+
+  /** Unisce UN doppione nella commessa che resta, e lo elimina. */
+  unisciDoppione: adminProcedure
+    .input(
+      z.object({
+        duplicataId: z.number().int().positive(),
+        sopravviveId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { unisciDoppione } = await import("../fic/doppioni");
+      try {
+        return await unisciDoppione({
+          sedeId: ctx.sedeId ?? DEFAULT_SEDE_ID,
+          duplicataId: input.duplicataId,
+          sopravviveId: input.sopravviveId,
+          utenteId: Number((ctx.user as any)?.id) || null,
+        });
+      } catch (errore) {
+        const messaggio =
+          errore instanceof Error ? errore.message : "Fusione non riuscita.";
+        throw new TRPCError({
+          code: messaggio.startsWith("NOT_FOUND")
+            ? "NOT_FOUND"
+            : messaggio.startsWith("PRECONDITION_FAILED")
+              ? "PRECONDITION_FAILED"
+              : "BAD_REQUEST",
+          message: messaggio.replace(/^[A-Z_]+:\s*/, ""),
+        });
+      }
+    }),
+
   creaCommesseMancanti: adminProcedure.mutation(async ({ ctx }) => {
     const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
     const esito = await creaCommesseDaFattureFic(sedeId);
