@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import AvvisoAzienda from "@/components/abbonamento/AvvisoAzienda";
 import { WyndoorLockup } from "@/components/brand/WyndoorLockup";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -451,6 +452,9 @@ function DashboardLayoutContent({
           </div>
         )}
         <main className="flex-1 min-h-dvh bg-background p-4 sm:p-5 lg:p-6">
+          {/* Sopra la pagina e dentro il main: scorre con il contenuto, come
+              nella shell Modular Control. */}
+          <AvvisoAzienda />
           <AnimatePresence mode="wait" initial={false}>
             <PageContainer key={location}>{children}</PageContainer>
           </AnimatePresence>
