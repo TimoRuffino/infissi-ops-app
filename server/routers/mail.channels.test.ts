@@ -131,6 +131,12 @@ const nuovoMessaggioWhatsApp = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** La data di oggi come la scrive la rinomina del fascicolo. */
+function oggiIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 describe("mail channel APIs", () => {
   beforeEach(() => {
     _resetComunicazioniInMemoria();
@@ -558,11 +564,11 @@ describe("mail channel APIs", () => {
     try {
       const input = { id: email!.id, allegatoIndex: 0, commessaId };
       archivioStorageProbe.active = true;
-      const primaPromise = caller.mail.email.archiviaAllegato(input);
+      const primaPromise = caller.mail.comunicazioni.archiviaAllegato(input);
       await attendiProbe(() => archivioStorageProbe.storageEntries === 1);
 
       let secondaConclusa = false;
-      const secondaPromise = caller.mail.email.archiviaAllegato(input);
+      const secondaPromise = caller.mail.comunicazioni.archiviaAllegato(input);
       void secondaPromise.then(
         () => {
           secondaConclusa = true;
@@ -595,13 +601,18 @@ describe("mail channel APIs", () => {
           storageKey: expect.any(String),
         }),
       ]);
-      await expect(
-        caller.mail.email.archiviaAllegato({
-          id: whatsapp!.id,
-          allegatoIndex: 0,
-          commessaId,
-        })
-      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      // Dall'08/09/2026 anche un allegato WhatsApp si archivia: prima
+      // questa chiamata rispondeva NOT_FOUND per il canale sbagliato.
+      const daWhatsApp = await caller.mail.comunicazioni.archiviaAllegato({
+        id: whatsapp!.id,
+        allegatoIndex: 0,
+        commessaId,
+        tipo: "foto",
+      });
+      // Qui i byte sono gli stessi dell'email: il fascicolo non duplica e
+      // torna lo stesso documento. Quello che conta è che il canale non sia
+      // più un rifiuto.
+      expect(daWhatsApp).toMatchObject({ id: prima.id, commessaId });
     } finally {
       deleteDocumentiByCommessa(commessaId);
       deleteFileQuiet(fixture.storageKey);
@@ -650,7 +661,7 @@ describe("mail channel APIs", () => {
     try {
       archivioStorageProbe.failWrites = true;
       await expect(
-        caller.mail.email.archiviaAllegato({
+        caller.mail.comunicazioni.archiviaAllegato({
           id: email!.id,
           allegatoIndex: 0,
           commessaId,
@@ -688,7 +699,7 @@ describe("mail channel APIs", () => {
         comunicazioneId: 98_001,
         allegatoIndex: 0,
         commessaId,
-        nome: "Misure esecutive Picchia Marco.pdf",
+        nome: "misure-esecutive-scan.pdf",
         tipo: "misure",
         note: "Classificato da Tars e approvato da un operatore.",
         mimeType: "application/pdf",
@@ -699,7 +710,9 @@ describe("mail channel APIs", () => {
       expect(documento).toMatchObject({
         commessaId,
         tipo: "misure",
-        nome: "Misure esecutive Picchia Marco.pdf",
+        // Il nome lo decide il tipo, con il cliente e la data (08/09/2026).
+        nome: `Misure esecutive Picchia Marco ${oggiIso()}.pdf`,
+        nomeOriginale: "misure-esecutive-scan.pdf",
         note: "Classificato da Tars e approvato da un operatore.",
         source: "comunicazione",
         sourceRef: "1:98001:0",

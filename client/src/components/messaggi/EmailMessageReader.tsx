@@ -1,4 +1,8 @@
 import ConfirmDialog from "@/components/ConfirmDialog";
+import AnteprimaFile, { type FileDaVedere } from "@/components/documenti/AnteprimaFile";
+import ArchiviaAllegato, {
+  type AllegatoDaArchiviare,
+} from "@/components/documenti/ArchiviaAllegato";
 import SearchSelect from "@/components/SearchSelect";
 import {
   EMAIL_CATEGORIES,
@@ -32,6 +36,7 @@ import {
   Archive,
   Download,
   ExternalLink,
+  Eye,
   ArrowLeft,
   Bot,
   CheckCheck,
@@ -133,6 +138,10 @@ export default function EmailMessageReader({
   const [linkKind, setLinkKind] = useState<"cliente" | "commessa">("commessa");
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // L'allegato che si sta guardando, e quello che si sta archiviando
+  // (08/09/2026): stessi componenti dei documenti di commessa.
+  const [anteprima, setAnteprima] = useState<FileDaVedere | null>(null);
+  const [daArchiviare, setDaArchiviare] = useState<AllegatoDaArchiviare | null>(null);
   const [exclusion, setExclusion] = useState<
     "spam" | "offerta_marketing" | null
   >(null);
@@ -192,17 +201,6 @@ export default function EmailMessageReader({
       setConfirmDelete(false);
       onBack();
       invalidate();
-    },
-    onError: error => toast.error(error.message),
-  });
-  const archiveAttachment = trpc.mail.email.archiviaAllegato.useMutation({
-    onSuccess: result => {
-      toast.success(`${result.nome} archiviato nel fascicolo`);
-      if (message?.commessaId != null) {
-        void utils.preventiviContratti.byCommessa.invalidate(
-          message.commessaId
-        );
-      }
     },
     onError: error => toast.error(error.message),
   });
@@ -603,18 +601,47 @@ export default function EmailMessageReader({
                   {message.allegati.map((attachment, index) => (
                     <div
                       key={`${attachment.nome}-${index}`}
-                      className="flex min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
+                      className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
                     >
-                      <Paperclip className="size-4 shrink-0 text-accent-text" />
-                      <span className="min-w-0 flex-1 break-words text-[15px] font-semibold leading-6 [overflow-wrap:anywhere]">
-                        {attachment.nome}
-                      </span>
-                      <span className="shrink-0 text-[13px] text-text-3">
-                        {fileSize(attachment.size)}
-                      </span>
-                      {/* Aprire e scaricare: prima l'allegato si vedeva
-                          elencato e basta, e un nome di file non è un
-                          allegato. La rotta controlla sessione e sede. */}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Paperclip className="size-4 shrink-0 text-accent-text" />
+                        <span
+                          className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-6"
+                          title={attachment.nome}
+                        >
+                          {attachment.nome}
+                        </span>
+                        <span className="shrink-0 text-[13px] text-text-3">
+                          {fileSize(attachment.size)}
+                        </span>
+                      </div>
+                      <div className="flex min-w-0 items-center justify-end gap-1">
+                      {/* Vedere, aprire, scaricare, archiviare: prima
+                          l'allegato si vedeva elencato e basta, e un nome di
+                          file non è un allegato. La rotta controlla sessione
+                          e sede. */}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-11 shrink-0"
+                        title="Anteprima"
+                        aria-label={`Anteprima di ${attachment.nome}`}
+                        onClick={() =>
+                          setAnteprima({
+                            nome: attachment.nome,
+                            mimeType: attachment.mimeType,
+                            url: `/api/comunicazioni/${message.id}/allegati/${index}`,
+                            sottotitolo: [
+                              message.mittente,
+                              new Date(message.receivedAt).toLocaleString("it-IT"),
+                            ]
+                              .filter(Boolean)
+                              .join(" · "),
+                          })
+                        }
+                      >
+                        <Eye className="size-4" />
+                      </Button>
                       <Button
                         asChild
                         size="icon"
@@ -645,31 +672,28 @@ export default function EmailMessageReader({
                           <Download className="size-4" />
                         </a>
                       </Button>
-                      {message.commessaId != null && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-11 shrink-0"
-                          disabled={archiveAttachment.isPending}
-                          onClick={() =>
-                            archiveAttachment.mutate({
-                              id: message.id,
-                              allegatoIndex: index,
-                              commessaId: message.commessaId!,
-                            })
-                          }
-                          aria-label={`Archivia ${attachment.nome} nel fascicolo della commessa`}
-                          title="Archivia nel fascicolo"
-                        >
-                          {archiveAttachment.isPending &&
-                          archiveAttachment.variables?.allegatoIndex ===
-                            index ? (
-                            <Loader2 className="size-4 motion-safe:animate-spin" />
-                          ) : (
-                            <Archive className="size-4" />
-                          )}
-                        </Button>
-                      )}
+                      {/* Archiviare non chiede più che la mail sia già
+                          collegata: la commessa e il tipo si scelgono qui,
+                          e il messaggio libero segue il suo allegato. */}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-11 shrink-0"
+                        onClick={() =>
+                          setDaArchiviare({
+                            comunicazioneId: message.id,
+                            allegatoIndex: index,
+                            nome: attachment.nome,
+                            quando: message.receivedAt,
+                            commessaId: message.commessaId ?? null,
+                          })
+                        }
+                        aria-label={`Archivia ${attachment.nome} nel fascicolo di una commessa`}
+                        title="Archivia nel fascicolo"
+                      >
+                        <Archive className="size-4" />
+                      </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -681,6 +705,9 @@ export default function EmailMessageReader({
           </div>
         </div>
       </div>
+
+      <AnteprimaFile file={anteprima} onClose={() => setAnteprima(null)} />
+      <ArchiviaAllegato allegato={daArchiviare} onClose={() => setDaArchiviare(null)} />
 
       <ConfirmDialog
         open={confirmDelete}

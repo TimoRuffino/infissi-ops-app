@@ -10,6 +10,7 @@ import { normalizzaTelefono, stessoNumero } from "@shared/telefono";
 import {
   completaOnboarding,
   configWhatsApp,
+  conservaMediaWhatsApp,
   getAppWhatsApp,
   ingestisciWebhook,
   proteggiSegreto,
@@ -975,5 +976,77 @@ describe("seed dell'app WhatsApp col tenant", () => {
     expect(app2).toHaveLength(1);
     expect(app2[0].sedeId).toBe(777);
     expect(storeDi<any>(1, "whatsapp_app").some(a => a.id === app2[0].id)).toBe(false); // id globali
+  });
+});
+
+describe("conservaMediaWhatsApp", () => {
+  const config = { id: 7, sedeId: 1, numero: "+390000000000" } as any;
+  const comunicazione = (allegati: any[]) =>
+    ({ id: 4242, sedeId: 1, casellaId: 7, allegati }) as any;
+
+  it("scarica i media e li mette nello storage, una volta sola", async () => {
+    const registrati: any[] = [];
+    const c = comunicazione([
+      { nome: "immagine.jpg", mimeType: "image/jpeg", size: 0, storageKey: null, mediaId: "wamid-1" },
+      { nome: "listino.pdf", mimeType: "application/pdf", size: 0, storageKey: "già/salvato", mediaId: "wamid-2" },
+      { nome: "audio.ogg", mimeType: "audio/ogg", size: 0, storageKey: null, mediaId: null },
+    ]);
+    const esito = await conservaMediaWhatsApp(c, config, {
+      durevole: () => true,
+      scarica: async () => ({ buffer: Buffer.from("foto vera"), mimeType: "image/jpeg" }),
+      salva: async input => ({ storageKey: `comunicazioni/${input.comunicazioneId}/${input.nome}` }),
+      registra: async input => {
+        registrati.push(input);
+        return true;
+      },
+    });
+
+    expect(esito).toEqual({ salvati: 1, saltati: 2, errori: 0 });
+    expect(registrati).toEqual([
+      {
+        id: 4242,
+        sedeId: 1,
+        allegatoIndex: 0,
+        storageKey: "comunicazioni/4242/immagine.jpg",
+        size: 9,
+      },
+    ]);
+    // L'allegato in mano a chi ha chiamato sa già dove sono i byte.
+    expect(c.allegati[0].storageKey).toBe("comunicazioni/4242/immagine.jpg");
+    expect(c.allegati[0].size).toBe(9);
+  });
+
+  it("un media che non si scarica non ferma gli altri", async () => {
+    const c = comunicazione([
+      { nome: "rotto.jpg", mimeType: "image/jpeg", size: 0, storageKey: null, mediaId: "ko" },
+      { nome: "buono.jpg", mimeType: "image/jpeg", size: 0, storageKey: null, mediaId: "ok" },
+    ]);
+    const esito = await conservaMediaWhatsApp(c, config, {
+      durevole: () => true,
+      scarica: async (_c, mediaId) => {
+        if (mediaId === "ko") throw new Error("Media non recuperabile da WhatsApp (404).");
+        return { buffer: Buffer.from("ok"), mimeType: "image/jpeg" };
+      },
+      salva: async () => ({ storageKey: "chiave" }),
+      registra: async () => true,
+    });
+    expect(esito).toEqual({ salvati: 1, saltati: 0, errori: 1 });
+    expect(c.allegati[1].storageKey).toBe("chiave");
+  });
+
+  it("con lo storage effimero non scarica niente: i byte finirebbero in JSONB", async () => {
+    const c = comunicazione([
+      { nome: "immagine.jpg", mimeType: "image/jpeg", size: 0, storageKey: null, mediaId: "wamid-1" },
+    ]);
+    let scaricato = false;
+    const esito = await conservaMediaWhatsApp(c, config, {
+      durevole: () => false,
+      scarica: async () => {
+        scaricato = true;
+        return { buffer: Buffer.alloc(1), mimeType: "image/jpeg" };
+      },
+    });
+    expect(esito).toEqual({ salvati: 0, saltati: 1, errori: 0 });
+    expect(scaricato).toBe(false);
   });
 });

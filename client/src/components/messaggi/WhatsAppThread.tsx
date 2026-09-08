@@ -1,3 +1,7 @@
+import AnteprimaFile, { type FileDaVedere } from "@/components/documenti/AnteprimaFile";
+import ArchiviaAllegato, {
+  type AllegatoDaArchiviare,
+} from "@/components/documenti/ArchiviaAllegato";
 import StatePanel from "@/components/patterns/StatePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,8 +17,10 @@ import { TarsSmistamentoConversazione } from "@/components/tars/TarsSmistamento"
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
+  Archive,
   ArrowLeft,
   ChevronUp,
+  Download,
   Eye,
   FileText,
   Loader2,
@@ -109,6 +115,9 @@ export default function WhatsAppThread({
   const [olderMessages, setOlderMessages] = useState<
     WhatsAppThread["messaggi"]
   >([]);
+  // L'allegato che si guarda e quello che si archivia (08/09/2026).
+  const [anteprima, setAnteprima] = useState<FileDaVedere | null>(null);
+  const [daArchiviare, setDaArchiviare] = useState<AllegatoDaArchiviare | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(conversation.aliasOperatore ?? "");
   const current = trpc.mail.whatsapp.thread.useQuery({
@@ -432,28 +441,102 @@ export default function WhatsAppThread({
                       {message.testo || message.oggetto || "Media o allegato"}
                     </p>
                     {message.allegati.length > 0 && (
-                      <div className="mt-2.5 space-y-1.5 border-t border-border-soft pt-2.5">
-                        {message.allegati.map((attachment, index) => (
-                          <div
-                            key={`${attachment.nome}-${index}`}
-                            className="flex min-h-11 w-full min-w-0 items-center gap-2 px-1 text-left text-[13px] text-text-2"
-                          >
-                            {attachment.mediaId ? (
-                              <Paperclip className="size-4 shrink-0" />
-                            ) : (
-                              <FileText className="size-4 shrink-0" />
-                            )}
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-semibold text-text-1">
-                                {attachment.nome}
-                              </span>
-                              <span className="block truncate text-xs text-text-3">
-                                {attachment.mimeType || "Tipo non disponibile"}{" "}
-                                · {fileSize(attachment.size)}
-                              </span>
-                            </span>
-                          </div>
-                        ))}
+                      /* Un allegato WhatsApp era un nome e basta: nessun
+                         modo di vederlo, di aprirlo, di metterlo in una
+                         commessa (08/09/2026). Le foto si guardano subito,
+                         il resto si apre e si archivia. */
+                      <div className="mt-2.5 space-y-2 border-t border-border-soft pt-2.5">
+                        {message.allegati.map((attachment, index) => {
+                          const url = `/api/comunicazioni/${message.id}/allegati/${index}`;
+                          const file: FileDaVedere = {
+                            nome: attachment.nome,
+                            mimeType: attachment.mimeType,
+                            url,
+                            sottotitolo: `${message.mittente} · ${timestamp(message.receivedAt)}`,
+                          };
+                          const immagine = (attachment.mimeType ?? "").startsWith("image/");
+                          return (
+                            <div key={`${attachment.nome}-${index}`} className="min-w-0">
+                              {immagine ? (
+                                <button
+                                  type="button"
+                                  className="block w-full overflow-hidden rounded-[var(--radius-control)] border border-border-soft bg-surface-1"
+                                  onClick={() => setAnteprima(file)}
+                                  aria-label={`Apri ${attachment.nome}`}
+                                >
+                                  <img
+                                    src={url}
+                                    alt={attachment.nome}
+                                    loading="lazy"
+                                    className="block max-h-64 w-full object-contain"
+                                    onError={e => {
+                                      // Media scartato da Meta: resta la riga.
+                                      e.currentTarget.closest("button")?.remove();
+                                    }}
+                                  />
+                                </button>
+                              ) : null}
+                              <div className="flex min-h-11 w-full min-w-0 items-center gap-2 px-1 text-left text-[13px] text-text-2">
+                                {attachment.mediaId ? (
+                                  <Paperclip className="size-4 shrink-0" />
+                                ) : (
+                                  <FileText className="size-4 shrink-0" />
+                                )}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-semibold text-text-1">
+                                    {attachment.nome}
+                                  </span>
+                                  <span className="block truncate text-xs text-text-3">
+                                    {attachment.mimeType || "Tipo non disponibile"}
+                                    {attachment.size > 0 ? ` · ${fileSize(attachment.size)}` : ""}
+                                  </span>
+                                </span>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-11 shrink-0"
+                                  title="Anteprima"
+                                  aria-label={`Anteprima di ${attachment.nome}`}
+                                  onClick={() => setAnteprima(file)}
+                                >
+                                  <Eye className="size-4" />
+                                </Button>
+                                <Button
+                                  asChild
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-11 shrink-0"
+                                  title="Scarica"
+                                >
+                                  <a
+                                    href={`${url}?download=1`}
+                                    aria-label={`Scarica ${attachment.nome}`}
+                                  >
+                                    <Download className="size-4" />
+                                  </a>
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-11 shrink-0"
+                                  title="Archivia nel fascicolo"
+                                  aria-label={`Archivia ${attachment.nome} nel fascicolo di una commessa`}
+                                  onClick={() =>
+                                    setDaArchiviare({
+                                      comunicazioneId: message.id,
+                                      allegatoIndex: index,
+                                      nome: attachment.nome,
+                                      quando: message.receivedAt,
+                                      commessaId: message.commessaId ?? null,
+                                    })
+                                  }
+                                >
+                                  <Archive className="size-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     <time
@@ -469,6 +552,9 @@ export default function WhatsAppThread({
           })}
         </div>
       </div>
+
+      <AnteprimaFile file={anteprima} onClose={() => setAnteprima(null)} />
+      <ArchiviaAllegato allegato={daArchiviare} onClose={() => setDaArchiviare(null)} />
 
       {/* Nessuna casella di invio: WhatsApp resta un archivio consultabile.
           Scriverlo evita che qualcuno cerchi il campo che non esiste. */}

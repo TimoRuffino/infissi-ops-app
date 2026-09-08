@@ -487,6 +487,31 @@
 > ricevute» provati dal vivo; `scrollWidth == clientWidth` su mobile.
 > Resta da fare in produzione: il primo giro dopo il deploy.
 >
+> **08/09/2026 — Gli allegati dei messaggi diventano documenti.** Mandati:
+> «devo poter vedere l'anteprima dei file inviati su whatsapp», «devo poterli
+> collegare alle commesse, sia su whatsapp che sulle mail», «vanno aggiunti
+> altri tipi di doc caricabili sulle commesse e in base al tipo di doc deve
+> essere rinominato automaticamente». Fatto (§8 e §51.9 del PRD):
+> **(1)** `conservaMediaWhatsApp` scarica i media appena il messaggio entra e
+> li mette nello storage — prima c'era solo il `mediaId` e Meta li scarta
+> dopo ~30 giorni: quelli vecchi sono già persi, i nuovi no. Fuori dal
+> percorso del webhook, solo con storage durevole, 15 MB per file.
+> **(2)** `components/documenti/AnteprimaFile`: un componente solo per
+> fascicolo e messaggi; i byte si chiedono una volta e restano un blob, e il
+> 410 del server si legge come frase, non come rettangolo bianco.
+> **(3)** `mail.comunicazioni.archiviaAllegato` (era `mail.email.*`): due
+> canali, commessa e tipo a scelta, il messaggio libero viene collegato.
+> **(4)** Dodici tipi nuovi in `shared/docTipi.ts` e rinomina
+> `{Tipo} {cliente} {AAAA-MM-GG}` per tutti tranne «altro», con la data del
+> documento. ATTENZIONE per chi tocca il dedup: il nome nel fascicolo non è
+> più quello del fornitore, quindi `Documento.nomeOriginale` è la fonte per
+> le euristiche che leggono il numero d'ordine dal nome del file.
+> Sistemati anche quattro test con date fisse (briefing a 7 giorni, conflitto
+> consegna/posa) che erano rossi da mezzanotte, non per colpa di questa
+> modifica. Suite 2.752 test. Verifica browser fatta con la console armata:
+> zero errori su /messaggi/whatsapp, /messaggi/email e /fornitori a 1440x900
+> e 390x844.
+>
 > **07/09/2026 (notte) — La pagina Fornitori si spegneva in produzione.**
 > Aprendo `/fornitori` (o una conferma) l'error boundary mostrava «An
 > unexpected error occurred», React #185 «Maximum update depth exceeded».

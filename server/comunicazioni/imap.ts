@@ -17,7 +17,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { decryptSecret } from "../_core/secretBox";
-import { getStorageDriver, putFile } from "../_core/fileStorage";
+import { putFile, storageDurevole } from "../_core/fileStorage";
 import {
   insertComunicazione,
   MAX_TESTO,
@@ -53,20 +53,6 @@ export type EsitoSync = {
   saltate: number;
   errore: string | null;
 };
-
-// Gli allegati si scaricano solo se lo storage è durevole. Col driver
-// `local` su Railway finirebbero inline in JSONB: esattamente il problema
-// da 103 MB che il progetto sta già rimandando.
-function storageDurevole(): boolean {
-  try {
-    const driver = getStorageDriver();
-    if (driver.name !== "local") return true;
-    if (!process.env.RAILWAY_ENVIRONMENT) return true; // locale: filesystem vero
-    return process.env.STORAGE_ALLOW_EPHEMERAL === "1";
-  } catch {
-    return false;
-  }
-}
 
 function testoDaMail(parsed: any): string {
   const base: string =

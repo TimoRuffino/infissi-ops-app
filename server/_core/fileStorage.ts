@@ -571,3 +571,20 @@ export async function probeStorage(
     bytes: payload.length,
   };
 }
+
+/**
+ * Gli allegati si scaricano solo se lo storage è durevole. Col driver
+ * `local` su Railway finirebbero inline in JSONB: esattamente il problema
+ * da 103 MB che il progetto sta già rimandando. Vive qui dal 08/09/2026
+ * perché la regola vale per la posta e per WhatsApp allo stesso modo.
+ */
+export function storageDurevole(): boolean {
+  try {
+    const driver = getStorageDriver();
+    if (driver.name !== "local") return true;
+    if (!process.env.RAILWAY_ENVIRONMENT) return true; // locale: filesystem vero
+    return process.env.STORAGE_ALLOW_EPHEMERAL === "1";
+  } catch {
+    return false;
+  }
+}

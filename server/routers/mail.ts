@@ -62,6 +62,7 @@ import {
   regoleFiltroMittente,
   salvaRegolaMittente,
 } from "../comunicazioni/filtroComunicazioni";
+import { DOC_TIPI } from "@shared/docTipi";
 import { getCommessaById } from "./commesse";
 import { getClientiStore } from "./clienti";
 import { getCommesseStore } from "./commesse";
@@ -749,60 +750,71 @@ export const mailRouter = router({
       aggiornate: await segnaTutteViste(ctx.sedeId ?? 1, "email"),
     })),
 
+  }),
+
+  // ── Comunicazioni ─────────────────────────────────────────────────────
+  comunicazioni: router({
+    /**
+     * Un allegato entra nel fascicolo di una commessa: vale per la posta e
+     * per WhatsApp allo stesso modo (08/09/2026, mandato della direzione:
+     * «devo poterli collegare alle commesse, sia su whatsapp che sulle
+     * mail»). Chi archivia sceglie la commessa e il TIPO, e il file prende
+     * il nome del tipo con il cliente e la data del messaggio (§19.5).
+     *
+     * Se il messaggio non è collegato a nessuna commessa, il collegamento
+     * si fa qui: dire di quale lavoro è quel file lo dice anche del
+     * messaggio che lo portava.
+     */
     archiviaAllegato: protectedProcedure
       .input(
         z.object({
           id: z.number(),
           allegatoIndex: z.number().int().min(0),
           commessaId: z.number(),
+          tipo: z.enum(DOC_TIPI).default("altro"),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const sedeId = ctx.sedeId ?? 1;
         const comunicazione = await getComunicazione(input.id, sedeId);
-        if (
-          !comunicazione ||
-          comunicazione.deletedAt ||
-          comunicazione.canale !== "email"
-        ) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Email non trovata.",
-          });
+        if (!comunicazione || comunicazione.deletedAt) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Messaggio non trovato." });
         }
         const commessa = getCommessaById(input.commessaId);
         assertSedeScope(commessa ?? null, ctx.sedeId);
-        if (comunicazione.commessaId !== input.commessaId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Collega prima l'email alla commessa selezionata.",
-          });
-        }
         if (!comunicazione.allegati[input.allegatoIndex]) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Allegato non trovato.",
-          });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Allegato non trovato." });
         }
 
         try {
-          const raw = await leggiAllegatoRaw(
-            comunicazione,
-            input.allegatoIndex
-          );
+          const raw = await leggiAllegatoRaw(comunicazione, input.allegatoIndex);
           const documento = await archiviaAllegatoComunicazione({
             sedeId,
             comunicazioneId: comunicazione.id,
             allegatoIndex: input.allegatoIndex,
             commessaId: input.commessaId,
             nome: raw.nome,
-            tipo: "altro",
+            tipo: input.tipo,
             mimeType: raw.mimeType,
             buffer: raw.buffer,
             createdBy: Number((ctx.user as any).id) || null,
+            dataDocumento: comunicazione.receivedAt,
           });
+          let messaggioCollegato = false;
+          if (comunicazione.commessaId == null) {
+            messaggioCollegato = await setMatchComunicazione(comunicazione.id, sedeId, {
+              clienteId: (commessa as any)?.clienteId ?? null,
+              commessaId: input.commessaId,
+              confidenza: "alta",
+              motivo: "Collegato archiviando un allegato nel fascicolo.",
+            });
+          }
           const { dataBase64, ...rest } = documento;
-          return { ...rest, hasData: !!dataBase64 || !!rest.storageKey };
+          return {
+            ...rest,
+            hasData: !!dataBase64 || !!rest.storageKey,
+            messaggioCollegato,
+          };
         } catch (error) {
           throw new TRPCError({
             code:
@@ -816,10 +828,7 @@ export const mailRouter = router({
           });
         }
       }),
-  }),
 
-  // ── Comunicazioni ─────────────────────────────────────────────────────
-  comunicazioni: router({
     list: protectedProcedure
       .input(comunicazioniListInput.optional())
       .query(async ({ input, ctx }) => {

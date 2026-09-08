@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+import AnteprimaFile, { type FileDaVedere } from "@/components/documenti/AnteprimaFile";
 import DoveLetto from "@/components/documenti/DoveLetto";
 import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
@@ -23,13 +24,6 @@ import type { StatePanelProps } from "@/components/patterns/StatePanel";
 import SearchSelect from "@/components/SearchSelect";
 import StatoChip from "@/components/StatoChip";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { selezioneValida } from "@/lib/consegneSelezione";
 import { formatEuroSimbolo } from "@/lib/euro";
@@ -200,89 +194,6 @@ function GruppoChip({ gruppo }: { gruppo: Gruppo }) {
   );
 }
 
-/**
- * L'anteprima del file, sempre: il PDF nel riquadro, l'immagine a schermo,
- * e in ogni caso il tasto per aprirlo in una scheda. Vale sia per i
- * documenti del fascicolo sia per gli allegati non ancora collegati.
- */
-function AnteprimaFile({
-  conferma,
-  onClose,
-}: {
-  conferma: Conferma | null;
-  onClose: () => void;
-}) {
-  const aperta = conferma != null;
-  const immagine = conferma?.mimeType?.startsWith("image/") ?? false;
-  const pdf = conferma?.mimeType === "application/pdf";
-  return (
-    <Dialog open={aperta} onOpenChange={v => (!v ? onClose() : undefined)}>
-      <DialogContent className="flex h-[88vh] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-3 overflow-hidden">
-        <DialogHeader className="min-w-0">
-          <DialogTitle className="min-w-0 break-words text-base [overflow-wrap:anywhere]">
-            {conferma?.nome ?? "Anteprima"}
-          </DialogTitle>
-          <DialogDescription className="min-w-0 break-words">
-            {conferma
-              ? [
-                  conferma.fornitore,
-                  dataIt(conferma.quando),
-                  conferma.numeroOrdine ? `n. ${conferma.numeroOrdine}` : null,
-                  conferma.commessa
-                    ? `${conferma.commessa.codice ?? ""} ${conferma.commessa.cliente ?? ""}`.trim()
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-auto rounded-[var(--radius-control)] border border-border-soft bg-surface-2">
-          {conferma == null ? null : immagine ? (
-            <img
-              src={conferma.fileUrl}
-              alt={`Anteprima di ${conferma.nome}`}
-              className="mx-auto block max-w-full"
-            />
-          ) : pdf ? (
-            <iframe
-              title={`Anteprima di ${conferma.nome}`}
-              src={conferma.fileUrl}
-              className="h-full w-full border-0"
-            />
-          ) : (
-            <div className="p-6 text-sm text-text-2">
-              Questo tipo di file ({conferma.mimeType || "sconosciuto"}) non si vede qui dentro.
-              Aprilo in una scheda per leggerlo.
-            </div>
-          )}
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button asChild variant="outline" className="min-h-11">
-            <a href={conferma?.fileUrl ?? "#"} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              Apri in una scheda
-            </a>
-          </Button>
-          {conferma?.merce.articoliLetti.length ? (
-            <span className="min-w-0 text-xs text-text-3">
-              Letti {conferma.merce.articoliLetti.length}{" "}
-              {conferma.merce.articoliLetti.length === 1 ? "articolo" : "articoli"}:{" "}
-              {conferma.merce.articoliLetti
-                .slice(0, 4)
-                .map(a => `${a.nome}${a.quantita > 1 ? ` ×${a.quantita}` : ""}`)
-                .join(", ")}
-              {conferma.merce.articoliLetti.length > 4 ? "…" : ""}
-            </span>
-          ) : null}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export default function Fornitori() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
@@ -290,7 +201,7 @@ export default function Fornitori() {
   const [vista, setVista] = useState<"conferme" | "arrivo">("conferme");
   const [gruppo, setGruppo] = useState<Gruppo | "tutte">("da_collegare");
   const [search, setSearch] = useState("");
-  const [anteprima, setAnteprima] = useState<Conferma | null>(null);
+  const [anteprima, setAnteprima] = useState<FileDaVedere | null>(null);
   // La commessa scelta a mano, per conferma: nessuno stato globale.
   const [sceltaPerRiga, setSceltaPerRiga] = useState<Record<string, string>>({});
   // Le consegne spuntate nella vista magazzino.
@@ -757,7 +668,22 @@ export default function Fornitori() {
                               <button
                                 type="button"
                                 className="mt-0.5 flex min-w-0 items-start gap-1.5 text-left text-sm font-semibold text-text-1 underline-offset-2 hover:underline"
-                                onClick={() => setAnteprima(r)}
+                                onClick={() => setAnteprima({
+                                  nome: r.nome,
+                                  mimeType: r.mimeType,
+                                  url: r.fileUrl,
+                                  sottotitolo: [
+                                    r.fornitore,
+                                    dataIt(r.quando),
+                                    r.numeroOrdine ? `n. ${r.numeroOrdine}` : null,
+                                    r.commessa
+                                      ? `${r.commessa.codice ?? ""} ${r.commessa.cliente ?? ""}`.trim()
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · "),
+                                  note: merceTesto(r.merce),
+                                })}
                                 title="Apri l'anteprima"
                               >
                                 <FileText
@@ -939,7 +865,22 @@ export default function Fornitori() {
                             <button
                               type="button"
                               className="inline-flex min-h-8 items-center gap-1 text-text-2 hover:text-text-1"
-                              onClick={() => setAnteprima(r)}
+                              onClick={() => setAnteprima({
+                                  nome: r.nome,
+                                  mimeType: r.mimeType,
+                                  url: r.fileUrl,
+                                  sottotitolo: [
+                                    r.fornitore,
+                                    dataIt(r.quando),
+                                    r.numeroOrdine ? `n. ${r.numeroOrdine}` : null,
+                                    r.commessa
+                                      ? `${r.commessa.codice ?? ""} ${r.commessa.cliente ?? ""}`.trim()
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · "),
+                                  note: merceTesto(r.merce),
+                                })}
                             >
                               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
                               Anteprima
@@ -1228,7 +1169,7 @@ export default function Fornitori() {
         </div>
       </div>
 
-      <AnteprimaFile conferma={anteprima} onClose={() => setAnteprima(null)} />
+      <AnteprimaFile file={anteprima} onClose={() => setAnteprima(null)} />
     </div>
   );
 }
