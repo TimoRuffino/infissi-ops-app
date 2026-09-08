@@ -118,7 +118,19 @@ export async function ingestisciWebhookPerNumero(payload: unknown): Promise<{ ri
       console.warn(`[whatsapp-webhook] numero sconosciuto: ${numero}`);
       continue;
     }
-    ricevuti += await conTenantDellaSede(trovato.valore, () => ingestisciWebhook(payloadDelNumero(payload, numero)));
+    // Stessa regola di `perOgniTenantAttivo`/`trovaNeiTenant`
+    // (server/tenants/giri.ts): l'errore di un numero (per esempio la sede
+    // sparita — `conTenantDellaSede` fail-closed — o un guasto dentro
+    // `ingestisciWebhook`) si registra e non deve far perdere gli altri
+    // numeri della STESSA consegna. Meta ha già ricevuto il 200 e non
+    // riprova: se il ciclo si fermasse qui, i numeri successivi andrebbero
+    // persi per sempre.
+    try {
+      ricevuti += await conTenantDellaSede(trovato.valore, () => ingestisciWebhook(payloadDelNumero(payload, numero)));
+    } catch (errore) {
+      const messaggio = errore instanceof Error ? errore.message : String(errore);
+      console.error(`[whatsapp-webhook] numero ${numero}:`, messaggio);
+    }
   }
   return { ricevuti, numeriSconosciuti };
 }

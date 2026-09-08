@@ -80,6 +80,18 @@ const config = (
 const firmaDi = (raw: Buffer, segreto: string) =>
   `sha256=${createHmac("sha256", segreto).update(raw).digest("hex")}`;
 
+/** Un "change" di webhook con un messaggio in arrivo per un numero. */
+const messaggioDi = (numero: string, id: string, waId: string) => ({
+  field: "messages",
+  value: {
+    metadata: { phone_number_id: numero },
+    contacts: [{ wa_id: waId, profile: { name: `Cliente ${numero}` } }],
+    messages: [
+      { id, from: waId, timestamp: "1786000000", type: "text", text: { body: `Messaggio dal numero ${numero}` } },
+    ],
+  },
+});
+
 const svuota = (nome: string) => {
   storeDi(1, nome).length = 0;
   storeDi(2, nome).length = 0;
@@ -180,6 +192,32 @@ describe("rotte anonime: il tenant si cerca, non si presume", () => {
       expect(solo222.entry[0].changes).toHaveLength(1);
       expect(solo222.entry[0].changes[0].value.messages[0].id).toBe("m2");
       expect(numeriDelPayload({})).toEqual([]);
+
+      // M1: lo stesso numero compare in due entry diverse (e1 e il secondo
+      // change di e2) — entrambe le entry restano, ridotte al solo change
+      // di quel numero.
+      const solo111 = payloadDelNumero(payload, "111");
+      expect(solo111.entry).toHaveLength(2);
+      expect(solo111.entry.map((e: any) => e.changes.length)).toEqual([1, 1]);
+      expect(solo111.entry[1].changes[0].value.messages[0].id).toBe("m3");
+
+      // M2: `phone_number_id` numerico (Meta lo manda come numero in alcuni
+      // payload) — deve confrontarsi come stringa, non sparire.
+      const payloadNumerico = {
+        entry: [
+          {
+            id: "e4",
+            changes: [
+              { field: "messages", value: { metadata: { phone_number_id: 333 }, messages: [{ id: "m4" }] } },
+            ],
+          },
+        ],
+      };
+      expect(numeriDelPayload(payloadNumerico)).toEqual(["333"]);
+      const solo333 = payloadDelNumero(payloadNumerico, "333");
+      expect(solo333.entry).toHaveLength(1);
+      expect(solo333.entry[0].changes).toHaveLength(1);
+      expect(solo333.entry[0].changes[0].value.messages[0].id).toBe("m4");
     });
 
     it("con lo stesso app secret due aziende ricevono ciascuna i messaggi del proprio numero; un numero sconosciuto si logga e basta", async () => {
@@ -195,16 +233,6 @@ describe("rotte anonime: il tenant si cerca, non si presume", () => {
         config(2, SEDE_T2, { phoneNumberId: "222", appSecretCifrato: encryptSecret(SEGRETO_T2) })
       );
 
-      const messaggioDi = (numero: string, id: string, waId: string) => ({
-        field: "messages",
-        value: {
-          metadata: { phone_number_id: numero },
-          contacts: [{ wa_id: waId, profile: { name: `Cliente ${numero}` } }],
-          messages: [
-            { id, from: waId, timestamp: "1786000000", type: "text", text: { body: `Messaggio dal numero ${numero}` } },
-          ],
-        },
-      });
       const payload = {
         entry: [
           { id: "e1", changes: [messaggioDi("111", "wamid.UNO", "393401110001")] },
@@ -229,6 +257,54 @@ describe("rotte anonime: il tenant si cerca, non si presume", () => {
         expect(storeDi<ConfigWhatsApp>(2, "whatsapp_config")[0].diagnosticaWebhook?.eventiWebhook).toBe(1);
       } finally {
         warn.mockRestore();
+      }
+    });
+
+    it("l'errore di ingestione di un numero non fa perdere gli altri numeri della stessa consegna", async () => {
+      // Tenant 1 segue il numero "111" ma la sua sede è sparita dal control
+      // plane (per esempio cancellata): `conTenantDellaSede` lancia
+      // fail-closed (server/tenants/giri.ts, R14). Meta ha già ricevuto il
+      // 200 per l'INTERA consegna e non riprova: il messaggio del numero
+      // "222", nella stessa consegna, non deve andare perso per colpa del
+      // vicino.
+      const SEDE_SPARITA = 9999; // non è in getSediStore(): conTenantDellaSede lancia
+      storeDi<ConfigWhatsApp>(1, "whatsapp_config").push(
+        config(1, SEDE_SPARITA, { phoneNumberId: "111", appSecretCifrato: encryptSecret(SEGRETO_T2) })
+      );
+      storeDi<ConfigWhatsApp>(2, "whatsapp_config").push(
+        config(2, SEDE_T2, { phoneNumberId: "222", appSecretCifrato: encryptSecret(SEGRETO_T2) })
+      );
+      // Id-messaggio distinti da quelli del test precedente: `comunicazioni`
+      // (memRows) non viene svuotato da `svuota` fra un test e l'altro di
+      // questo file, e l'inserimento deduplica su (canale, casellaId,
+      // messageId) — un id già usato sulla stessa casella (config.id) non
+      // verrebbe ricontato, falsando `ricevuti` per una ragione estranea a
+      // ciò che questo test vuole provare.
+      const payload = {
+        entry: [
+          { id: "e1", changes: [messaggioDi("111", "wamid.R14-111", "393401110011")] },
+          { id: "e2", changes: [messaggioDi("222", "wamid.R14-222", "393402220022")] },
+        ],
+      };
+
+      const errore = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const esito = await ingestisciWebhookPerNumero(payload);
+
+        // Il "222" arriva comunque a destinazione, ed è l'unico contato.
+        expect(storeDi<ConfigWhatsApp>(2, "whatsapp_config")[0].diagnosticaWebhook?.eventiWebhook).toBe(1);
+        expect(esito.ricevuti).toBe(1);
+
+        // L'errore del "111" si registra una volta sola, senza il payload.
+        expect(errore).toHaveBeenCalledTimes(1);
+        const [primoArgomento, secondoArgomento] = errore.mock.calls[0];
+        expect(String(primoArgomento)).toContain("numero 111");
+        const tuttoIlLog = `${primoArgomento} ${secondoArgomento}`;
+        expect(tuttoIlLog).not.toContain("Messaggio dal numero");
+        expect(tuttoIlLog).not.toContain("wamid");
+        expect(tuttoIlLog).not.toContain("393401110011");
+      } finally {
+        errore.mockRestore();
       }
     });
 
