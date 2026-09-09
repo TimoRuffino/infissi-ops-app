@@ -51,6 +51,7 @@ import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
 import { tenantsRouter } from "./tenants/router";
 import { invitiRouter } from "./piattaforma/invitiRouter";
+import { piattaformaRouter } from "./piattaforma/router";
 import { apriSessioneLocale, clearLocalSessionFromRequest } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -150,6 +151,7 @@ export const appRouter = router({
   platform: platformRouter,
   tenants: tenantsRouter,
   inviti: invitiRouter,
+  piattaforma: piattaformaRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,
