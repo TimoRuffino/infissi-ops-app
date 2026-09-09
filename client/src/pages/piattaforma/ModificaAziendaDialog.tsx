@@ -20,6 +20,15 @@
 // configurata, il link è l'unica copia esistente: il dialogo NON si chiude,
 // mostra il link e il pulsante «Copia» (come «Nuova azienda»), e l'eventuale
 // cambio di slug porta alla scheda nuova solo quando si chiude.
+//
+// Se la prima mutation passa e la seconda no, «Salva» resta lì per
+// riprovare — ma la scheda che il dialogo tiene in mano non si aggiorna mai
+// da sola (il paragrafo sopra), quindi un secondo tentativo non può
+// rileggere «cosa manda» dal solito confronto scheda/modulo: manderebbe di
+// nuovo l'azienda, con lo slug vecchio, che dopo un cambio riuscito risponde
+// NOT_FOUND. `giaSalvato` + `payloadDaRipetere` (modificaAzienda.ts) tengono
+// il conto di cosa è già a terra e ricalcolano da lì slug e payload di ogni
+// tentativo (fix round 1, Task 4).
 import type { inferRouterOutputs } from "@trpc/server";
 import { AlertCircle, Check, Copy, Save } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -55,7 +64,9 @@ import ConfermaPassword from "./ConfermaPassword";
 import {
   diffModifica,
   erroriModulo,
+  payloadDaRipetere,
   valoriIniziali,
+  type EsitoParziale,
   type ValoriModifica,
 } from "./modificaAzienda";
 import {
@@ -87,6 +98,9 @@ const ETICHETTA_PANNELLO: Record<Pannello, string> = {
   sede: "Sede",
   proprietario: "Proprietario",
 };
+
+/** Niente salvato ancora: il punto di partenza a ogni apertura del dialogo. */
+const NIENTE_SALVATO: EsitoParziale = { azienda: null, proprietario: false };
 
 function Campo({
   id,
@@ -150,6 +164,11 @@ export default function ModificaAziendaDialog({
   // chiusura, non subito, o il riepilogo dell'invito sparirebbe con la
   // pagina (`AziendaDetail` si rimonta a ogni slug).
   const [slugDaAprire, setSlugDaAprire] = useState<string | null>(null);
+  // Cosa hanno già salvato i tentativi precedenti in QUESTA apertura del
+  // dialogo (fix round 1, Task 4): `diff` resta calcolato sulla scheda con
+  // cui si è aperto, quindi da solo non basta a un secondo tentativo dopo
+  // un fallimento composto — vedi `payloadDaRipetere` in modificaAzienda.ts.
+  const [giaSalvato, setGiaSalvato] = useState<EsitoParziale>(NIENTE_SALVATO);
 
   // La scheda si rinfresca da sola ogni minuto: il modulo NON deve
   // ricaricarsi sotto le dita di chi scrive. Riparte solo all'apertura, e
@@ -168,6 +187,7 @@ export default function ModificaAziendaDialog({
     setEsitoInvito(null);
     setCopiato(false);
     setSlugDaAprire(null);
+    setGiaSalvato(NIENTE_SALVATO);
   }, [open]);
 
   const utils = trpc.useUtils();
@@ -176,6 +196,13 @@ export default function ModificaAziendaDialog({
 
   const diff = useMemo(() => diffModifica(scheda, valori), [scheda, valori]);
   const errori = useMemo(() => erroriModulo(scheda, valori), [scheda, valori]);
+  // Cosa manca ANCORA da mandare, tolto ciò che `giaSalvato` dice già a
+  // terra: è questo, non `diff`, che decide cosa parte da `salva` e cosa si
+  // legge nel riepilogo sopra la password (anche sui pallini dei pannelli).
+  const daRipetere = useMemo(
+    () => payloadDaRipetere(diff, scheda.slug, giaSalvato),
+    [diff, scheda.slug, giaSalvato]
+  );
   const inAttesa = modifica.isPending || modificaProprietario.isPending;
   const tenant1 = scheda.id === TENANT_PIATTAFORMA_ID;
   const proprietario = valori.proprietario;
@@ -207,6 +234,7 @@ export default function ModificaAziendaDialog({
     setEsitoInvito(null);
     setCopiato(false);
     setSlugDaAprire(null);
+    setGiaSalvato(NIENTE_SALVATO);
     modifica.reset();
     modificaProprietario.reset();
     onOpenChange(false);
@@ -239,7 +267,7 @@ export default function ModificaAziendaDialog({
   /** «Salva» del modulo: senza modifiche non si chiede nemmeno la password. */
   function chiediPassword() {
     if (solaLettura || errori.length > 0) return;
-    if (!diff.payloadAzienda && !diff.payloadProprietario) {
+    if (!daRipetere.payloadAzienda && !daRipetere.payloadProprietario) {
       toast.info(TESTO_NESSUNA_MODIFICA);
       chiudiDialogo(null);
       return;
@@ -253,22 +281,33 @@ export default function ModificaAziendaDialog({
    * (`comando.stato === "errore"`: slug già usato, email già in uso, tenant 1
    * intoccabile) resta nel dialogo della password, dove si sta guardando.
    * Se la prima è passata e la seconda no, i dati dell'azienda SONO salvati:
-   * si dice, e il modulo si ricalcola da solo sulla scheda rinfrescata —
-   * riprovando parte solo ciò che manca ancora.
+   * si dice, e «Salva» resta lì per riprovare.
+   *
+   * Si parte da `daRipetere`, non da `diff` (fix round 1, Task 4): `diff` è
+   * calcolato sulla scheda con cui il dialogo è stato aperto, mai aggiornata
+   * dopo un cambio di slug (v. `rinfresca` sotto), quindi un secondo
+   * tentativo che rileggesse `diff` manderebbe di nuovo il payload
+   * dell'azienda — con lo slug VECCHIO, che risponde NOT_FOUND — e il
+   * proprietario non si potrebbe più salvare. `daRipetere` toglie ciò che
+   * `giaSalvato` dice già a terra e sposta il bersaglio sullo slug nuovo.
    */
   async function salva(password: string) {
-    const { payloadAzienda, payloadProprietario } = diff;
+    const { payloadAzienda, payloadProprietario, slug: slugDiPartenza } = daRipetere;
     if (!payloadAzienda && !payloadProprietario) {
       toast.info(TESTO_NESSUNA_MODIFICA);
       chiudiDialogo(null);
       return;
     }
+    // Vero sia quando l'azienda parte in QUESTO tentativo sia quando è già
+    // stata salvata da uno precedente: in tutti e due i casi chi legge deve
+    // sapere che quella parte è a terra, non solo quando la manda ora.
+    const aziendaCoinvolta = payloadAzienda != null || giaSalvato.azienda != null;
     setErrore(null);
-    let slugFinale = scheda.slug;
+    let slugFinale = slugDiPartenza;
     try {
       if (payloadAzienda) {
         const esito = await modifica.mutateAsync({
-          slug: scheda.slug,
+          slug: slugDiPartenza,
           ...payloadAzienda,
           passwordConferma: password,
         });
@@ -280,12 +319,14 @@ export default function ModificaAziendaDialog({
           return;
         }
         slugFinale = esito.slug;
+        setGiaSalvato(precedente => ({ ...precedente, azienda: { slug: slugFinale } }));
         rinfresca(slugFinale);
       }
 
       let invito: EsitoInvito | null = null;
       if (payloadProprietario) {
-        // Lo slug nuovo, se è cambiato: il vecchio non esiste più.
+        // Lo slug nuovo, se l'azienda è già stata salvata (ora o in un
+        // tentativo precedente): il vecchio non esiste più.
         const esito = await modificaProprietario.mutateAsync({
           slug: slugFinale,
           ...payloadProprietario,
@@ -296,21 +337,18 @@ export default function ModificaAziendaDialog({
           const messaggio =
             erroreDelComando(esito.comando.esito) ?? "Il comando non è andato a buon fine.";
           setErrore(
-            payloadAzienda
-              ? `${TESTO_AZIENDA_SALVATA_PROPRIETARIO_NO} ${messaggio}`
-              : messaggio
+            aziendaCoinvolta ? `${TESTO_AZIENDA_SALVATA_PROPRIETARIO_NO} ${messaggio}` : messaggio
           );
           // Lo slug è già cambiato: chiudendo si va comunque alla scheda
           // nuova, l'unica che risponde ancora.
           if (slugFinale !== scheda.slug) setSlugDaAprire(slugFinale);
           return;
         }
+        setGiaSalvato(precedente => ({ ...precedente, proprietario: true }));
         invito = esito.invito;
       }
 
-      toast.success(
-        payloadAzienda ? "Modifiche salvate" : "Dati del proprietario aggiornati"
-      );
+      toast.success(aziendaCoinvolta ? "Modifiche salvate" : "Dati del proprietario aggiornati");
       const destinazione = slugFinale === scheda.slug ? null : slugFinale;
       if (invito) {
         setEsitoInvito(invito);
@@ -427,7 +465,7 @@ export default function ModificaAziendaDialog({
                       className="min-h-11 w-full whitespace-normal"
                     >
                       {ETICHETTA_PANNELLO[chiave]}
-                      {diff.sezioni.includes(ETICHETTA_PANNELLO[chiave]) ? (
+                      {daRipetere.sezioni.includes(ETICHETTA_PANNELLO[chiave]) ? (
                         <>
                           <span
                             className="size-1.5 shrink-0 rounded-full bg-brand"
@@ -651,7 +689,7 @@ export default function ModificaAziendaDialog({
                 </ul>
               ) : (
                 <p className="min-w-0 text-sm leading-5 text-text-2">
-                  {riepilogoModifiche(diff.sezioni)}
+                  {riepilogoModifiche(daRipetere.sezioni)}
                 </p>
               )}
 
@@ -691,7 +729,7 @@ export default function ModificaAziendaDialog({
           }
         }}
         titolo="Salva le modifiche"
-        descrizione={riepilogoModifiche(diff.sezioni)}
+        descrizione={riepilogoModifiche(daRipetere.sezioni)}
         etichettaConferma="Salva"
         pending={inAttesa}
         errore={errore}

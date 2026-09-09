@@ -16,6 +16,7 @@ import {
   CAMPI_FATTURAZIONE,
   emailPlausibile,
   erroreFatturazione,
+  erroreLunghezzaCampo,
   type CampoFatturazione,
 } from "./testi";
 
@@ -204,6 +205,13 @@ export function diffModifica(
  * le stesse regole di forma degli schemi zod del comando: dirle mentre si
  * scrive costa una funzione, scoprirle dopo il viaggio costa un `ZodError`
  * che non nomina nemmeno il campo.
+ *
+ * Nit della revisione (fix round 1, Task 4): mancavano i tetti di lunghezza
+ * dello stesso schema — solo la forma (vuoto, email, slug) era controllata
+ * qui, la lunghezza no. `erroreLunghezzaCampo` (testi.ts) porta gli stessi
+ * `.max()` di `schemaPayloadModificaTenant`/`schemaPayloadModificaProprietario`
+ * (server/tenants/comandi.ts): `indirizzoLegale` li aveva già, attraverso
+ * `erroreFatturazione`, e resta lì invariato.
  */
 export function erroriModulo(
   scheda: SchedaModificabile,
@@ -212,6 +220,8 @@ export function erroriModulo(
   const errori: string[] = [];
 
   if (valori.nome.trim() === "") errori.push("La ragione sociale non può restare vuota.");
+  const erroreNome = erroreLunghezzaCampo("nome", valori.nome);
+  if (erroreNome) errori.push(erroreNome);
 
   const slug = valori.slug.trim();
   if (scheda.id !== TENANT_PIATTAFORMA_ID && slug !== scheda.slug && !slugValido(slug)) {
@@ -220,13 +230,18 @@ export function erroriModulo(
     );
   }
 
+  const erroreNote = erroreLunghezzaCampo("note", valori.note);
+  if (erroreNote) errori.push(erroreNote);
+
   for (const { campo, etichetta } of CAMPI_FATTURAZIONE) {
     const errore = erroreFatturazione(campo, valori.fatturazione[campo]);
     if (errore) errori.push(`${etichetta}: ${errore}`);
   }
 
-  if (scheda.sedePredefinita && valori.sedeNome.trim() === "") {
-    errori.push("Il nome della sede non può restare vuoto.");
+  if (scheda.sedePredefinita) {
+    if (valori.sedeNome.trim() === "") errori.push("Il nome della sede non può restare vuoto.");
+    const erroreSedeNome = erroreLunghezzaCampo("sedeNome", valori.sedeNome);
+    if (erroreSedeNome) errori.push(erroreSedeNome);
   }
 
   const proprietario = valori.proprietario;
@@ -234,10 +249,78 @@ export function erroriModulo(
     if (proprietario.nome.trim() === "" || proprietario.cognome.trim() === "") {
       errori.push("Nome e cognome del proprietario non possono restare vuoti.");
     }
+    const erroreNomeProp = erroreLunghezzaCampo("propNome", proprietario.nome);
+    if (erroreNomeProp) errori.push(erroreNomeProp);
+    const erroreCognomeProp = erroreLunghezzaCampo("propCognome", proprietario.cognome);
+    if (erroreCognomeProp) errori.push(erroreCognomeProp);
     if (!emailPlausibile(proprietario.email)) {
       errori.push("L'email del proprietario non ha la forma di un indirizzo.");
     }
+    const erroreTelefonoProp = erroreLunghezzaCampo("propTelefono", proprietario.telefono);
+    if (erroreTelefonoProp) errori.push(erroreTelefonoProp);
   }
 
   return errori;
+}
+
+// ── Fix round 1 (Task 4): un secondo tentativo dopo il fallimento composto ──
+
+/**
+ * Cosa risulta già salvato da un tentativo precedente, dentro la STESSA
+ * apertura del dialogo. `azienda` porta lo slug su cui si trova adesso
+ * l'azienda (quello nuovo, se `nuovoSlug` era nel payload): serve perché,
+ * dopo un cambio di slug, `ModificaAziendaDialog#rinfresca` non ricarica la
+ * `scheda` finché il dialogo resta aperto — altrimenti la query del vecchio
+ * slug risponderebbe NOT_FOUND e il dialogo (con dentro l'eventuale link
+ * dell'invito riemesso) sparirebbe con lo stato d'errore di `AziendaDetail`.
+ */
+export type EsitoParziale = {
+  azienda: { slug: string } | null;
+  proprietario: boolean;
+};
+
+export type DaRipetere = {
+  payloadAzienda: PayloadModifica | null;
+  payloadProprietario: PayloadProprietario | null;
+  /** Lo slug su cui mandare i comandi: quello nuovo se l'azienda è già salvata, altrimenti quello con cui il dialogo è stato aperto. */
+  slug: string;
+  /**
+   * Le sezioni ANCORA da salvare, per il riepilogo sopra la password: una
+   * volta a terra spariscono di qui anche se `diff` (calcolato sulla scheda
+   * vecchia, per il motivo sopra) le vede ancora come cambiate.
+   */
+  sezioni: string[];
+};
+
+const SEZIONI_AZIENDA: readonly string[] = [SEZIONE.azienda, SEZIONE.fatturazione, SEZIONE.sede];
+
+/**
+ * Cosa manda DAVVERO un tentativo, dato ciò che uno precedente ha già
+ * salvato. Nasce da un bug preciso della revisione: `diff` si calcola
+ * sempre sulla `scheda` con cui il dialogo è stato aperto (di proposito non
+ * si ricarica dopo un cambio di slug, v. sopra), quindi se lo slug cambia e
+ * poi `modificaProprietario` fallisce, un secondo tentativo che si limitasse
+ * a rileggere `diff` manderebbe di nuovo il payload dell'azienda — con lo
+ * slug VECCHIO, che dopo il cambio risponde NOT_FOUND — e il proprietario
+ * non si potrebbe più salvare in nessun modo. Questa funzione toglie dal
+ * payload ciò che `fatto` dice già andato a buon fine e sposta il bersaglio
+ * sullo slug nuovo, cosicché il secondo comando parta da solo, sul tenant
+ * giusto.
+ */
+export function payloadDaRipetere(
+  diff: DiffModifica,
+  slugApertura: string,
+  fatto: EsitoParziale
+): DaRipetere {
+  const sezioni = diff.sezioni.filter(sezione => {
+    if (fatto.azienda && SEZIONI_AZIENDA.includes(sezione)) return false;
+    if (fatto.proprietario && sezione === SEZIONE.proprietario) return false;
+    return true;
+  });
+  return {
+    payloadAzienda: fatto.azienda ? null : diff.payloadAzienda,
+    payloadProprietario: fatto.proprietario ? null : diff.payloadProprietario,
+    slug: fatto.azienda?.slug ?? slugApertura,
+    sezioni,
+  };
 }

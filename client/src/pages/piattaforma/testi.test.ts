@@ -13,6 +13,7 @@ import {
   emailPlausibile,
   erroreDelComando,
   erroreFatturazione,
+  erroreLunghezzaCampo,
   esitoCreazione,
   etichettaBlocco,
   etichettaComando,
@@ -410,6 +411,38 @@ describe("erroreFatturazione", () => {
 
     expect(erroreFatturazione("codiceSdi", "ABC1234")).toBeNull();
     expect(erroreFatturazione("codiceSdi", "ABC123")).toContain("sette");
+  });
+});
+
+// Nit della revisione (fix round 1, Task 4): `erroreFatturazione` sopra
+// aveva già i tetti del server, gli altri campi di «Modifica azienda» no.
+describe("erroreLunghezzaCampo", () => {
+  it("tace sul vuoto: nessun tetto vieta di svuotare un campo facoltativo", () => {
+    expect(erroreLunghezzaCampo("nome", "")).toBeNull();
+    expect(erroreLunghezzaCampo("note", "   ")).toBeNull();
+    expect(erroreLunghezzaCampo("propTelefono", "")).toBeNull();
+  });
+
+  it("rifiuta oltre lo stesso tetto di schemaPayloadModificaTenant (server/tenants/comandi.ts)", () => {
+    expect(erroreLunghezzaCampo("nome", "a".repeat(120))).toBeNull();
+    expect(erroreLunghezzaCampo("nome", "a".repeat(121))).toContain("120");
+
+    expect(erroreLunghezzaCampo("sedeNome", "a".repeat(120))).toBeNull();
+    expect(erroreLunghezzaCampo("sedeNome", "a".repeat(121))).toContain("120");
+
+    expect(erroreLunghezzaCampo("note", "a".repeat(2000))).toBeNull();
+    expect(erroreLunghezzaCampo("note", "a".repeat(2001))).toContain("2000");
+  });
+
+  it("rifiuta oltre lo stesso tetto di schemaPayloadModificaProprietario", () => {
+    expect(erroreLunghezzaCampo("propNome", "a".repeat(80))).toBeNull();
+    expect(erroreLunghezzaCampo("propNome", "a".repeat(81))).toContain("80");
+
+    expect(erroreLunghezzaCampo("propCognome", "a".repeat(80))).toBeNull();
+    expect(erroreLunghezzaCampo("propCognome", "a".repeat(81))).toContain("80");
+
+    expect(erroreLunghezzaCampo("propTelefono", "0".repeat(40))).toBeNull();
+    expect(erroreLunghezzaCampo("propTelefono", "0".repeat(41))).toContain("40");
   });
 });
 

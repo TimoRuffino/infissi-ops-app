@@ -414,6 +414,42 @@ export function erroreFatturazione(campo: CampoFatturazione, valore: string): st
 }
 
 /**
+ * I tetti di lunghezza degli altri campi di «Modifica azienda» (nit della
+ * revisione di Task 4): stessa idea di `erroreFatturazione`, stessa fonte di
+ * verità — i `.max()` di `schemaPayloadModificaTenant` e
+ * `schemaPayloadModificaProprietario` (server/tenants/comandi.ts) — ma senza
+ * una `CampoFatturazione` in comune, perché questi campi vivono su rami
+ * diversi di `ValoriModifica` (azienda, sede, proprietario). Vuoto non è mai
+ * troppo lungo: chi svuota un campo facoltativo non deve leggere un avviso
+ * di lunghezza.
+ */
+export type CampoConTettoLunghezza =
+  | "nome"
+  | "sedeNome"
+  | "note"
+  | "propNome"
+  | "propCognome"
+  | "propTelefono";
+
+export function erroreLunghezzaCampo(campo: CampoConTettoLunghezza, valore: string): string | null {
+  const testo = valore.trim();
+  switch (campo) {
+    case "nome":
+      return testo.length <= 120 ? null : "La ragione sociale non supera i 120 caratteri.";
+    case "sedeNome":
+      return testo.length <= 120 ? null : "Il nome della sede non supera i 120 caratteri.";
+    case "note":
+      return testo.length <= 2000 ? null : "Le note non superano i 2000 caratteri.";
+    case "propNome":
+      return testo.length <= 80 ? null : "Il nome del proprietario non supera gli 80 caratteri.";
+    case "propCognome":
+      return testo.length <= 80 ? null : "Il cognome del proprietario non supera gli 80 caratteri.";
+    case "propTelefono":
+      return testo.length <= 40 ? null : "Il telefono del proprietario non supera i 40 caratteri.";
+  }
+}
+
+/**
  * Cambiare lo slug non è come correggere una ragione sociale: sposta
  * l'indirizzo della scheda e cambia il `--slug=` con cui l'azienda si
  * nomina dalla riga di comando. Chi lo tocca deve saperlo prima, non
