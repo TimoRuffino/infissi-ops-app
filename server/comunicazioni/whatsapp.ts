@@ -252,15 +252,30 @@ export function appEffettiva(sedeId: number | null): {
 } {
   const a = getAppWhatsApp(sedeId);
   const p = daPiattaforma();
+  // L'override vince o perde COME UNITÀ. Le tre credenziali sono una terna:
+  // il Configuration ID è una configurazione DI quell'App ID, e l'app secret
+  // firma per quell'app. Prenderne una da una parte e due dall'altra dà una
+  // coppia che non esiste da nessuna delle due — Meta rifiuta il login, e il
+  // messaggio parla di una configurazione che nessuno ha mai scritto così.
+  //
+  // Il ripiego sulla piattaforma vale però solo se la piattaforma ha la terna
+  // intera: su un'installazione senza le variabili `WHATSAPP_*` (quella di
+  // oggi) un record per sede incompleto deve restare quello che è, com'era
+  // prima del WS5. Altrimenti la sede perderebbe le sue credenziali in cambio
+  // di niente.
+  const overrideIntero = !!(a.appId && a.configId && a.appSecretCifrato);
+  const piattaformaIntera = !!(p.appId && p.configId && p.appSecret);
+  const override = overrideIntero || !piattaformaIntera;
   return {
-    appId: a.appId || p.appId,
-    configId: a.configId || p.configId,
-    appSecretConfigurato: !!(a.appSecretCifrato || p.appSecret),
+    appId: override ? a.appId : p.appId,
+    configId: override ? a.configId : p.configId,
+    appSecretConfigurato: override ? !!a.appSecretCifrato : !!p.appSecret,
     leggiAppSecret: () => {
-      // L'override della sede vince, e va decifrato. Il segreto di
-      // piattaforma arriva già in chiaro dall'ambiente: non passa da un
-      // giro cifra-e-decifra che servirebbe solo a poter fallire.
-      if (a.appSecretCifrato) {
+      // L'override della sede va decifrato. Il segreto di piattaforma arriva
+      // già in chiaro dall'ambiente: non passa da un giro cifra-e-decifra
+      // che servirebbe solo a poter fallire.
+      if (override) {
+        if (!a.appSecretCifrato) return null;
         try {
           return decryptSecret(a.appSecretCifrato);
         } catch {
@@ -290,11 +305,22 @@ export function appPubblica(sedeId: number | null) {
     appSecretConfigurato: a.appSecretConfigurato,
     verifyToken: a.verifyToken,
     pronta: !!a.appId && !!a.configId && a.appSecretConfigurato,
-    // Vera quando l'app viene dalla piattaforma e la sede non ha un
-    // override suo. Il client la usa per non mostrare al cliente campi che
-    // non deve né vedere né compilare.
+    // Vera quando l'app in uso viene dalla piattaforma: un override
+    // incompleto non conta, perché non è quello che il collegamento userà.
+    // Il client la usa per non mostrare al cliente campi che non deve né
+    // vedere né compilare.
     diPiattaforma:
-      !propria.appId && !propria.configId && !propria.appSecretCifrato,
+      a.appId !== propria.appId ||
+      a.configId !== propria.configId ||
+      !propria.appSecretCifrato,
+    // Quel che la SEDE ha scritto di suo, per il pannello avanzato: i campi
+    // devono mostrare quello che ci è stato messo dentro, non i valori della
+    // piattaforma che li rimpiazzano. Il segreto, come sempre, non esce.
+    propri: {
+      appId: propria.appId,
+      configId: propria.configId,
+      appSecretConfigurato: !!propria.appSecretCifrato,
+    },
   };
 }
 
@@ -393,6 +419,11 @@ export function configPerVerifyToken(token: string): ConfigWhatsApp | undefined 
  */
 export function verifyTokenValido(token: string): boolean {
   if (!token) return false;
+  // Il webhook si configura una volta su Meta, a livello di APP: con l'app di
+  // piattaforma il token è uno per l'installazione e vive nell'ambiente —
+  // l'handshake può arrivare prima che esista un numero o un record per sede.
+  const diPiattaforma = process.env.WHATSAPP_VERIFY_TOKEN?.trim();
+  if (diPiattaforma && token.trim() === diPiattaforma) return true;
   // L'URL del webhook è uno per tutta l'installazione: l'handshake accetta
   // il token di qualunque sede, altrimenti la seconda sede non riuscirebbe
   // mai a validare il proprio callback.

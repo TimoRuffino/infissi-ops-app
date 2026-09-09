@@ -17,6 +17,7 @@ import {
   FIC_SCOPES_LETTURA,
   FIC_SCOPES_SCRITTURA,
   accessTokenFic,
+  assertChiaveCifratura,
   buildFicAuthUrl,
   ficGet,
   ficOAuthClientFromEnv,
@@ -94,9 +95,18 @@ export const fic: Adattatore = {
         "Client OAuth di Fatture in Cloud non configurato sulla piattaforma."
       );
     }
+    // Il token torna dal callback e si salva cifrato: senza chiave il giro
+    // finirebbe con un token che non si può conservare, dopo aver mandato il
+    // cliente da Fatture in Cloud. Si dice prima.
+    assertChiaveCifratura();
     // Sola lettura all'attivazione; la scrittura si chiede al primo bisogno,
-    // nel momento in cui il motivo è ovvio (decisione 6).
-    const scrittura = (opz as { scrittura?: boolean } | undefined)?.scrittura === true;
+    // nel momento in cui il motivo è ovvio (decisione 6). Ma chi l'ha già
+    // concessa non retrocede per un ricollegamento: senza il ripiego sulla
+    // configurazione, un token rinnovato tornava in sola lettura e la
+    // prima fattura falliva settimane dopo (regressione dell'08/09).
+    const scrittura =
+      (opz as { scrittura?: boolean } | undefined)?.scrittura ??
+      (getCfg(ctx.sedeId).scopeScrittura ?? false);
     const state = await issueFicOAuthState(
       ctx.sedeId ?? 1,
       redirectUri,

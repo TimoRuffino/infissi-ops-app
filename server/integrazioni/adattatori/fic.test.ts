@@ -27,6 +27,7 @@ beforeEach(() => {
     "https://app.wyndoor.com/api/oauth/fic/callback";
   process.env.FIC_OAUTH_CLIENT_ID = "id-di-piattaforma";
   process.env.FIC_OAUTH_CLIENT_SECRET = "segreto-di-piattaforma";
+  process.env.MAIL_ENCRYPTION_KEY = process.env.MAIL_ENCRYPTION_KEY ?? "a".repeat(64);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -150,6 +151,68 @@ describe("adattatore fic", () => {
       "stato-2",
       ficMod.FIC_SCOPES_SCRITTURA
     );
+  });
+
+  // I4 e la memoria della regressione dell'08/09: chi ha già concesso la
+  // scrittura e ricollega (per un token scaduto, per un cambio di azienda)
+  // non deve retrocedere in sola lettura senza saperlo — l'errore
+  // arriverebbe settimane dopo, alla prima fattura.
+  it("un ricollegamento non retrocede i permessi già concessi", async () => {
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({
+      ...cfgBase,
+      scopeScrittura: true,
+    } as any);
+    vi.spyOn(ficMod, "ficOAuthClientFromEnv").mockReturnValue({
+      clientId: "a",
+      clientSecret: "b",
+    });
+    vi.spyOn(ficMod, "issueFicOAuthState").mockResolvedValue("stato-3");
+    const costruisci = vi
+      .spyOn(ficMod, "buildFicAuthUrl")
+      .mockReturnValue("https://api-v2.fattureincloud.it/oauth/authorize?x=3");
+
+    await fic.avvia!(ctx);
+
+    expect(costruisci).toHaveBeenCalledWith(
+      expect.any(String),
+      "stato-3",
+      ficMod.FIC_SCOPES_SCRITTURA
+    );
+  });
+
+  it("chiedere esplicitamente la sola lettura resta possibile", async () => {
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({
+      ...cfgBase,
+      scopeScrittura: true,
+    } as any);
+    vi.spyOn(ficMod, "ficOAuthClientFromEnv").mockReturnValue({
+      clientId: "a",
+      clientSecret: "b",
+    });
+    vi.spyOn(ficMod, "issueFicOAuthState").mockResolvedValue("stato-4");
+    const costruisci = vi
+      .spyOn(ficMod, "buildFicAuthUrl")
+      .mockReturnValue("https://api-v2.fattureincloud.it/oauth/authorize?x=4");
+
+    await fic.avvia!(ctx, { scrittura: false });
+
+    expect(costruisci).toHaveBeenCalledWith(
+      expect.any(String),
+      "stato-4",
+      ficMod.FIC_SCOPES_LETTURA
+    );
+  });
+
+  // Il token si salva cifrato: senza chiave il giro OAuth finirebbe con un
+  // token che non si può conservare, dopo aver mandato il cliente da FiC.
+  it("senza chiave di cifratura non si avvia nessun giro OAuth", async () => {
+    const chiave = process.env.MAIL_ENCRYPTION_KEY;
+    delete process.env.MAIL_ENCRYPTION_KEY;
+    const emetti = vi.spyOn(ficMod, "issueFicOAuthState");
+
+    await expect(fic.avvia!(ctx)).rejects.toThrow(/MAIL_ENCRYPTION_KEY/);
+    expect(emetti).not.toHaveBeenCalled();
+    if (chiave !== undefined) process.env.MAIL_ENCRYPTION_KEY = chiave;
   });
 
   it("senza callback canonico non si avvia nessun giro OAuth", async () => {

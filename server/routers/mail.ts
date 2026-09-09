@@ -26,6 +26,7 @@ import {
   testaCasella,
 } from "../comunicazioni/imap";
 import {
+  appEffettiva,
   appPubblica,
   completaOnboarding,
   configPubblica,
@@ -734,11 +735,14 @@ export const mailRouter = router({
             if (!c!.phoneNumberId) mancanti.push("Phone number ID");
             if (!c!.wabaId) mancanti.push("WhatsApp Business Account ID");
             if (!c!.tokenCifrato) mancanti.push("token di accesso");
-            // L'app secret può essere quello del numero o quello dell'app
-            // (Embedded Signup): basta che ce ne sia uno.
+            // L'app secret può essere quello del numero, quello dell'app
+            // della sede o quello della PIATTAFORMA (Embedded Signup, WS5
+            // §4.5): basta che ce ne sia uno. Guardare solo il record per
+            // sede chiedeva di completare un dato che c'era già, e teneva
+            // spento un numero che avrebbe funzionato.
             if (
               !c!.appSecretCifrato &&
-              !getAppWhatsApp(c!.sedeId).appSecretCifrato
+              !appEffettiva(c!.sedeId).appSecretConfigurato
             ) {
               mancanti.push("app secret");
             }
