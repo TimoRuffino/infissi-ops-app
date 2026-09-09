@@ -31,7 +31,7 @@ let nS = 0;
 
 function context(tenantId: number, sedeId = SEDE, ruoli = ["direzione"], user?: any): TrpcContext {
   return {
-    user: user ?? ({ id: admin.id, loginMethod: "local", role: "admin", ruolo: ruoli[0], ruoli, name: "Admin" } as any),
+    user: user ?? ({ id: admin.id, email: admin.email, loginMethod: "local", role: "admin", ruolo: ruoli[0], ruoli, name: "Admin" } as any),
     // `get` per `baseUrlDa` (inviti, Task 7): senza APP_BASE_URL usa protocollo+host della richiesta.
     req: { protocol: "http", headers: {}, get: (_nome: string) => "app.test" } as any,
     res: {} as any,
@@ -276,5 +276,95 @@ describe("piattaformaRouter", () => {
     expect(i.link).toContain("/invito/");
     const annullato = await caller.annullaInvito({ id: i.invito.id });
     expect(annullato?.annullatoIl).not.toBeNull();
+  });
+
+  it("ripristina con scrivi: true e password corretta → comando in coda tipo ripristina_archivi", async () => {
+    const repo = getTenantRepository();
+    const rip = await caller.ripristina({ slug: "acme", backup: "2026-09-01", scrivi: true, passwordConferma: PASSWORD });
+    expect(rip.comando.stato).toBe("in_attesa");
+    expect(rip.comando.tipo).toBe("ripristina_archivi");
+    const comandi = await repo.comandiInAttesa();
+    expect(comandi).toHaveLength(1);
+    expect(comandi[0].tipo).toBe("ripristina_archivi");
+  });
+
+  it("ripristina con scrivi: true e password sbagliata → UNAUTHORIZED e nessun comando accodato", async () => {
+    const repo = getTenantRepository();
+    await expect(
+      caller.ripristina({ slug: "acme", backup: "2026-09-01", scrivi: true, passwordConferma: "sbagliata-ma-lunga" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(await repo.comandiInAttesa()).toEqual([]);
+  });
+
+  it("ripristina con scrivi: true senza passwordConferma → UNAUTHORIZED e nessun comando accodato", async () => {
+    const repo = getTenantRepository();
+    await expect(caller.ripristina({ slug: "acme", backup: "2026-09-01", scrivi: true })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    expect(await repo.comandiInAttesa()).toEqual([]);
+  });
+
+  it("proprietario con azione revoca rifiutato se unico proprietario → errore nel comando", async () => {
+    const repo = getTenantRepository();
+    const p = await caller.proprietario({ slug: "acme", email: "mario@acme.test", azione: "revoca", passwordConferma: PASSWORD });
+    expect(p.comando.stato).toBe("errore");
+    expect(p.comando.esito?.errore).toBeTruthy();
+    expect(String(p.comando.esito?.errore)).toContain("proprietario");
+  });
+
+  it("slug sconosciuto su mutation sospendi → NOT_FOUND «Risorsa non trovata.»", async () => {
+    await expect(
+      caller.sospendi({ slug: "nessuna", motivo: "prova prova", passwordConferma: PASSWORD })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Risorsa non trovata.",
+    });
+  });
+
+  it("slug sconosciuto su mutation riattiva → NOT_FOUND «Risorsa non trovata.»", async () => {
+    await expect(
+      caller.riattiva({ slug: "nessuna", motivo: "prova prova", passwordConferma: PASSWORD })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Risorsa non trovata.",
+    });
+  });
+
+  it("slug sconosciuto su mutation proprietario → NOT_FOUND «Risorsa non trovata.»", async () => {
+    await expect(
+      caller.proprietario({ slug: "nessuna", email: "test@test.test", azione: "assegna", passwordConferma: PASSWORD })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Risorsa non trovata.",
+    });
+  });
+
+  it("slug sconosciuto su mutation ricalcolaStorage → NOT_FOUND «Risorsa non trovata.»", async () => {
+    await expect(caller.ricalcolaStorage({ slug: "nessuna" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Risorsa non trovata.",
+    });
+  });
+
+  it("slug sconosciuto su mutation ripristina → NOT_FOUND «Risorsa non trovata.»", async () => {
+    await expect(caller.ripristina({ slug: "nessuna", backup: "2026-09-01", scrivi: false })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Risorsa non trovata.",
+    });
+  });
+
+  it("annullaInvito registra evento invito_annullato con attore piattaforma e invitoId nei dettagli", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const i = await caller.invita({ slug: "acme" });
+    const invitoId = i.invito.id;
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+
+    await caller.annullaInvito({ id: invitoId });
+    const eventi = await repo.eventi(tenantId);
+    const evento = eventi.find(e => e.tipo === "invito_annullato" && (e.dettagli as any)?.invitoId === invitoId);
+    expect(evento).toBeTruthy();
+    expect(evento?.attore).toBe(`piattaforma:${admin.email}`);
+    expect((evento?.dettagli as any).invitoId).toBe(invitoId);
   });
 });
