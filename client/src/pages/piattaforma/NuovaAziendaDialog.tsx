@@ -27,7 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { slugSuggerito } from "@/lib/piattaforma";
 import { trpc } from "@/lib/trpc";
 
-import { testoEsitoInvito } from "./testi";
+import { erroreDelComando, testoEsitoInvito } from "./testi";
 
 type Esito = {
   slug: string;
@@ -51,12 +51,6 @@ const VUOTO = {
   omaggioScadenza: "",
   password: "",
 };
-
-/** Il messaggio del comando fallito, così come lo scrive il dominio. */
-function erroreDelComando(esito: Record<string, unknown> | null): string | undefined {
-  const errore = esito?.errore;
-  return typeof errore === "string" && errore.length > 0 ? errore : undefined;
-}
 
 function Campo({
   id,
