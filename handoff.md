@@ -8,6 +8,31 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 09/09/2026 (notte) — hotfix della cornice: lo scorrimento
+> automatico non sposta più il CRM.** Il WS5 descritto qui sotto è nel
+> frattempo su `main` (PR #10, merge `d896101`, in produzione dalle 20:22).
+> Il percorso guidato delle integrazioni e la scheda «Abbonamento»
+> portavano un pannello in vista con `scrollIntoView`, che scorre TUTTI gli
+> antenati, finestra compresa: nel regime desktop (≥ 1200 px) il documento
+> non dovrebbe scorrere mai — html e body hanno `overflow: hidden` — ma le
+> etichette `sr-only` e gli input nascosti di Radix, posizionati in assoluto
+> senza un blocco contenitore, lo allungavano; la cornice intera saliva di
+> 88 px (margine più barra di contesto) e la rotella non la riportava giù.
+> Tre correzioni, tutte in `client/`: il `main` di `ShellWorkspace` è
+> `relative` (contiene quegli elementi), la navigazione è alta `h-full`
+> invece di `calc(100dvh-32px)` (due pixel di sforo che facevano scorrere
+> la cornice), e `portaInCima` (`client/src/lib/scorrimento.ts`) scorre solo
+> il primo antenato che scorre davvero, mai la finestra; `portaA` non apre
+> più i `<details>` dei pannelli (erano il token d'emergenza di FiC e le
+> credenziali avanzate di WhatsApp: rumore, non il modulo del
+> collegamento). Guardia strutturale:
+> `client/src/components/layout/cornice.confine.test.ts`. Nota fuori dal
+> codice: nell'app Meta di Wyndoor `https://app.wyndoor.com/` va sia nei
+> «Domini consentiti per l'SDK JavaScript» sia negli «URI di
+> reindirizzamento OAuth validi» (Accesso di Facebook per le aziende →
+> Impostazioni), altrimenti l'Embedded Signup risponde «Dominio dell'host
+> JSSDK sconosciuto».
+
 > **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
 > self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
 > fuso in `main` (PR #9, merge `cff8ef0`): a questo punto il **WS5 è

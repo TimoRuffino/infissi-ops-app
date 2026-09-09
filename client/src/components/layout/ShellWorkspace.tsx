@@ -41,9 +41,17 @@ export default function ShellWorkspace({
           {/* Il padding verticale desktop vive nel contenuto, non nel main:
               così una toolbar `sticky top-0` aderisce al bordo reale dell'area
               scorrevole e nessuna riga resta visibile sopra di essa. */}
+          {/* `relative` non è decorativo: rende il main il blocco contenitore
+              degli elementi posizionati in assoluto che vivono nelle pagine
+              (le etichette `sr-only`, gli input nascosti di Radix). Senza,
+              il loro blocco contenitore è la finestra: un'etichetta a 2000 px
+              dentro l'area di lavoro allunga il DOCUMENTO — che nel regime
+              desktop ha overflow hidden e non dovrebbe scorrere mai — e ogni
+              `scrollIntoView` o `focus()` trascina in su l'intera cornice,
+              senza che la rotella possa riportarla giù. */}
           <main
             id="contenuto-principale"
-            className="min-h-0 min-w-0 flex-1 overflow-x-clip px-3 sm:px-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6"
+            className="relative min-h-0 min-w-0 flex-1 overflow-x-clip px-3 sm:px-5 min-[1200px]:overflow-y-auto min-[1200px]:px-6"
           >
             <div
               className={cn(

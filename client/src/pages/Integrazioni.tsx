@@ -48,6 +48,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { hasRuolo, isDirezione } from "@/lib/roles";
+import { portaInCima } from "@/lib/scorrimento";
 import { presentFicSyncStats } from "@/lib/paymentView";
 import { trpc } from "@/lib/trpc";
 import { permessoNegato } from "@/lib/trpcErrors";
@@ -163,15 +164,9 @@ export default function Integrazioni() {
     // a ogni cambio di `vedeAbbonamento` e si ferma al primo arrivo buono.
     if (giaScrollato.current || !vedeAbbonamento) return;
     giaScrollato.current = true;
-    const ridotto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const porta = () => {
       const nodo = document.getElementById(ID_SCHEDA_ABBONAMENTO);
-      const contenitore = nodo?.closest("main");
-      if (!nodo || !contenitore) return;
-      const distanza =
-        nodo.getBoundingClientRect().top - contenitore.getBoundingClientRect().top;
-      if (Math.abs(distanza) <= 4) return; // già in cima: non si tocca nulla
-      nodo.scrollIntoView({ block: "start", behavior: ridotto ? "auto" : "smooth" });
+      if (nodo) portaInCima(nodo);
     };
     porta();
     // Appena montata, la pagina può essere ancora corta — ogni pannello è in
@@ -201,17 +196,19 @@ export default function Integrazioni() {
   });
   const percorsoDaFinire = (passi.data ?? []).some(p => p.esito === "da_fare");
 
-  /** Porta il pannello di quell'integrazione sotto gli occhi, senza saltelli. */
+  /**
+   * Porta il pannello di quell'integrazione sotto gli occhi, senza saltelli.
+   * Scorre solo l'area di lavoro (`portaInCima`), mai la cornice: con
+   * `scrollIntoView` il documento — che nel regime desktop ha overflow
+   * hidden — veniva trascinato in su e la rotella non lo riportava giù.
+   * E non apre nessun `<details>`: i soli pannelli richiudibili di questa
+   * pagina sono il token manuale d'emergenza di FiC e le credenziali
+   * avanzate di WhatsApp, che non sono il modulo del collegamento;
+   * spalancarli all'arrivo era rumore, non aiuto.
+   */
   const portaA = (chiave: string) => {
     const nodo = document.getElementById(ancoraDi(chiave));
-    if (!nodo) return;
-    const ridotto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    nodo.scrollIntoView({ block: "start", behavior: ridotto ? "auto" : "smooth" });
-    // Il modulo della posta e il QR di WhatsApp vivono dentro pannelli che
-    // possono essere chiusi: aprirli è parte dell'arrivo.
-    nodo.querySelectorAll("details").forEach(d => {
-      if (d.dataset.diagnostica !== "1") d.open = true;
-    });
+    if (nodo) portaInCima(nodo);
   };
 
   // Il percorso guidato manda qui con `?scheda=<chiave>` quando il
