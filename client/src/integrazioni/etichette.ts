@@ -101,3 +101,11 @@ export function sezioneDi(chiave: string) {
 export function ancoraDi(chiave: string): string {
   return `integrazione-${chiave}`;
 }
+
+/**
+ * La sezione «Agente» nella vista essenziale: al cliente non si parla di
+ * interruttori, provider e budget — quello è il pannello tecnico della
+ * piattaforma. Gli si dice quel che gli serve sapere.
+ */
+export const DESCRIZIONE_AGENTE_ESSENZIALE =
+  "L'agente è incluso nell'abbonamento: legge le tue commesse e lavora con i permessi di chi gli parla. Non c'è niente da collegare.";

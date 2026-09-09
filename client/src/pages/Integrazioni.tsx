@@ -62,10 +62,12 @@ import TarsAgentCard from "@/components/tars/TarsAgentCard";
 import { SchedaIntegrazione } from "@/integrazioni/SchedaIntegrazione";
 import { useIntegrazioni } from "@/integrazioni/useIntegrazioni";
 import { PercorsoAttivazione } from "@/integrazioni/PercorsoAttivazione";
+import { useVistaEssenziale } from "@/integrazioni/useVistaEssenziale";
 import {
   ancoraDi,
   etichettaDi,
   sezioneDi,
+  DESCRIZIONE_AGENTE_ESSENZIALE,
   ETICHETTE,
 } from "@/integrazioni/etichette";
 import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
@@ -149,6 +151,9 @@ export default function Integrazioni() {
   // Il contratto dell'azienda lo legge chi ce l'ha in mano: la direzione e il
   // proprietario (WS1, ottavo ruolo), che non è detto abbia anche direzione.
   const vedeAbbonamento = canManage || hasRuolo(user, "proprietario");
+  // Vista essenziale (direzione, 09/09/2026): un'azienda cliente vede solo
+  // collegamento, stato e azioni; il resto è della piattaforma.
+  const essenziale = useVistaEssenziale();
   // Le notifiche degli abbonamenti linkano `/integrazioni?scheda=abbonamento`:
   // atterrare in cima a una pagina lunga e cercare la scheda a occhio non è
   // un arrivo, è un secondo compito.
@@ -384,7 +389,8 @@ export default function Integrazioni() {
           {striscia("fic", <FattureInCloudCard />)}
           {fatturazioneAttiva && <FatturazioneConfigPanel />}
           <ImportaClientiCard />
-          <ResetPattuitiCard />
+          {/* Distruttivo e legato alla semantica FiC: resta alla piattaforma. */}
+          {!essenziale && <ResetPattuitiCard />}
         </SezioneHub>
       )}
 
@@ -416,11 +422,20 @@ export default function Integrazioni() {
 
       <SezioneHub
         titolo={sezioneDi("agente").titolo}
-        descrizione={sezioneDi("agente").descrizione}
+        descrizione={
+          essenziale
+            ? DESCRIZIONE_AGENTE_ESSENZIALE
+            : sezioneDi("agente").descrizione
+        }
       >
         {/* La card è gated al suo interno su interruttori e ruolo: qui non si
-            aggiunge un secondo controllo. */}
-        {striscia("agente", <TarsAgentCard direzione={canManage} />)}
+            aggiunge un secondo controllo. Nella vista essenziale il pannello
+            tecnico (provider, modello, interruttori, diagnostica) non c'è:
+            al cliente resta la striscia, «incluso nell'abbonamento». */}
+        {striscia(
+          "agente",
+          essenziale ? null : <TarsAgentCard direzione={canManage} />
+        )}
       </SezioneHub>
 
       {canManage && (
@@ -811,6 +826,7 @@ function ResetPattuitiCard() {
 // Ogni 6h (o su richiesta) il CRM rilegge i documenti dell'anno e allinea
 // anagrafica, pattuito e pagamenti. Lo stato mostrato è quello del payload.
 function FattureInCloudCard() {
+  const essenziale = useVistaEssenziale();
   const status = trpc.fattureInCloud.status.useQuery(undefined, {
     retry: false,
     refetchInterval: query => (query.state.data?.syncInCorso ? 1_500 : 15_000),
@@ -980,24 +996,28 @@ function FattureInCloudCard() {
               {sync.isPending ? "Avvio…" : "Sincronizza ora"}
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            className="min-h-11"
-            title="Ricollega le fatture già scaricate e ricostruisce pattuito e rate, senza contattare Fatture in Cloud"
-            onClick={() => riallinea.mutate()}
-            disabled={!st.configured || riallinea.isPending || sync.isPending}
-          >
-            <Link2
-              aria-hidden="true"
-              className={
-                riallinea.isPending
-                  ? "size-3.5 motion-safe:animate-pulse"
-                  : "size-3.5"
+          {!essenziale && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11"
+              title="Ricollega le fatture già scaricate e ricostruisce pattuito e rate, senza contattare Fatture in Cloud"
+              onClick={() => riallinea.mutate()}
+              disabled={
+                !st.configured || riallinea.isPending || sync.isPending
               }
-            />
-            {riallinea.isPending ? "Riallineo…" : "Riallinea dalle fatture"}
-          </Button>
+            >
+              <Link2
+                aria-hidden="true"
+                className={
+                  riallinea.isPending
+                    ? "size-3.5 motion-safe:animate-pulse"
+                    : "size-3.5"
+                }
+              />
+              {riallinea.isPending ? "Riallineo…" : "Riallinea dalle fatture"}
+            </Button>
+          )}
         </>
       }
     >
@@ -1037,7 +1057,7 @@ function FattureInCloudCard() {
           )}
         </div>
 
-        {lastStats.length > 0 && (
+        {!essenziale && lastStats.length > 0 && (
           <div
             className="flex flex-wrap gap-1.5"
             aria-label="Esito ultimo sync FiC"
@@ -1158,7 +1178,7 @@ function FattureInCloudCard() {
           </div>
         )}
 
-        {!st.oauthClientReady && (
+        {!essenziale && !st.oauthClientReady && (
           <p className="text-xs text-text-2">
             Imposta <code>FIC_OAUTH_CLIENT_ID</code>,{" "}
             <code>FIC_OAUTH_CLIENT_SECRET</code> e la callback{" "}
@@ -1168,8 +1188,12 @@ function FattureInCloudCard() {
         )}
 
         {/* Il token non viene mai riletto: il campo è in scrittura, e il
-            server restituisce al massimo un mascheramento come segnaposto. */}
-        <details className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2">
+            server restituisce al massimo un mascheramento come segnaposto.
+            Percorso d'emergenza: della piattaforma, non del cliente. */}
+        <details
+          className="rounded-[var(--radius-control)] border border-border-soft bg-surface-2 px-3 py-2"
+          hidden={essenziale}
+        >
           <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-text-1">
             <KeyRound className="size-3.5 text-text-3" aria-hidden="true" />
             Token manuale di emergenza
@@ -1211,6 +1235,7 @@ function FattureInCloudCard() {
 // Pannello di installazione (non per sede): stato del backup delle 00:00,
 // esecuzione manuale, cartella di destinazione e istruzioni di collegamento.
 function BackupDrive() {
+  const essenziale = useVistaEssenziale();
   const status = trpc.backup.status.useQuery(undefined, {
     refetchInterval: 30000,
     retry: false,
@@ -1416,7 +1441,7 @@ function BackupDrive() {
           </div>
         )}
 
-        {s.mode === "service_account" && (
+        {!essenziale && s.mode === "service_account" && (
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[260px] flex-1 space-y-1">
               <Label htmlFor="backup-folder" className="text-xs">
@@ -1447,7 +1472,7 @@ function BackupDrive() {
           </div>
         )}
 
-        {!s.driveConfigurato && !s.oauthClientReady && (
+        {!essenziale && !s.driveConfigurato && !s.oauthClientReady && (
           <div className="rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft px-3 py-2.5">
             <p className="mb-1 text-xs font-semibold text-text-1">
               Per collegare Google Drive (account Google normale, una sola
@@ -1742,6 +1767,7 @@ function GoogleCalendarImport() {
 
 // ── Feed iCal sottoscrivibili (export CRM → Google) ──────────────────────────
 function GoogleCalendarSync() {
+  const essenziale = useVistaEssenziale();
   const feeds = trpc.calendarSync.feeds.useQuery(undefined, { retry: false });
   const utils = trpc.useUtils();
   const rotate = trpc.calendarSync.rotateToken.useMutation({
@@ -1873,23 +1899,29 @@ function GoogleCalendarSync() {
           </ul>
         )}
 
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-border-soft pt-3">
-          <p className="max-w-md text-[11px] text-text-2">
-            I link contengono un token segreto della sede. Rigenerandolo{" "}
-            <strong>tutte le iscrizioni esistenti smettono di funzionare</strong>{" "}
-            e vanno rifatte a mano su ogni calendario Google.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="min-h-11"
-            onClick={() => setConfermaRotazione(true)}
-            disabled={rotate.isPending}
-          >
-            <RefreshCw className="size-3.5" aria-hidden="true" />
-            Rigenera token
-          </Button>
-        </div>
+        {/* La rotazione del token è rara e distruttiva per le iscrizioni:
+            nella vista essenziale non si offre, la fa la piattaforma. */}
+        {!essenziale && (
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-border-soft pt-3">
+            <p className="max-w-md text-[11px] text-text-2">
+              I link contengono un token segreto della sede. Rigenerandolo{" "}
+              <strong>
+                tutte le iscrizioni esistenti smettono di funzionare
+              </strong>{" "}
+              e vanno rifatte a mano su ogni calendario Google.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              onClick={() => setConfermaRotazione(true)}
+              disabled={rotate.isPending}
+            >
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Rigenera token
+            </Button>
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
