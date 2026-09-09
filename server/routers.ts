@@ -50,6 +50,7 @@ import { fatturazioneGuidataRouter } from "./routers/fatturazioneGuidata";
 import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
 import { tenantsRouter } from "./tenants/router";
+import { invitiRouter } from "./piattaforma/invitiRouter";
 import { apriSessioneLocale, clearLocalSessionFromRequest } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
@@ -148,6 +149,7 @@ export const appRouter = router({
   conoscenza: conoscenzaRouter,
   platform: platformRouter,
   tenants: tenantsRouter,
+  inviti: invitiRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,

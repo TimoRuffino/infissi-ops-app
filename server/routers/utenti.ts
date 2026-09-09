@@ -39,7 +39,11 @@ type Ruolo = (typeof RUOLI)[number];
 const MAX_RUOLI = 3;
 
 const ruoliSchema = z.array(z.enum(RUOLI)).min(1).max(MAX_RUOLI);
-const passwordSchema = z
+// Esportato (WS6 §6.2, Ruling pre-2): il router pubblico degli inviti
+// (server/piattaforma/invitiRouter.ts) lo riusa per la password
+// dell'accettazione — stesso testo d'errore del resto del prodotto, mai
+// duplicato.
+export const passwordSchema = z
   .string()
   .min(12, "La password deve avere almeno 12 caratteri")
   .max(256, "La password è troppo lunga");
