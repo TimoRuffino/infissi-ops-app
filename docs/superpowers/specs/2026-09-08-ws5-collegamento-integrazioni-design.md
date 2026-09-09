@@ -2,6 +2,23 @@
 
 **Data:** 08/09/2026 · **Stato:** design approvato in chat a sezioni dalla direzione (quattro scelte + quattro sezioni); nessuna implementazione autorizzata da questa spec · **Spec madre:** `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md` (§3.3, §9, §16.4, §17 punto 5) · **Precedenti:** WS1 `2026-09-06-ws1-fondazione-tenant-design.md` e WS2 `2026-09-07-ws2-porta-aperta-design.md` (su `main` dall'08/09/2026), WS3 `2026-09-08-ws3-file-integrazioni-design.md` e WS4 `2026-09-08-ws4-abbonamenti-design.md` (implementati, non su `main`) · **Base:** `feature/ws4-abbonamenti` (contiene WS3).
 
+> **Stato al 09/09/2026 (sera):** i 13 task del piano sono stati eseguiti
+> inline, senza revisione per task, su `feature/ws5-collegamento-integrazioni`
+> (un altro worktree, base WS4 a metà `873b6c6`, poi fuso con il WS4 vero,
+> `e38874c`). Quel branch è stato fuso in `feature/ws5-integrazioni-su-main`
+> (nato da `main` @ `cff8ef0` — WS1, WS2, WS3, WS4 e **WS6 già tutti su
+> `main`**, `FLAG_MULTI_AZIENDA` acceso dalle 09:54 — merge `c139b83`), poi
+> revisionato come branch intero (2 Critical, 11 Important) e corretto in
+> un'unica fix wave (8 commit, `2901017`…`0d6d70d`): i ruling **W2-W5** in
+> §2-bis vengono da quella revisione. Il registro (`server/integrazioni/registro.ts`)
+> conta **cinque** adattatori, non sei — `fic`, `email`, `whatsapp`, `backup`,
+> `agente`: `calendario` resta un tipo nel contratto (§3.2), la fase 4 (§11)
+> non è partita e il `CHECK` di `oauth_state` non porta ancora `'gcal'` (§7.1).
+> `pnpm check`/`test`/`build` verdi (351 file / 3759 test), `pg.test` 14
+> file / 71 test su `perf-pg-test`. **Non su `main`, non in produzione.**
+> Runbook: `docs/runbooks/multi-azienda.md`, sezione «WS5 — collegamento
+> delle integrazioni in self-service»; PRD §60.14.
+
 > Riferimenti di riga sul codice **post-WS3** (`feature/ws4-abbonamenti`).
 > Dove WS3 non ha toccato il file, valgono anche su `main`.
 
@@ -94,6 +111,37 @@ lettera del brief:
 - **Una prova viva andata bene non cancella il problema che lo stato
   conosce**: «scegli un'azienda» e «la piattaforma non è configurata»
   parlano d'altro e restano veri anche mentre il fornitore risponde.
+
+**Ancora aperti.** I minori che il ruling W5 ha rimandato ai documenti (non
+bloccano l'uso, nessuno è un guasto silenzioso: sono descritti qui perché
+`docs/runbooks/multi-azienda.md` li riprende come debito dichiarato):
+
+- **Soggetto FiC con l'id, non il nome.** `fic.stato()` (`server/integrazioni/adattatori/fic.ts`)
+  mostra «Azienda `<companyId>`»: il nome vero arriva solo al completamento
+  dell'OAuth (`/user/companies`) e oggi non si salva da nessuna parte. Meno
+  leggibile della promessa del contratto (§3.2: «uno stato che non nomina la
+  cosa collegata non è uno stato»), ma non ambiguo — l'id basta a distinguere.
+- **`agente.verifica()` non interroga il provider.** Controlla solo che
+  `OPENAI_API_KEY` sia valorizzata, non che OpenAI risponda davvero: un
+  provider giù con la chiave presente non verrebbe segnalato.
+- **I ripieghi `?? 1`** in `dellaSede` (`email.ts`), `numeroDellaSede`
+  (`whatsapp.ts`) e nell'`avvia` di `fic.ts` ripetono il letterale `1` invece
+  di richiamare `DEFAULT_SEDE_ID` (già usato da `getAppWhatsApp` in
+  `server/comunicazioni/whatsapp.ts`): stesso comportamento oggi, tre punti
+  da tenere allineati a mano se la sede predefinita cambiasse.
+- **Il ramo service-account del Drive** (`driveBackup.ts`, scope `drive`
+  pieno, §6) resta: `driveBackup.ts` è zona vietata salvo il minimo di §6 (il
+  redirect nello `state`), e la rimozione va concordata con chi tiene WS3
+  prima di aprire la verifica Google (fase 0) — uno scope «restricted»
+  dichiarato in quella richiesta farebbe scattare la fascia più costosa.
+- **`getCfg` scrive da una query.** `fic.stato()` è sola lettura per
+  contratto (§3.2, «nessuna chiamata di rete»: sulla scrittura nel proprio
+  JSONB il contratto tace) ma chiama `getCfg(sedeId)`
+  (`server/routers/fattureInCloud.ts`), che crea e salva una riga di
+  configurazione vuota se la sede non ne ha ancora una: la prima apertura
+  delle Impostazioni per una sede nuova scrive nello store. Esiste già
+  `ficConfigDiSede` — sola lettura, usata da `server/tars/analisi/guasti.ts`
+  — che non lo fa; l'adattatore non la usa ancora.
 
 ## 3. Il contratto
 

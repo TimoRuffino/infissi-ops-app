@@ -118,6 +118,27 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - La posta della piattaforma (`server/_core/postaPiattaforma.ts`) non lancia
   mai e non logga indirizzi, oggetti o corpi: senza `RESEND_API_KEY` il
   pannello mostra il link da copiare invece di mandare l'email.
+- Il collegamento delle integrazioni (`server/integrazioni/`) **avvolge** i
+  router esistenti (FiC, backup, posta, WhatsApp): ogni adattatore dichiara
+  lo stesso `permesso` che il suo router applica già, mai una guardia unica
+  appiattita (guardia `server/integrazioni/guardie.test.ts`).
+- `stato()` di un adattatore è sola lettura e **non chiama mai il
+  fornitore**: regge sei volte il caricamento della pagina Impostazioni.
+  `verifica()` è l'unica prova viva, su richiesta, in cache 60 s per
+  azienda+chiave+sede (`server/integrazioni/cache.ts`): un errore non entra
+  in cache.
+- Il callback OAuth di piattaforma (FiC, Drive) non si ricava **mai**
+  dall'header `Host` (guardia strutturale
+  `server/integrazioni/guardie.test.ts`): senza `FIC_OAUTH_REDIRECT_URI` /
+  `GOOGLE_OAUTH_REDIRECT_URI` non si offre «Collega». Il redirect del Drive
+  viaggia nel payload dello `state` (`oauth_state`), come già FiC; l'host
+  resta ripiego solo per gli `state` del pannello backup legacy che non lo
+  portano.
+- Le credenziali dell'app WhatsApp (`WHATSAPP_APP_ID`/`WHATSAPP_CONFIG_ID`/
+  `WHATSAPP_APP_SECRET`) sono di piattaforma: il record per sede resta un
+  override, ma vince solo se è la terna intera — un override a metà non
+  eredita i pezzi mancanti dalla piattaforma (`appEffettiva`,
+  `server/comunicazioni/whatsapp.ts`).
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.
@@ -158,6 +179,10 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   `/api/oauth/gdrive/callback`.
 - I segreti cifrati dipendono da `MAIL_ENCRYPTION_KEY`.
 - Non loggare access token, refresh token, password o payload cliente completi.
+- Le credenziali OAuth (FiC, Drive) e l'app Meta di WhatsApp sono **di
+  piattaforma**: non si spostano per tenant, l'account che autorizza è del
+  cliente. Il callback OAuth non si ricava mai dall'header `Host` (v.
+  «Invarianti»).
 
 ## Agente AI
 

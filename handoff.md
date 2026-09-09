@@ -8,6 +8,91 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
+> self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
+> fuso in `main` (PR #9, merge `cff8ef0`): a questo punto il **WS5 è
+> l'unico workstream rimasto fuori da `main`**. I 13 task del piano
+> (`docs/superpowers/plans/2026-09-08-ws5-collegamento-integrazioni.md`)
+> sono stati eseguiti inline, senza revisione per task, su un altro
+> worktree (`feature/ws5-collegamento-integrazioni`, base il WS4 a metà
+> `873b6c6` poi fuso col WS4 vero, `e38874c`); quel branch è stato fuso in
+> `feature/ws5-integrazioni-su-main` (nato da `main` @ `cff8ef0`, merge
+> `c139b83`), poi sottoposto a **una revisione dell'intero branch** (2
+> Critical, 11 Important) e a **un'unica fix wave** (8 commit,
+> `2901017`…`0d6d70d`). **Nessun push, nessun merge su `main` da qui, PR
+> ancora da aprire**: il merge è una decisione della direzione.
+> **Che cosa cambia.** Sei integrazioni — Fatture in Cloud, posta, WhatsApp,
+> calendario, backup su Drive, agente — rispondono ora alle stesse tre
+> domande con le stesse parole: a cosa sono collegata, come mi collego, cosa
+> si è rotto e cosa devo fare (`server/integrazioni/contratto.ts`). Il
+> registro (`server/integrazioni/registro.ts`) conta **cinque** adattatori,
+> non sei: `calendario` resta un tipo senza implementazione (fase 4, OAuth
+> Google in entrata, non partita — dipende dalla verifica Google e da
+> `'gcal'` nel `CHECK` di `oauth_state`, oggi ancora `('fic','gdrive')`).
+> Ogni adattatore **avvolge** il router che esisteva già, senza riscriverlo,
+> e dichiara lo stesso permesso che quel router applica già; `stato()` non
+> chiama mai il fornitore (la pagina Impostazioni lo invoca sei volte a ogni
+> caricamento), `verifica()` è l'unica prova viva, su richiesta, in cache
+> 60 s per azienda. **Le credenziali diventano di piattaforma**: FiC e
+> Google lo erano già come client OAuth, e WhatsApp li raggiunge —
+> `WHATSAPP_APP_ID`/`WHATSAPP_CONFIG_ID`/`WHATSAPP_APP_SECRET` di
+> piattaforma, con l'override per sede che vince solo come **terna intera**
+> (altrimenti un record incompleto perderebbe le sue credenziali in cambio
+> di niente). Il modulo manuale di WhatsApp non sparisce: resta sempre
+> dentro un `<details>` «Diagnostica», anche con l'app di piattaforma
+> pronta. Il **percorso di attivazione guidato** è ora raggiungibile: dopo
+> l'invito (WS6) il proprietario atterra da solo su
+> `/integrazioni?attivazione=1`, con «Salta» sempre disponibile su ogni
+> passo e un richiamo in cima alle Impostazioni finché resta un passo da
+> fare.
+> **La revisione e la fix wave.** 2 Critical: **C1**, la cache di
+> `verifica()` aveva una chiave senza l'azienda — gli adattatori ad ambito
+> azienda (`backup`, `agente`) finivano in una voce sola per tutta
+> l'installazione, e l'esito della prova di un cliente veniva servito a un
+> altro; corretto includendo `tenantId` nella chiave. **C2**, il redirect
+> OAuth del backup Drive veniva ricostruito in due modi diversi nello stesso
+> giro (uno per l'avvio, dall'header `Host` per lo scambio del codice): un
+> `redirect_uri_mismatch` di Google. Corretto facendo viaggiare il redirect
+> canonico nel payload dello `state` (`oauth_state`), come già fa Fatture in
+> Cloud — con una precisazione della fix wave: lo `state` è monouso e si
+> consuma dentro lo scambio, quindi la rilettura vive lì e non nella rotta
+> Express, che resta col ripiego sull'host per il solo pannello backup
+> legacy. 11 Important, fra cui: il callback che non offre «Collega» senza
+> la variabile di piattaforma invece di fallire a metà giro (dichiara il
+> guasto con `azione: "assistenza"`); un'integrazione rotta non fa più
+> sparire le altre cinque dall'elenco (`Promise.allSettled`); un adattatore
+> su una sede di un'altra azienda dà `NOT_FOUND` (nuova guardia più test
+> cross-tenant); il ricollegamento OAuth di FiC non retrocede più chi aveva
+> già la scrittura. Cinque minori restano rimandati ai documenti: il
+> soggetto di Fatture in Cloud mostra l'id e non il nome dell'azienda,
+> `agente.verifica()` controlla solo che la chiave OpenAI sia presente senza
+> interrogare il provider, tre ripieghi `?? 1` invece di `DEFAULT_SEDE_ID`,
+> il ramo service-account del Drive (debito preesistente), e `getCfg` che
+> scrive una riga nuova quando la chiama uno `stato()` nominalmente di sola
+> lettura.
+> **Verificato (dopo la fix wave):** `npx vitest run shared/brand.test.ts`
+> (4/4), `pnpm check` pulito, `pnpm test` (suite intera, senza
+> `DATABASE_URL`) 351 file passati + 15 saltati (366), 3759 test passati +
+> 86 saltati (3845), zero falliti, `pnpm build` riuscito (client e server);
+> `DATABASE_URL=… npx vitest run pg.test --no-file-parallelism` contro
+> `perf-pg-test`: 14 file passati, 71 test passati, zero falliti. Interfaccia
+> a 1440×900 e 390×844 verificata dalla fix wave montando la pagina
+> Impostazioni vera con un link tRPC finto (screenshot in
+> `.superpowers/sdd/2026-09-08-ws5-collegamento-integrazioni/fix-wave-screens/`).
+> **Non verificato:** `/integrazioni` con una sessione autenticata vera —
+> stesso limite di WS4 e WS6: il pannello Browser di queste sessioni non ha
+> un cookie di sviluppo — nessun giro OAuth reale (Fatture in Cloud,
+> Google), nessun Embedded Signup con l'app di piattaforma, nulla
+> distribuito su Railway con le variabili nuove. **Restano fuori dal
+> perimetro** (spec §1): il **calendario in entrata** (fase 4) e il
+> **calendario in scrittura** (fase 5, spec propria), la richiesta di app
+> pubblica a Fatture in Cloud (resta dietro la whitelist privata, fino a 20
+> email), e la semplificazione di `mittenteWebhookWhatsApp`
+> (`server/_core/rotteAnonime.ts`, debito su un file di WS3). PRD §60.14
+> (v5.88); runbook `docs/runbooks/multi-azienda.md`, sezione «WS5 —
+> collegamento delle integrazioni in self-service». Voce 21 del debito
+> estesa.
+
 > **Novità 09/09/2026 — WS6 «pannello piattaforma»: su branch.** Lo stesso
 > giorno in cui WS3 e WS4 sono andati su `main` (PR #8, merge `37c1889`) e
 > `FLAG_MULTI_AZIENDA` è stato acceso in produzione (09:54, Europe/Rome),
@@ -5079,10 +5164,11 @@ a vuoto e dice «57 saltati»).
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
-21. **SaaS multi-azienda (06/09/2026): design approvato; WS1, WS2, WS3 e
-    WS4 su `main` e in produzione dal 09/09/2026 (`FLAG_MULTI_AZIENDA`
-    acceso dalle 09:54), WS6 «pannello piattaforma» implementato sul branch
-    lo stesso giorno.**
+21. **SaaS multi-azienda (06/09/2026): design approvato; WS1, WS2, WS3, WS4
+    e WS6 su `main` e in produzione dal 09/09/2026 (`FLAG_MULTI_AZIENDA`
+    acceso dalle 09:54; WS6 fuso più tardi lo stesso giorno, PR #9), WS5
+    «collegamento delle integrazioni in self-service» implementato sul
+    branch, non ancora su `main`.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -5331,6 +5417,49 @@ a vuoto e dice «57 saltati»).
     file); interfaccia verificata a 1440 e 390 con un link tRPC finto, non
     con una sessione vera (v. la novità in cima a questo documento per i
     numeri e per che cosa resta). **PR verso `main` ancora da aprire.**
+
+    **09/09/2026, sera: WS6 fuso in `main` (PR #9, merge `cff8ef0`).** Da
+    qui in poi il pannello piattaforma è codice distribuito, non solo di
+    branch: la sua sezione nel runbook e la novità in cima a questo
+    documento descrivono `main`.
+
+    **09/09/2026, sera: WS5 «collegamento delle integrazioni in
+    self-service» codificato, revisionato e corretto; PR da aprire.** I 13
+    task del piano (`docs/superpowers/plans/2026-09-08-ws5-collegamento-integrazioni.md`)
+    sono stati eseguiti inline, senza revisione per task, su un altro
+    worktree (`feature/ws5-collegamento-integrazioni`); quel branch è stato
+    fuso in `feature/ws5-integrazioni-su-main` (nato da `main` @ `cff8ef0` —
+    quindi da un `main` che contiene già WS1-WS4 **e WS6**: il WS5 resta
+    l'unico workstream fuori — merge `c139b83`), poi sottoposto a una
+    revisione dell'intero branch (2 Critical, 11 Important) e a un'unica fix
+    wave (8 commit, `2901017`…`0d6d70d`). Cornice unica per sei
+    integrazioni, cinque adattatori attivi (Fatture in Cloud, posta,
+    WhatsApp, backup, agente: `calendario` resta un tipo senza adattatore,
+    fase 4 non partita) che avvolgono i router esistenti senza riscriverli;
+    credenziali OAuth e app Meta **di piattaforma**, con l'override per sede
+    di WhatsApp come via di fuga (vince solo come terna intera); percorso di
+    attivazione guidato raggiungibile dopo l'invito (WS6), «Salta» sempre
+    disponibile. Il Critical più delicato: la cache di `verifica()` non
+    portava l'azienda nella chiave, e l'esito della prova di un cliente
+    finiva servito a un altro (C1); il secondo, il redirect OAuth del
+    backup Drive ricostruito in due modi diversi nello stesso giro,
+    corretto facendo viaggiare il redirect canonico nello `state` come già
+    fa Fatture in Cloud (C2). Restano fuori dal perimetro (spec §1): il
+    calendario in entrata (fase 4) e in scrittura (fase 5, spec propria), la
+    richiesta di app pubblica a Fatture in Cloud, e la semplificazione di
+    `mittenteWebhookWhatsApp` (debito su un file di WS3). Cinque minori
+    rimandati ai documenti: il soggetto di Fatture in Cloud mostra l'id e
+    non il nome, `agente.verifica()` non interroga davvero OpenAI, tre
+    ripieghi `?? 1`, il ramo service-account del Drive, `getCfg` che scrive
+    da una query nominalmente di sola lettura. Le decisioni d'esecuzione
+    nella spec §2-bis; PRD §60.14 (v5.88); runbook
+    `docs/runbooks/multi-azienda.md`, sezione «WS5 — collegamento delle
+    integrazioni in self-service». `pnpm check`/`test`/`build` verdi (351
+    file / 3759 test), test su Postgres vero (71 casi su 14 file);
+    interfaccia verificata a 1440 e 390 con un link tRPC finto (fix wave),
+    non con una sessione vera — stesso limite di WS4 e WS6 (v. la novità in
+    cima a questo documento per i numeri e per che cosa resta). **PR verso
+    `main` ancora da aprire.**
 22. **Pagina Tars riscritta come coda di decisioni (08/09/2026)**: su
     `main` (PRD §62). Le proposte si leggono come azioni — il testo lo
     prepara `client/src/lib/tarsDecisioniView.ts`, puro e con 22 test — e
