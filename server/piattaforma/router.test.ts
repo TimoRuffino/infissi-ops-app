@@ -305,10 +305,12 @@ describe("piattaformaRouter", () => {
     expect(inviato.inviato).toBe(true);
     expect(inviato.link).toBeUndefined();
     expect(inviato).not.toHaveProperty("link");
+    expect(inviato.baseUrl).toBe("http://app.test"); // I5: senza APP_BASE_URL, l'host della richiesta
 
     __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
     const aMano = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
     expect(aMano.link).toContain("/invito/");
+    expect(aMano.baseUrl).toBe("http://app.test");
   });
 
   it("ripristina con scrivi: true e password corretta → comando in coda tipo ripristina_archivi", async () => {

@@ -1200,7 +1200,7 @@ anche:
 | `PLATFORM_ADMIN_EMAILS` | *(nessuno)* | Email separate da virgola: senza questa variabile **nessuno** vede il pannello, indipendentemente da ruolo o capability — è l'unica porta. |
 | `RESEND_API_KEY` | *(nessuno)* | Chiave del provider Resend per la posta transazionale della piattaforma. Senza, `inviaPosta` torna sempre `{ inviato: false }` e il pannello mostra il link da copiare: nessun invito si perde, nessuno riceve un'email. |
 | `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <noreply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
-| `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. |
+| `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. Se manca, al boot compare `[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta`; il pannello mostra comunque, sotto il link da copiare, la riga «Link su &lt;base&gt;» con l'indirizzo davvero usato. |
 
 Nessuna delle quattro tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
 dall'identità, come detto sopra.

@@ -36,7 +36,12 @@ type Esito = {
   stato: string;
   nota?: string;
   errore?: string;
-  invito: { inviato: boolean; email?: string | null; link?: string | null } | null;
+  invito: {
+    inviato: boolean;
+    email?: string | null;
+    link?: string | null;
+    baseUrl?: string | null;
+  } | null;
 };
 
 const VUOTO = {
@@ -119,6 +124,7 @@ export default function NuovaAziendaDialog({
               inviato: risultato.invito.inviato,
               email: risultato.invito.invito.email,
               link: risultato.invito.link,
+              baseUrl: risultato.invito.baseUrl,
             }
           : null,
       });
@@ -257,6 +263,11 @@ export default function NuovaAziendaDialog({
             <div className="min-w-0 space-y-2">
               {risultato.descrizione ? (
                 <p className="text-sm leading-5 text-text-2">{risultato.descrizione}</p>
+              ) : null}
+              {risultato.base ? (
+                <p className="truncate text-xs leading-4 text-text-3">
+                  Link su {risultato.base}
+                </p>
               ) : null}
               {risultato.link ? (
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row">

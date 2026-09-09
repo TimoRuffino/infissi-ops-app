@@ -6,7 +6,7 @@
 // chiamante — e registra invito_inviato SENZA il token. `accettaInvito`
 // consuma il token (monouso), imposta password+attivo e registra
 // invito_accettato. Setup come server/tenants/servizio.test.ts.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashPassword, verifyPassword } from "../_core/password";
 import { __impostaPostaPerTest } from "../_core/postaPiattaforma";
 import { getSediStore } from "../routers/sedi";
@@ -16,7 +16,7 @@ import { conTenant } from "../tenants/contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import { crea } from "../tenants/servizio";
 import { MESSAGGI_PIATTAFORMA } from "./costanti";
-import { accettaInvito, anteprimaInvito, invitaProprietario } from "./inviti";
+import { accettaInvito, anteprimaInvito, avvisaBaseUrlMancante, invitaProprietario } from "./inviti";
 
 const sedi = getSediStore();
 const utenti = getUtentiStore();
@@ -66,6 +66,9 @@ describe("invitaProprietario", () => {
     });
     expect(esito.inviato).toBe(true);
     expect(esito.link).toMatch(/^https:\/\/crm\.test\/invito\/[A-Za-z0-9_-]{40,}$/);
+    // I5: la base torna al chiamante, così il pannello può dire su quale
+    // indirizzo è composto il link che sta mostrando.
+    expect(esito.baseUrl).toBe("https://crm.test");
     expect(inviati[0].a).toBe("mario@acme.test");
     expect(inviati[0].testo).toContain(esito.link);
     const eventi = await getTenantRepository().eventi(tenant.id);
@@ -198,5 +201,43 @@ describe("anteprimaInvito e accettaInvito", () => {
     await expect(accettaInvito({ token: "z".repeat(43), password: "Password-nuova-12", adesso: T0 })).rejects.toThrow(
       MESSAGGI_PIATTAFORMA.invitoNonValido
     );
+  });
+});
+
+// I5 (revisione finale): senza APP_BASE_URL il link d'invito nasce dall'Host
+// della richiesta — di solito giusto, ma dietro un proxy o su un dominio
+// vecchio manda il proprietario su un indirizzo che non è quello buono, e
+// nessuno se ne accorge finché non arriva la segnalazione.
+describe("avvisaBaseUrlMancante", () => {
+  const precedente = process.env.APP_BASE_URL;
+
+  afterEach(() => {
+    if (precedente === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = precedente;
+  });
+
+  it("senza APP_BASE_URL: un avviso solo, che nomina la variabile", () => {
+    delete process.env.APP_BASE_URL;
+    const spia = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(avvisaBaseUrlMancante()).toBe(true);
+      expect(spia).toHaveBeenCalledTimes(1);
+      expect(String(spia.mock.calls[0]?.[0])).toBe(
+        "[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta"
+      );
+    } finally {
+      spia.mockRestore();
+    }
+  });
+
+  it("con APP_BASE_URL: nessun avviso", () => {
+    process.env.APP_BASE_URL = "https://app.wyndoor.com";
+    const spia = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(avvisaBaseUrlMancante()).toBe(false);
+      expect(spia).not.toHaveBeenCalled();
+    } finally {
+      spia.mockRestore();
+    }
   });
 });

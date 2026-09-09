@@ -36,6 +36,22 @@ export function baseUrlDa(req: { protocol: string; get(nome: string): string | u
 }
 
 /**
+ * Un avviso solo, al boot (I5 della revisione finale). Senza `APP_BASE_URL`
+ * il link d'invito nasce dall'Host della richiesta: di solito è l'indirizzo
+ * giusto, ma dietro un proxy, su un dominio vecchio o su un'anteprima manda
+ * il proprietario dove non deve — e non se ne accorge nessuno finché non
+ * arriva la segnalazione. Restituisce `true` se ha avvisato, così il test
+ * non deve leggere il log per sapere che cosa è successo.
+ */
+export function avvisaBaseUrlMancante(): boolean {
+  if (process.env[VARIABILE_BASE_URL]?.trim()) return false;
+  console.warn(
+    `[piattaforma] ${VARIABILE_BASE_URL} non impostata: i link d'invito useranno l'host della richiesta`
+  );
+  return true;
+}
+
+/**
  * L'utente da invitare, dentro conTenant: per id se dato, altrimenti per
  * email se data, altrimenti l'unico utente con ruolo proprietario — con più
  * di un proprietario e nessuna scelta esplicita, l'ambiguità va a chi ha
@@ -62,7 +78,14 @@ export async function invitaProprietario(input: {
   attore: Attore;
   adesso: Date;
   baseUrl: string;
-}): Promise<{ invito: TenantInvito; link: string; inviato: boolean; motivo?: string }> {
+}): Promise<{
+  invito: TenantInvito;
+  link: string;
+  inviato: boolean;
+  motivo?: string;
+  /** La base da cui è composto il link (I5): il pannello la mostra accanto al link. */
+  baseUrl: string;
+}> {
   const repo = getTenantRepository();
   const tenant = repo.perId(input.tenantId);
   if (!tenant) throw new Error("Azienda inesistente");
@@ -100,7 +123,13 @@ export async function invitaProprietario(input: {
       ...(posta.inviato ? {} : { motivo: posta.motivo }),
     },
   });
-  return { invito, link, inviato: posta.inviato, ...(posta.inviato ? {} : { motivo: posta.motivo }) };
+  return {
+    invito,
+    link,
+    baseUrl: input.baseUrl,
+    inviato: posta.inviato,
+    ...(posta.inviato ? {} : { motivo: posta.motivo }),
+  };
 }
 
 /** Legge l'invito valido senza consumarlo: la pagina pubblica lo chiama per mostrare azienda, nome ed email prima della password. */

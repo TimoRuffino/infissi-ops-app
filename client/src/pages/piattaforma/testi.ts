@@ -148,8 +148,20 @@ export function esitoCreazione(dati: {
   stato: string;
   errore?: string;
   nota?: string;
-  invito: { inviato: boolean; email?: string | null; link?: string | null } | null;
-}): { titolo: string; descrizione: string; mostraScheda: boolean; link?: string } {
+  invito: {
+    inviato: boolean;
+    email?: string | null;
+    link?: string | null;
+    baseUrl?: string | null;
+  } | null;
+}): {
+  titolo: string;
+  descrizione: string;
+  mostraScheda: boolean;
+  link?: string;
+  /** L'indirizzo da cui nasce il link (I5): si mostra solo insieme al link. */
+  base?: string;
+} {
   if (dati.stato !== "eseguito") {
     return {
       titolo: "Creazione non riuscita",
@@ -168,6 +180,7 @@ export function esitoCreazione(dati: {
       // Dopo R9 il server manda il `link` SOLO quando la posta non è
       // partita: qui basta guardare se c'è, senza dedurlo da `inviato`.
       link: dati.invito.link ?? undefined,
+      base: dati.invito.link ? dati.invito.baseUrl ?? undefined : undefined,
     };
   }
   return { titolo: "Azienda creata", descrizione: "", mostraScheda: true };

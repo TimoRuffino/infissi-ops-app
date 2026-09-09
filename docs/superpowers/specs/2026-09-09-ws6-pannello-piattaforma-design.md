@@ -482,6 +482,9 @@ export function anteprimaInvito(input: { token: string; adesso: Date }): Promise
   `${req.protocol}://${req.get("host")}` (lo stesso ripiego di
   `fattureInCloud.ts` per il redirect OAuth). In produzione va impostata
   (`https://crm-ruffinogroup.up.railway.app` finché il dominio non cambia).
+  Se manca, `avvisaBaseUrlMancante()` scrive UN avviso al boot (I5) e
+  `invitaProprietario` restituisce `baseUrl` insieme al link, così il
+  pannello dice sotto al link su quale indirizzo è nato.
 
 ### 6.2 Router pubblico `inviti` (`server/piattaforma/invitiRouter.ts`, montato come `inviti`)
 

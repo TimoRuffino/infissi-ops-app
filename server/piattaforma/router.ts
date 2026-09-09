@@ -86,6 +86,8 @@ const passwordInutilizzabile = () => hashPassword(randomBytes(32).toString("base
 type EsitoInvitoPubblico = {
   invito: Awaited<ReturnType<typeof invitaProprietario>>["invito"];
   inviato: boolean;
+  /** La base da cui è composto il link (I5): il pannello la mostra sotto al link. */
+  baseUrl: string;
   motivo?: string;
   link?: string;
 };

@@ -136,18 +136,32 @@ describe("esitoCreazione", () => {
     });
   });
 
-  it("azienda creata ma la posta non è configurata: c'è il link da copiare", () => {
+  it("azienda creata ma la posta non è configurata: c'è il link da copiare, con la base su cui è nato", () => {
     expect(
       esitoCreazione({
         stato: "eseguito",
-        invito: { inviato: false, link: "https://app.wyndoor.com/invito/abc" },
+        invito: {
+          inviato: false,
+          link: "https://app.wyndoor.com/invito/abc",
+          baseUrl: "https://app.wyndoor.com",
+        },
       })
     ).toEqual({
       titolo: "Azienda creata",
       descrizione: TESTO_POSTA_NON_CONFIGURATA,
       mostraScheda: true,
       link: "https://app.wyndoor.com/invito/abc",
+      base: "https://app.wyndoor.com",
     });
+  });
+
+  it("I5: senza `baseUrl` il link c'è lo stesso, la riga «Link su …» no", () => {
+    const esito = esitoCreazione({
+      stato: "eseguito",
+      invito: { inviato: false, link: "https://app.wyndoor.com/invito/abc" },
+    });
+    expect(esito.link).toBe("https://app.wyndoor.com/invito/abc");
+    expect(esito.base).toBeUndefined();
   });
 
   it("R9: se la posta è partita il server non manda il link e qui non c'è niente da copiare", () => {

@@ -248,6 +248,11 @@ export default function SezioneProprietari({
               <X className="size-4" aria-hidden="true" />
             </Button>
           </div>
+          {esitoInvito.link && esitoInvito.baseUrl ? (
+            <p className="truncate text-xs leading-4 text-text-3">
+              Link su {esitoInvito.baseUrl}
+            </p>
+          ) : null}
           {esitoInvito.link ? (
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Input
