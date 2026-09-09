@@ -5,6 +5,7 @@
 // Meta e approvazione esplicita.
 
 import { trpc } from "@/lib/trpc";
+import { useVistaEssenziale } from "@/integrazioni/useVistaEssenziale";
 import { permessoNegato } from "@/lib/trpcErrors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,9 @@ export default function WhatsAppCard() {
   // dell'app Meta della piattaforma: li vede solo chi la gestisce. A
   // un'azienda cliente resta «Collega col QR» (direzione, 09/09/2026).
   const piattaforma = app.data?.piattaforma === true;
+  // Vista essenziale (tutte le integrazioni, 09/09/2026): contatori del
+  // webhook, registro della prova e recupero dei media sono della piattaforma.
+  const essenziale = useVistaEssenziale();
 
   const [aperto, setAperto] = useState(false);
   const [daEliminare, setDaEliminare] = useState<any>(null);
@@ -790,7 +794,7 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
-              {c.attiva && (
+              {!essenziale && c.attiva && (
                 <div className="flex flex-wrap items-start justify-between gap-2 rounded-md border bg-muted/35 p-2.5 text-xs">
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">Media arretrati</p>
@@ -815,7 +819,7 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
-              {c.attiva && (
+              {!essenziale && c.attiva && (
                 <div className="grid gap-2 rounded-md border bg-muted/35 p-2.5 text-xs sm:grid-cols-2">
                   <div className="flex min-w-0 items-start gap-2">
                     <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -851,7 +855,7 @@ export default function WhatsAppCard() {
               {/* Esito della prova: cosa Meta ci ha risposto, chiamata per
                   chiamata. Serve a vedere quale permesso è stato esercitato
                   davvero mentre i contatori della App Review si muovono. */}
-              {esitoProva && (
+              {!essenziale && esitoProva && (
                 <div className="rounded-md border bg-muted/40 p-2 space-y-1.5">
                   {esitoProva.account && (
                     <p className="text-xs font-medium">

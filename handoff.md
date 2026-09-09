@@ -42,6 +42,27 @@
 > stato, «Collega col QR» e le istruzioni per il popup. In più il
 > `?scheda=` fa un secondo passaggio a 1,2 s: i pannelli sopra si
 > accorciavano dopo il primo scorrimento e la striscia arrivava tagliata.
+> **Terza tornata — «lascia l'indispensabile», per tutte le integrazioni.**
+> La direzione, davanti alla scheda dell'azienda pilota: «una scheda così
+> piena di roba confonde e basta». Nasce la **vista essenziale**
+> (`client/src/integrazioni/useVistaEssenziale.ts`, helper puro
+> `vistaEssenziale` in `client/src/lib/piattaforma.ts`): decide l'azienda
+> della sessione (`tenants.mio.id`), mai la persona; a risposta assente
+> nasconde. Cosa vede un'azienda cliente: Posta = caselle, Aggiungi, Prova,
+> acceso/spento, elimina, storico (sparisce l'avviso su
+> `MAIL_ENCRYPTION_KEY`, sostituito da «scrivi all'assistenza»); WhatsApp =
+> stato, «Collega col QR», istruzioni del popup, numeri con Prova e
+> acceso/spento, avanzamento (spariscono contatori del webhook, registro
+> della prova, media arretrati); FiC = Collega/Ricollega, Scegli azienda,
+> Scollega, sincronizzazione, stato, permessi di scrittura (spariscono
+> token manuale, avviso sulle variabili, contatori, «Riallinea dalle
+> fatture»); Calendari = iCal e feed (sparisce «Rigenera token»); Backup =
+> Collega, stato, Esegui ora, esito (spariscono ID cartella e istruzioni
+> Cloud Console); Agente = la striscia «incluso nell'abbonamento» con una
+> descrizione piana (sparisce il pannello tecnico); sparisce «Reset
+> pattuiti». Invariati: Abbonamento, Fatturazione, Importa clienti, tariffe
+> dei limiti, sezione Direzione. Ruffino Group (tenant 1) vede tutto come
+> prima. Regola in `CLAUDE.md` («Integrazioni»).
 
 > **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
 > self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
