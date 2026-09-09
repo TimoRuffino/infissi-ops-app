@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { assicuraInterruttore, type Interruttore } from "../platform/interruttori";
+import { MESSAGGI_PIATTAFORMA } from "../piattaforma/costanti";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
 import { motivoRifiutoTenant } from "../tenants/regole";
@@ -94,3 +95,31 @@ const requireAdmin = t.middleware(async opts => {
 });
 
 export const adminProcedure = publicProcedure.use(requireAdmin).use(guardiaTenant);
+
+// WS6 §3.1: chi amministra la piattaforma (server/piattaforma/accesso.ts).
+// Autenticato, ma SENZA guardiaTenant — l'amministratore agisce SU
+// un'altra azienda, non dentro la propria, e deve poter riattivare anche il
+// tenant 1 sospeso. Conseguenza per chi costruisce un router qui sopra:
+// nessun contesto tenant implicito, ogni lettura di uno store per tenant va
+// avvolta in `conTenant(tenantId, …)` esplicito.
+//
+// Import dinamico invece che in cima al file: `accesso.ts` importa
+// `routers/utenti.ts`, che importa questo stesso modulo per `adminProcedure`
+// e `protectedProcedure` — un import statico qui riaprirebbe il ciclo
+// trpc.ts → accesso.ts → routers/utenti.ts → trpc.ts e farebbe crashare al
+// semplice import qualunque entry point che carichi un router prima di
+// questo file.
+const requirePiattaforma = t.middleware(async ({ ctx, next }) => {
+  if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  const { utenteAmministratore } = await import("../piattaforma/accesso");
+  const record = utenteAmministratore(ctx.user as any);
+  if (!record) throw new TRPCError({ code: "FORBIDDEN", message: MESSAGGI_PIATTAFORMA.nonAmministratore });
+  return next({
+    ctx: {
+      ...ctx,
+      user: ctx.user,
+      amministratore: { id: Number(record.id), email: String(record.email).toLowerCase() },
+    },
+  });
+});
+export const piattaformaProcedure = publicProcedure.use(requirePiattaforma);

@@ -1,7 +1,8 @@
 import { SignJWT, jwtVerify } from "jose";
 import { parse as parseCookieHeader } from "cookie";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
 
 // ── Local auth for development/demo (no external OAuth required) ────────────
 
@@ -137,4 +138,50 @@ export function clearLocalSessionFromRequest(req: Request) {
   if (!cookieHeader) return;
   const token = parseCookieHeader(cookieHeader)[COOKIE_NAME];
   if (token) sessions.delete(token);
+}
+
+/**
+ * Il `LocalUser` per `utente` (record dello store, con `ruoli`/`ruolo` e i
+ * timestamp). Estratto da `auth.login` (WS6 §3.1) perché il pannello
+ * piattaforma apre sessioni locali anche per gli inviti accettati, con la
+ * stessa forma esatta di utente che il login produce oggi.
+ */
+export function localUserDa(utente: any): LocalUser {
+  const ruoli: string[] =
+    Array.isArray(utente.ruoli) && utente.ruoli.length > 0
+      ? utente.ruoli
+      : [utente.ruolo ?? "direzione"];
+  const primaryRuolo = ruoli[0];
+  return {
+    id: utente.id,
+    openId: `local-${utente.id}`,
+    name: `${utente.cognome} ${utente.nome}`.trim(),
+    email: utente.email,
+    loginMethod: "local",
+    role: ruoli.includes("direzione") ? "admin" : "user",
+    ruolo: primaryRuolo,
+    ruoli,
+    createdAt: utente.createdAt,
+    updatedAt: utente.updatedAt,
+    lastSignedIn: new Date(),
+  };
+}
+
+/**
+ * Apre una sessione locale per `utente`: firma il JWT e imposta il cookie di
+ * sessione con la stessa durata del login (7 giorni). Riusabile da
+ * `auth.login` e da ogni punto che oggi fa accedere un utente locale senza
+ * passare da email+password (WS6: invito accettato).
+ */
+export async function apriSessioneLocale(
+  ctx: { req: Request; res: Response },
+  utente: any
+): Promise<LocalUser> {
+  const localUser = localUserDa(utente);
+  const token = await createLocalToken(localUser);
+  ctx.res.cookie(COOKIE_NAME, token, {
+    ...getSessionCookieOptions(ctx.req),
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 giorni, come il login
+  });
+  return localUser;
 }
