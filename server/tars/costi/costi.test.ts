@@ -982,30 +982,34 @@ describe("governor — classi di costo (T9)", () => {
 // azienda in QUESTO mese — senza passare da una prenotazione: la stessa
 // somma di `prenota`, in sola lettura e senza lock.
 
+// Fixture condivisa dai due describe seguenti (consumoAziendaMese e
+// consumoAziendeMese, WS6): `ledger` è la `let` di modulo riassegnata dal
+// `beforeEach` di riga ~126 prima di ogni test, quindi `prenota` legge
+// sempre il ledger fresco del test in corso, mai uno catturato alla
+// dichiarazione.
+const NANO = 1_000_000;
+const prenota = (
+  chiamataId: string,
+  tenantId: number,
+  adesso: Date,
+  costoPrenotatoNano = NANO
+) =>
+  ledger.prenota({
+    chiamataId,
+    runId: `run-${tenantId}`,
+    tenantId,
+    sedeId: 1,
+    utenteId: 1,
+    conversazioneId: null,
+    modello: MODELLO,
+    costoPrenotatoNano,
+    limiti: { runNano: null, giornoNano: null, meseNano: null },
+    adesso,
+  });
+const settembre = new Date("2026-09-08T09:00:00.000Z");
+const ottobre = new Date("2026-10-02T09:00:00.000Z");
+
 describe("ledger — consumoAziendaMese", () => {
-  const NANO = 1_000_000;
-  const prenota = (
-    chiamataId: string,
-    tenantId: number,
-    adesso: Date,
-    costoPrenotatoNano = NANO
-  ) =>
-    ledger.prenota({
-      chiamataId,
-      runId: `run-${tenantId}`,
-      tenantId,
-      sedeId: 1,
-      utenteId: 1,
-      conversazioneId: null,
-      modello: MODELLO,
-      costoPrenotatoNano,
-      limiti: { runNano: null, giornoNano: null, meseNano: null },
-      adesso,
-    });
-
-  const settembre = new Date("2026-09-08T09:00:00.000Z");
-  const ottobre = new Date("2026-10-02T09:00:00.000Z");
-
   it("somma solo le righe di quell'azienda e di quel mese", async () => {
     await prenota("a1", 2, settembre);
     await prenota("a2", 2, settembre);
@@ -1043,29 +1047,6 @@ describe("ledger — consumoAziendaMese", () => {
 // per azienda nel ciclo (§5.1: al più cinque query in tutto per l'elenco).
 
 describe("ledger — consumoAziendeMese (WS6)", () => {
-  const NANO = 1_000_000;
-  const prenota = (
-    chiamataId: string,
-    tenantId: number,
-    adesso: Date,
-    costoPrenotatoNano = NANO
-  ) =>
-    ledger.prenota({
-      chiamataId,
-      runId: `run-${tenantId}`,
-      tenantId,
-      sedeId: 1,
-      utenteId: 1,
-      conversazioneId: null,
-      modello: MODELLO,
-      costoPrenotatoNano,
-      limiti: { runNano: null, giornoNano: null, meseNano: null },
-      adesso,
-    });
-
-  const settembre = new Date("2026-09-08T09:00:00.000Z");
-  const ottobre = new Date("2026-10-02T09:00:00.000Z");
-
   it("somma il mese richiesto per ogni azienda che ha righe, ignorando gli altri mesi", async () => {
     await prenota("we1", 2, settembre);
     await prenota("we2", 2, settembre);

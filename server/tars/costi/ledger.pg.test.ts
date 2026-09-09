@@ -193,7 +193,10 @@ describe.skipIf(!conDatabase)(
       await prenota("elenco-b", TENANT_B);
 
       const tutte = await ledger.consumoAziendeMese({ adesso });
-      expect(tutte.get(1)).toBe(primaDi1 + quota);
+      // Uguaglianza larga, non stretta: il tenant 1 è condiviso, e
+      // `pgConcorrenza.test.ts` scrive righe con tenantId 1 sulla stessa
+      // tabella (stessa convenzione già in uso in questo file, v. sopra).
+      expect(tutte.get(1)).toBeGreaterThanOrEqual(primaDi1 + quota);
 
       // Stesso numero di `consumoAziendaMese`, azienda per azienda: una
       // query per l'elenco non deve raccontare una storia diversa da una

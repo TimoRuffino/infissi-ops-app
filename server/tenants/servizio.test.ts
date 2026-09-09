@@ -578,7 +578,7 @@ describe("eseguiComandoSubito", () => {
     expect(repo.perSlug("acme")?.stato).toBe("sospeso");
   });
 
-  it("se il giro lo ha già preso, aspetta e restituisce la riga chiusa", async () => {
+  it("se il giro lo ha già chiuso, restituisce la riga chiusa senza rieseguire", async () => {
     process.env.FLAG_MULTI_AZIENDA = "on";
     const repo = getTenantRepository();
     await crea(inputAcme(), script);
@@ -592,6 +592,80 @@ describe("eseguiComandoSubito", () => {
     const esito = await eseguiComandoSubito(c.id, { attesaMs: 100, passoMs: 10 });
     expect(esito.id).toBe(c.id);
     expect(["eseguito", "errore"]).toContain(esito.stato);
+  });
+
+  // Il repository in memoria non aveva un claim: `c.stato` restava
+  // "in_attesa" per tutta la durata di `esegui()`, quindi un secondo
+  // `prendiEdEsegui` (qui, l'`eseguiComandoSubito` del pannello mentre il
+  // giro dei 30 s ha già preso in carico lo stesso comando) poteva
+  // prendere e rieseguire lo stesso comando invece di aspettare (fix round
+  // 1: `inEsecuzione` in `createMemoryTenantRepository`, repository.ts).
+  it("aspetta davvero", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "on";
+    vi.useRealTimers();
+    const repo = getTenantRepository();
+    await crea(inputAcme(), script);
+    const c = await repo.accodaComando({
+      tipo: "riattiva",
+      tenantId: repo.perSlug("acme")!.id,
+      payload: { slug: "acme", motivo: "già attiva" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+
+    // Simula il giro dei 30s che ha già preso in carico il comando: lo
+    // tiene "in esecuzione" finché non si chiama `sblocca()`.
+    let sblocca!: () => void;
+    const attesa = new Promise<void>(r => (sblocca = r));
+    let contatore = 0;
+    const presa = repo.prendiEdEsegui(async () => {
+      contatore++;
+      await attesa;
+      return { ok: true };
+    });
+
+    const risultato = eseguiComandoSubito(c.id, { passoMs: 5, attesaMs: 2000 });
+
+    // Qualche giro di polling dopo, il comando è ancora in mano al claim
+    // esterno: `eseguiComandoSubito` non l'ha rieseguito né lo ha
+    // "rubato".
+    await new Promise(r => setTimeout(r, 30));
+    expect((await repo.comando(c.id))?.stato).toBe("in_attesa");
+
+    sblocca();
+    await presa;
+    const esito = await risultato;
+
+    expect(esito.stato).toBe("eseguito");
+    expect(esito.esito).toMatchObject({ ok: true });
+    expect(contatore).toBe(1);
+  });
+
+  it("allo scadere restituisce la riga ancora in attesa", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "on";
+    vi.useRealTimers();
+    const repo = getTenantRepository();
+    await crea(inputAcme(), script);
+    const c = await repo.accodaComando({
+      tipo: "riattiva",
+      tenantId: repo.perSlug("acme")!.id,
+      payload: { slug: "acme", motivo: "già attiva" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+
+    let sblocca!: () => void;
+    const attesa = new Promise<void>(r => (sblocca = r));
+    const presa = repo.prendiEdEsegui(async () => {
+      await attesa;
+      return { ok: true };
+    });
+
+    // Mai sbloccato entro `attesaMs`: il polling scade e restituisce la
+    // riga così com'è, ancora "in_attesa".
+    const esito = await eseguiComandoSubito(c.id, { passoMs: 5, attesaMs: 40 });
+    expect(esito.stato).toBe("in_attesa");
+
+    sblocca(); // pulizia: non deve restare un claim appeso al comando
+    await presa;
   });
 
   it("a interruttore spento non esegue e lo dice", async () => {

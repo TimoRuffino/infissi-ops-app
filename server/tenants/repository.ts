@@ -218,6 +218,13 @@ function createMemoryTenantRepository(): TenantRepository {
   let prossimoTenant = 1;
   let prossimoEvento = 1;
   let prossimoComando = 1;
+  // Claim in memoria dei comandi in esecuzione: su Postgres lo fa
+  // `FOR UPDATE SKIP LOCKED` dentro la transazione (il lock dura quanto
+  // `esegui()`); qui `c.stato` resta "in_attesa" per tutta la durata
+  // dell'await, quindi senza questo set due `prendiEdEsegui` concorrenti
+  // (es. il giro dei 30s ed `eseguiComandoSubito` del pannello) potrebbero
+  // prendere e rieseguire lo stesso comando.
+  const inEsecuzione = new Set<number>();
 
   // La quota vive su `tenants`, non sulla riga di `storage`: rileggerla ad
   // ogni accesso evita che `impostaQuotaStorage` e la riga storage divergano.
@@ -326,18 +333,25 @@ function createMemoryTenantRepository(): TenantRepository {
       return (ultimi != null && ultimi > 0 ? suoi.slice(0, ultimi) : suoi).map(clone);
     },
     async prendiEdEsegui(esegui, opzioni) {
-      const c = comandi.find(x => x.stato === "in_attesa" && (opzioni?.soloId == null || x.id === opzioni.soloId));
+      const c = comandi.find(
+        x => x.stato === "in_attesa" && !inEsecuzione.has(x.id) && (opzioni?.soloId == null || x.id === opzioni.soloId)
+      );
       if (!c) return "nessuno";
+      inEsecuzione.add(c.id);
       try {
-        c.esito = await esegui(clone(c));
-        c.stato = "eseguito";
-      } catch (e) {
-        c.esito = { errore: messaggioErrore(e) };
-        c.stato = "errore";
+        try {
+          c.esito = await esegui(clone(c));
+          c.stato = "eseguito";
+        } catch (e) {
+          c.esito = { errore: messaggioErrore(e) };
+          c.stato = "errore";
+        }
+        c.eseguitoAt = new Date();
+        c.payload = payloadSenzaSegreti(c.payload);
+        return c.stato;
+      } finally {
+        inEsecuzione.delete(c.id);
       }
-      c.eseguitoAt = new Date();
-      c.payload = payloadSenzaSegreti(c.payload);
-      return c.stato;
     },
     async assicuraTenantPredefinito() {
       const esistente = tenants.find(t => t.id === TENANT_PREDEFINITO_ID);
