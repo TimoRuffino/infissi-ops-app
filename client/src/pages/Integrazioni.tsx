@@ -58,6 +58,9 @@ import AbbonamentoCard, {
 import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
+import { SchedaIntegrazione } from "@/integrazioni/SchedaIntegrazione";
+import { useIntegrazioni } from "@/integrazioni/useIntegrazioni";
+import { PercorsoAttivazione } from "@/integrazioni/PercorsoAttivazione";
 import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
 import FatturazioneConfigPanel from "@/components/fattura/FatturazioneConfigPanel";
 
@@ -173,6 +176,19 @@ export default function Integrazioni() {
     const timer = window.setTimeout(porta, 600);
     return () => window.clearTimeout(timer);
   }, [schedaChiesta, vedeAbbonamento]);
+  const [, vaiA] = useLocation();
+  // La cornice unica (WS5): lo stato lo conosce il server, e ogni scheda lo
+  // racconta con le stesse parole. `stato()` non chiama nessun fornitore,
+  // quindi questo elenco non costa una chiamata esterna per pannello.
+  const { stati, avvia } = useIntegrazioni();
+  const statoDi = (chiave: string) => stati.find(s => s.chiave === chiave);
+  // Modalità attivazione: la stessa pagina, ordinata. Nessuna rotta nuova.
+  const attivazione =
+    new URLSearchParams(window.location.search).get("attivazione") === "1";
+  const collega = async (chiave: string) => {
+    const esito = await avvia.mutateAsync({ chiave: chiave as never });
+    if (esito.tipo === "url") window.location.href = esito.url;
+  };
   // Kill switch «limiti»: la UI nasconde la sezione, il server decide.
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
@@ -184,6 +200,10 @@ export default function Integrazioni() {
   const fatturazioneAttiva = Boolean(
     interruttori.data?.fatturazione && interruttori.data?.limiti
   );
+
+  if (attivazione) {
+    return <PercorsoAttivazione onFine={() => vaiA("/")} />;
+  }
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
@@ -201,9 +221,9 @@ export default function Integrazioni() {
             <span>
               Il backup su Google Drive è{" "}
               <strong className="font-semibold text-text-2">
-                unico per l&apos;installazione
+                della tua azienda
               </strong>{" "}
-              e copre i dati di tutte le sedi.
+              e copre i dati di tutte le sue sedi.
             </span>
           </>
         }
@@ -223,8 +243,32 @@ export default function Integrazioni() {
           titolo="Canali"
           descrizione="Posta e WhatsApp entrano nel CRM in sola lettura e diventano cronologia del cliente. Le credenziali si scrivono una volta e non si rileggono."
         >
-          <CaselleEmailCard />
-          <WhatsAppCard />
+          {statoDi("email") ? (
+            <SchedaIntegrazione
+              stato={statoDi("email")!}
+              titolo="Posta"
+              descrizione="Le caselle IMAP della sede: i messaggi entrano in sola lettura e diventano cronologia del cliente."
+              onCollega={() => void collega("email")}
+              onAzione={a => {
+                if (a === "ricollega") void collega("email");
+              }}
+            >
+              <CaselleEmailCard />
+            </SchedaIntegrazione>
+          ) : (
+            <CaselleEmailCard />
+          )}
+          {statoDi("whatsapp") ? (
+            <SchedaIntegrazione
+              stato={statoDi("whatsapp")!}
+              titolo="WhatsApp"
+              descrizione="Il numero dell'azienda, con contatti e conversazioni."
+            >
+              <WhatsAppCard />
+            </SchedaIntegrazione>
+          ) : (
+            <WhatsAppCard />
+          )}
         </SezioneHub>
       )}
 
@@ -233,7 +277,21 @@ export default function Integrazioni() {
           titolo="Contabilità"
           descrizione="Fatture in Cloud allinea documenti, pagamenti e anagrafica della sede. Le operazioni che scrivono si simulano prima e dichiarano cosa cambia."
         >
-          <FattureInCloudCard />
+          {statoDi("fic") ? (
+            <SchedaIntegrazione
+              stato={statoDi("fic")!}
+              titolo="Fatture in Cloud"
+              descrizione="Allinea documenti, pagamenti e anagrafica della sede."
+              onCollega={() => void collega("fic")}
+              onAzione={a => {
+                if (a === "ricollega") void collega("fic");
+              }}
+            >
+              <FattureInCloudCard />
+            </SchedaIntegrazione>
+          ) : (
+            <FattureInCloudCard />
+          )}
           {fatturazioneAttiva && <FatturazioneConfigPanel />}
           <ImportaClientiCard />
           <ResetPattuitiCard />
@@ -262,7 +320,21 @@ export default function Integrazioni() {
           titolo="Backup e storage"
           descrizione="Il salvataggio notturno dell'installazione. Finché Drive non è collegato il backup viene comunque eseguito, ma resta sul disco del server."
         >
-          <BackupDrive />
+          {statoDi("backup") ? (
+            <SchedaIntegrazione
+              stato={statoDi("backup")!}
+              titolo="Backup su Google Drive"
+              descrizione="Il salvataggio notturno della tua azienda."
+              onCollega={() => void collega("backup")}
+              onAzione={a => {
+                if (a === "ricollega") void collega("backup");
+              }}
+            >
+              <BackupDrive />
+            </SchedaIntegrazione>
+          ) : (
+            <BackupDrive />
+          )}
         </SezioneHub>
       )}
 
@@ -272,7 +344,17 @@ export default function Integrazioni() {
       >
         {/* La card è gated al suo interno su interruttori e ruolo: qui non si
             aggiunge un secondo controllo. */}
-        <TarsAgentCard direzione={canManage} />
+        {statoDi("agente") ? (
+            <SchedaIntegrazione
+              stato={statoDi("agente")!}
+              titolo="Agente"
+              descrizione="Incluso nell'abbonamento: non c'è niente da collegare."
+            >
+              <TarsAgentCard direzione={canManage} />
+            </SchedaIntegrazione>
+          ) : (
+            <TarsAgentCard direzione={canManage} />
+          )}
       </SezioneHub>
 
       {canManage && (

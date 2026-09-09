@@ -212,6 +212,67 @@ export function getAppWhatsApp(sedeId: number | null): AppWhatsApp {
   return a;
 }
 
+/**
+ * Le credenziali dell'app Meta sono della PIATTAFORMA, non del cliente
+ * (WS5, spec §4.5).
+ *
+ * Il commento sopra difendeva un'app per sede perché «obbligare due sedi a
+ * condividere app id, config id e app secret significherebbe obbligarle a
+ * condividere il portfolio». Nel modello Tech Provider non regge: l'app non
+ * possiede il portfolio, lo ONBOARDA. Una sola app fa l'Embedded Signup di
+ * quanti portfolio si vuole, e ciascuno resta del suo cliente.
+ *
+ * Il record per sede resta come OVERRIDE e vince: è la via di fuga il giorno
+ * in cui l'app di piattaforma venisse limitata da Meta.
+ */
+function daPiattaforma(): { appId: string; configId: string; appSecret: string } {
+  return {
+    appId: process.env.WHATSAPP_APP_ID?.trim() ?? "",
+    configId: process.env.WHATSAPP_CONFIG_ID?.trim() ?? "",
+    appSecret: process.env.WHATSAPP_APP_SECRET?.trim() ?? "",
+  };
+}
+
+/**
+ * L'app effettiva della sede: override dove c'è, piattaforma dove manca.
+ *
+ * Sapere SE un segreto esiste è gratis; LEGGERLO costa
+ * `MAIL_ENCRYPTION_KEY`. Tenerli separati serve perché lo stato di un
+ * collegamento non deve morire per una chiave che non c'entra: il pannello
+ * dice «pronta» anche su un'installazione dove la chiave manca, e a
+ * fallire è semmai il collegamento, con il suo messaggio.
+ */
+export function appEffettiva(sedeId: number | null): {
+  appId: string;
+  configId: string;
+  appSecretConfigurato: boolean;
+  /** Il segreto in chiaro, risolto al momento dell'uso. `null` se assente o illeggibile. */
+  leggiAppSecret: () => string | null;
+  verifyToken: string;
+} {
+  const a = getAppWhatsApp(sedeId);
+  const p = daPiattaforma();
+  return {
+    appId: a.appId || p.appId,
+    configId: a.configId || p.configId,
+    appSecretConfigurato: !!(a.appSecretCifrato || p.appSecret),
+    leggiAppSecret: () => {
+      // L'override della sede vince, e va decifrato. Il segreto di
+      // piattaforma arriva già in chiaro dall'ambiente: non passa da un
+      // giro cifra-e-decifra che servirebbe solo a poter fallire.
+      if (a.appSecretCifrato) {
+        try {
+          return decryptSecret(a.appSecretCifrato);
+        } catch {
+          return null;
+        }
+      }
+      return p.appSecret || null;
+    },
+    verifyToken: a.verifyToken,
+  };
+}
+
 /** Tutte le app configurate, per il webhook: l'endpoint è uno per tutte. */
 export function tutteLeAppWhatsApp(): AppWhatsApp[] {
   return _appStore.items;
@@ -221,13 +282,19 @@ export const saveAppWhatsApp = () => _appStore.save();
 
 /** Vista sicura: l'app secret non esce mai. */
 export function appPubblica(sedeId: number | null) {
-  const a = getAppWhatsApp(sedeId);
+  const a = appEffettiva(sedeId);
+  const propria = getAppWhatsApp(sedeId);
   return {
     appId: a.appId,
     configId: a.configId,
-    appSecretConfigurato: !!a.appSecretCifrato,
+    appSecretConfigurato: a.appSecretConfigurato,
     verifyToken: a.verifyToken,
-    pronta: !!a.appId && !!a.configId && !!a.appSecretCifrato,
+    pronta: !!a.appId && !!a.configId && a.appSecretConfigurato,
+    // Vera quando l'app viene dalla piattaforma e la sede non ha un
+    // override suo. Il client la usa per non mostrare al cliente campi che
+    // non deve né vedere né compilare.
+    diPiattaforma:
+      !propria.appId && !propria.configId && !propria.appSecretCifrato,
   };
 }
 
@@ -268,7 +335,7 @@ export function configPubblica(c: ConfigWhatsApp) {
     // L'app secret può stare sul numero (configurazione a mano) o a livello
     // di app (Embedded Signup): per la UI conta che ce ne sia uno.
     appSecretConfigurato:
-      !!appSecretCifrato || !!getAppWhatsApp(c.sedeId).appSecretCifrato,
+      !!appSecretCifrato || appEffettiva(c.sedeId).appSecretConfigurato,
   };
 }
 
@@ -277,13 +344,14 @@ export function configPubblica(c: ConfigWhatsApp) {
  * quello dell'app. Con l'Embedded Signup i numeri non ne hanno uno proprio.
  */
 export function appSecretPer(c: ConfigWhatsApp): string | null {
-  const cifrato = c.appSecretCifrato || getAppWhatsApp(c.sedeId).appSecretCifrato;
-  if (!cifrato) return null;
-  try {
-    return decryptSecret(cifrato);
-  } catch {
-    return null;
+  if (c.appSecretCifrato) {
+    try {
+      return decryptSecret(c.appSecretCifrato);
+    } catch {
+      return null;
+    }
   }
+  return appEffettiva(c.sedeId).leggiAppSecret();
 }
 
 // ── Verifica della firma ────────────────────────────────────────────────────
@@ -339,25 +407,76 @@ export function verifyTokenValido(token: string): boolean {
 // alla WABA e ci facciamo dare i numeri: la configurazione si compila da
 // sola, senza copiare id a mano.
 
+/**
+ * Gli errori di Meta in una frase che dice cosa fare.
+ *
+ * Il caso che conta di più: chi ha «già WhatsApp Business» spesso ha già
+ * provato anche un'altra piattaforma, e il suo numero è ancora registrato
+ * là. La coesistenza copre chi arriva dall'app del telefono, non chi è già
+ * sull'API altrove — e Meta lo dice in un inglese che non suggerisce
+ * nemmeno il rimedio, che è staccare il numero DALL'ALTRA parte, prima.
+ *
+ * Quel che non riconosciamo passa così com'è, ma dentro una frase: il testo
+ * originale è l'unico appiglio per l'assistenza, e cancellarlo sarebbe
+ * peggio che mostrarlo.
+ */
+export function traduciErroreMeta(grezzo: string): string {
+  const t = (grezzo ?? "").trim();
+
+  if (/already (registered|exists|in use)|already .*(WABA|Business Account)|trying to register is already/i.test(t)) {
+    return (
+      "Questo numero risulta già collegato all'API di WhatsApp su un'altra " +
+      "piattaforma. Vai dove è collegato adesso e stacca il numero da lì: " +
+      "finché resta registrato altrove, Meta non lo lascia collegare qui."
+    );
+  }
+
+  if (/not associated with a WhatsApp Business app|no WhatsApp Business app account|not a business account/i.test(t)) {
+    return (
+      "Questo numero non risulta sull'app WhatsApp Business del telefono. " +
+      "Il collegamento col QR parte da lì: se il numero è sull'app WhatsApp " +
+      "normale, va prima spostato su WhatsApp Business."
+    );
+  }
+
+  if (/two-step|2-step|PIN/i.test(t)) {
+    return (
+      "Il numero ha la verifica in due passaggi attiva e il PIN non è stato " +
+      "accettato. Disattiva temporaneamente la verifica in due passaggi " +
+      "dall'app WhatsApp Business (Impostazioni → Account) e riprova."
+    );
+  }
+
+  if (/rate limit|too many|throttl/i.test(t)) {
+    return (
+      "Meta ha rifiutato il tentativo per troppe richieste ravvicinate. " +
+      "Aspetta qualche minuto e riprova: non serve rifare niente."
+    );
+  }
+
+  return t
+    ? `WhatsApp ha rifiutato il collegamento. Meta dice: «${t}».`
+    : "WhatsApp ha rifiutato il collegamento senza spiegare il motivo. Riprova fra qualche minuto.";
+}
+
 /** code → business access token (di sistema, non scade). */
 async function scambiaCode(code: string, sedeId: number): Promise<string> {
-  const app = getAppWhatsApp(sedeId);
-  if (!app.appId || !app.appSecretCifrato) {
+  const app = appEffettiva(sedeId);
+  const segreto = app.appSecretConfigurato ? app.leggiAppSecret() : null;
+  if (!app.appId || !segreto) {
     throw new Error(
       "Configurazione dell'app Meta incompleta: servono App ID e App secret."
     );
   }
   const params = new URLSearchParams({
     client_id: app.appId,
-    client_secret: decryptSecret(app.appSecretCifrato),
+    client_secret: segreto,
     code,
   });
   const res = await fetch(`${GRAPH}/oauth/access_token?${params}`);
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || !body?.access_token) {
-    throw new Error(
-      `Scambio del codice fallito: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
   return body.access_token as string;
 }
@@ -370,9 +489,7 @@ async function sottoscriviApp(wabaId: string, token: string): Promise<void> {
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || body?.success === false) {
-    throw new Error(
-      `Sottoscrizione della WABA fallita: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
 }
 
@@ -385,9 +502,7 @@ async function numeriDellaWaba(
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      `Lettura dei numeri fallita: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
   return body?.data ?? [];
 }

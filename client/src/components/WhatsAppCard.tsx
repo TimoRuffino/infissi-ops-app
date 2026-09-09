@@ -339,16 +339,22 @@ export default function WhatsAppCard() {
                 Collega col QR
               </Button>
             )}
-            <Button
-              size="sm"
-              className="min-h-11"
-              variant={app.data?.pronta ? "outline" : "default"}
-              disabled={!chiaveOk}
-              onClick={() => setAperto(true)}
-            >
-              <Plus className="size-3.5" aria-hidden="true" />
-              A mano
-            </Button>
+            {/* Il percorso a mano sposta il numero e non conserva le
+                conversazioni: dal WS5 non e' piu' una scelta offerta accanto
+                al QR, ma diagnostica per quando il popup non e' disponibile. */}
+            {!app.data?.pronta && (
+              <Button
+                size="sm"
+                className="min-h-11"
+                variant="outline"
+                disabled={!chiaveOk}
+                onClick={() => setAperto(true)}
+                title="Configurazione manuale: sposta il numero su Meta e non conserva le conversazioni"
+              >
+                <Plus className="size-3.5" aria-hidden="true" />
+                A mano
+              </Button>
+            )}
           </>
         )
       }
@@ -392,7 +398,7 @@ export default function WhatsAppCard() {
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {chiaveOk
-                ? "Collega un numero col QR (coexistence) oppure configuralo a mano: il webhook si verifica prima ancora che il numero esista."
+                ? "Collega il numero inquadrando il QR con l'app WhatsApp Business del telefono: il numero resta dov'e', con le sue chat."
                 : "Configura prima MAIL_ENCRYPTION_KEY sul server: senza chiave il token di accesso non può essere salvato."}
             </p>
           </div>
@@ -483,18 +489,27 @@ export default function WhatsAppCard() {
           </p>
         </div>
 
-        {/* App Meta — serve per il collegamento col QR (coexistence) */}
-        <details className="rounded-lg border p-3" open={!app.data?.pronta}>
+        {/* App Meta — credenziali proprie della sede.
+            Dal WS5 l'app è della piattaforma: il cliente non apre mai
+            developers.facebook.com, e questi campi restano solo come
+            override, mostrati quando la piattaforma non provvede o quando
+            qualcuno ha già messo credenziali sue. */}
+        <details
+          className="rounded-lg border p-3"
+          open={!app.data?.pronta}
+          hidden={app.data?.pronta && app.data?.diPiattaforma}
+        >
           <summary className="text-sm font-medium cursor-pointer select-none">
-            App Meta {app.data?.pronta ? "✓" : "— da configurare"}
+            Credenziali proprie dell&apos;app (avanzate)
+            {app.data?.pronta ? " ✓" : " — da configurare"}
           </summary>
           <div className="space-y-3 mt-3">
             <p className="text-xs text-muted-foreground">
-              Serve solo per il collegamento col QR, che mantiene il numero
-              attivo sul telefono con le sue chat. Meta lo concede a chi è
-              registrato come <strong>Tech Provider</strong>: senza quello
-              status il popup non si apre, e resta la configurazione a mano
-              (che però sposta il numero e non conserva le conversazioni).
+              Normalmente non servono: l&apos;app Meta è della piattaforma e il
+              collegamento col QR funziona senza toccare niente qui. Questi
+              campi valgono solo se questa sede deve usare un&apos;app propria
+              — per esempio perché il suo numero vive in un portfolio
+              aziendale separato.
             </p>
             <div className="flex gap-2">
               <div className="space-y-1.5 flex-1">
