@@ -9,6 +9,8 @@
 //
 // Qui il ripiego non esiste: senza variabile non si offre il collegamento.
 
+import type { Problema } from "./contratto";
+
 export function callbackCanonico(nome: string): string {
   const url = process.env[nome]?.trim();
   if (!url) {
@@ -17,4 +19,41 @@ export function callbackCanonico(nome: string): string {
     );
   }
   return url;
+}
+
+export function callbackConfigurato(nome: string): boolean {
+  return !!process.env[nome]?.trim();
+}
+
+// `stato()` gira sei volte a ogni caricamento della pagina: un `console.warn`
+// per chiamata riempirebbe i log di righe identiche. Il guasto è di
+// configurazione — non cambia da solo — quindi si dice una volta per
+// processo, che è quello che serve a chi guarda il boot.
+const giaDetto = new Set<string>();
+
+/**
+ * Il guasto è nostro, non del cliente: non c'è nessun gesto che possa fare.
+ * Nome della variabile nel log, mai nella risposta; e il valore di un
+ * segreto non entra né nell'uno né nell'altra (spec §6, §9).
+ */
+export function problemaDiPiattaforma(
+  fornitore: string,
+  cosaManca: string
+): Problema {
+  if (!giaDetto.has(cosaManca)) {
+    giaDetto.add(cosaManca);
+    console.warn(
+      `[integrazioni] collegamento a ${fornitore} non offerto: manca ${cosaManca} sul server.`
+    );
+  }
+  return {
+    causa: `Il collegamento a ${fornitore} non è ancora configurato sulla piattaforma.`,
+    rimedio:
+      "Non serve nessuna azione da parte tua: scrivi a chi gestisce Wyndoor e verrà attivato.",
+    azione: "assistenza",
+  };
+}
+
+export function __svuotaAvvisiPerTest(): void {
+  giaDetto.clear();
 }

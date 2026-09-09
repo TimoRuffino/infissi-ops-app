@@ -12,7 +12,11 @@ import {
   issueOAuthState,
   oauthClientFromEnv,
 } from "../../_core/driveBackup";
-import { callbackCanonico } from "../callback";
+import {
+  callbackCanonico,
+  callbackConfigurato,
+  problemaDiPiattaforma,
+} from "../callback";
 import type { Adattatore, Avvio, Problema, Stato } from "../contratto";
 
 export const backup: Adattatore = {
@@ -22,13 +26,24 @@ export const backup: Adattatore = {
 
   async stato(): Promise<Stato> {
     const s = backupStatus();
+    // Come per Fatture in Cloud (spec §6): il callback Google è della
+    // piattaforma, e senza non si offre «Collega». Chi ha Drive già
+    // collegato non ne ha bisogno, e non se lo sente dire.
+    const piattaformaPronta =
+      callbackConfigurato("GOOGLE_OAUTH_REDIRECT_URI") && !!oauthClientFromEnv();
     return {
       chiave: "backup",
       ambito: "azienda",
       collegato: s.driveConfigurato,
       soggetto: s.oauthEmail ?? s.serviceAccountEmail ?? null,
       verificatoIl: null,
-      problema: null,
+      problema:
+        s.driveConfigurato || piattaformaPronta
+          ? null
+          : problemaDiPiattaforma(
+              "Google Drive",
+              "GOOGLE_OAUTH_REDIRECT_URI o il client OAuth Google"
+            ),
     };
   },
 

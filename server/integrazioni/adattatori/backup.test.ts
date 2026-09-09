@@ -8,10 +8,14 @@ const ctx = { user: { id: 1, role: "admin" }, sedeId: 1, tenantId: 1 } as unknow
 beforeEach(() => {
   process.env.GOOGLE_OAUTH_REDIRECT_URI =
     "https://app.wyndoor.com/api/oauth/gdrive/callback";
+  process.env.GOOGLE_OAUTH_CLIENT_ID = "id-di-piattaforma";
+  process.env.GOOGLE_OAUTH_CLIENT_SECRET = "segreto-di-piattaforma";
 });
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
+  delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+  delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 });
 
 describe("adattatore backup", () => {
@@ -37,6 +41,45 @@ describe("adattatore backup", () => {
 
     const s = await backup.stato(ctx);
     expect(s.collegato).toBe(false);
+    expect(s.problema).toBeNull();
+  });
+
+  // Spec §6 e §9, come per Fatture in Cloud: senza il callback della
+  // piattaforma il collegamento non si offre — si dichiara il guasto.
+  it("senza callback di piattaforma lo stato dichiara «assistenza» invece di invitare a collegare", async () => {
+    delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
+    vi.spyOn(drive, "backupStatus").mockReturnValue({
+      driveConfigurato: false,
+      mode: null,
+      oauthEmail: null,
+    } as any);
+
+    const s = await backup.stato(ctx);
+    expect(s.collegato).toBe(false);
+    expect(s.problema?.azione).toBe("assistenza");
+  });
+
+  it("senza client OAuth Google di piattaforma vale lo stesso: «assistenza»", async () => {
+    vi.spyOn(drive, "oauthClientFromEnv").mockReturnValue(null);
+    vi.spyOn(drive, "backupStatus").mockReturnValue({
+      driveConfigurato: false,
+      mode: null,
+      oauthEmail: null,
+    } as any);
+
+    const s = await backup.stato(ctx);
+    expect(s.problema?.azione).toBe("assistenza");
+  });
+
+  it("Drive già collegato non diventa un caso di assistenza", async () => {
+    delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
+    vi.spyOn(drive, "backupStatus").mockReturnValue({
+      driveConfigurato: true,
+      mode: "oauth",
+      oauthEmail: "titolare@example.it",
+    } as any);
+
+    const s = await backup.stato(ctx);
     expect(s.problema).toBeNull();
   });
 

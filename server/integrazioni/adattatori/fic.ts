@@ -23,7 +23,11 @@ import {
   getCfg,
   issueFicOAuthState,
 } from "../../routers/fattureInCloud";
-import { callbackCanonico } from "../callback";
+import {
+  callbackCanonico,
+  callbackConfigurato,
+  problemaDiPiattaforma,
+} from "../callback";
 import type { Adattatore, Avvio, Problema, Stato } from "../contratto";
 
 export const fic: Adattatore = {
@@ -34,8 +38,18 @@ export const fic: Adattatore = {
   async stato(ctx): Promise<Stato> {
     const cfg = getCfg(ctx.sedeId);
     const collegato = !!cfg.accessTokenCifrato;
-    const problema: Problema | null =
-      collegato && !cfg.companyId
+    // Il callback e il client OAuth sono della PIATTAFORMA (spec §6): se
+    // mancano, «Collega» manderebbe il cliente a scoprire il guasto a metà
+    // giro, con il messaggio di Fatture in Cloud invece del nostro. Vale solo
+    // per chi deve ancora collegarsi: un collegamento che già funziona non
+    // diventa un caso di assistenza perché una variabile è stata tolta.
+    const piattaformaPronta =
+      callbackConfigurato("FIC_OAUTH_REDIRECT_URI") && !!ficOAuthClientFromEnv();
+    const problema: Problema | null = !collegato
+      ? piattaformaPronta
+        ? null
+        : problemaDiPiattaforma("Fatture in Cloud", "FIC_OAUTH_REDIRECT_URI o il client OAuth")
+      : !cfg.companyId
         ? {
             causa:
               "Il tuo account Fatture in Cloud non ha ancora un'azienda collegata a questa sede.",

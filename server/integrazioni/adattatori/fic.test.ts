@@ -25,10 +25,14 @@ const cfgBase = {
 beforeEach(() => {
   process.env.FIC_OAUTH_REDIRECT_URI =
     "https://app.wyndoor.com/api/oauth/fic/callback";
+  process.env.FIC_OAUTH_CLIENT_ID = "id-di-piattaforma";
+  process.env.FIC_OAUTH_CLIENT_SECRET = "segreto-di-piattaforma";
 });
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.FIC_OAUTH_REDIRECT_URI;
+  delete process.env.FIC_OAUTH_CLIENT_ID;
+  delete process.env.FIC_OAUTH_CLIENT_SECRET;
 });
 
 describe("adattatore fic", () => {
@@ -58,6 +62,57 @@ describe("adattatore fic", () => {
 
     const s = await fic.stato(ctx);
     expect(s.collegato).toBe(false);
+    expect(s.problema).toBeNull();
+  });
+
+  // Spec §6 e §9: il callback appartiene alla piattaforma. Se manca, offrire
+  // «Collega» vorrebbe dire mandare il cliente a scoprire il guasto a metà
+  // giro, con un messaggio di Fatture in Cloud invece del nostro.
+  it("senza callback di piattaforma lo stato dichiara «assistenza» invece di invitare a collegare", async () => {
+    delete process.env.FIC_OAUTH_REDIRECT_URI;
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({
+      ...cfgBase,
+      accessTokenCifrato: null,
+      oauthConnectedAt: null,
+    } as any);
+
+    const s = await fic.stato(ctx);
+    expect(s.collegato).toBe(false);
+    expect(s.problema?.azione).toBe("assistenza");
+  });
+
+  it("senza client OAuth di piattaforma vale lo stesso: «assistenza»", async () => {
+    vi.spyOn(ficMod, "ficOAuthClientFromEnv").mockReturnValue(null);
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({
+      ...cfgBase,
+      accessTokenCifrato: null,
+      oauthConnectedAt: null,
+    } as any);
+
+    const s = await fic.stato(ctx);
+    expect(s.problema?.azione).toBe("assistenza");
+  });
+
+  it("il problema di piattaforma non nomina mai un segreto", async () => {
+    delete process.env.FIC_OAUTH_REDIRECT_URI;
+    process.env.FIC_OAUTH_CLIENT_SECRET = "segreto-da-non-dire";
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({
+      ...cfgBase,
+      accessTokenCifrato: null,
+      oauthConnectedAt: null,
+    } as any);
+
+    const s = await fic.stato(ctx);
+    expect(JSON.stringify(s)).not.toContain("segreto-da-non-dire");
+    delete process.env.FIC_OAUTH_CLIENT_SECRET;
+  });
+
+  it("un collegamento che già funziona non diventa un caso di assistenza", async () => {
+    delete process.env.FIC_OAUTH_REDIRECT_URI;
+    vi.spyOn(ficMod, "getCfg").mockReturnValue({ ...cfgBase, companyId: 42 } as any);
+
+    const s = await fic.stato(ctx);
+    expect(s.collegato).toBe(true);
     expect(s.problema).toBeNull();
   });
 
