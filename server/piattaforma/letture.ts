@@ -309,11 +309,21 @@ export async function elencoAziende(adesso: Date): Promise<AziendaRiga[]> {
 /**
  * La scheda completa di un'azienda (spec §5.1): l'elenco filtrato a una
  * riga, arricchito con sedi, abbonamento in unità umane, storia degli
- * eventi e dei comandi, inviti e ultimi backup. Non è sul percorso caldo
- * dell'elenco (una sola azienda alla volta), quindi riusa `elencoAziende`
- * invece di duplicarne la composizione dei campi. `null` per uno slug
+ * eventi e dei comandi, inviti e ultimi backup. `null` per uno slug
  * sconosciuto: il NOT_FOUND lo decide il router (`oppureNotFound`), non
  * questa funzione.
+ *
+ * **Costo, dichiarato (I6 della revisione finale).** Riusa `elencoAziende`
+ * per intero e ne tiene una riga sola: la composizione dei campi sta scritta
+ * in un posto solo, ma il conto è quello dell'elenco — cinque query e le
+ * letture in memoria di TUTTE le aziende — anche quando serve una scheda.
+ * Con le aziende che si contano sulle dita è il compromesso giusto (una
+ * riscrittura per singolo tenant sarebbe codice doppio da tenere allineato
+ * per un risparmio invisibile) e la scheda si rilegge ogni 60 s, non ogni
+ * 15. Il passo successivo, quando le aziende saranno decine, è una lettura
+ * per singolo tenant: `storageDi`, `comandiDi`, `eventi` e `consumoAziendaMese`
+ * esistono già tutti nella forma «per un'azienda», quindi è un rifacimento
+ * di questa funzione soltanto, senza toccare né il router né il client.
  */
 export async function schedaAzienda(slug: string, adesso: Date): Promise<SchedaAzienda | null> {
   const repo = getTenantRepository();

@@ -219,6 +219,13 @@ workstream — nessuno blocca il rilascio):
 - Nessun invito a un indirizzo email libero dal pannello: `crea` semina
   sempre un proprietario, quindi non esiste oggi un percorso per invitare un
   indirizzo che non sia già un utente dell'azienda.
+- `schedaAzienda` (`server/piattaforma/letture.ts`) ricompone l'elenco intero
+  e ne tiene una riga: paga il costo di tutte le aziende per mostrarne una.
+  Con le aziende che si contano sulle dita va bene — la composizione dei campi
+  resta in un posto solo — e la scheda si rilegge ogni 60 s invece di 15 (I6).
+  Quando le aziende saranno decine, la lettura per singolo tenant è un
+  rifacimento della sola `schedaAzienda`: `storageDi`, `comandiDi`, `eventi` e
+  `consumoAziendaMese` esistono già nella forma «per un'azienda».
 
 ## 3. Accesso
 

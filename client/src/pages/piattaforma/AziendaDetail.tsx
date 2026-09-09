@@ -203,7 +203,11 @@ export default function AziendaDetail() {
   const { slug } = useParams<{ slug: string }>();
   const utils = trpc.useUtils();
 
-  const azienda = trpc.piattaforma.azienda.useQuery({ slug }, { refetchInterval: 15_000 });
+  // Un minuto, non quindici secondi (I6): la scheda è una lettura cara —
+  // `schedaAzienda` ricompone l'elenco intero per filtrarne una riga — e qui
+  // non c'è niente che cambi da solo così in fretta. Ciò che si muove
+  // davvero, i comandi lunghi, ha il suo polling a 2 s per id (SeguiComando).
+  const azienda = trpc.piattaforma.azienda.useQuery({ slug }, { refetchInterval: 60_000 });
   const mio = trpc.tenants.mio.useQuery();
   const solaLettura = mio.data?.multiAzienda === false;
 
