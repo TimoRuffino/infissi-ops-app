@@ -13,6 +13,7 @@ import {
   amministraPiattaforma,
   confermaPassword,
   emailAmministratori,
+  utenteAmministratore,
 } from "./accesso";
 import { MESSAGGI_PIATTAFORMA } from "./costanti";
 
@@ -55,10 +56,16 @@ function contestoAnonimo() {
   } as any;
 }
 
-function contestoUtente(utenteId: number) {
+/**
+ * `loginMethod` di default `null`: rappresenta l'utente OAuth legacy (o un
+ * JWT malformato) che NON deve mai risultare amministratore anche con lo
+ * stesso id numerico — passare `"local"` esplicitamente per i casi che
+ * simulano l'utente locale vero (v. `risolviTenantPerUtente`).
+ */
+function contestoUtente(utenteId: number, loginMethod: string | null = null) {
   return {
     ...contestoAnonimo(),
-    user: { id: utenteId } as any,
+    user: { id: utenteId, loginMethod } as any,
   };
 }
 
@@ -95,16 +102,31 @@ describe("piattaformaProcedure", () => {
 
   it("utente non in elenco: FORBIDDEN con il messaggio del pannello", async () => {
     delete process.env.PLATFORM_ADMIN_EMAILS;
-    await expect(provaRouter.createCaller(contestoUtente(admin.id)).p()).rejects.toMatchObject({
+    await expect(provaRouter.createCaller(contestoUtente(admin.id, "local")).p()).rejects.toMatchObject({
       code: "FORBIDDEN",
       message: MESSAGGI_PIATTAFORMA.nonAmministratore,
     });
   });
 
   it("utente in elenco: ctx.amministratore con id ed email", async () => {
-    await expect(provaRouter.createCaller(contestoUtente(admin.id)).p()).resolves.toEqual({
+    await expect(provaRouter.createCaller(contestoUtente(admin.id, "local")).p()).resolves.toEqual({
       id: admin.id,
       email: admin.email.toLowerCase(),
+    });
+  });
+
+  it("stesso id numerico ma non locale (OAuth legacy) o senza loginMethod: null/FORBIDDEN anche con l'email in elenco", async () => {
+    // `utenteAmministratore` da solo, senza passare dal router: il guasto
+    // trovato in revisione era qui, un id numerico bastava a farlo passare.
+    expect(utenteAmministratore({ id: admin.id, loginMethod: "oauth" })).toBeNull();
+    expect(utenteAmministratore({ id: admin.id })).toBeNull();
+    await expect(provaRouter.createCaller(contestoUtente(admin.id, "oauth")).p()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: MESSAGGI_PIATTAFORMA.nonAmministratore,
+    });
+    await expect(provaRouter.createCaller(contestoUtente(admin.id)).p()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: MESSAGGI_PIATTAFORMA.nonAmministratore,
     });
   });
 });
@@ -137,20 +159,28 @@ describe("confermaPassword", () => {
   });
 
   it("password giusta: nessun errore", () => {
-    expect(() => confermaPassword({ id: admin.id, email: admin.email }, PASSWORD)).not.toThrow();
+    expect(() =>
+      confermaPassword({ id: admin.id, email: admin.email, loginMethod: "local" }, PASSWORD)
+    ).not.toThrow();
   });
 
   it("password sbagliata cinque volte, la sesta è TOO_MANY_REQUESTS", () => {
     for (let i = 0; i < 5; i++) {
-      expect(() => confermaPassword({ id: admin.id, email: admin.email }, "sbagliata")).toThrow(
-        MESSAGGI_PIATTAFORMA.passwordNonCorretta
-      );
+      expect(() =>
+        confermaPassword({ id: admin.id, email: admin.email, loginMethod: "local" }, "sbagliata")
+      ).toThrow(MESSAGGI_PIATTAFORMA.passwordNonCorretta);
     }
     try {
-      confermaPassword({ id: admin.id, email: admin.email }, "sbagliata");
+      confermaPassword({ id: admin.id, email: admin.email, loginMethod: "local" }, "sbagliata");
       throw new Error("doveva lanciare");
     } catch (errore: any) {
       expect(errore.code).toBe("TOO_MANY_REQUESTS");
     }
+  });
+
+  it("loginMethod non locale: UNAUTHORIZED anche con la password giusta (stesso id di un amministratore)", () => {
+    expect(() =>
+      confermaPassword({ id: admin.id, email: admin.email, loginMethod: "oauth" }, PASSWORD)
+    ).toThrow(MESSAGGI_PIATTAFORMA.passwordNonCorretta);
   });
 });

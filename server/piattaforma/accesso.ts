@@ -37,12 +37,19 @@ export function amministraPiattaforma(
 /**
  * Il record vivo dell'utente della sessione, riletto dallo store del tenant
  * 1 (ruoli e `attivo` non vengono dal JWT, come fa già `createContext`).
- * `null` se l'utente non esiste più, è disattivato o non amministra.
+ * Come `risolviTenantPerUtente` (tenants/contesto.ts): solo `loginMethod ===
+ * "local"` viene cercato nello store — un utente OAuth legacy (`User` di
+ * `drizzle/schema.ts`) ha un `id` numerico di un'altra tabella che potrebbe
+ * combaciare per caso con quello di un amministratore locale.
+ * `null` se l'utente non esiste più, è disattivato, non è locale o non amministra.
  */
-export function utenteAmministratore(user: { id: number } | null): any | null {
-  if (!user) return null;
+export function utenteAmministratore(
+  user: { id?: unknown; loginMethod?: string | null } | null
+): any | null {
+  if (!user || user.loginMethod !== "local" || typeof user.id !== "number") return null;
+  const id = user.id;
   const record = conTenant(TENANT_PREDEFINITO_ID, () =>
-    getUtentiStore().find((u: any) => u.id === user.id) ?? null
+    getUtentiStore().find((u: any) => u.id === id) ?? null
   );
   return record && amministraPiattaforma({ email: record.email, tenantId: record.tenantId, attivo: record.attivo })
     ? record
@@ -61,9 +68,15 @@ const limiteConferme = creaLimiteTentativi({
  * Verifica la password di `user` per le mutation sensibili del pannello
  * (WS6 §3.2). Lancia UNAUTHORIZED se non corrisponde, TOO_MANY_REQUESTS se
  * il limite è già stato raggiunto. Non logga mai l'email intera, solo il
- * dominio, per non finire coi dati del cliente nei log.
+ * dominio, per non finire coi dati del cliente nei log. `loginMethod` passa
+ * dritto a `utenteAmministratore`: chi chiama (una mutation dietro
+ * `piattaformaProcedure`, con `ctx.user` o `ctx.amministratore` già accertati
+ * locali) deve dichiararlo, non deduciamo mai "local" per conto suo.
  */
-export function confermaPassword(user: { id: number; email?: string | null }, password: string): void {
+export function confermaPassword(
+  user: { id: number; email?: string | null; loginMethod?: string | null },
+  password: string
+): void {
   const chiave = `conferma:${(user.email ?? String(user.id)).toLowerCase()}`;
   limiteConferme.verifica(chiave);
   const record = utenteAmministratore(user);

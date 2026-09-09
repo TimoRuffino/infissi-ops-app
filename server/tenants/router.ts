@@ -9,10 +9,8 @@ import {
 import { bloccoStorage } from "../abbonamenti/quota";
 import { giorniAllaScadenza } from "../abbonamenti/servizio";
 import { interruttoreAttivo } from "../platform/interruttori";
-import { amministraPiattaforma } from "../piattaforma/accesso";
-import { getUtentiStore } from "../routers/utenti";
+import { utenteAmministratore } from "../piattaforma/accesso";
 import { ledgerCorrente } from "../tars/costi/ledger";
-import { conTenant } from "./contestoCorrente";
 import {
   QUOTA_STORAGE_PREDEFINITA_BYTES,
   RUOLO_PROPRIETARIO,
@@ -61,16 +59,6 @@ export const tenantsRouter = router({
       ctx.tenant ??
       getTenantRepository().perId(ctx.tenantId ?? TENANT_PREDEFINITO_ID) ??
       tenantPredefinitoSintetico();
-    // `piattaforma` (WS6 §3.1): riletto dallo store del tenant 1, non dal
-    // JWT — un'email tolta da PLATFORM_ADMIN_EMAILS o un utente disattivato
-    // valgono alla richiesta successiva. Solo l'utente locale ha un `id`
-    // numerico spendibile per questa rilettura: il ramo OAuth non
-    // amministra mai la piattaforma.
-    const idUtente = (ctx.user as any)?.id;
-    const recordUtente =
-      typeof idUtente === "number"
-        ? conTenant(TENANT_PREDEFINITO_ID, () => getUtentiStore().find((u: any) => u.id === idUtente) ?? null)
-        : null;
     return {
       id: tenant.id,
       slug: tenant.slug,
@@ -81,11 +69,13 @@ export const tenantsRouter = router({
       // ("weak type") anche se a runtime `ruoliDi` gestisce già l'assenza.
       proprietario: ruoliDi(ctx.user as any).includes(RUOLO_PROPRIETARIO),
       multiAzienda,
-      piattaforma: amministraPiattaforma(
-        recordUtente
-          ? { email: recordUtente.email, tenantId: recordUtente.tenantId, attivo: recordUtente.attivo }
-          : null
-      ),
+      // `piattaforma` (WS6 §3.1): stesso helper della guardia
+      // `requirePiattaforma` (server/_core/trpc.ts) — rilegge il record
+      // dallo store del tenant 1 e richiede `loginMethod === "local"`
+      // (mirror di `risolviTenantPerUtente`, tenants/contesto.ts), così un
+      // utente OAuth legacy con lo stesso id numerico di un amministratore
+      // non risulta mai amministratore della piattaforma.
+      piattaforma: utenteAmministratore(ctx.user as any) !== null,
     };
   }),
 

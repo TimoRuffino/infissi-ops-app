@@ -112,20 +112,32 @@ describe("tenantsRouter", () => {
       delete process.env.PLATFORM_ADMIN_EMAILS;
     });
 
-    function contestoAmministratore(): TrpcContext {
+    // `loginMethod` di default `"local"`: l'utente locale vero, come emesso
+    // da `apriSessioneLocale`/`localUserDa` (server/localAuth.ts). Passare
+    // `"oauth"` o `null` simula l'utente OAuth legacy con lo stesso id
+    // numerico (server/tenants/contesto.ts:12-23, stesso mirror).
+    function contestoAmministratore(loginMethod: string | null = "local"): TrpcContext {
       const base = context(1);
-      return { ...base, user: { ...(base.user as any), id: admin.id } };
+      return { ...base, user: { ...(base.user as any), id: admin.id, loginMethod } };
     }
 
     it("con l'email dell'utente in PLATFORM_ADMIN_EMAILS: true", async () => {
       process.env.PLATFORM_ADMIN_EMAILS = admin.email;
-      const risultato = await tenantsRouter.createCaller(contestoAmministratore()).mio();
+      const risultato = await tenantsRouter.createCaller(contestoAmministratore("local")).mio();
       expect(risultato.piattaforma).toBe(true);
     });
 
     it("senza la variabile d'ambiente: false", async () => {
       const risultato = await tenantsRouter.createCaller(contestoAmministratore()).mio();
       expect(risultato.piattaforma).toBe(false);
+    });
+
+    it("stesso id numerico ma non locale (OAuth legacy) o senza loginMethod: false anche con l'email in elenco", async () => {
+      process.env.PLATFORM_ADMIN_EMAILS = admin.email;
+      const conOauth = await tenantsRouter.createCaller(contestoAmministratore("oauth")).mio();
+      expect(conOauth.piattaforma).toBe(false);
+      const senzaLoginMethod = await tenantsRouter.createCaller(contestoAmministratore(null)).mio();
+      expect(senzaLoginMethod.piattaforma).toBe(false);
     });
   });
 
