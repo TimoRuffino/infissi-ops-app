@@ -524,3 +524,35 @@ describe("eseguiComandiInAttesa", () => {
     expect(utenti.filter((u: any) => u.tenantId === tenant!.id).length).toBe(1);
   });
 });
+
+// WS6 (pannello piattaforma, spec §4.3): `eseguiComando` ricava l'attore da
+// `richiestoDa`. Un comando accodato dal pannello porta `piattaforma:<email>`
+// e produce eventi con quell'attore, non uno script.
+describe("eseguiComandiInAttesa: attore piattaforma (WS6)", () => {
+  it("richiestoDa piattaforma:<email> produce eventi con l'attore piattaforma; uno script resta script:<nome>", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const daPiattaforma = await repo.accodaComando({
+      tipo: "sospendi",
+      tenantId: tenant.id,
+      payload: { slug: tenant.slug, motivo: "prova pannello" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(daPiattaforma.id))?.stato).toBe("eseguito");
+    const eventoSospeso = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "sospeso");
+    expect(eventoSospeso?.attore).toBe("piattaforma:t@r.it");
+
+    const daScript = await repo.accodaComando({
+      tipo: "riattiva",
+      tenantId: tenant.id,
+      payload: { slug: tenant.slug, motivo: "prova script" },
+      richiestoDa: "script:tenant@x",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    const eventoRiattivato = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "riattivato");
+    expect(eventoRiattivato?.attore).toBe("script:tenant@x");
+  });
+});

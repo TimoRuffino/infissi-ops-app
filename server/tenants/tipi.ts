@@ -14,11 +14,13 @@ export type TenantRecord = {
 export type Attore =
   | { tipo: "utente"; id: number }
   | { tipo: "script"; nome: string }
+  | { tipo: "piattaforma"; email: string } // WS6: chi agisce dal pannello piattaforma
   | { tipo: "boot" };
 
 export function attoreTesto(attore: Attore): string {
   if (attore.tipo === "utente") return `utente:${attore.id}`;
   if (attore.tipo === "script") return attore.nome.startsWith("script:") ? attore.nome : `script:${attore.nome}`;
+  if (attore.tipo === "piattaforma") return `piattaforma:${attore.email.trim().toLowerCase()}`;
   return "boot";
 }
 
@@ -49,7 +51,13 @@ export type TipoEvento =
   | "storage_bloccato"
   | "storage_sbloccato"
   | "tars_bloccato"
-  | "tars_sbloccato";
+  | "tars_sbloccato"
+  // WS6 (pannello piattaforma, spec §4.1): `invito_inviato` porta
+  // `{ invitoId, utenteId, email, scadeIl, inviato: boolean, motivo?: string }`,
+  // `invito_accettato` `{ invitoId, utenteId }`, `invito_annullato` `{ invitoId }`.
+  | "invito_inviato"
+  | "invito_accettato"
+  | "invito_annullato";
 
 export type TenantEvento = {
   id: number;
@@ -154,4 +162,24 @@ export type StateOAuth = {
   utenteId: number;
   payload: Record<string, unknown>;
   scadeIl: Date;
+};
+
+// Inviti del pannello piattaforma (WS6, spec §4.1): un token monouso che
+// completa la creazione di un'azienda — il destinatario lo apre, imposta la
+// password ed entra come proprietario. Il token in chiaro esce una volta
+// sola dal repository (`emettiInvito`): questo tipo di lettura non lo porta
+// mai, né porta il suo hash.
+export type TipoInvito = "proprietario";
+
+export type TenantInvito = {
+  id: number;
+  tenantId: number;
+  utenteId: number;
+  email: string;
+  tipo: TipoInvito;
+  scadeIl: Date;
+  creatoDa: string;
+  createdAt: Date;
+  usatoIl: Date | null;
+  annullatoIl: Date | null;
 };

@@ -80,6 +80,15 @@ export async function preparaTenants(): Promise<number[]> {
   } catch (errore) {
     console.error("[tenants] pulizia oauth_state:", errore instanceof Error ? errore.message : errore);
   }
+  // Gli inviti scaduti da più di 30 giorni (WS6, pannello piattaforma, spec
+  // §4.2): stessa cautela della spazzata qui sopra, in un try/catch a parte
+  // così un guasto in uno dei due non nasconde il messaggio dell'altro.
+  try {
+    const inviti = await repo.pulisciInvitiScaduti();
+    if (inviti) console.log(`[tenants] inviti scaduti rimossi: ${inviti}`);
+  } catch (errore) {
+    console.error("[tenants] pulizia inviti:", errore instanceof Error ? errore.message : errore);
+  }
   await repo.assicuraTenantPredefinito();
   // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
   // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.

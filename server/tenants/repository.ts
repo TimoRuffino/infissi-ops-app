@@ -3,7 +3,7 @@
 // l'unico file che scrive `tenants`, `tenant_eventi`, `tenant_comandi`
 // (guardia strutturale in confine.test.ts). La cache dei tenant vive qui:
 // una replica sola, aggiornata da ogni scrittura.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { kvSql } from "../_core/persistence";
 import {
   MESSAGGI,
@@ -11,6 +11,7 @@ import {
   TENANT_PREDEFINITO_ID,
   TENANT_PREDEFINITO_NOME,
   TENANT_PREDEFINITO_SLUG,
+  TTL_INVITO_MS,
   TTL_STATE_OAUTH_MS,
 } from "./costanti";
 import type {
@@ -20,9 +21,11 @@ import type {
   StatoTenant,
   TenantComando,
   TenantEvento,
+  TenantInvito,
   TenantRecord,
   TipoComando,
   TipoEvento,
+  TipoInvito,
   TipoStateOAuth,
 } from "./tipi";
 
@@ -51,6 +54,12 @@ export type TenantRepository = {
    * spalle. Senza `ultimi` il comportamento è quello di sempre (tutti).
    */
   eventi(tenantId: number, opzioni?: { ultimi?: number }): Promise<TenantEvento[]>;
+  /**
+   * Tutte le aziende in una query sola, filtrati per tipo e finestra di
+   * tempo: il pannello piattaforma (WS6) legge così i worker sospesi di
+   * adesso, senza un giro per tenant.
+   */
+  eventiRecenti(input: { tipi: TipoEvento[]; da: Date }): Promise<TenantEvento[]>;
   accodaComando(input: {
     tipo: TipoComando;
     tenantId: number | null;
@@ -59,8 +68,18 @@ export type TenantRepository = {
   }): Promise<TenantComando>;
   comandiInAttesa(): Promise<TenantComando[]>;
   comando(id: number): Promise<TenantComando | null>;
+  /** Gli ultimi comandi dell'azienda, più recenti prima (scheda del pannello piattaforma, WS6). */
+  comandiDi(tenantId: number, opzioni?: { ultimi?: number }): Promise<TenantComando[]>;
+  /**
+   * Prende il comando in attesa più vecchio e lo esegue dentro lo stesso
+   * lock atomico (`FOR UPDATE SKIP LOCKED` su Postgres). Con `soloId`
+   * (pannello piattaforma, WS6: esecuzione immediata dopo l'accodo) prende
+   * SOLO quel comando — se il giro dei 30 s lo ha già preso, dà `"nessuno"`
+   * invece di aspettare o di prenderne un altro al suo posto.
+   */
   prendiEdEsegui(
-    esegui: (comando: TenantComando) => Promise<EsitoComando>
+    esegui: (comando: TenantComando) => Promise<EsitoComando>,
+    opzioni?: { soloId?: number }
   ): Promise<"eseguito" | "errore" | "nessuno">;
   /**
    * `INSERT … ON CONFLICT (id) DO NOTHING` sulla riga `tenants` del tenant 1
@@ -92,6 +111,8 @@ export type TenantRepository = {
 
   // ── Contabilità storage (WS3 §3.2) ─────────────────────────────────────
   storageDi(tenantId: number): Promise<StatoStorage | null>;
+  /** Tutte le aziende in una query sola (elenco del pannello piattaforma, WS6). */
+  storageTutti(): Promise<StatoStorage[]>;
   /** Upsert, incremento atomico; `bytes`/`file` non scendono mai sotto zero. */
   aggiornaStorage(tenantId: number, deltaBytes: number, deltaFile: number): Promise<StatoStorage>;
   /** Ricalcolo da zero (sostituisce, non somma) e timbra `ricalcolatoIl`. */
@@ -123,6 +144,32 @@ export type TenantRepository = {
   /** Consumo una tantum entro il TTL: la seconda chiamata restituisce `null`. */
   consumaStateOAuth(state: string, tipo: TipoStateOAuth): Promise<StateOAuth | null>;
   pulisciStateScaduti(): Promise<number>;
+
+  // ── Inviti (WS6 §4) ──────────────────────────────────────────────────────
+  /**
+   * Emette un token monouso per completare la creazione di un'azienda:
+   * annulla prima ogni invito ancora valido dello stesso utente sullo stesso
+   * tenant (`annullatoIl = adesso`), poi ne inserisce uno nuovo. Il token in
+   * chiaro esce SOLO da qui: a terra resta l'hash sha256.
+   */
+  emettiInvito(input: {
+    tenantId: number;
+    utenteId: number;
+    email: string;
+    tipo: TipoInvito;
+    creatoDa: string;
+    adesso?: Date;
+  }): Promise<{ invito: TenantInvito; token: string }>;
+  /** Valido: non usato, non annullato, non scaduto. Non lo consuma. */
+  invitoPerToken(token: string, adesso?: Date): Promise<TenantInvito | null>;
+  /** Consumo una tantum: la seconda chiamata (o un invito scaduto/annullato) dà `null`. */
+  consumaInvito(token: string, adesso?: Date): Promise<TenantInvito | null>;
+  /** Gli inviti dell'azienda, più recenti prima. */
+  invitiDi(tenantId: number): Promise<TenantInvito[]>;
+  /** Solo se non ancora usato; idempotente (un invito già annullato lo resta). */
+  annullaInvito(id: number): Promise<TenantInvito | null>;
+  /** Cancella gli inviti scaduti da più di 30 giorni; al boot, come `pulisciStateScaduti`. */
+  pulisciInvitiScaduti(): Promise<number>;
 };
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -144,6 +191,20 @@ function payloadSenzaSegreti(p: Record<string, unknown>): Record<string, unknown
   }
   return copia;
 }
+
+/**
+ * Inviti (WS6 §4.1): il token in chiaro non tocca mai terra, solo il suo
+ * hash sha256 esadecimale — stesso algoritmo in memoria e su Postgres, così
+ * un token emesso da un repository è verificabile dall'altro (utile solo in
+ * teoria, ma tiene le due implementazioni onestamente equivalenti).
+ */
+const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+/** Valido: non usato, non annullato, non scaduto rispetto ad `adesso`. */
+const invitoValido = (
+  i: { usatoIl: Date | null; annullatoIl: Date | null; scadeIl: Date },
+  adesso: Date
+): boolean => !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > adesso.getTime();
 
 // ── Memoria (sviluppo e test senza DATABASE_URL) ────────────────────────────
 
@@ -172,6 +233,13 @@ function createMemoryTenantRepository(): TenantRepository {
     return s;
   };
   const abbonamentiMem = new Map<number, Abbonamento>();
+  const inviti: Array<TenantInvito & { tokenHash: string }> = [];
+  let prossimoInvito = 1;
+  /** Non lascia mai uscire `tokenHash`: stessa forma di lettura di Postgres. */
+  const senzaHash = (i: TenantInvito & { tokenHash: string }): TenantInvito => {
+    const { tokenHash: _tokenHash, ...resto } = i;
+    return clone(resto);
+  };
 
   const repo: TenantRepository = {
     async ensureSchema() {},
@@ -227,6 +295,10 @@ function createMemoryTenantRepository(): TenantRepository {
       // `ultimi` ≤ 0 vale «tutti», come su Postgres (dove LIMIT 0 darebbe zero righe).
       return (ultimi != null && ultimi > 0 && ultimi < suoi.length ? suoi.slice(-ultimi) : suoi).map(clone);
     },
+    async eventiRecenti(input) {
+      const tipi = new Set(input.tipi);
+      return eventi.filter(e => tipi.has(e.tipo) && e.createdAt.getTime() >= input.da.getTime()).map(clone);
+    },
     async accodaComando(input) {
       const c: TenantComando = {
         id: prossimoComando++,
@@ -248,8 +320,13 @@ function createMemoryTenantRepository(): TenantRepository {
     async comando(id) {
       return clone(comandi.find(c => c.id === id) ?? null);
     },
-    async prendiEdEsegui(esegui) {
-      const c = comandi.find(x => x.stato === "in_attesa");
+    async comandiDi(tenantId, opzioni) {
+      const suoi = comandi.filter(c => c.tenantId === tenantId).sort((a, b) => b.id - a.id);
+      const ultimi = opzioni?.ultimi;
+      return (ultimi != null && ultimi > 0 ? suoi.slice(0, ultimi) : suoi).map(clone);
+    },
+    async prendiEdEsegui(esegui, opzioni) {
+      const c = comandi.find(x => x.stato === "in_attesa" && (opzioni?.soloId == null || x.id === opzioni.soloId));
       if (!c) return "nessuno";
       try {
         c.esito = await esegui(clone(c));
@@ -286,6 +363,11 @@ function createMemoryTenantRepository(): TenantRepository {
     async storageDi(tenantId) {
       const s = storage.get(tenantId);
       return s ? clone({ ...s, quotaBytes: quotaDi(tenantId) }) : null;
+    },
+    async storageTutti() {
+      return [...storage.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([tenantId, s]) => clone({ ...s, quotaBytes: quotaDi(tenantId) }));
     },
     async aggiornaStorage(tenantId, deltaBytes, deltaFile) {
       const s = rigaStorage(tenantId);
@@ -343,6 +425,64 @@ function createMemoryTenantRepository(): TenantRepository {
       let n = 0;
       for (const [k, s] of states) if (s.scadeIl.getTime() <= Date.now()) { states.delete(k); n++; }
       return n;
+    },
+    async emettiInvito(input) {
+      const adesso = input.adesso ?? new Date();
+      // Annulla prima ogni invito ancora valido dello stesso utente sullo
+      // stesso tenant: un secondo invito rimpiazza il primo, non lo affianca.
+      for (const i of inviti) {
+        if (i.tenantId === input.tenantId && i.utenteId === input.utenteId && invitoValido(i, adesso)) {
+          i.annullatoIl = adesso;
+        }
+      }
+      const token = randomBytes(32).toString("base64url");
+      const invito: TenantInvito & { tokenHash: string } = {
+        id: prossimoInvito++,
+        tenantId: input.tenantId,
+        utenteId: input.utenteId,
+        email: input.email.trim().toLowerCase(),
+        tipo: input.tipo,
+        scadeIl: new Date(adesso.getTime() + TTL_INVITO_MS),
+        creatoDa: input.creatoDa,
+        createdAt: adesso,
+        usatoIl: null,
+        annullatoIl: null,
+        tokenHash: hashToken(token),
+      };
+      inviti.push(invito);
+      return { invito: senzaHash(invito), token };
+    },
+    async invitoPerToken(token, adesso = new Date()) {
+      const hash = hashToken(token);
+      const i = inviti.find(x => x.tokenHash === hash);
+      return i && invitoValido(i, adesso) ? senzaHash(i) : null;
+    },
+    async consumaInvito(token, adesso = new Date()) {
+      const hash = hashToken(token);
+      const i = inviti.find(x => x.tokenHash === hash);
+      if (!i || !invitoValido(i, adesso)) return null;
+      i.usatoIl = adesso;
+      return senzaHash(i);
+    },
+    async invitiDi(tenantId) {
+      return inviti
+        .filter(i => i.tenantId === tenantId)
+        .sort((a, b) => b.id - a.id)
+        .map(senzaHash);
+    },
+    async annullaInvito(id) {
+      const i = inviti.find(x => x.id === id);
+      if (!i || i.usatoIl) return null;
+      i.annullatoIl ??= new Date();
+      return senzaHash(i);
+    },
+    async pulisciInvitiScaduti() {
+      const limite = Date.now() - 30 * 24 * 3600 * 1000;
+      const prima = inviti.length;
+      for (let k = inviti.length - 1; k >= 0; k--) {
+        if (inviti[k].scadeIl.getTime() <= limite) inviti.splice(k, 1);
+      }
+      return prima - inviti.length;
     },
   };
   return repo;
@@ -440,6 +580,18 @@ export function createPostgresTenantRepository(
     payload: r.payload ?? {},
     scadeIl: new Date(r.scade_il),
   });
+  const rigaInvito = (r: any): TenantInvito => ({
+    id: Number(r.id),
+    tenantId: Number(r.tenant_id),
+    utenteId: Number(r.utente_id),
+    email: r.email,
+    tipo: r.tipo,
+    scadeIl: new Date(r.scade_il),
+    creatoDa: r.creato_da,
+    createdAt: new Date(r.created_at),
+    usatoIl: r.usato_il ? new Date(r.usato_il) : null,
+    annullatoIl: r.annullato_il ? new Date(r.annullato_il) : null,
+  });
   const memorizza = (t: TenantRecord): TenantRecord => {
     cache.set(t.id, t);
     return clone(t);
@@ -455,9 +607,10 @@ export function createPostgresTenantRepository(
     const rows = await sql`SELECT to_regclass('tenants') AS tenants,
       to_regclass('tenant_eventi') AS eventi, to_regclass('tenant_comandi') AS comandi,
       to_regclass('tenant_sedi') AS sedi, to_regclass('tenant_storage') AS storage,
-      to_regclass('oauth_state') AS oauth, to_regclass('abbonamenti') AS abbonamenti`;
+      to_regclass('oauth_state') AS oauth, to_regclass('abbonamenti') AS abbonamenti,
+      to_regclass('tenant_inviti') AS inviti`;
     const r = rows[0];
-    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi || !r?.storage || !r?.oauth || !r?.abbonamenti) {
+    if (!r?.tenants || !r?.eventi || !r?.comandi || !r?.sedi || !r?.storage || !r?.oauth || !r?.abbonamenti || !r?.inviti) {
       throw new Error(MESSAGGI.schemaAssente);
     }
   };
@@ -576,6 +729,23 @@ export function createPostgresTenantRepository(
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Inviti del pannello piattaforma (WS6, spec §4.1): token monouso,
+        // mai in chiaro a terra — solo l'hash sha256, con lo stesso vincolo
+        // UNIQUE che rende `consumaInvito` atomico anche in concorrenza.
+        await tx`CREATE TABLE IF NOT EXISTS tenant_inviti (
+          id BIGSERIAL PRIMARY KEY,
+          tenant_id BIGINT NOT NULL REFERENCES tenants(id),
+          utente_id BIGINT NOT NULL,
+          email TEXT NOT NULL,
+          tipo TEXT NOT NULL DEFAULT 'proprietario' CHECK (tipo IN ('proprietario')),
+          token_hash TEXT NOT NULL UNIQUE,
+          scade_il TIMESTAMPTZ NOT NULL,
+          creato_da TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          usato_il TIMESTAMPTZ,
+          annullato_il TIMESTAMPTZ
+        )`;
+        await tx`CREATE INDEX IF NOT EXISTS tenant_inviti_tenant_idx ON tenant_inviti (tenant_id, created_at DESC)`;
         // Tipi di comando nuovi: il CHECK di `tenant_comandi` è nato nel WS1 con
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
@@ -678,6 +848,11 @@ export function createPostgresTenantRepository(
       const rows = await sql`SELECT * FROM tenant_eventi WHERE tenant_id = ${tenantId} ORDER BY id`;
       return rows.map(rigaEvento);
     },
+    async eventiRecenti(input) {
+      await ensureSchema();
+      const rows = await sql`SELECT * FROM tenant_eventi WHERE tipo = ANY(${input.tipi}) AND created_at >= ${input.da} ORDER BY id`;
+      return rows.map(rigaEvento);
+    },
     async accodaComando(input) {
       await ensureSchema();
       const rows = await sql`INSERT INTO tenant_comandi (tipo, tenant_id, payload, richiesto_da)
@@ -694,10 +869,22 @@ export function createPostgresTenantRepository(
       const rows = await sql`SELECT * FROM tenant_comandi WHERE id = ${id}`;
       return rows.length ? rigaComando(rows[0]) : null;
     },
-    async prendiEdEsegui(esegui) {
+    async comandiDi(tenantId, opzioni) {
+      await ensureSchema();
+      const ultimi = opzioni?.ultimi;
+      const rows =
+        ultimi != null && ultimi > 0
+          ? await sql`SELECT * FROM tenant_comandi WHERE tenant_id = ${tenantId} ORDER BY id DESC LIMIT ${ultimi}`
+          : await sql`SELECT * FROM tenant_comandi WHERE tenant_id = ${tenantId} ORDER BY id DESC`;
+      return rows.map(rigaComando);
+    },
+    async prendiEdEsegui(esegui, opzioni) {
       await ensureSchema();
       return sql.begin(async tx => {
-        const rows = await tx`SELECT * FROM tenant_comandi WHERE stato = 'in_attesa'
+        const rows =
+          opzioni?.soloId != null
+            ? await tx`SELECT * FROM tenant_comandi WHERE stato = 'in_attesa' AND id = ${opzioni.soloId} FOR UPDATE SKIP LOCKED`
+            : await tx`SELECT * FROM tenant_comandi WHERE stato = 'in_attesa'
           ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`;
         if (!rows.length) return "nessuno" as const;
         const comando = rigaComando(rows[0]);
@@ -749,6 +936,13 @@ export function createPostgresTenantRepository(
       await ensureSchema();
       const rows = await sql`SELECT * FROM tenant_storage WHERE tenant_id = ${tenantId}`;
       return rows.length ? rigaStorage(rows[0], quotaDi(tenantId)) : null;
+    },
+    async storageTutti() {
+      await ensureSchema();
+      // La quota vive sulla cache dei tenant (già caricata), come in
+      // `storageDi`: niente JOIN, una SELECT sola su `tenant_storage`.
+      const rows = await sql`SELECT * FROM tenant_storage ORDER BY tenant_id`;
+      return rows.map(r => rigaStorage(r, quotaDi(Number(r.tenant_id))));
     },
     async aggiornaStorage(tenantId, deltaBytes, deltaFile) {
       await ensureSchema();
@@ -847,6 +1041,55 @@ export function createPostgresTenantRepository(
     async pulisciStateScaduti() {
       await ensureSchema();
       const rows = await sql`DELETE FROM oauth_state WHERE scade_il <= NOW() RETURNING state`;
+      return rows.length;
+    },
+    async emettiInvito(input) {
+      await ensureSchema();
+      const token = randomBytes(32).toString("base64url");
+      const hash = hashToken(token);
+      const rows = await sql.begin(async tx => {
+        // Annulla prima ogni invito ancora valido dello stesso utente sullo
+        // stesso tenant: un secondo invito rimpiazza il primo, non lo affianca.
+        await tx`UPDATE tenant_inviti SET annullato_il = NOW()
+          WHERE tenant_id = ${input.tenantId} AND utente_id = ${input.utenteId}
+            AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()`;
+        return tx`INSERT INTO tenant_inviti (tenant_id, utente_id, email, tipo, token_hash, scade_il, creato_da)
+          VALUES (${input.tenantId}, ${input.utenteId}, ${input.email.trim().toLowerCase()}, ${input.tipo}, ${hash},
+            NOW() + make_interval(secs => ${TTL_INVITO_MS / 1000}), ${input.creatoDa})
+          RETURNING *`;
+      });
+      return { invito: rigaInvito(rows[0]), token };
+    },
+    async invitoPerToken(token) {
+      await ensureSchema();
+      const rows = await sql`SELECT * FROM tenant_inviti
+        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()`;
+      return rows.length ? rigaInvito(rows[0]) : null;
+    },
+    async consumaInvito(token) {
+      await ensureSchema();
+      // UPDATE … RETURNING atomico: con due chiamate concorrenti sullo
+      // stesso token, il WHERE della seconda non trova più righe (la prima
+      // ha già messo `usato_il`) — esattamente un vincitore, senza lock a mano.
+      const rows = await sql`UPDATE tenant_inviti SET usato_il = NOW()
+        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()
+        RETURNING *`;
+      return rows.length ? rigaInvito(rows[0]) : null;
+    },
+    async invitiDi(tenantId) {
+      await ensureSchema();
+      const rows = await sql`SELECT * FROM tenant_inviti WHERE tenant_id = ${tenantId} ORDER BY id DESC`;
+      return rows.map(rigaInvito);
+    },
+    async annullaInvito(id) {
+      await ensureSchema();
+      const rows = await sql`UPDATE tenant_inviti SET annullato_il = COALESCE(annullato_il, NOW())
+        WHERE id = ${id} AND usato_il IS NULL RETURNING *`;
+      return rows.length ? rigaInvito(rows[0]) : null;
+    },
+    async pulisciInvitiScaduti() {
+      await ensureSchema();
+      const rows = await sql`DELETE FROM tenant_inviti WHERE scade_il <= NOW() - interval '30 days' RETURNING id`;
       return rows.length;
     },
   };

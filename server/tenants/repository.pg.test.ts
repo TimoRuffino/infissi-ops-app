@@ -26,12 +26,12 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     // parallelo (senza, i DROP di qui cadrebbero in mezzo alle sue prove).
     riservata = await sql.reserve();
     await riservata`SELECT pg_advisory_lock(${LOCK_TENANT_PG})`;
-    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     resetTenantRepositoryForTesting();
   });
 
   afterAll(async () => {
-    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     if (riservata) {
       await riservata`SELECT pg_advisory_unlock(${LOCK_TENANT_PG})`;
       riservata.release();
@@ -117,7 +117,7 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
   });
 
   it("con creaSchema:false lo script non esegue DDL: si ferma se le tabelle mancano e non ricrea il trigger", async () => {
-    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     const soloLettura = createPostgresTenantRepository(sql, { creaSchema: false });
     await expect(soloLettura.caricaCache()).rejects.toThrow(/control plane del tenant assenti/);
     expect((await sql`SELECT to_regclass('tenants') AS t`)[0].t).toBeNull();
@@ -259,8 +259,90 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     await expect(repo3.ensureSchema()).resolves.toBeUndefined();
   });
 
+  // WS6 (pannello piattaforma, spec §4.1-§4.2): stessi due casi del repository
+  // in memoria, sulla tabella vera — token monouso, annullo dei precedenti,
+  // consumo una tantum, scadenza e pulizia dopo 30 giorni. Sette giorni reali
+  // non si aspettano in un test: la scadenza si simula retrodatando `scade_il`
+  // con SQL diretto, come farebbe il tempo che passa davvero.
+  it("inviti su Postgres: token monouso, annulla i precedenti, consumo unico, scadenza e pulizia dopo 30 giorni", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const acme = repo.perSlug("acme-inviti") ?? (await repo.inserisci({ slug: "acme-inviti", nome: "Acme Inviti" }));
+
+    const primo = await repo.emettiInvito({ tenantId: acme.id, utenteId: 701, email: "M@Acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    const secondo = await repo.emettiInvito({ tenantId: acme.id, utenteId: 701, email: "m@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    expect(primo.token).not.toBe(secondo.token);
+    expect(primo.token.length).toBeGreaterThanOrEqual(40);
+    expect(primo.invito.email).toBe("m@acme.test"); // normalizzata minuscola
+    expect(await repo.invitoPerToken(primo.token)).toBeNull(); // annullato dal secondo
+    expect((await repo.invitoPerToken(secondo.token))?.id).toBe(secondo.invito.id);
+    expect((await repo.invitiDi(acme.id)).map(i => [i.id, i.annullatoIl !== null])).toEqual([
+      [secondo.invito.id, false],
+      [primo.invito.id, true],
+    ]);
+
+    // Consumo una tantum.
+    expect((await repo.consumaInvito(secondo.token))?.id).toBe(secondo.invito.id);
+    expect(await repo.consumaInvito(secondo.token)).toBeNull();
+
+    // Scadenza simulata retrodatando `scade_il`.
+    const terzo = await repo.emettiInvito({ tenantId: acme.id, utenteId: 702, email: "z@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    await sql`UPDATE tenant_inviti SET scade_il = NOW() - interval '1 second' WHERE id = ${terzo.invito.id}`;
+    expect(await repo.invitoPerToken(terzo.token)).toBeNull();
+    expect(await repo.consumaInvito(terzo.token)).toBeNull();
+
+    // Annullato: non consumabile, e annullarlo di nuovo è idempotente.
+    const quarto = await repo.emettiInvito({ tenantId: acme.id, utenteId: 703, email: "w@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    expect((await repo.annullaInvito(quarto.invito.id))?.annullatoIl).not.toBeNull();
+    expect(await repo.consumaInvito(quarto.token)).toBeNull();
+    expect((await repo.annullaInvito(quarto.invito.id))?.id).toBe(quarto.invito.id);
+
+    // pulisciInvitiScaduti: cancella solo chi è scaduto da più di 30 giorni.
+    expect(await repo.pulisciInvitiScaduti()).toBe(0); // il terzo è scaduto da 1 secondo, non da 30 giorni
+    await sql`UPDATE tenant_inviti SET scade_il = NOW() - interval '31 days' WHERE id = ${terzo.invito.id}`;
+    expect(await repo.pulisciInvitiScaduti()).toBeGreaterThanOrEqual(1);
+    expect((await repo.invitiDi(acme.id)).map(i => i.id)).not.toContain(terzo.invito.id);
+  });
+
+  it("concorrenza: due consumaInvito sullo stesso token danno esattamente un vincitore; prendiEdEsegui(soloId) con due comandi", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const acme = repo.perSlug("acme-inviti-conc") ?? (await repo.inserisci({ slug: "acme-inviti-conc", nome: "Acme Concorrenza" }));
+    const { token } = await repo.emettiInvito({ tenantId: acme.id, utenteId: 801, email: "conc@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    const risultati = await Promise.all([repo.consumaInvito(token), repo.consumaInvito(token)]);
+    expect(risultati.filter(r => r !== null).length).toBe(1);
+
+    const c1 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: acme.id, payload: { slug: acme.slug }, richiestoDa: "test" });
+    const c2 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: acme.id, payload: { slug: acme.slug }, richiestoDa: "test" });
+    const visti: number[] = [];
+    expect(
+      await repo.prendiEdEsegui(
+        async c => {
+          visti.push(c.id);
+          return { ok: true };
+        },
+        { soloId: c2.id }
+      )
+    ).toBe("eseguito");
+    expect(visti).toEqual([c2.id]);
+    expect((await repo.comando(c1.id))?.stato).toBe("in_attesa");
+    expect(await repo.prendiEdEsegui(async () => ({}), { soloId: c2.id })).toBe("nessuno");
+    expect(
+      await repo.prendiEdEsegui(
+        async c => {
+          visti.push(c.id);
+          return {};
+        },
+        { soloId: c1.id }
+      )
+    ).toBe("eseguito");
+    expect(visti).toEqual([c2.id, c1.id]);
+  });
+
   it("lo schema del WS3 è idempotente anche sopra uno schema del WS2 (CHECK vecchio a terra)", async () => {
-    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
       stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')), motivo_stato TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;

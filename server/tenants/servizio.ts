@@ -280,7 +280,14 @@ export async function allineaTenantPredefinito(): Promise<void> {
 }
 
 async function eseguiComando(comando: TenantComando): Promise<Record<string, unknown>> {
-  const attore: Attore = { tipo: "script", nome: comando.richiestoDa };
+  // WS6 (pannello piattaforma, spec §4.3): un comando accodato dal pannello
+  // porta `richiestoDa: "piattaforma:<email>"`; l'attore diventa
+  // `{ tipo: "piattaforma", email }` così `tenant_eventi` dice
+  // «piattaforma:t.ruffino@…», non «script:…». Ogni altro produttore
+  // (script CLI compresi) resta un attore script, comportamento invariato.
+  const attore: Attore = comando.richiestoDa.startsWith("piattaforma:")
+    ? { tipo: "piattaforma", email: comando.richiestoDa.slice("piattaforma:".length) }
+    : { tipo: "script", nome: comando.richiestoDa };
   try {
     switch (comando.tipo) {
       case "crea": {
