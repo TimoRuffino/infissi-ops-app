@@ -49,7 +49,11 @@ export const backup: Adattatore = {
     if (!oauthClientFromEnv()) {
       throw new Error("Client OAuth Google non configurato sulla piattaforma.");
     }
-    const state = await issueOAuthState(Number(ctx.user?.id ?? 0));
+    // Il redirect viaggia nello state: lo scambio del codice vive su una
+    // rotta anonima e senza questo non avrebbe che l'header `Host` per
+    // indovinarlo — due redirect diversi nello stesso giro sono un
+    // `redirect_uri_mismatch` di Google, col messaggio di Google.
+    const state = await issueOAuthState(Number(ctx.user?.id ?? 0), redirectUri);
     const url = buildAuthUrl(redirectUri, state);
     if (!url) throw new Error("URL di autorizzazione Google non costruibile.");
     return { tipo: "url", url };

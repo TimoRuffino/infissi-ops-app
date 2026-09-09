@@ -56,6 +56,27 @@ describe("adattatore backup", () => {
     expect(await backup.verifica(ctx)).toBeNull();
   });
 
+  // C2: le due metà del giro OAuth devono presentare a Google lo stesso
+  // redirect. L'autorizzazione parte dal callback canonico; lo scambio, che
+  // vive su una rotta anonima, lo rilegge dallo state.
+  it("avvia mette il callback canonico nello state, non solo nell'URL", async () => {
+    vi.spyOn(drive, "oauthClientFromEnv").mockReturnValue({
+      clientId: "x",
+      clientSecret: "y",
+    });
+    const emetti = vi.spyOn(drive, "issueOAuthState").mockResolvedValue("stato-1");
+    vi.spyOn(drive, "buildAuthUrl").mockReturnValue(
+      "https://accounts.google.com/o/oauth2/v2/auth?x=1"
+    );
+
+    await backup.avvia!(ctx);
+
+    expect(emetti).toHaveBeenCalledWith(
+      1,
+      "https://app.wyndoor.com/api/oauth/gdrive/callback"
+    );
+  });
+
   it("senza callback canonico non offre il collegamento", async () => {
     delete process.env.GOOGLE_OAUTH_REDIRECT_URI;
     vi.spyOn(drive, "oauthClientFromEnv").mockReturnValue({
