@@ -134,7 +134,7 @@ export async function accettaInvito(
   await repo.registraEvento({
     tenantId: invito.tenantId,
     tipo: "invito_accettato",
-    attore: `utente:${invito.utenteId}`,
+    attore: attoreTesto({ tipo: "utente", id: invito.utenteId }),
     dettagli: { invitoId: invito.id, utenteId: invito.utenteId },
   });
   return { tenantId: invito.tenantId, utenteId: invito.utenteId, email };

@@ -29,6 +29,12 @@ const limiteInviti = creaLimiteTentativi({
 const chiaveToken = (token: string): string =>
   `invito:${createHash("sha256").update(token).digest("hex").slice(0, 32)}`;
 
+/** Solo per i test: azzera il limitatore degli inviti. */
+export function __azzeraLimiteInvitiPerTest(): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY");
+  limiteInviti.__azzeraTutto();
+}
+
 const tokenSchema = z.string().min(20).max(200);
 
 export const invitiRouter = router({
@@ -47,7 +53,11 @@ export const invitiRouter = router({
       let esito: Awaited<ReturnType<typeof accettaInvito>>;
       try {
         esito = await accettaInvito({ token: input.token, password: input.password, adesso: new Date() });
-      } catch {
+      } catch (e) {
+        const messaggio = e instanceof Error ? e.message : String(e);
+        if (messaggio !== MESSAGGI_PIATTAFORMA.invitoNonValido) {
+          console.error(`[inviti] accettazione fallita: ${messaggio}`);
+        }
         limiteInviti.fallito(chiave);
         throw new TRPCError({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
       }

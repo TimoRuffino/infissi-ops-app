@@ -15,7 +15,7 @@ import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants
 import { crea } from "../tenants/servizio";
 import { MESSAGGI_PIATTAFORMA } from "./costanti";
 import { invitaProprietario } from "./inviti";
-import { invitiRouter } from "./invitiRouter";
+import { __azzeraLimiteInvitiPerTest, invitiRouter } from "./invitiRouter";
 
 const sedi = getSediStore();
 const utenti = getUtentiStore();
@@ -62,6 +62,7 @@ async function nuovoInvito() {
 
 beforeEach(() => {
   resetTenantRepositoryForTesting();
+  __azzeraLimiteInvitiPerTest();
   nS = sedi.length;
   nU = utenti.length;
   __impostaPostaPerTest(async () => ({ inviato: true, id: "em_1" }));
@@ -129,5 +130,37 @@ describe("invitiRouter.accetta", () => {
     await expect(
       invitiRouter.createCaller(contesto()).accetta({ token, password: "corta" })
     ).rejects.toThrow();
+  });
+
+  it("errore inatteso (es. db): log console.error con messaggio ma non token, risposta NOT_FOUND invitoNonValido", async () => {
+    const { token } = await nuovoInvito();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const repo = getTenantRepository();
+    const consumaInvitoSpy = vi.spyOn(repo, "consumaInvito").mockRejectedValueOnce(new Error("db giù"));
+    try {
+      await expect(
+        invitiRouter.createCaller(contesto()).accetta({ token, password: "Password-nuova-12" })
+      ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
+      expect(consoleErrorSpy).toHaveBeenCalledOnce();
+      const callArgs = consoleErrorSpy.mock.calls[0]?.[0] ?? "";
+      expect(callArgs).toContain("accettazione fallita");
+      expect(callArgs).toContain("db giù");
+      expect(callArgs).not.toContain(token);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      consumaInvitoSpy.mockRestore();
+    }
+  });
+
+  it("token sbagliato: NOT_FOUND senza console.error", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        invitiRouter.createCaller(contesto()).accetta({ token: "z".repeat(43), password: "Password-nuova-12" })
+      ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
