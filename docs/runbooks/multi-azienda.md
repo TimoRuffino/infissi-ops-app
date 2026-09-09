@@ -1,31 +1,34 @@
-# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti + WS4 abbonamenti)
+# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti + WS4 abbonamenti + WS6 pannello piattaforma)
 
 Spec: `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
 `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`,
-`docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md` e
-`docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` (le decisioni
-prese durante l'esecuzione di WS2, WS3 e WS4 sono nelle rispettive §2-bis).
-Modulo: `server/tenants/`. Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
+`docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`,
+`docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` e
+`docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md` (le
+decisioni prese durante l'esecuzione di WS2, WS3, WS4 e WS6 sono nelle
+rispettive §2-bis). Moduli: `server/tenants/`, `server/piattaforma/`.
+Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
 
 ## Cosa fa, in una riga
 Il tenant (azienda) esiste, è nel contesto di ogni richiesta, ha guardie e un
 ruolo Proprietario (WS1); ogni store JSONB ha un archivio per azienda e le
 tabelle SQL portano `tenant_id` (WS2); i file, il backup sul Drive, le
 credenziali OAuth e i guasti dei worker sono per azienda, e il ripristino
-degli archivi è un comando provato (WS3, su branch); ogni azienda ha un
+degli archivi è un comando provato (WS3); ogni azienda ha un
 abbonamento — prova di 30 giorni, omaggio, insoluto, sola lettura — e le due
 risorse misurate, spazio e Tars, dopo la tolleranza smettono di funzionare
-invece di limitarsi ad avvisare (WS4, su branch). Ruffino Group è il
-tenant 1 e tiene le chiavi di sempre.
+invece di limitarsi ad avvisare (WS4); dal pannello piattaforma si creano,
+si sospendono e si invitano le aziende senza toccare la riga di comando
+(WS6, su branch). Ruffino Group è il tenant 1 e tiene le chiavi di sempre.
 
-> **Stato al 08/09/2026:** WS1 e WS2 sono su `main` (PR #3 e #5, fuse
-> dalla direzione l'08/09), quindi distribuiti — Railway segue `main`;
-> l'accensione di `FLAG_MULTI_AZIENDA` in produzione resta una decisione
-> della direzione, e le sezioni sotto dicono in che ordine si fa. Il **WS3**
-> è su `feature/ws3-file-integrazioni` e **non è su `main`**: la sua sezione
-> vale dal momento in cui quel branch viene distribuito. Lo stesso vale per il
-> **WS4**, che sta su `feature/ws4-abbonamenti` — nato dal branch del WS3 e
-> quindi lo contiene.
+> **Stato al 09/09/2026:** WS1, WS2, WS3 e WS4 sono su `main` (PR #3, #5 e
+> #8 — quest'ultima porta WS3 e WS4 insieme, merge `37c1889`) e quindi
+> distribuiti: Railway segue `main`. `FLAG_MULTI_AZIENDA` è **acceso in
+> produzione dalle 09:54 del 09/09/2026**: le sezioni che dicono «in che
+> ordine si accende» restano come storia della procedura, non come lavoro da
+> fare. Il **WS6** (pannello piattaforma) è su
+> `feature/ws6-pannello-piattaforma` e **non è su `main`**: la sua sezione
+> vale dal momento in cui quel branch viene distribuito.
 
 ## Interruttore
 - `FLAG_MULTI_AZIENDA=off` (default in produzione): il CRM di oggi. Tabelle,
@@ -331,13 +334,13 @@ codice vecchio. Nessuna copia, nessuna rinomina, nessun cutover.
 Spec: `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
 (le decisioni prese durante l'esecuzione sono nella sua §2-bis).
 
-> **Stato al 08/09/2026:** i 13 task del WS3 sono implementati e committati su
-> `feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`, poi la fusione di `main` `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`), nato da `main`
-> @ `b77c9da`; `origin/main` è poi stato fuso nel branch (merge `212bf6f`) e
-> la revisione finale ha aperto una fix wave, anch'essa sul branch. Il branch
-> **non è su `main`**, quindi **niente di questa sezione è in produzione**:
-> vale dal momento in cui il branch viene distribuito. WS1 e WS2, invece,
-> sono su `main` dall'08/09 (PR #3 e #5).
+> **Stato al 09/09/2026:** il WS3 è **su `main` e in produzione**. I suoi 13
+> task sono nati su `feature/ws3-file-integrazioni` (da `cea968e` a `3c9b2e3`,
+> più la fusione di `main` `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`) e
+> sono arrivati su `main` con la PR **#8** insieme al WS4 (merge `37c1889`,
+> 09/09; la PR #7 del solo WS3 è stata chiusa a favore di quella). Da lì
+> Railway ha distribuito, e `FLAG_MULTI_AZIENDA` è acceso dalle 09:54 dello
+> stesso giorno: tutto ciò che segue è comportamento vivo.
 
 Con il solo WS2 gli archivi sono per azienda, ma file, backup, credenziali e
 guasti sono ancora dell'installazione: per questo il runbook vietava una
@@ -703,12 +706,12 @@ guarda il prefisso), `tenant_storage`, `oauth_state`, la colonna
 Spec: `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` (le
 decisioni prese durante l'esecuzione sono nella sua §2-bis).
 
-> **Stato al 08/09/2026:** i 9 task del WS4 sono implementati e committati su
-> `feature/ws4-abbonamenti` (da `bb2f147` a `d335a68`), nato da
-> `feature/ws3-file-integrazioni` @ `a44fc37`: finché la PR #7 del WS3 non è
-> fusa, questo branch contiene anche tutto il WS3. Il branch **non è su
-> `main`**, quindi **niente di questa sezione è in produzione**: vale dal momento in cui viene distribuito. WS1 e
-> WS2 sono su `main` dall'08/09 (PR #3 e #5).
+> **Stato al 09/09/2026:** il WS4 è **su `main` e in produzione**. I suoi 9
+> task sono nati su `feature/ws4-abbonamenti` (da `bb2f147` a `d335a68`),
+> branch che conteneva anche tutto il WS3, e sono arrivati su `main` con la
+> PR **#8** (merge `37c1889`, 09/09). `FLAG_MULTI_AZIENDA` è acceso in
+> produzione dalle 09:54 dello stesso giorno: abbonamenti, quota e budget
+> Tars contano e bloccano davvero.
 
 Con il WS3 un'azienda ha i suoi file, il suo backup e i suoi guasti, ma non ha
 un contratto: nessuno sa quando inizia, quando scade e che cosa succede se non
@@ -1047,56 +1050,6 @@ migrazione a senso unico.
   `abbonamento_modificato`, `tars_soglia`, `storage_bloccato`/`storage_sbloccato`,
   `tars_bloccato`/`tars_sbloccato`.
 
-## Verifica in sola lettura (prima e dopo l'accensione)
-
-    SELECT id, slug, stato FROM tenants ORDER BY id;
-    SELECT tipo, attore, created_at FROM tenant_eventi ORDER BY id DESC LIMIT 20;
-    SELECT id, tipo, stato, richiesto_da FROM tenant_comandi WHERE stato = 'in_attesa';
-    SELECT COUNT(*) FROM jsonb_array_elements((SELECT data FROM kv_store WHERE key = 'utenti')) u WHERE (u->>'tenantId') IS NULL;
-
-L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
-
-## Produzione, in ordine (WS1)
-
-> Se distribuisci WS1 e WS2 insieme — è il caso oggi, il branch del WS2
-> contiene il WS1 — segui l'ordine della sezione «Produzione, in ordine
-> (WS2)» qui sopra, che comprende questi passi.
-
-1. Backup Drive riuscito nelle 24 ore precedenti. Viene prima del deploy, non
-   solo prima dell'accensione: il backfill di `tenantId` su `utenti` e
-   `sedi` scatta al primo boot del nuovo codice anche a interruttore spento.
-2. Deploy con interruttore spento; verifica in sola lettura; nessun errore `[tenants]`.
-3. Backup Drive riuscito nelle 24 ore (di nuovo: verificane la freschezza se
-   è passato tempo dal passo 1).
-4. `FLAG_MULTI_AZIENDA=on`, riavvio; log `[tenants] tenant 1 … pronto`, evento
-   `proprietario_assegnato` per l'utente 1; `tenants.mio` dal client, dopo un
-   nuovo login.
-5. Nessun tenant 2 in produzione finché il WS3 non separa storage, backup e
-   credenziali (col solo WS1: finché il WS2 non apre la porta).
-
-## Errori che l'utente può vedere
-- «Azienda sospesa: il gestionale è in sola lettura.» — mutation con tenant
-  sospeso; da tRPC `PRECONDITION_FAILED`, dalle rotte Express (upload
-  documenti) HTTP `412` con lo stesso messaggio.
-- «L'azienda non ha una sede attiva.» — tenant senza sedi attive; stessi due
-  canali, `412` anche su download, anteprime, allegati mail e SSE.
-- ~~«L'azienda non è ancora attiva su questa installazione.»~~ — era la
-  «porta chiusa» del WS1: **rimossa dal WS2**, insieme al suo gemello nel
-  login.
-- «Impossibile: è l'ultima sede attiva dell'azienda. Attiva un'altra sede
-  prima di disattivarla.» — `sedi.update` con `attiva: false` sull'unica
-  sede attiva del tenant.
-- «Solo un proprietario può nominare o revocare un proprietario.»
-- «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
-- (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
-  (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage,
-  oauth_state, abbonamenti, tenant_inviti)…» — script lanciato contro un
-  database su cui il server con questa versione non è mai partito. Dal WS6 il
-  messaggio nomina tutte e **otto** le tabelle che la sonda chiede (prima
-  erano sette): quella che manca è fra queste (`abbonamenti` è del WS4,
-  `tenant_storage` e `oauth_state` del WS3, `tenant_inviti` del WS6, pannello
-  piattaforma).
-
 ## WS6 — pannello piattaforma
 
 Spec: `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
@@ -1314,8 +1267,11 @@ roll-forward.
   risposto entro 10 s. Il link resta valido: si copia e si consegna
   altrimenti. Non blocca né la creazione dell'azienda né l'invito.
 - «L'azienda ha più proprietari: indica l'email di chi invitare.»
-  (`BAD_REQUEST`) — «Invita» senza scegliere l'email quando l'azienda ha più
-  di un proprietario: si sceglie dalla sezione Proprietari e inviti.
+  (`BAD_REQUEST`) — dal pannello **non si vede**: la sezione «Proprietari e
+  inviti» manda sempre l'email della riga su cui si è premuto «Invia invito»,
+  quindi la scelta è già fatta. Lo si incontra solo chiamando
+  `piattaforma.invita` direttamente (API, script) senza `email` su un'azienda
+  con più di un proprietario: rimedio, passare l'email.
 - «L'azienda esiste già: nessun invito inviato.» — «Nuova azienda» con uno
   slug già usato: idempotente come `pnpm tenant crea`, non manda un secondo
   invito né tocca l'azienda esistente.
@@ -1338,3 +1294,54 @@ roll-forward.
 - (solo operatore) «Tabelle del control plane del tenant assenti (…,
   `tenant_inviti`)…» — il server non ha ancora fatto boot con questa
   versione: deploy prima, pannello poi (v. sopra, ora sono otto).
+
+## Verifica in sola lettura (prima e dopo l'accensione)
+
+    SELECT id, slug, stato FROM tenants ORDER BY id;
+    SELECT tipo, attore, created_at FROM tenant_eventi ORDER BY id DESC LIMIT 20;
+    SELECT id, tipo, stato, richiesto_da FROM tenant_comandi WHERE stato = 'in_attesa';
+    SELECT COUNT(*) FROM jsonb_array_elements((SELECT data FROM kv_store WHERE key = 'utenti')) u WHERE (u->>'tenantId') IS NULL;
+
+L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
+
+## Produzione, in ordine (WS1)
+
+> Se distribuisci WS1 e WS2 insieme — è il caso oggi, il branch del WS2
+> contiene il WS1 — segui l'ordine della sezione «Produzione, in ordine
+> (WS2)» qui sopra, che comprende questi passi.
+
+1. Backup Drive riuscito nelle 24 ore precedenti. Viene prima del deploy, non
+   solo prima dell'accensione: il backfill di `tenantId` su `utenti` e
+   `sedi` scatta al primo boot del nuovo codice anche a interruttore spento.
+2. Deploy con interruttore spento; verifica in sola lettura; nessun errore `[tenants]`.
+3. Backup Drive riuscito nelle 24 ore (di nuovo: verificane la freschezza se
+   è passato tempo dal passo 1).
+4. `FLAG_MULTI_AZIENDA=on`, riavvio; log `[tenants] tenant 1 … pronto`, evento
+   `proprietario_assegnato` per l'utente 1; `tenants.mio` dal client, dopo un
+   nuovo login.
+5. Nessun tenant 2 in produzione finché il WS3 non separa storage, backup e
+   credenziali (col solo WS1: finché il WS2 non apre la porta).
+
+## Errori che l'utente può vedere
+- «Azienda sospesa: il gestionale è in sola lettura.» — mutation con tenant
+  sospeso; da tRPC `PRECONDITION_FAILED`, dalle rotte Express (upload
+  documenti) HTTP `412` con lo stesso messaggio.
+- «L'azienda non ha una sede attiva.» — tenant senza sedi attive; stessi due
+  canali, `412` anche su download, anteprime, allegati mail e SSE.
+- ~~«L'azienda non è ancora attiva su questa installazione.»~~ — era la
+  «porta chiusa» del WS1: **rimossa dal WS2**, insieme al suo gemello nel
+  login.
+- «Impossibile: è l'ultima sede attiva dell'azienda. Attiva un'altra sede
+  prima di disattivarla.» — `sedi.update` con `attiva: false` sull'unica
+  sede attiva del tenant.
+- «Solo un proprietario può nominare o revocare un proprietario.»
+- «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
+- (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
+  (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage,
+  oauth_state, abbonamenti, tenant_inviti)…» — script lanciato contro un
+  database su cui il server con questa versione non è mai partito. Dal WS6 il
+  messaggio nomina tutte e **otto** le tabelle che la sonda chiede (prima
+  erano sette): quella che manca è fra queste (`abbonamenti` è del WS4,
+  `tenant_storage` e `oauth_state` del WS3, `tenant_inviti` del WS6, pannello
+  piattaforma).
+
