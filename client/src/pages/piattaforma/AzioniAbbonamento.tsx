@@ -243,7 +243,11 @@ export default function AzioniAbbonamento({
         azione.mutate({ ...base, azione: "budget_tars", eur: budgetEur });
         return;
       case "extra":
-        azione.mutate({ ...base, azione: "extra_tars", eur: extraEur ?? 0 });
+        // `extraEur` è già garantito non nullo da `valido` (riga sopra), ma
+        // un `?? 0` qui manderebbe uno zero a uno schema `positive()`: mai
+        // inventare un importo, si esce senza accodare nulla.
+        if (extraEur == null) return;
+        azione.mutate({ ...base, azione: "extra_tars", eur: extraEur });
     }
   }
 

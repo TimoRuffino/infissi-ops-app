@@ -63,6 +63,7 @@ import {
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type Scheda = RouterOutputs["piattaforma"]["azienda"];
 type Comando = NonNullable<RouterOutputs["piattaforma"]["comando"]>;
+type TipoComando = Comando["tipo"];
 
 /** L'azienda che possiede la piattaforma (stesso `TENANT_PREDEFINITO_ID` del server). */
 const TENANT_PIATTAFORMA_ID = 1;
@@ -165,6 +166,39 @@ function Tabella({
   );
 }
 
+/**
+ * Segue UN comando lungo (ricalcolo o ripristino) finché non si chiude. La
+ * pagina ne monta uno per ogni id in `inCorso` — un hook per comando
+ * seguito, mai condizionale — così un ricalcolo e una prova di ripristino
+ * avviati uno dopo l'altro si seguono entrambi invece che il secondo
+ * rimpiazzi il primo in un'unica variabile (era il bug: «In corso…» del
+ * primo spariva e il suo toast di chiusura non arrivava mai).
+ *
+ * Non disegna nulla: chiama `onChiuso` una sola volta quando lo stato smette
+ * di essere `in_attesa`. Non prende `tipo` come prop — il comando letto lo
+ * porta già con sé — così il genitore toglie l'id da `inCorso` e questo
+ * componente si smonta, fine del polling.
+ */
+function SeguiComando({
+  id,
+  onChiuso,
+}: {
+  id: number;
+  onChiuso: (comando: Comando) => void;
+}) {
+  const raccontato = useRef(false);
+  const comando = trpc.piattaforma.comando.useQuery({ id }, { refetchInterval: 2_000 });
+
+  useEffect(() => {
+    const dati = comando.data;
+    if (!dati || dati.stato === "in_attesa" || raccontato.current) return;
+    raccontato.current = true;
+    onChiuso(dati);
+  }, [comando.data, onChiuso]);
+
+  return null;
+}
+
 export default function AziendaDetail() {
   const { slug } = useParams<{ slug: string }>();
   const utils = trpc.useUtils();
@@ -173,16 +207,16 @@ export default function AziendaDetail() {
   const mio = trpc.tenants.mio.useQuery();
   const solaLettura = mio.data?.multiAzienda === false;
 
-  // Il comando lungo che stiamo seguendo (ricalcolo o ripristino): parte
-  // `in_attesa` e si chiude al giro del server. `gestito` ricorda l'id già
-  // raccontato, così un rerender non ripete il toast.
-  const [seguito, setSeguito] = useState<Comando | null>(null);
-  const gestito = useRef<number | null>(null);
-  const inAttesa = seguito?.stato === "in_attesa";
-  const seguitoQuery = trpc.piattaforma.comando.useQuery(
-    { id: seguito?.id ?? 0 },
-    { enabled: inAttesa, refetchInterval: 2_000 }
-  );
+  // I comandi lunghi in corso (ricalcolo, ripristino), per id: pilotano SOLO
+  // il polling — un `SeguiComando` per ogni id qui dentro, mai due comandi
+  // diversi nella stessa variabile (era il bug del promemoria: il secondo
+  // rimpiazzava il primo e il primo restava orfano).
+  const [inCorso, setInCorso] = useState<Map<number, TipoComando>>(new Map());
+  // L'ultimo comando conosciuto per tipo, anche dopo la chiusura: le sezioni
+  // (Spazio per il ricalcolo, Backup per il ripristino) raccontano l'esito
+  // leggendo da qui, non da `inCorso` — che dimentica l'id non appena il
+  // comando smette di essere seguito.
+  const [ultimo, setUltimo] = useState<Partial<Record<TipoComando, Comando>>>({});
 
   const [statoAperto, setStatoAperto] = useState<"sospendi" | "riattiva" | null>(null);
   const [motivo, setMotivo] = useState("");
@@ -198,6 +232,8 @@ export default function AziendaDetail() {
    * L'esito di un comando appena accodato: rinfresca sempre, poi racconta.
    * `false` quando il dominio ha rifiutato — chi ha aperto il dialogo lo
    * tiene aperto e mostra lì il messaggio, così com'è arrivato (spec §10).
+   * Un comando `in_attesa` (solo ricalcolo e ripristino) entra in `inCorso`:
+   * da qui in poi lo segue un `SeguiComando` dedicato al suo id.
    */
   const esitoComando = useCallback(
     (comando: Comando, successo: string): boolean => {
@@ -207,8 +243,8 @@ export default function AziendaDetail() {
         return false;
       }
       if (comando.stato === "in_attesa") {
-        gestito.current = null;
-        setSeguito(comando);
+        setUltimo(prev => ({ ...prev, [comando.tipo]: comando }));
+        setInCorso(prev => new Map(prev).set(comando.id, comando.tipo));
         toast.info(`${etichettaComando(comando.tipo)}: in corso, lo esegue il server.`);
         return true;
       }
@@ -218,19 +254,29 @@ export default function AziendaDetail() {
     [aggiorna]
   );
 
-  useEffect(() => {
-    const chiuso = seguitoQuery.data;
-    if (!chiuso || chiuso.stato === "in_attesa") return;
-    if (gestito.current === chiuso.id) return;
-    gestito.current = chiuso.id;
-    setSeguito(chiuso);
-    aggiorna();
-    if (chiuso.stato === "errore") {
-      toast.error(erroreDelComando(chiuso.esito) ?? "Il comando non è andato a buon fine.");
-    } else {
-      toast.success(`${etichettaComando(chiuso.tipo)}: fatto.`);
-    }
-  }, [seguitoQuery.data, aggiorna]);
+  /**
+   * Un comando seguito si chiude (chiamato da `SeguiComando`): esce da
+   * `inCorso` — il suo `SeguiComando` si smonta, fine del polling — e
+   * `ultimo` tiene il risultato, così la sezione può ancora raccontarlo.
+   */
+  const chiudiSeguito = useCallback(
+    (comando: Comando) => {
+      setUltimo(prev => ({ ...prev, [comando.tipo]: comando }));
+      setInCorso(prev => {
+        if (!prev.has(comando.id)) return prev;
+        const next = new Map(prev);
+        next.delete(comando.id);
+        return next;
+      });
+      aggiorna();
+      if (comando.stato === "errore") {
+        toast.error(erroreDelComando(comando.esito) ?? "Il comando non è andato a buon fine.");
+      } else {
+        toast.success(`${etichettaComando(comando.tipo)}: fatto.`);
+      }
+    },
+    [aggiorna]
+  );
 
   const cambiaStato = trpc.piattaforma.sospendi.useMutation({
     onSuccess: ({ comando }) => {
@@ -317,12 +363,17 @@ export default function AziendaDetail() {
   const storage = scheda.storage;
   const bloccoSpazio = etichettaBlocco(storage?.bloccoDal ?? null, adesso);
   const bloccoTars = etichettaBlocco(scheda.tars.bloccoDal, adesso);
-  const ricalcoloInCorso =
-    seguito?.tipo === "ricalcola_storage" && seguito.stato === "in_attesa";
+  const ricalcoloInCorso = ultimo.ricalcola_storage?.stato === "in_attesa";
   const titoloSolaLettura = solaLettura ? TESTO_SOLA_LETTURA_FLAG_SPENTO : undefined;
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-[1200px] space-y-5">
+      {/* Un `SeguiComando` per ogni comando lungo in corso: nessun hook
+          condizionale, un ricalcolo e un ripristino avviati insieme si
+          seguono entrambi. Non disegnano nulla. */}
+      {[...inCorso.keys()].map(id => (
+        <SeguiComando key={id} id={id} onChiuso={chiudiSeguito} />
+      ))}
       <PageHeader
         variant="record"
         eyebrow="Piattaforma"
@@ -598,7 +649,7 @@ export default function AziendaDetail() {
           backup={scheda.backup}
           tenant1={tenant1}
           solaLettura={solaLettura}
-          comandoSeguito={seguito}
+          comandoSeguito={ultimo.ripristina_archivi ?? null}
           onEsito={esitoComando}
         />
       </Sezione>

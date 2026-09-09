@@ -120,8 +120,13 @@ export default function SezioneRipristino({
     setAperto(true);
   }
 
+  // Come nel dialogo di sospensione (`AziendaDetail`): per il tenant 1 che
+  // scrive davvero, la casella «Anche Ruffino Group» non è facoltativa — il
+  // server la rifiuterebbe comunque, ma dirlo prima evita di far digitare la
+  // password per niente.
   const pronto =
-    form.backup.trim().length > 0 && (!form.scrivi || form.password.length > 0);
+    form.backup.trim().length > 0 &&
+    (!form.scrivi || (form.password.length > 0 && (!tenant1 || form.ancheTenant1)));
 
   const inCorso = comandoSeguito?.tipo === "ripristina_archivi" && comandoSeguito.stato === "in_attesa";
   const esito =
