@@ -25,6 +25,7 @@ import {
   assegnaProprietario,
   crea,
   eseguiComandiInAttesa,
+  eseguiComandoSubito,
   revocaProprietario,
   riattiva,
   sospendi,
@@ -554,5 +555,57 @@ describe("eseguiComandiInAttesa: attore piattaforma (WS6)", () => {
     expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
     const eventoRiattivato = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "riattivato");
     expect(eventoRiattivato?.attore).toBe("script:tenant@x");
+  });
+});
+
+// WS6 (pannello piattaforma, spec §5.2): il pannello accoda e vuole l'esito
+// subito, non il prossimo giro dei 30 s. `eseguiComandoSubito` prende in
+// carico il comando per id (`prendiEdEsegui` con `soloId`); se il giro lo ha
+// già preso, aspetta che chiuda invece di rieseguirlo o di prenderne un altro.
+describe("eseguiComandoSubito", () => {
+  it("esegue subito il comando accodato e ne restituisce l'esito", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "on";
+    const repo = getTenantRepository();
+    await crea(inputAcme(), script);
+    const c = await repo.accodaComando({
+      tipo: "sospendi",
+      tenantId: repo.perSlug("acme")!.id,
+      payload: { slug: "acme", motivo: "prova pannello" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    const esito = await eseguiComandoSubito(c.id);
+    expect(esito.stato).toBe("eseguito");
+    expect(repo.perSlug("acme")?.stato).toBe("sospeso");
+  });
+
+  it("se il giro lo ha già preso, aspetta e restituisce la riga chiusa", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "on";
+    const repo = getTenantRepository();
+    await crea(inputAcme(), script);
+    const c = await repo.accodaComando({
+      tipo: "riattiva",
+      tenantId: repo.perSlug("acme")!.id,
+      payload: { slug: "acme", motivo: "già attiva" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    await eseguiComandiInAttesa(); // il giro lo consuma prima
+    const esito = await eseguiComandoSubito(c.id, { attesaMs: 100, passoMs: 10 });
+    expect(esito.id).toBe(c.id);
+    expect(["eseguito", "errore"]).toContain(esito.stato);
+  });
+
+  it("a interruttore spento non esegue e lo dice", async () => {
+    // Esplicito: senza questo, in ambiente di test l'interruttore è acceso
+    // di default (fail-closed solo fuori da development/test — v.
+    // `interruttoreAttivo`), come nell'analoga prova di `eseguiComandiInAttesa`.
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    const repo = getTenantRepository();
+    const c = await repo.accodaComando({
+      tipo: "ricalcola_storage",
+      tenantId: 1,
+      payload: { slug: "ruffino-group" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    await expect(eseguiComandoSubito(c.id)).rejects.toThrow(/FLAG_MULTI_AZIENDA/);
   });
 });

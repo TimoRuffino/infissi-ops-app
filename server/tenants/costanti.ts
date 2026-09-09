@@ -36,4 +36,7 @@ export const MESSAGGI = {
   // del WS6 (pannello piattaforma).
   schemaAssente:
     "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage, oauth_state, abbonamenti, tenant_inviti): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
+  // WS6 (pannello piattaforma, spec §5.2): `eseguiComandoSubito` a
+  // interruttore spento — il pannello lo dice invece di eseguire comunque.
+  comandiSpenti: "Con FLAG_MULTI_AZIENDA spento i comandi non vengono eseguiti.",
 } as const;
