@@ -341,6 +341,74 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     expect(visti).toEqual([c2.id, c1.id]);
   });
 
+  // WS6 (pannello piattaforma, spec §4.3, fix round 1): `comandiDi`,
+  // `storageTutti` ed `eventiRecenti` erano finora esercitati solo dal
+  // repository in memoria — il loro SQL non aveva mai girato su Postgres
+  // vero. I tre test seguenti chiudono quel buco prima che il router del
+  // pannello (Task 6) dipenda da questi metodi.
+  it("comandiDi su Postgres: più recenti prima, ultimi taglia, tenant sconosciuto dà vuoto", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const a = repo.perSlug("comandi-a") ?? (await repo.inserisci({ slug: "comandi-a", nome: "Comandi A" }));
+    const b = repo.perSlug("comandi-b") ?? (await repo.inserisci({ slug: "comandi-b", nome: "Comandi B" }));
+    const a1 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: a.id, payload: { slug: a.slug }, richiestoDa: "test" });
+    const a2 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: a.id, payload: { slug: a.slug }, richiestoDa: "test" });
+    const b1 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: b.id, payload: { slug: b.slug }, richiestoDa: "test" });
+
+    expect((await repo.comandiDi(a.id)).map(c => c.id)).toEqual([a2.id, a1.id]);
+    expect((await repo.comandiDi(a.id, { ultimi: 1 })).map(c => c.id)).toEqual([a2.id]);
+    expect((await repo.comandiDi(b.id)).map(c => c.id)).toEqual([b1.id]);
+    expect(await repo.comandiDi(999999)).toEqual([]);
+  });
+
+  it("storageTutti su Postgres: tutte le aziende in una query, quota di ciascuna, ordinate per tenantId", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const c = repo.perSlug("storage-tutti-c") ?? (await repo.inserisci({ slug: "storage-tutti-c", nome: "Storage Tutti C" }));
+    const d = repo.perSlug("storage-tutti-d") ?? (await repo.inserisci({ slug: "storage-tutti-d", nome: "Storage Tutti D" }));
+    await repo.aggiornaStorage(c.id, 111, 3);
+    await repo.aggiornaStorage(d.id, 222, 5);
+    await repo.impostaQuotaStorage(c.id, 777);
+
+    const tutte = await repo.storageTutti();
+    const tenantIds = tutte.map(s => s.tenantId);
+    expect(tenantIds).toEqual([...tenantIds].sort((x, y) => x - y)); // ordinate per tenantId
+
+    expect(tutte.find(s => s.tenantId === c.id)).toMatchObject({ bytes: 111, file: 3, quotaBytes: 777 });
+    expect(tutte.find(s => s.tenantId === d.id)).toMatchObject({ bytes: 222, file: 5, quotaBytes: 100 * 1024 ** 3 });
+  });
+
+  // La tabella è append-only (trigger `tenant_eventi_solo_insert`, vedi il
+  // test più sopra): per simulare un evento vecchio si retrodata `created_at`
+  // con SQL diretto, aggirando il trigger SOLO per questa transazione con
+  // `session_replication_role = replica` (un `SET LOCAL`: si spegne da solo
+  // alla fine della transazione, la tabella resta append-only per tutti gli
+  // altri test del file).
+  it("eventiRecenti su Postgres: filtra per tipo e finestra di tempo su tutte le aziende, tenant giusto", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const e1 = repo.perSlug("eventi-recenti-e1") ?? (await repo.inserisci({ slug: "eventi-recenti-e1", nome: "Eventi Recenti E1" }));
+    const e2 = repo.perSlug("eventi-recenti-e2") ?? (await repo.inserisci({ slug: "eventi-recenti-e2", nome: "Eventi Recenti E2" }));
+
+    const vecchio = await repo.registraEvento({ tenantId: e1.id, tipo: "worker_sospeso", attore: "boot", dettagli: { etichetta: "imap" } });
+    await sql.begin(async tx => {
+      await tx`SET LOCAL session_replication_role = replica`;
+      await tx`UPDATE tenant_eventi SET created_at = NOW() - interval '2 hours' WHERE id = ${vecchio.id}`;
+    });
+
+    const da = new Date();
+    const recenteA = await repo.registraEvento({ tenantId: e1.id, tipo: "worker_sospeso", attore: "boot", dettagli: { etichetta: "smtp" } });
+    const recenteB = await repo.registraEvento({ tenantId: e2.id, tipo: "worker_riarmato", attore: "boot" });
+    await repo.registraEvento({ tenantId: e2.id, tipo: "creato", attore: "boot" }); // tipo non richiesto: escluso
+
+    const risultato = await repo.eventiRecenti({ tipi: ["worker_sospeso", "worker_riarmato"], da });
+    expect(risultato.map(e => e.id)).toEqual([recenteA.id, recenteB.id]); // ascendente per id, il vecchio fuori dalla finestra
+    expect(risultato.map(e => e.tenantId)).toEqual([e1.id, e2.id]);
+  });
+
   it("lo schema del WS3 è idempotente anche sopra uno schema del WS2 (CHECK vecchio a terra)", async () => {
     await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
