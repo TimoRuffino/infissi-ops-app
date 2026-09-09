@@ -68,6 +68,33 @@ sono collegata, come mi collego, cosa si è rotto e cosa devo fare.
 | 7 | Approccio | **A — cornice unica, sei adattatori** | solo le pratiche esterne con codice al minimo; partire dal percorso guidato |
 | 8 | Confine con WS3 | **Gli adattatori avvolgono, non riscrivono**; PRD e handoff scritti per ultimi | rifattorizzare i file toccati da WS3 approfittando del passaggio |
 
+## 2-bis. Decisioni in corso d'opera
+
+La revisione dell'intero branch (09/09/2026, `cff8ef0..c139b83`) ha trovato
+2 Critical e 11 Important. Le decisioni prese per chiuderli in una sola
+tornata — con il loro costo se sbagliate — stanno qui, così la spec descrive
+il codice che c'è.
+
+| # | Tema | Decisione | Costo se sbagliata |
+|---|---|---|---|
+| W2 | Redirect OAuth del Drive (C2) | La «zona vietata» di §7.2 era una regola di coordinamento mentre WS3 era in volo: oggi WS3, WS4 e WS6 sono su main, quindi `_core/index.ts` e `driveBackup.ts` si toccano per il minimo necessario. Il redirect canonico viaggia nel payload dello `state` (`oauth_state`, tipo `gdrive`) come fa già FiC, e lo scambio del codice lo rilegge da lì — l'host della richiesta resta solo come ripiego per gli state del pannello backup, che non lo portano. `GOOGLE_OAUTH_REDIRECT_URI` va impostata a `https://app.wyndoor.com/api/oauth/gdrive/callback` | un collegamento Drive da rifare |
+| W3 | `verifica()` e percorso raggiungibili (I6, I7) | Non si rimandano: «Prova il collegamento» sulla striscia chiama `verifica()`, e il percorso di attivazione è raggiungibile — dopo l'accettazione dell'invito (WS6) il proprietario atterra su `/integrazioni?attivazione=1`, e un richiamo in testa alle Impostazioni ci riporta finché il percorso non è completo. Ogni passo offre le stesse azioni della striscia, oltre a «Salta» | un redirect e un pulsante in più |
+| W4 | Modulo manuale di WhatsApp (I9) | Resta sempre raggiungibile dentro un `<details>` «Diagnostica», anche quando l'app di piattaforma è pronta: era l'unica strada di chi il numero l'ha collegato a mano, e sparire al primo deploy non è una semplificazione | nessuno |
+| W5 | Minori a buon mercato | Entrano nella stessa tornata: etichette e titoli di sezione da `etichette.ts`, «della tua azienda» al posto di «dell'installazione», `verificatoIl` reso, invalidazione della cache su `avvia`/`completa`/`scollega`, `useSearch` al posto di `window.location.search`, `assertChiaveCifratura()` in testa a `fic.avvia`, `WHATSAPP_VERIFY_TOKEN` di piattaforma nell'handshake del webhook. Restano rimandati e vanno scritti nei documenti: soggetto FiC col nome dell'azienda, `agente.verifica` che interroga davvero il provider, i ripieghi `?? 1`, il ramo service-account del Drive, `getCfg` che scrive da una query | qualche riga di codice in più in questa tornata |
+
+Due precisazioni nate scrivendo il codice, entrambe più prudenti della
+lettera del brief:
+
+- **L'override WhatsApp per sede vince o perde come unità** (appId + configId
+  + appSecret), ma il ripiego sulla piattaforma vale solo se la piattaforma
+  ha la terna intera. Su un'installazione senza le variabili `WHATSAPP_*` —
+  quella di oggi — un record per sede incompleto resta quello che è, com'era
+  prima del WS5: altrimenti la sede perderebbe le sue credenziali in cambio
+  di niente.
+- **Una prova viva andata bene non cancella il problema che lo stato
+  conosce**: «scegli un'azienda» e «la piattaforma non è configurata»
+  parlano d'altro e restano veri anche mentre il fornitore risponde.
+
 ## 3. Il contratto
 
 ### 3.1 Non è inventato, è estratto
