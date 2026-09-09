@@ -349,6 +349,11 @@ async function startServer() {
   // Dal WS3 lo state sta in `oauth_state` e dice a quale azienda appartiene
   // il collegamento: il tenant lo dichiara `handleOAuthCallback`, non la
   // rotta, che di sessione non ne ha. Nel log non finisce mai lo `state`.
+  // Dal WS5 (ruling W2) lo state porta anche il redirect canonico usato per
+  // l'autorizzazione, e `handleOAuthCallback` presenta QUELLO a Google: lo
+  // state è monouso e si consuma là dentro, quindi non lo si può rileggere
+  // qui. Il redirect ricostruito dall'host resta il ripiego per gli state
+  // emessi dal pannello backup, che non lo portano.
   app.get("/api/oauth/gdrive/callback", async (req, res) => {
     const { handleOAuthCallback } = await import("./driveBackup");
     const code = String(req.query.code ?? "");

@@ -70,6 +70,50 @@ describe("backup per azienda", () => {
     await expect(handleOAuthCallback("codice", state, "https://crm/cb")).rejects.toThrow("Stato OAuth non valido o scaduto");
   });
 
+  // C2 della revisione (ruling W2): l'autorizzazione parte col callback
+  // CANONICO della piattaforma, lo scambio lo ricostruiva dall'header Host.
+  // Due redirect diversi nelle due metà dello stesso giro sono un
+  // `redirect_uri_mismatch` di Google, con il suo messaggio e non il nostro.
+  // Il redirect viaggia quindi nello state, come fa già FiC.
+  it("il redirect canonico viaggia nello state e vince sull'host della richiesta", async () => {
+    let corpo = "";
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.startsWith("https://oauth2.googleapis.com/token")) {
+        corpo = String(init?.body ?? "");
+        return new Response(JSON.stringify({ access_token: "acc", refresh_token: "R", expires_in: 3600 }), { status: 200 });
+      }
+      if (u.includes("/about")) return new Response(JSON.stringify({ user: {} }), { status: 200 });
+      throw new Error(`fetch inatteso: ${u}`);
+    }) as any;
+
+    const canonico = "https://app.wyndoor.com/api/oauth/gdrive/callback";
+    const state = await conTenant(2, () => issueOAuthState(7, canonico));
+    await handleOAuthCallback("codice", state, "https://host-di-passaggio.test/api/oauth/gdrive/callback");
+
+    expect(new URLSearchParams(corpo).get("redirect_uri")).toBe(canonico);
+  });
+
+  it("uno state senza redirect (pannello backup di prima) ripiega sull'host, come faceva", async () => {
+    let corpo = "";
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.startsWith("https://oauth2.googleapis.com/token")) {
+        corpo = String(init?.body ?? "");
+        return new Response(JSON.stringify({ access_token: "acc", refresh_token: "R", expires_in: 3600 }), { status: 200 });
+      }
+      if (u.includes("/about")) return new Response(JSON.stringify({ user: {} }), { status: 200 });
+      throw new Error(`fetch inatteso: ${u}`);
+    }) as any;
+
+    const state = await conTenant(2, () => issueOAuthState(7));
+    await handleOAuthCallback("codice", state, "https://crm.test/api/oauth/gdrive/callback");
+
+    expect(new URLSearchParams(corpo).get("redirect_uri")).toBe(
+      "https://crm.test/api/oauth/gdrive/callback"
+    );
+  });
+
   it("una riga con refreshToken in chiaro viene cifrata al caricamento (senso unico)", () => {
     // La stessa funzione che persistence passa come onLoad, chiamata a mano con
     // il blob del WS2: così la migrazione si prova senza rifare il bootstrap.

@@ -339,16 +339,12 @@ export default function WhatsAppCard() {
                 Collega col QR
               </Button>
             )}
-            <Button
-              size="sm"
-              className="min-h-11"
-              variant={app.data?.pronta ? "outline" : "default"}
-              disabled={!chiaveOk}
-              onClick={() => setAperto(true)}
-            >
-              <Plus className="size-3.5" aria-hidden="true" />
-              A mano
-            </Button>
+            {/* Il percorso a mano sposta il numero e non conserva le
+                conversazioni: dal WS5 non e' piu' una scelta offerta accanto
+                al QR. Vive nella «Diagnostica», qui sotto, e sta li' SEMPRE —
+                anche con l'app di piattaforma pronta: era l'unica strada di
+                chi il numero l'ha gia' collegato a mano, e sparirgli sotto le
+                dita al primo deploy non e' una semplificazione. */}
           </>
         )
       }
@@ -392,7 +388,7 @@ export default function WhatsAppCard() {
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {chiaveOk
-                ? "Collega un numero col QR (coexistence) oppure configuralo a mano: il webhook si verifica prima ancora che il numero esista."
+                ? "Collega il numero inquadrando il QR con l'app WhatsApp Business del telefono: il numero resta dov'è, con le sue chat."
                 : "Configura prima MAIL_ENCRYPTION_KEY sul server: senza chiave il token di accesso non può essere salvato."}
             </p>
           </div>
@@ -483,24 +479,33 @@ export default function WhatsAppCard() {
           </p>
         </div>
 
-        {/* App Meta — serve per il collegamento col QR (coexistence) */}
-        <details className="rounded-lg border p-3" open={!app.data?.pronta}>
+        {/* App Meta — credenziali proprie della sede.
+            Dal WS5 l'app è della piattaforma: il cliente non apre mai
+            developers.facebook.com, e questi campi restano solo come
+            override, mostrati quando la piattaforma non provvede o quando
+            qualcuno ha già messo credenziali sue. */}
+        <details
+          className="rounded-lg border p-3"
+          open={!app.data?.pronta}
+          hidden={app.data?.pronta && app.data?.diPiattaforma}
+        >
           <summary className="text-sm font-medium cursor-pointer select-none">
-            App Meta {app.data?.pronta ? "✓" : "— da configurare"}
+            Credenziali proprie dell&apos;app (avanzate)
+            {app.data?.pronta ? " ✓" : " — da configurare"}
           </summary>
           <div className="space-y-3 mt-3">
             <p className="text-xs text-muted-foreground">
-              Serve solo per il collegamento col QR, che mantiene il numero
-              attivo sul telefono con le sue chat. Meta lo concede a chi è
-              registrato come <strong>Tech Provider</strong>: senza quello
-              status il popup non si apre, e resta la configurazione a mano
-              (che però sposta il numero e non conserva le conversazioni).
+              Normalmente non servono: l&apos;app Meta è della piattaforma e il
+              collegamento col QR funziona senza toccare niente qui. Questi
+              campi valgono solo se questa sede deve usare un&apos;app propria
+              — per esempio perché il suo numero vive in un portfolio
+              aziendale separato.
             </p>
             <div className="flex gap-2">
               <div className="space-y-1.5 flex-1">
                 <Label className="text-xs">App ID</Label>
                 <Input
-                  defaultValue={app.data?.appId ?? ""}
+                  defaultValue={app.data?.propri?.appId ?? ""}
                   onBlur={(e) =>
                     setApp.mutate({ appId: e.target.value.trim() })
                   }
@@ -510,7 +515,7 @@ export default function WhatsAppCard() {
               <div className="space-y-1.5 flex-1">
                 <Label className="text-xs">Configuration ID</Label>
                 <Input
-                  defaultValue={app.data?.configId ?? ""}
+                  defaultValue={app.data?.propri?.configId ?? ""}
                   onBlur={(e) =>
                     setApp.mutate({ configId: e.target.value.trim() })
                   }
@@ -521,12 +526,13 @@ export default function WhatsAppCard() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">
-                App secret {app.data?.appSecretConfigurato ? "(già impostato)" : ""}
+                App secret{" "}
+                {app.data?.propri?.appSecretConfigurato ? "(già impostato)" : ""}
               </Label>
               <Input
                 type="password"
                 placeholder={
-                  app.data?.appSecretConfigurato
+                  app.data?.propri?.appSecretConfigurato
                     ? "Lascia vuoto per non cambiarlo"
                     : "Impostazioni app → Di base"
                 }
@@ -543,6 +549,42 @@ export default function WhatsAppCard() {
                 completa il collegamento col QR.
               </p>
             </div>
+          </div>
+        </details>
+
+        {/* Diagnostica: il percorso a mano. Non e' offerto al cliente — sposta
+            il numero su Meta e non conserva le conversazioni — ma non
+            sparisce mai, perche' e' l'unica strada quando il popup non parte
+            (SDK bloccato, popup negati dal browser) e per chi il numero l'ha
+            collegato cosi'. */}
+        <details className="rounded-lg border p-3" data-diagnostica="1">
+          <summary className="cursor-pointer select-none text-sm font-medium">
+            Diagnostica
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Il collegamento normale è il QR: il numero resta dov'è,
+              con le sue chat. Il percorso a mano serve solo quando il popup di
+              Meta non è disponibile — sposta il numero sull'API e non
+              conserva le conversazioni già scambiate.
+            </p>
+            <Button
+              size="sm"
+              className="min-h-11"
+              variant="outline"
+              disabled={!chiaveOk}
+              onClick={() => setAperto(true)}
+              title="Configurazione manuale: sposta il numero su Meta e non conserva le conversazioni"
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+              Collega un numero a mano
+            </Button>
+            {!chiaveOk && (
+              <p className="text-xs text-muted-foreground">
+                Serve prima MAIL_ENCRYPTION_KEY sul server: senza chiave il
+                token non può essere salvato.
+              </p>
+            )}
           </div>
         </details>
 

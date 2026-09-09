@@ -150,7 +150,12 @@ export function ficConfigDiSede(sedeId: number | null): FicConfig | null {
   return cfgRows.find(x => x.sedeId === (sedeId ?? DEFAULT_SEDE_ID)) ?? null;
 }
 
-function assertChiaveCifratura() {
+/**
+ * Esportata dal WS5: l'adattatore delle integrazioni deve poter rifiutare il
+ * giro OAuth PRIMA di mandare il cliente su Fatture in Cloud, e il messaggio
+ * deve restare uno solo. Nient'altro cambia qui dentro.
+ */
+export function assertChiaveCifratura() {
   if (!secretBoxConfigured()) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",

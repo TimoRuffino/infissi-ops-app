@@ -1,13 +1,14 @@
-# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti + WS4 abbonamenti + WS6 pannello piattaforma)
+# Runbook multi-azienda (WS1 fondazione tenant + WS2 archivi per tenant + WS3 file, backup, credenziali e guasti + WS4 abbonamenti + WS5 collegamento delle integrazioni + WS6 pannello piattaforma)
 
 Spec: `docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md`,
 `docs/superpowers/specs/2026-09-07-ws2-porta-aperta-design.md`,
 `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`,
-`docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md` e
+`docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md`,
+`docs/superpowers/specs/2026-09-08-ws5-collegamento-integrazioni-design.md` e
 `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md` (le
-decisioni prese durante l'esecuzione di WS2, WS3, WS4 e WS6 sono nelle
-rispettive §2-bis). Moduli: `server/tenants/`, `server/piattaforma/`.
-Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
+decisioni prese durante l'esecuzione di WS2, WS3, WS4, WS5 e WS6 sono nelle
+rispettive §2-bis). Moduli: `server/tenants/`, `server/piattaforma/`,
+`server/integrazioni/`. Interruttore: `FLAG_MULTI_AZIENDA` (fail-closed).
 
 ## Cosa fa, in una riga
 Il tenant (azienda) esiste, è nel contesto di ogni richiesta, ha guardie e un
@@ -17,18 +18,22 @@ credenziali OAuth e i guasti dei worker sono per azienda, e il ripristino
 degli archivi è un comando provato (WS3); ogni azienda ha un
 abbonamento — prova di 30 giorni, omaggio, insoluto, sola lettura — e le due
 risorse misurate, spazio e Tars, dopo la tolleranza smettono di funzionare
-invece di limitarsi ad avvisare (WS4); dal pannello piattaforma si creano,
-si sospendono e si invitano le aziende senza toccare la riga di comando
-(WS6, su branch). Ruffino Group è il tenant 1 e tiene le chiavi di sempre.
+invece di limitarsi ad avvisare (WS4); Fatture in Cloud, WhatsApp, backup su
+Drive, posta e agente si collegano da soli, con credenziali e callback di
+piattaforma invece che del cliente, dentro un percorso guidato dopo l'invito
+(WS5); dal pannello piattaforma si creano, si sospendono e si invitano le
+aziende senza toccare la riga di comando (WS6). Ruffino Group è il tenant 1 e
+tiene le chiavi di sempre.
 
-> **Stato al 09/09/2026:** WS1, WS2, WS3 e WS4 sono su `main` (PR #3, #5 e
-> #8 — quest'ultima porta WS3 e WS4 insieme, merge `37c1889`) e quindi
-> distribuiti: Railway segue `main`. `FLAG_MULTI_AZIENDA` è **acceso in
-> produzione dalle 09:54 del 09/09/2026**: le sezioni che dicono «in che
-> ordine si accende» restano come storia della procedura, non come lavoro da
-> fare. Il **WS6** (pannello piattaforma) è su
-> `feature/ws6-pannello-piattaforma` e **non è su `main`**: la sua sezione
-> vale dal momento in cui quel branch viene distribuito.
+> **Stato al 09/09/2026 (sera):** WS1, WS2, WS3, WS4 e WS6 sono su `main`
+> (PR #3, #5, #8 — che porta insieme WS3 e WS4, merge `37c1889` — e #9 per
+> WS6, merge `cff8ef0`) e quindi distribuiti: Railway segue `main`.
+> `FLAG_MULTI_AZIENDA` è **acceso in produzione dalle 09:54 del 09/09/2026**:
+> le sezioni che dicono «in che ordine si accende» restano come storia della
+> procedura, non come lavoro da fare. Il **WS5** (collegamento delle
+> integrazioni in self-service) è l'unico rimasto fuori da `main`, su
+> `feature/ws5-integrazioni-su-main`: la sua sezione vale dal momento in cui
+> quel branch viene distribuito.
 
 ## Interruttore
 - `FLAG_MULTI_AZIENDA=off` (default in produzione): il CRM di oggi. Tabelle,
@@ -1050,6 +1055,336 @@ migrazione a senso unico.
   `abbonamento_modificato`, `tars_soglia`, `storage_bloccato`/`storage_sbloccato`,
   `tars_bloccato`/`tars_sbloccato`.
 
+## WS5 — collegamento delle integrazioni in self-service
+
+Spec: `docs/superpowers/specs/2026-09-08-ws5-collegamento-integrazioni-design.md`
+(le decisioni prese durante l'esecuzione sono nella sua §2-bis, «Ancora
+aperti» compreso). Moduli: `server/integrazioni/` (contratto, registro,
+adattatori, router) e `client/src/integrazioni/` (scheda, percorso guidato,
+etichette).
+
+> **Stato al 09/09/2026 (sera):** implementato su
+> `feature/ws5-integrazioni-su-main` (nato da `main` @ `cff8ef0` — un `main`
+> che contiene già WS1, WS2, WS3, WS4 **e WS6**: questo è l'unico workstream
+> rimasto fuori da `main`). I 13 task del piano sono stati eseguiti su un
+> altro worktree e fusi qui (merge `c139b83`), poi sottoposti a una
+> revisione dell'intero branch (2 Critical, 11 Important) e a un'unica fix
+> wave (8 commit, `2901017`…`0d6d70d`). `pnpm check`/`test`/`build` verdi
+> (351 file / 3759 test), `pg.test` 14 file / 71 test. **Non su `main`, non
+> in produzione.**
+
+Con WS3 un'azienda ha i suoi file, il suo backup e le sue credenziali; con
+WS4 ha un contratto. Restava scoperto il gesto che viene prima di tutti:
+**collegare**. Prima del WS5 sei integrazioni si collegavano in sei modi
+diversi, una chiedeva al cliente di aprirsi un account sviluppatore Meta, e
+nessuna sapeva dire da sola cosa si fosse rotto. Con la vendita a terzi non
+c'è più nessuno da chiamare per attivarle: il WS5 dà a ogni integrazione lo
+stesso linguaggio — a cosa sono collegata, come mi collego, cosa si è rotto
+e cosa devo fare — dietro credenziali e callback **di piattaforma**, cioè di
+Wyndoor, mai del cliente.
+
+### La cornice e i cinque adattatori
+
+`server/integrazioni/contratto.ts` fissa il tipo `Adattatore`: `stato()` è
+sola lettura e **non fa nessuna chiamata di rete** (la pagina Impostazioni lo
+invoca sei volte a ogni caricamento), `verifica()` è l'unica prova viva sul
+fornitore (su richiesta, in cache 60 s per azienda+chiave+sede — due click
+ravvicinati costano una sola chiamata al fornitore), `avvia`/`completa`/
+`scollega` sono opzionali. Il registro (`server/integrazioni/registro.ts`)
+elenca **cinque** adattatori, non sei: `fic`, `email`, `whatsapp`, `backup`,
+`agente`. Il sesto, `calendario`, resta un valore del tipo `Chiave` senza
+nessun adattatore che lo implementi — la fase 4 (OAuth Google in entrata,
+spec §11) non è partita: dipende dalla verifica del consent screen Google
+(fase 0, ancora da fare) e dall'aggiunta di `'gcal'` al `CHECK` di
+`oauth_state` (`server/tenants/repository.ts:717`, oggi ancora
+`('fic','gdrive')`). La sezione Calendari della pagina Impostazioni mostra
+ancora solo i componenti di prima (`GoogleCalendarImport`/
+`GoogleCalendarSync`: l'indirizzo iCal incollato a mano, per calendario) —
+il WS5 non li ha toccati.
+
+Ogni adattatore **avvolge** il router che esisteva già e dichiara lo stesso
+`permesso` (`"direzione"` o `"utente"`) che quel router applica già — FiC,
+posta, WhatsApp e backup restano di fatto `adminProcedure`, solo l'agente
+resta alla portata di tutti — così la cornice non allarga né restringe un
+permesso (guardia
+`server/integrazioni/guardie.test.ts`). Nessuno dei router sottostanti è
+stato riscritto: `fic.ts` e `backup.ts` chiamano funzioni già esportate da
+`fattureInCloud.ts` e `driveBackup.ts` (`getCfg`, `accessTokenFic`,
+`backupStatus`, `issueOAuthState`…), con l'unica eccezione dichiarata sotto
+(«Callback di piattaforma e redirect nello state»). Il router unico è
+`integrazioni.*` (`server/integrazioni/router.ts`, montato in
+`server/routers.ts`): `elenco`, `verifica`, `avvia`, `completa`, `scollega`,
+`attivazione`, `salta`. Una chiave sconosciuta e un permesso negato danno lo
+**stesso** `NOT_FOUND` — un `FORBIDDEN` distinguerebbe «esiste ma non puoi»
+da «non esiste», informazione utile a chi enumera, non a chi ha diritto.
+`risolvi()` verifica anche che la sede attiva sia dell'azienda del contesto
+(`tenantIdDellaSede`, difesa in profondità: in produzione il contesto la
+risolve già dentro le sedi ammesse dell'azienda) — stesso `NOT_FOUND`, mai un
+id che confermi che una sede altrui esiste (guardia
+`server/integrazioni/crossTenant.test.ts`, I11).
+
+Un adattatore che lancia in `stato()` non fa sparire gli altri cinque:
+`elenco()` e `passiAttivazione()` usano `Promise.allSettled`
+(`server/integrazioni/errori.ts`), e chi fallisce diventa la sua riga «Stato
+non disponibile: …» con `azione: "assistenza"` — il messaggio è tagliato a
+120 caratteri e ogni sequenza che somiglia a un token (24+ caratteri senza
+spazi) è sostituita da «…», sia nella risposta sia nel log.
+
+Il percorso di attivazione tiene il proprio stato in un `persistedStore`
+nuovo, per azienda: `onboarding_integrazioni`
+(`server/integrazioni/attivazione.ts`, registrato come famiglia «senza sede
+diretta» in `server/tenants/verifica.ts` — un passo saltato vale per
+l'azienda intera, non per una sua sede). Non tiene una seconda verità:
+«collegata» lo decide sempre `stato()` dell'adattatore; qui si registra solo
+che qualcuno ha scelto di saltare un passo.
+
+### Cosa vede l'azienda (striscia, percorso di attivazione, richiamo)
+
+Ogni integrazione, in ogni modalità, si presenta con la stessa striscia
+(`client/src/integrazioni/SchedaIntegrazione.tsx`): a cosa sono collegata
+(icona più «collegato a `<soggetto>`» o «non ancora collegato», l'ambito —
+«per la sede» / «per l'azienda» — e, dopo una prova, «verificato il gg/mm,
+hh:mm»), il pulsante **Prova il collegamento** che chiama `verifica()`, e —
+solo se manca un collegamento e il problema non è `"assistenza"` — **Collega**.
+Un guasto trovato dalla prova viva si **aggiunge** a quello che lo stato già
+conosce, non lo copre: «scegli un'azienda» o «la piattaforma non è
+configurata» restano scritti anche se il fornitore risponde bene nel
+frattempo. La striscia sta SOPRA il pannello di ogni integrazione, come
+sorella e non come card annidata (`CLAUDE.md` lo vieta): `FattureInCloudCard`,
+`BackupDrive`, `CaselleEmailCard`, `WhatsAppCard` e `TarsAgentCard` restano
+`children`, non riscritti.
+
+`client/src/pages/Integrazioni.tsx` (da 1711 righe a composizione) resta
+nella sua forma libera di prima — abbonamento, canali (posta e WhatsApp),
+contabilità (FiC), limiti, calendari, backup, agente, direzione — con la
+striscia sopra ogni pannello che ha un adattatore. Il percorso guidato
+(`client/src/integrazioni/PercorsoAttivazione.tsx`, `?attivazione=1`) segue
+invece l'ordine del registro — FiC (i soldi) → posta → WhatsApp → backup →
+agente — con la stessa striscia per ogni passo più **Salta**, sempre
+disponibile: nessun passo blocca, un'integrazione rotta non annulla
+l'attivazione, il CRM si usa anche a percorso vuoto. Il proprietario ci
+atterra da solo dopo aver accettato l'invito (WS6): `InvitoPage` manda a
+`/integrazioni?attivazione=1` invece che alla home. Finché
+`integrazioni.attivazione` ha almeno un passo `"da_fare"`, in cima alle
+Impostazioni compare un richiamo — «Completa l'attivazione» / «Riprendi il
+percorso» — che ci riporta: prima della fix wave quell'URL esisteva ma non
+c'era verso di raggiungerlo dal prodotto.
+
+Quando `avvia()` risponde `{tipo:"modulo"}` (posta) o `{tipo:"popup"}`
+(WhatsApp), o quando il problema è `"scegli"` (FiC con più aziende), sia la
+striscia in Impostazioni sia il percorso portano al pannello giusto —
+`/integrazioni?scheda=<chiave>`, con `useSearch()` di wouter e mai
+`window.location.search`, che non si accorge di un cambio senza reload — e
+ne aprono i `<details>` (tranne quello con `data-diagnostica="1"`, che resta
+chiuso: non è il percorso da mostrare a chi arriva).
+
+### WhatsApp: app di piattaforma e override per sede
+
+L'Embedded Signup con coexistence esisteva già (`FB.login` con `config_id`,
+scambio del `code`, sottoscrizione della WABA, sincronizzazione dello
+storico nelle 24 ore concesse da Meta): l'unico ostacolo era che le tre
+credenziali dell'app Meta — App ID, Configuration ID, App secret — vivevano
+per sede, con l'interfaccia che indicava al cliente dove trovarle su
+`developers.facebook.com`. Dal WS5 `appEffettiva(sedeId)`
+(`server/comunicazioni/whatsapp.ts`) prende `WHATSAPP_APP_ID`/
+`WHATSAPP_CONFIG_ID`/`WHATSAPP_APP_SECRET` dall'ambiente come credenziali di
+piattaforma; il record per sede resta com'era, ma diventa un **override** —
+e vince o perde come **terna intera**: un Configuration ID è una
+configurazione DI quell'App ID, e un app secret firma per quell'app, quindi
+prendere due campi da una parte e uno dall'altra darebbe una combinazione
+che Meta non riconosce. Se la piattaforma NON ha la terna intera —
+l'installazione di oggi, `WHATSAPP_*` non ancora impostate — un override di
+sede incompleto resta quello che è, esattamente come prima del WS5: la sede
+non perde le sue credenziali in cambio di niente.
+
+I tre campi escono dalla scheda del cliente: nel pannello WhatsApp restano
+dietro `<details>` «Credenziali proprie dell'app (avanzate)», aperto solo
+quando l'app non è pronta o nascosto quando è pronta e viene dalla
+piattaforma (`WhatsAppCard.tsx`); il campo mostra sempre quello che la SEDE
+ci ha scritto (`propri`), mai il valore di piattaforma che lo sostituisce.
+Il modulo manuale — numero, phone number ID, WABA ID, token e app secret
+digitati a mano — **non sparisce**: vive sempre dentro un secondo
+`<details data-diagnostica="1">` intitolato «Diagnostica», chiuso di
+default, con la frase che spiega perché non è il percorso normale (sposta il
+numero sull'API e non conserva le conversazioni). Era l'unica strada di chi
+il numero l'ha già collegato così, e farlo sparire al primo deploy avrebbe
+tolto qualcosa a Ruffino Group, non solo semplificato.
+
+Il verify token dell'handshake del webhook (`verifyTokenValido`, stessa
+funzione di sempre) ora accetta anche `WHATSAPP_VERIFY_TOKEN` di piattaforma,
+oltre ai token già generati per ogni app/sede: serve perché il webhook si
+convalida su Meta **una volta per app**, in un momento in cui un numero può
+ancora non esistere.
+
+### Callback di piattaforma e redirect nello state
+
+Il callback OAuth è di Wyndoor, mai dell'host da cui il cliente naviga: FiC
+(`FIC_OAUTH_REDIRECT_URI`) sapeva già ripiegare sull'header `Host` quando la
+variabile mancava; il WS5 tratta quel ripiego come un guasto da dichiarare,
+non come una soluzione. `server/integrazioni/callback.ts` espone
+`callbackCanonico(nome)` — lancia se la variabile manca, quindi `avvia()` non
+emette nemmeno lo `state` — e `problemaDiPiattaforma(fornitore, cosaManca)`,
+che traduce l'assenza in un `Problema` con `azione: "assistenza"`: la
+striscia allora non offre **Collega** (né un pulsante «Assistenza», che non
+porterebbe da nessuna parte), e il nome della variabile finisce nel log
+**una volta per processo** (mai nella risposta, mai un segreto). Chi ha già
+un collegamento funzionante non vede questo problema: vale solo per chi deve
+ancora collegarsi.
+
+Una guardia strutturale (`server/integrazioni/guardie.test.ts`) scandisce
+ogni file sotto `server/integrazioni/adattatori/` e fallisce se compare
+`req.get("host")`: nessun adattatore può reintrodurre il ripiego che ha
+causato il Critical qui sotto.
+
+**Il Critical trovato dalla revisione (C2).** Il backup su Drive costruiva
+l'URL di autorizzazione col redirect canonico (`GOOGLE_OAUTH_REDIRECT_URI`),
+ma lo scambio del `code` — su una rotta anonima, `/api/oauth/gdrive/callback`
+— lo ricostruiva dall'header `Host`: due redirect diversi nello stesso giro
+OAuth danno `redirect_uri_mismatch`, col messaggio di Google. La correzione,
+come faceva già FiC: il redirect canonico viaggia nel payload dello `state`
+(`oauth_state`, tipo `gdrive`) e lo scambio del codice lo rilegge da lì
+(`issueOAuthState(utenteId, redirectUri)`, `handleOAuthCallback` in
+`server/_core/driveBackup.ts`). Una precisazione della fix wave: lo `state`
+è **monouso** e si consuma dentro `handleOAuthCallback`, quindi la rotta
+Express (`server/_core/index.ts`) non può rileggerlo — la rilettura vive
+nello scambio, non nella rotta, che continua a passare il redirect
+ricostruito dall'host come **ripiego**, usato solo dagli `state` emessi dal
+vecchio pannello backup (`server/routers/backup.ts`), che non porta il
+redirect nel payload e resta quindi invariato.
+
+### Variabili d'ambiente (WS5)
+
+| Variabile | Obbligatoria per | A che serve | Su Railway oggi |
+|---|---|---|---|
+| `FIC_OAUTH_CLIENT_ID` / `FIC_OAUTH_CLIENT_SECRET` | offrire «Collega» su Fatture in Cloud | Client OAuth di piattaforma: il cliente autorizza sul SUO account FiC, l'app è di Wyndoor. | **Impostate** — l'app OAuth di piattaforma esiste (creata dalla direzione nell'account Fatture in Cloud di Ruffino Group; privata, whitelist fino a 20 email). |
+| `FIC_OAUTH_REDIRECT_URI` | idem | Callback canonico, `https://app.wyndoor.com/api/oauth/fic/callback`: senza, `fic.avvia()` rifiuta prima di emettere lo `state`. | **Impostata.** |
+| `GOOGLE_OAUTH_REDIRECT_URI` | offrire «Collega» sul backup Drive | Callback canonico, `https://app.wyndoor.com/api/oauth/gdrive/callback`: viaggia nel payload dello `state` («Callback…» sopra); senza, `backup.avvia()` rifiuta. | **Da impostare.** |
+| `WHATSAPP_APP_ID`, `WHATSAPP_CONFIG_ID`, `WHATSAPP_APP_SECRET` | offrire il QR di WhatsApp senza credenziali del cliente | La terna dell'app Meta di piattaforma: vince solo se **completa** («WhatsApp» sopra). | **Da impostare, tutte e tre insieme.** |
+| `WHATSAPP_VERIFY_TOKEN` | validare il webhook a livello di app prima che esista un numero | Accettato da `verifyTokenValido` insieme ai token per sede/app già esistenti. | **Da impostare** — oggi il webhook di piattaforma su Meta valida perché usa un token già presente nel CRM (quello di una sede già configurata); senza questa variabile un'azienda senza nessuna riga con quel token non passerebbe l'handshake. |
+
+Nessuna delle cinque va impostata da chi scrive codice: sono credenziali, le
+imposta la direzione dal pannello Railway dopo il deploy. Finché mancano,
+l'integrazione corrispondente dichiara il guasto («Callback…» sopra) e non
+offre «Collega» — non fallisce a metà giro.
+
+### Produzione, in ordine (WS5)
+
+1. **Deploy.** Additivo per chi è già collegato: la tabella non esiste,
+   `onboarding_integrazioni` è un `persistedStore` JSONB (non SQL) e nasce
+   vuoto al primo uso. Ruffino Group ha già FiC collegato su entrambe le sedi
+   (sede 2 via OAuth con scrittura, sede 1 ancora a token manuale): `stato()`
+   non ricontrolla il callback per chi è già `collegato`, quindi il deploy da
+   solo non cambia niente per loro.
+2. **Variabili**, nell'ordine della tabella sopra: `GOOGLE_OAUTH_REDIRECT_URI`
+   prima (sblocca «Collega» su Drive per le aziende nuove), poi la terna
+   `WHATSAPP_*` **insieme** (un sottoinsieme lascia l'override di sede
+   intatto ma non accende il ripiego di piattaforma), poi
+   `WHATSAPP_VERIFY_TOKEN`.
+3. **FiC: whitelist prima del pilota.** L'app OAuth di piattaforma è oggi
+   **privata** (la richiesta di visibilità pubblica al team di Fatture in
+   Cloud non è ancora partita): solo le email in whitelist sull'app (fino a
+   20) possono completare l'autorizzazione. Si aggiunge l'email della prima
+   azienda pilota alla whitelist PRIMA che prema «Collega» — altrimenti il
+   giro OAuth si rifiuta con un messaggio di FiC, non nostro.
+4. **Prova con l'azienda pilota, WhatsApp:** Impostazioni → Canali → WhatsApp
+   → **Collega col QR** → si apre la finestra di Meta (Embedded Signup) →
+   «Il numero è già sull'app WhatsApp Business» → si sceglie numero e WABA →
+   Meta chiede il metodo di pagamento della WABA (Tech Provider: paga il
+   cliente, non Wyndoor) → torna il `code`, il CRM lo scambia da solo. Se
+   Meta risponde «numero già registrato», si annulla senza migrare e si
+   riparte: la coexistence copre solo chi arriva dall'app del telefono.
+5. Solo dopo, la stessa prova su Fatture in Cloud e sul backup Drive, e la
+   verifica del percorso di attivazione con un invito vero (WS6):
+   `/integrazioni?attivazione=1`.
+
+**Rollback = redeploy del build precedente.** `onboarding_integrazioni` è
+uno store nuovo e vuoto: togliere le variabili di piattaforma riporta ogni
+integrazione al comportamento di prima del WS5 (override di sede per
+WhatsApp, nessun callback canonico obbligatorio per FiC — che aveva già il
+suo ripiego sull'host, invariato — nessun «Collega» per Drive senza la
+variabile, com'era prima).
+
+### Errori che l'operatore può vedere (WS5)
+
+- «Il collegamento a Fatture in Cloud / Google Drive non è ancora
+  configurato sulla piattaforma.» con «Non serve nessuna azione da parte
+  tua: scrivi a chi gestisce Wyndoor e verrà attivato.» (`azione:
+  "assistenza"`, nessun pulsante «Collega») — manca
+  `FIC_OAUTH_REDIRECT_URI`/il client OAuth FiC, o
+  `GOOGLE_OAUTH_REDIRECT_URI`/il client OAuth Google. Si corregge impostando
+  la variabile; log `[integrazioni] collegamento a <fornitore> non offerto:
+  manca <cosa> sul server.` (una volta per processo).
+- «Il tuo account Fatture in Cloud non ha ancora un'azienda collegata a
+  questa sede.» con «Scegli quale azienda usare: l'elenco è nel pannello
+  Fatture in Cloud.» (`azione: "scegli"`) — l'account FiC ha più aziende e
+  nessuna è ancora scelta. Si va nel pannello (la striscia ci porta) e si
+  sceglie dall'elenco.
+- «Fatture in Cloud non accetta più il collegamento di questa sede.» /
+  «La cartella di backup su Google Drive non è più raggiungibile.» con
+  «Ricollega…» (`azione: "ricollega"`, dalla prova viva) — il token è stato
+  revocato dal fornitore o la cartella spostata. Si preme «Ricollega»: rifà
+  il giro OAuth.
+- Un errore IMAP tradotto (credenziali rifiutate, host irraggiungibile,
+  TLS…) con «Correggi i dati della casella `<indirizzo>` qui sotto e
+  riprova.» — si corregge nel pannello Posta.
+- «La finestra di 24 ore concessa da Meta per importare lo storico è
+  scaduta.» con «Scollega il numero e rifai il collegamento…» — si scollega
+  e si ricollega: contatti e conversazioni ripartono.
+- Un errore Meta tradotto (numero già registrato altrove, PIN a due
+  passaggi, rate limit…) — il rimedio segue il caso; «già registrato
+  altrove» chiede di staccare il numero DALL'ALTRA piattaforma, prima.
+- «Stato non disponibile: `<causa breve>`» con «Le altre integrazioni
+  funzionano. Riprova fra poco; se resta così, scrivi a chi gestisce
+  Wyndoor.» — un adattatore ha lanciato durante `stato()`: le altre cinque
+  righe restano leggibili (log `[integrazioni] stato di <chiave> non
+  disponibile: …`).
+- «App WhatsApp della piattaforma non configurata: imposta `WHATSAPP_APP_ID`,
+  `WHATSAPP_CONFIG_ID` e `WHATSAPP_APP_SECRET`.» — toast su **Collega** in
+  WhatsApp senza né override di sede né terna di piattaforma completa. Si
+  imposta la terna (le tre insieme) o si compila l'override nel pannello
+  avanzato.
+- «Configurazione dell'app Meta incompleta: servono App ID e App secret.» —
+  stesso caso, durante lo scambio del `code` invece che all'avvio.
+
+### Debiti dichiarati
+
+Dalla revisione finale e dalla fix wave, rimandati ai documenti (spec §2-bis,
+«Ancora aperti»): nessuno blocca l'uso.
+
+- **Il soggetto di Fatture in Cloud è l'id, non il nome.** `fic.stato()`
+  mostra «Azienda `<companyId>`»: il nome arriva dall'OAuth
+  (`/user/companies`) ma oggi non si salva da nessuna parte.
+- **`agente.verifica()` non interroga davvero OpenAI**: controlla solo che
+  `OPENAI_API_KEY` sia valorizzata. Un provider giù con la chiave presente
+  non verrebbe segnalato.
+- **Tre ripieghi `?? 1`** (`email.ts`, `whatsapp.ts`, l'`avvia` di `fic.ts`)
+  invece del riferimento a `DEFAULT_SEDE_ID` già usato altrove: stesso
+  comportamento oggi, tre punti da tenere allineati a mano se la sede
+  predefinita cambiasse.
+- **Il ramo service-account del Drive** (`driveBackup.ts`, scope `drive`
+  pieno, già fuori uso) resta: da togliere prima di aprire la verifica
+  Google, coordinandosi con chi tiene WS3 (`driveBackup.ts` è zona vietata
+  salvo il minimo di questo workstream).
+- **`getCfg` scrive una riga nuova quando la chiama `stato()`**, che il
+  contratto vuole sola lettura: la prima apertura delle Impostazioni per una
+  sede senza configurazione FiC scrive nello store. Esiste già una variante
+  che non lo fa (`ficConfigDiSede`), non ancora usata dall'adattatore.
+
+Fuori da questa lista perché fuori dal perimetro della spec (non del WS5 in
+astratto):
+
+- **`mittenteWebhookWhatsApp`** (`server/_core/rotteAnonime.ts`) prova ancora
+  il segreto di ogni azienda finché uno valida la firma — funziona (trova
+  quello di piattaforma al primo giro) ma il ciclo è superfluo con un
+  segreto solo. Semplificazione rimandata: il file è di WS3.
+- **Calendario in entrata (fase 4)** non è partito: nessun adattatore
+  `calendario`, `'gcal'` assente dal `CHECK` di `oauth_state`. Dipende dalla
+  verifica del consent screen Google (fase 0).
+- **Calendario in scrittura (fase 5)**: spec propria, non ancora scritta.
+- **Fatture in Cloud, app pubblica**: la richiesta di verifica pubblica al
+  team FiC non è ancora partita; fino ad allora la whitelist (punto 3 di
+  «Produzione, in ordine» sopra) è l'unica via per collegare un'azienda.
+
 ## WS6 — pannello piattaforma
 
 Spec: `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
@@ -1058,11 +1393,14 @@ Spec: `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
 dall'identità (chi è in `PLATFORM_ADMIN_EMAILS`), non da un flag — a
 differenza di WS2/WS3/WS4, non c'è un «acceso/spento» da decidere qui.
 
-> **Stato al 09/09/2026:** WS1, WS2, WS3 e WS4 sono su `main` e in produzione
-> (PR #3, #5 e #8; `FLAG_MULTI_AZIENDA` acceso dalle 09:54 del 09/09/2026). Il
-> **WS6** è implementato sul branch `feature/ws6-pannello-piattaforma`
-> (nato da `main` @ `37c1889`, cioè dopo quel merge) e **non è su `main`**:
-> questa sezione vale dal momento in cui il branch viene distribuito.
+> **Stato al 09/09/2026 (sera):** WS1, WS2, WS3 e WS4 sono su `main` e in
+> produzione (PR #3, #5 e #8; `FLAG_MULTI_AZIENDA` acceso dalle 09:54 del
+> 09/09/2026). Il **WS6** è stato implementato sul branch
+> `feature/ws6-pannello-piattaforma` (nato da `main` @ `37c1889`, cioè dopo
+> quel merge) e da quella sera è a sua volta **su `main`** (PR #9, merge
+> `cff8ef0`): questa sezione descrive il codice distribuito. Il WS5
+> (collegamento delle integrazioni, sezione precedente) è nato da questo
+> stesso `main` ed è, al momento, l'unico workstream rimasto fuori.
 
 ### Accesso
 

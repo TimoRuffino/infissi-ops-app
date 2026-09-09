@@ -252,13 +252,22 @@ export function oauthClientFromEnv(): {
 // non più in una mappa di processo: sopravvive a un deploy fra l'avvio del
 // collegamento e il ritorno da Google, e dice da quale azienda e da quale
 // utente era partito. Consumo una tantum, TTL di 10 minuti.
-export async function issueOAuthState(utenteId: number): Promise<string> {
+// Il `redirectUri` viaggia nello state come fa già Fatture in Cloud: le due
+// metà del giro OAuth devono presentare a Google lo STESSO redirect, e
+// l'autorizzazione parte dal callback canonico della piattaforma mentre lo
+// scambio, su una rotta anonima, non ha altro che l'header `Host` per
+// indovinarlo. Quando lo state non lo porta — il pannello backup di prima —
+// resta il ripiego sull'host, invariato.
+export async function issueOAuthState(
+  utenteId: number,
+  redirectUri?: string | null
+): Promise<string> {
   return getTenantRepository().emettiStateOAuth({
     tipo: "gdrive",
     tenantId: tenantObbligatorio(),
     sedeId: null,
     utenteId,
-    payload: {},
+    payload: redirectUri ? { redirectUri } : {},
   });
 }
 
@@ -288,6 +297,10 @@ export async function handleOAuthCallback(
   // La rotta è anonima: quale sia l'azienda lo dice lo state, non il contesto.
   const riga = await getTenantRepository().consumaStateOAuth(state, "gdrive");
   if (!riga) throw new Error("Stato OAuth non valido o scaduto");
+  // Lo state è monouso e si consuma qui: il redirect da presentare a Google
+  // lo rilegge lo scambio, non la rotta. Quello dell'host resta il ripiego.
+  const redirectDelloScambio =
+    String(riga.payload?.redirectUri ?? "").trim() || redirectUri;
   const client = oauthClientFromEnv();
   if (!client) throw new Error("Client OAuth non configurato");
   // Il refresh token vive solo cifrato (spec §4.2): senza chiave non si
@@ -304,7 +317,7 @@ export async function handleOAuthCallback(
       code,
       client_id: client.clientId,
       client_secret: client.clientSecret,
-      redirect_uri: redirectUri,
+      redirect_uri: redirectDelloScambio,
       grant_type: "authorization_code",
     }).toString(),
   });
