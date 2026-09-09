@@ -56,6 +56,18 @@ export function slugSuggerito(nome: string): string {
 }
 
 /**
+ * Lo slug è scrivibile a mano (dialogo «Modifica azienda», 09/09/2026):
+ * questa è la stessa forma di `SLUG_RE` (server/tenants/costanti.ts) —
+ * minuscole, cifre e trattini interni, da 1 a 40 caratteri, mai un trattino
+ * ai bordi. È una guardia UX come `piattaformaGateLabel`: serve a non far
+ * partire una modifica che il server rifiuterebbe con un errore di forma,
+ * non a decidere se lo slug è libero — quello lo sa solo il control plane.
+ */
+export function slugValido(slug: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/.test(slug);
+}
+
+/**
  * Vista «essenziale» delle Impostazioni (direzione, 09/09/2026): un'azienda
  * cliente vede di ogni integrazione solo collegamento, stato e azioni;
  * variabili del server, token, percorsi a mano e diagnostica restano alla

@@ -8,6 +8,42 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
+> aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono
+> ora ragione sociale, slug e note; i dati di fatturazione (P.IVA, codice
+> fiscale, sede legale, email amministrativa, PEC, codice SDI — colonne
+> additive su `tenants`); la sede predefinita (nome, città); il
+> proprietario (nome, cognome, email, telefono). Due comandi nuovi in
+> `tenant_comandi` (`modifica_tenant`, `modifica_proprietario`), accodati
+> ed eseguiti **subito** come le altre mutation del pannello (spec WS6
+> §5.2); `modifica_tenant` registra l'evento `tenant_modificato` (solo i
+> campi davvero cambiati) e `slug_cambiato` se lo slug cambia davvero — il
+> tenant 1 non lo cambia mai; `modifica_proprietario` registra
+> `proprietario_modificato`, con l'email che resta unica su tutta
+> l'installazione. **Se l'email del proprietario cambia** prima che accetti
+> l'invito, il router lo annulla e ne emette uno nuovo — **solo per lui**:
+> un'azienda con più proprietari non tocca l'invito degli altri;
+> `accettaInvito` rifiuta comunque un link la cui email non coincide più
+> con quella corrente (stesso esito generico di un token scaduto). Nel
+> pannello: pulsante «Modifica» nella scheda, dialogo a quattro pannelli
+> (Azienda, Fatturazione, Sede, Proprietario) con una sola conferma
+> password che manda al più due mutation in fila; da script, `pnpm tenant
+> modifica --slug=… [--nome=…] [--nuovo-slug=…] [--piva=…] [--cf=…]
+> [--sede-legale=…] [--email-amministrativa=…] [--pec=…] [--sdi=…]
+> [--note=…] [--scrivi] [--attendi]` (solo dati e fatturazione: sede e
+> proprietario restano dal pannello), con una stringa vuota che azzera il
+> campo. **Verificato:** `pnpm check` pulito, `pnpm test` 355 file passati
+> + 15 saltati (3864 test passati + 88 saltati), `pnpm build` riuscito, i
+> quattro `*.pg.test.ts` di `server/tenants` 4 file / 26 test su Postgres
+> vero. Spec
+> `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
+> §15; PRD §60.13 (addendum); runbook `docs/runbooks/multi-azienda.md`,
+> sezione «WS6 — pannello piattaforma» → «Modificare un'azienda». **Non
+> verificato:** il salvataggio vero dal pannello contro un server reale (il
+> montaggio di verifica usa un link tRPC finto). Branch
+> `feature/modifica-azienda`, **PR aperta**: il merge è una decisione della
+> direzione.
+
 > **Novità 09/09/2026 (notte) — hotfix della cornice: lo scorrimento
 > automatico non sposta più il CRM.** Il WS5 descritto qui sotto è nel
 > frattempo su `main` (PR #10, merge `d896101`, in produzione dalle 20:22).
@@ -66,8 +102,9 @@
 
 > **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
 > self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
-> fuso in `main` (PR #9, merge `cff8ef0`): a questo punto il **WS5 è
-> l'unico workstream rimasto fuori da `main`**. I 13 task del piano
+> fuso in `main` (PR #9, merge `cff8ef0`): a questo punto anche il **WS5 si
+> fonde in `main`** (PR #10, merge `d896101`), in produzione dalle 20:22
+> dello stesso giorno. I 13 task del piano
 > (`docs/superpowers/plans/2026-09-08-ws5-collegamento-integrazioni.md`)
 > sono stati eseguiti inline, senza revisione per task, su un altro
 > worktree (`feature/ws5-collegamento-integrazioni`, base il WS4 a metà
@@ -75,8 +112,8 @@
 > `feature/ws5-integrazioni-su-main` (nato da `main` @ `cff8ef0`, merge
 > `c139b83`), poi sottoposto a **una revisione dell'intero branch** (2
 > Critical, 11 Important) e a **un'unica fix wave** (8 commit,
-> `2901017`…`0d6d70d`). **Nessun push, nessun merge su `main` da qui, PR
-> ancora da aprire**: il merge è una decisione della direzione.
+> `2901017`…`0d6d70d`). **Fuso in `main` la sera stessa, in produzione**: il
+> merge è stata una decisione della direzione.
 > **Che cosa cambia.** Sei integrazioni — Fatture in Cloud, posta, WhatsApp,
 > calendario, backup su Drive, agente — rispondono ora alle stesse tre
 > domande con le stesse parole: a cosa sono collegata, come mi collego, cosa
@@ -157,8 +194,8 @@
 > (`docs/superpowers/plans/2026-09-09-ws6-pannello-piattaforma.md`) sono
 > implementati e committati (`9dc4c54`…`a606515`), più la **fix wave finale**
 > uscita dalla revisione dell'intero branch (`e59d8ed`…, ruling R9-R11).
-> **Nessun push, nessun merge su `main` da qui, PR ancora da aprire**: il
-> merge è una decisione della direzione.
+> **Fuso in `main` la sera stessa** (PR #9, merge `cff8ef0`), **in
+> produzione**: il merge è stata una decisione della direzione.
 > **Che cosa cambia.** Chi amministra la piattaforma (oggi la direzione,
 > tramite `PLATFORM_ADMIN_EMAILS`) trova una sezione `/piattaforma` nel CRM:
 > elenco di tutte le aziende con stato, abbonamento, spazio, Tars del mese,

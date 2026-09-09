@@ -1,8 +1,11 @@
 // `/piattaforma/:slug` — la scheda di un'azienda di Wyndoor (spec WS6 §8).
-// Otto sezioni piatte, nell'ordine in cui si guardano quando qualcosa non
-// torna: Abbonamento, Spazio, Tars, Sedi, Proprietari e inviti, Backup e
-// ripristino, Eventi, Comandi. Niente card annidate: ogni sezione è un
-// titolino e una superficie sola.
+// Nove sezioni piatte, nell'ordine in cui si guardano quando qualcosa non
+// torna: Abbonamento, Dati di fatturazione, Spazio, Tars, Sedi, Proprietari
+// e inviti, Backup e ripristino, Eventi, Comandi. Niente card annidate: ogni
+// sezione è un titolino e una superficie sola.
+//
+// I dati anagrafici si correggono dal dialogo «Modifica» (piano 09/09/2026):
+// ragione sociale, slug, note, fatturazione, prima sede e proprietario.
 //
 // Qui non si entra nei dati dell'azienda (clienti, commesse, messaggi): si
 // amministra. Ogni scrittura è un comando di `tenant_comandi` con il nome di
@@ -14,7 +17,7 @@
 // `piattaforma.comando` ogni 2 secondi finché non si chiudono, e solo allora
 // racconta com'è andata.
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeft, PauseCircle, PlayCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, PauseCircle, Pencil, PlayCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Link, useParams } from "wouter";
@@ -44,9 +47,11 @@ import { trpc } from "@/lib/trpc";
 
 import AzioniAbbonamento from "./AzioniAbbonamento";
 import ConfermaPassword from "./ConfermaPassword";
+import ModificaAziendaDialog from "./ModificaAziendaDialog";
 import SezioneProprietari from "./SezioneProprietari";
 import SezioneRipristino from "./SezioneRipristino";
 import {
+  CAMPI_FATTURAZIONE,
   TESTO_SOLA_LETTURA_FLAG_SPENTO,
   attoreLeggibile,
   dataOraItaliana,
@@ -220,6 +225,7 @@ export default function AziendaDetail() {
   // comando smette di essere seguito.
   const [ultimo, setUltimo] = useState<Partial<Record<TipoComando, Comando>>>({});
 
+  const [modificaAperta, setModificaAperta] = useState(false);
   const [statoAperto, setStatoAperto] = useState<"sospendi" | "riattiva" | null>(null);
   const [motivo, setMotivo] = useState("");
   const [ancheTenant1, setAncheTenant1] = useState(false);
@@ -416,6 +422,17 @@ export default function AziendaDetail() {
             </Button>
             <Button
               type="button"
+              variant="outline"
+              className="min-h-11"
+              disabled={solaLettura}
+              title={titoloSolaLettura}
+              onClick={() => setModificaAperta(true)}
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+              Modifica
+            </Button>
+            <Button
+              type="button"
               variant={sospesa ? "default" : "outline"}
               className="min-h-11"
               disabled={solaLettura}
@@ -514,6 +531,25 @@ export default function AziendaDetail() {
             Nessun abbonamento: l'azienda non ha né prova né contratto.
           </p>
         )}
+      </Sezione>
+
+      <Sezione
+        titolo="Dati di fatturazione"
+        descrizione="Con questi si fattura l'abbonamento all'azienda. Si correggono da «Modifica»."
+      >
+        <Dati>
+          {CAMPI_FATTURAZIONE.map(({ campo, etichetta }) => (
+            <Dato key={campo} etichetta={etichetta}>
+              {scheda.fatturazione[campo] || "—"}
+            </Dato>
+          ))}
+        </Dati>
+        <div className="min-w-0 border-t border-border-soft pt-3">
+          <p className="text-xs text-text-3">Note</p>
+          <p className="mt-0.5 min-w-0 whitespace-pre-wrap break-words text-sm text-text-1">
+            {scheda.note || "—"}
+          </p>
+        </div>
       </Sezione>
 
       <Sezione
@@ -747,6 +783,14 @@ export default function AziendaDetail() {
           </Tabella>
         )}
       </Sezione>
+
+      <ModificaAziendaDialog
+        open={modificaAperta}
+        onOpenChange={setModificaAperta}
+        scheda={scheda}
+        solaLettura={solaLettura}
+        aggiorna={aggiorna}
+      />
 
       <ConfermaPassword
         open={statoAperto != null}

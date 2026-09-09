@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AVVISO_INVITO_IN_SOSPESO,
+  AVVISO_SLUG,
+  AVVISO_SLUG_PIATTAFORMA,
+  CAMPI_FATTURAZIONE,
+  TESTO_NESSUNA_MODIFICA,
   TESTO_POSTA_NON_CONFIGURATA,
   attoreLeggibile,
   dataOraItaliana,
   dettagliCompatti,
+  emailPlausibile,
   erroreDelComando,
+  erroreFatturazione,
+  erroreLunghezzaCampo,
   esitoCreazione,
   etichettaBlocco,
   etichettaComando,
@@ -15,6 +23,7 @@ import {
   riassuntoBackup,
   riassuntoSpazio,
   riassuntoTars,
+  riepilogoModifiche,
   statoInvito,
   testoEsitoInvito,
   tonoStatoAzienda,
@@ -343,5 +352,149 @@ describe("statoInvito", () => {
       tono: "info",
       pendente: true,
     });
+  });
+});
+
+// ── «Modifica azienda» (piano 09/09/2026, Task 4) ──────────────────────
+
+describe("CAMPI_FATTURAZIONE", () => {
+  it("sono i sei del control plane, nell'ordine in cui si compilano", () => {
+    expect(CAMPI_FATTURAZIONE.map(c => c.campo)).toEqual([
+      "partitaIva",
+      "codiceFiscale",
+      "indirizzoLegale",
+      "emailAmministrativa",
+      "pec",
+      "codiceSdi",
+    ]);
+  });
+
+  it("ogni campo ha un'etichetta in italiano, non il nome della colonna", () => {
+    const etichette = Object.fromEntries(
+      CAMPI_FATTURAZIONE.map(c => [c.campo, c.etichetta])
+    );
+    expect(etichette.partitaIva).toBe("Partita IVA");
+    expect(etichette.codiceFiscale).toBe("Codice fiscale");
+    expect(etichette.indirizzoLegale).toBe("Sede legale");
+    expect(etichette.emailAmministrativa).toBe("Email amministrativa");
+    expect(etichette.pec).toBe("PEC");
+    expect(etichette.codiceSdi).toBe("Codice SDI");
+  });
+});
+
+describe("erroreFatturazione", () => {
+  it("tace sul vuoto: i sei campi sono facoltativi", () => {
+    for (const { campo } of CAMPI_FATTURAZIONE) {
+      expect(erroreFatturazione(campo, "")).toBeNull();
+      expect(erroreFatturazione(campo, "   ")).toBeNull();
+    }
+  });
+
+  it("rifiuta ciò che il server rifiuterebbe, con le stesse regole di forma", () => {
+    expect(erroreFatturazione("partitaIva", "12345678901")).toBeNull();
+    expect(erroreFatturazione("partitaIva", " 12345678901 ")).toBeNull();
+    expect(erroreFatturazione("partitaIva", "1234567890")).toContain("undici");
+    expect(erroreFatturazione("partitaIva", "IT12345678901")).toContain("undici");
+
+    expect(erroreFatturazione("codiceFiscale", "RSSMRA80A01H501U")).toBeNull();
+    expect(erroreFatturazione("codiceFiscale", "12345678901")).toBeNull();
+    expect(erroreFatturazione("codiceFiscale", "1234567890")).toContain("11");
+
+    expect(erroreFatturazione("indirizzoLegale", "Via Roma 1, 54011 Aulla")).toBeNull();
+    expect(erroreFatturazione("indirizzoLegale", "a".repeat(201))).toContain("200");
+
+    expect(erroreFatturazione("emailAmministrativa", "amministrazione@esempio.it")).toBeNull();
+    expect(erroreFatturazione("emailAmministrativa", "amministrazione")).toContain("email");
+
+    expect(erroreFatturazione("pec", "azienda@pec.it")).toBeNull();
+    expect(erroreFatturazione("pec", "azienda@")).toContain("PEC");
+
+    expect(erroreFatturazione("codiceSdi", "ABC1234")).toBeNull();
+    expect(erroreFatturazione("codiceSdi", "ABC123")).toContain("sette");
+  });
+});
+
+// Nit della revisione (fix round 1, Task 4): `erroreFatturazione` sopra
+// aveva già i tetti del server, gli altri campi di «Modifica azienda» no.
+describe("erroreLunghezzaCampo", () => {
+  it("tace sul vuoto: nessun tetto vieta di svuotare un campo facoltativo", () => {
+    expect(erroreLunghezzaCampo("nome", "")).toBeNull();
+    expect(erroreLunghezzaCampo("note", "   ")).toBeNull();
+    expect(erroreLunghezzaCampo("propTelefono", "")).toBeNull();
+  });
+
+  it("rifiuta oltre lo stesso tetto di schemaPayloadModificaTenant (server/tenants/comandi.ts)", () => {
+    expect(erroreLunghezzaCampo("nome", "a".repeat(120))).toBeNull();
+    expect(erroreLunghezzaCampo("nome", "a".repeat(121))).toContain("120");
+
+    expect(erroreLunghezzaCampo("sedeNome", "a".repeat(120))).toBeNull();
+    expect(erroreLunghezzaCampo("sedeNome", "a".repeat(121))).toContain("120");
+
+    expect(erroreLunghezzaCampo("note", "a".repeat(2000))).toBeNull();
+    expect(erroreLunghezzaCampo("note", "a".repeat(2001))).toContain("2000");
+  });
+
+  it("rifiuta oltre lo stesso tetto di schemaPayloadModificaProprietario", () => {
+    expect(erroreLunghezzaCampo("propNome", "a".repeat(80))).toBeNull();
+    expect(erroreLunghezzaCampo("propNome", "a".repeat(81))).toContain("80");
+
+    expect(erroreLunghezzaCampo("propCognome", "a".repeat(80))).toBeNull();
+    expect(erroreLunghezzaCampo("propCognome", "a".repeat(81))).toContain("80");
+
+    expect(erroreLunghezzaCampo("propTelefono", "0".repeat(40))).toBeNull();
+    expect(erroreLunghezzaCampo("propTelefono", "0".repeat(41))).toContain("40");
+  });
+});
+
+describe("emailPlausibile", () => {
+  it("è una guardia di forma, non una verifica: passa ciò che ha la forma giusta", () => {
+    expect(emailPlausibile("anna@esempio.it")).toBe(true);
+    expect(emailPlausibile("  anna@esempio.it  ")).toBe(true);
+    expect(emailPlausibile("anna@esempio")).toBe(false);
+    expect(emailPlausibile("anna")).toBe(false);
+    expect(emailPlausibile("")).toBe(false);
+  });
+});
+
+describe("gli avvisi del dialogo «Modifica azienda»", () => {
+  it("lo slug: dice le due cose che cambiano, l'indirizzo e la riga di comando", () => {
+    expect(AVVISO_SLUG).toContain("indirizzo");
+    expect(AVVISO_SLUG).toContain("riga di comando");
+  });
+
+  it("l'azienda della piattaforma non cambia slug, e il campo lo dice", () => {
+    expect(AVVISO_SLUG_PIATTAFORMA).toContain("piattaforma");
+    expect(AVVISO_SLUG_PIATTAFORMA).toContain("non cambia");
+  });
+
+  it("l'invito in sospeso: cambiando l'email il link riparte al nuovo indirizzo", () => {
+    expect(AVVISO_INVITO_IN_SOSPESO).toContain("email");
+    expect(AVVISO_INVITO_IN_SOSPESO).toContain("riparte");
+  });
+});
+
+describe("riepilogoModifiche", () => {
+  it("senza modifiche dice che non c'è niente da salvare", () => {
+    expect(riepilogoModifiche([])).toBe(TESTO_NESSUNA_MODIFICA);
+  });
+
+  it("elenca in italiano ciò che sta per essere salvato", () => {
+    expect(riepilogoModifiche(["Azienda"])).toBe("Stai per salvare: Azienda.");
+    expect(riepilogoModifiche(["Azienda", "Fatturazione"])).toBe(
+      "Stai per salvare: Azienda e Fatturazione."
+    );
+    expect(riepilogoModifiche(["Azienda", "Fatturazione", "Proprietario"])).toBe(
+      "Stai per salvare: Azienda, Fatturazione e Proprietario."
+    );
+  });
+});
+
+describe("i comandi e gli eventi di «Modifica azienda»", () => {
+  it("hanno un nome in italiano come gli altri, non il tipo della colonna", () => {
+    expect(etichettaComando("modifica_tenant")).toBe("Modifica dell'azienda");
+    expect(etichettaComando("modifica_proprietario")).toBe("Modifica del proprietario");
+    expect(etichettaEvento("tenant_modificato")).toBe("Azienda modificata");
+    expect(etichettaEvento("proprietario_modificato")).toBe("Proprietario modificato");
+    expect(etichettaEvento("slug_cambiato")).toBe("Slug cambiato");
   });
 });

@@ -183,6 +183,15 @@ describe("GET /api/documenti/:id/pagina/:n", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
+        fatturazione: {
+          partitaIva: null,
+          codiceFiscale: null,
+          indirizzoLegale: null,
+          emailAmministrativa: null,
+          pec: null,
+          codiceSdi: null,
+        },
+        note: null,
       };
       sessione.corrente = { userId: DIREZIONE_ID, sedeId: SEDE, tenantId: 4, tenant: sospeso };
       const r = await chiedi(`/api/documenti/${documentoId}/pagina/1`);

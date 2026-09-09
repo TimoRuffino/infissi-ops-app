@@ -45,6 +45,15 @@ function tenantPredefinitoSintetico(): TenantRecord {
     createdAt: now,
     updatedAt: now,
     storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
+    fatturazione: {
+      partitaIva: null,
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: null,
+      codiceSdi: null,
+    },
+    note: null,
   };
 }
 

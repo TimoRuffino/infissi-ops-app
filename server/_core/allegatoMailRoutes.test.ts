@@ -118,6 +118,15 @@ describe("GET /api/comunicazioni/:id/allegati/:indice", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
+        fatturazione: {
+          partitaIva: null,
+          codiceFiscale: null,
+          indirizzoLegale: null,
+          emailAmministrativa: null,
+          pec: null,
+          codiceSdi: null,
+        },
+        note: null,
       };
       sessione.corrente = { userId: 1, sedeId: 5, tenantId: 4, tenant: sospeso };
       const r = await chiedi("/api/comunicazioni/1/allegati/0");

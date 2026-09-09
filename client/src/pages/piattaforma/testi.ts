@@ -220,6 +220,9 @@ const ETICHETTE_EVENTO: Record<string, string> = {
   invito_inviato: "Invito inviato",
   invito_accettato: "Invito accettato",
   invito_annullato: "Invito annullato",
+  tenant_modificato: "Azienda modificata",
+  proprietario_modificato: "Proprietario modificato",
+  slug_cambiato: "Slug cambiato",
 };
 
 export function etichettaEvento(tipo: string): string {
@@ -259,6 +262,8 @@ const ETICHETTE_COMANDO: Record<string, string> = {
   ricalcola_storage: "Ricalcolo dello spazio",
   ripristina_archivi: "Ripristino degli archivi",
   imposta_abbonamento: "Abbonamento",
+  modifica_tenant: "Modifica dell'azienda",
+  modifica_proprietario: "Modifica del proprietario",
 };
 
 export function etichettaComando(tipo: string): string {
@@ -337,4 +342,153 @@ export function statoInvito(
     return { etichetta: "Scaduto", tono: "warning", pendente: false };
   }
   return { etichetta: "In sospeso", tono: "info", pendente: true };
+}
+
+// ── «Modifica azienda» (piano 09/09/2026, Task 4) ──────────────────────
+
+/**
+ * I sei campi di fatturazione del control plane (`DatiFatturazione`,
+ * server/tenants/tipi.ts) con il nome che hanno per chi li compila e
+ * l'aiuto che dice la regola PRIMA che il server la faccia rispettare.
+ * Sono facoltativi tutti e sei: un'azienda può vivere senza, e chi apre il
+ * dialogo non deve inventarsi una P. IVA per poter salvare le note.
+ *
+ * L'ordine è quello in cui si copiano da una visura: identificativi
+ * fiscali, indirizzo, recapiti della fatturazione elettronica.
+ */
+export const CAMPI_FATTURAZIONE = [
+  { campo: "partitaIva", etichetta: "Partita IVA", aiuto: "Undici cifre." },
+  { campo: "codiceFiscale", etichetta: "Codice fiscale", aiuto: "Da 11 a 16 caratteri." },
+  { campo: "indirizzoLegale", etichetta: "Sede legale", aiuto: "Via, numero, CAP e comune." },
+  {
+    campo: "emailAmministrativa",
+    etichetta: "Email amministrativa",
+    aiuto: "Dove arrivano le fatture dell'abbonamento.",
+  },
+  { campo: "pec", etichetta: "PEC", aiuto: "L'indirizzo di posta certificata." },
+  { campo: "codiceSdi", etichetta: "Codice SDI", aiuto: "Sette caratteri." },
+] as const;
+
+export type CampoFatturazione = (typeof CAMPI_FATTURAZIONE)[number]["campo"];
+
+/**
+ * La forma di un indirizzo email, non la sua esistenza: qualcosa, una
+ * chiocciola, un dominio con un punto. La stessa guardia che
+ * `SezioneProprietari` usa da sempre prima di invitare — qui in un posto
+ * solo, perché ora la vogliono anche i due campi di fatturazione e l'email
+ * del proprietario nel dialogo di modifica.
+ */
+export function emailPlausibile(valore: string): boolean {
+  return /.+@.+\..+/.test(valore.trim());
+}
+
+/**
+ * Il campo di fatturazione è vuoto o ha la forma giusta? Il messaggio da
+ * mostrare sotto il campo, oppure `null`.
+ *
+ * Sono le stesse regole di `schemaPayloadModificaTenant`
+ * (server/tenants/comandi.ts) — vuoto azzera, altrimenti forma e lunghezza —
+ * scritte qui per dirle mentre si scrive invece che dopo il viaggio: un
+ * `ZodError` sul campo `fatturazione.partitaIva` non dice a nessuno che
+ * mancava una cifra. La verità resta del server: questa è una cortesia.
+ */
+export function erroreFatturazione(campo: CampoFatturazione, valore: string): string | null {
+  const testo = valore.trim();
+  if (testo === "") return null;
+  switch (campo) {
+    case "partitaIva":
+      return /^\d{11}$/.test(testo) ? null : "La partita IVA sono undici cifre, senza «IT».";
+    case "codiceFiscale":
+      return testo.length >= 11 && testo.length <= 16
+        ? null
+        : "Il codice fiscale va da 11 a 16 caratteri.";
+    case "indirizzoLegale":
+      return testo.length <= 200 ? null : "La sede legale non supera i 200 caratteri.";
+    case "emailAmministrativa":
+      return emailPlausibile(testo) ? null : "Questo non è un indirizzo email.";
+    case "pec":
+      return emailPlausibile(testo) ? null : "Questo non è un indirizzo PEC.";
+    case "codiceSdi":
+      return testo.length === 7 ? null : "Il codice SDI sono sette caratteri.";
+  }
+}
+
+/**
+ * I tetti di lunghezza degli altri campi di «Modifica azienda» (nit della
+ * revisione di Task 4): stessa idea di `erroreFatturazione`, stessa fonte di
+ * verità — i `.max()` di `schemaPayloadModificaTenant` e
+ * `schemaPayloadModificaProprietario` (server/tenants/comandi.ts) — ma senza
+ * una `CampoFatturazione` in comune, perché questi campi vivono su rami
+ * diversi di `ValoriModifica` (azienda, sede, proprietario). Vuoto non è mai
+ * troppo lungo: chi svuota un campo facoltativo non deve leggere un avviso
+ * di lunghezza.
+ */
+export type CampoConTettoLunghezza =
+  | "nome"
+  | "sedeNome"
+  | "note"
+  | "propNome"
+  | "propCognome"
+  | "propTelefono";
+
+export function erroreLunghezzaCampo(campo: CampoConTettoLunghezza, valore: string): string | null {
+  const testo = valore.trim();
+  switch (campo) {
+    case "nome":
+      return testo.length <= 120 ? null : "La ragione sociale non supera i 120 caratteri.";
+    case "sedeNome":
+      return testo.length <= 120 ? null : "Il nome della sede non supera i 120 caratteri.";
+    case "note":
+      return testo.length <= 2000 ? null : "Le note non superano i 2000 caratteri.";
+    case "propNome":
+      return testo.length <= 80 ? null : "Il nome del proprietario non supera gli 80 caratteri.";
+    case "propCognome":
+      return testo.length <= 80 ? null : "Il cognome del proprietario non supera gli 80 caratteri.";
+    case "propTelefono":
+      return testo.length <= 40 ? null : "Il telefono del proprietario non supera i 40 caratteri.";
+  }
+}
+
+/**
+ * Cambiare lo slug non è come correggere una ragione sociale: sposta
+ * l'indirizzo della scheda e cambia il `--slug=` con cui l'azienda si
+ * nomina dalla riga di comando. Chi lo tocca deve saperlo prima, non
+ * scoprirlo quando un segnalibro non apre più niente.
+ */
+export const AVVISO_SLUG =
+  "Cambiando lo slug cambia l'indirizzo della scheda e il riferimento della riga di comando (--slug=).";
+
+/** Il tenant 1 non cambia slug (`tenant1SlugIntoccabile`): il campo è di sola lettura. */
+export const AVVISO_SLUG_PIATTAFORMA =
+  "L'azienda della piattaforma non cambia slug: è il riferimento con cui si nomina ovunque.";
+
+/** Il proprietario non è ancora entrato: l'email che cambia porta con sé l'invito. */
+export const AVVISO_INVITO_IN_SOSPESO =
+  "L'invito non è ancora stato accettato: cambiando l'email riparte al nuovo indirizzo, e il link vecchio non vale più.";
+
+/**
+ * Le due mutation partono in fila: se la prima passa e la seconda no, i dati
+ * dell'azienda SONO cambiati. Dirlo prima del messaggio del dominio evita la
+ * lettura sbagliata («non è andato niente»), che porterebbe a riscrivere da
+ * capo anche ciò che è già a terra.
+ */
+export const TESTO_AZIENDA_SALVATA_PROPRIETARIO_NO =
+  "I dati dell'azienda sono salvati; il proprietario no:";
+
+/** Salvare senza aver cambiato niente non è un errore: è solo inutile, e si dice. */
+export const TESTO_NESSUNA_MODIFICA = "Nessun campo è cambiato: non c'è niente da salvare.";
+
+/**
+ * Cosa sta per essere salvato, sopra la password: le sezioni toccate, in
+ * italiano. Il dialogo mostra un pannello alla volta, quindi al momento di
+ * confermare tre quarti delle modifiche sono fuori dallo schermo — questa
+ * riga le rimette tutte davanti agli occhi.
+ */
+export function riepilogoModifiche(sezioni: string[]): string {
+  if (sezioni.length === 0) return TESTO_NESSUNA_MODIFICA;
+  const elenco =
+    sezioni.length === 1
+      ? sezioni[0]
+      : `${sezioni.slice(0, -1).join(", ")} e ${sezioni[sezioni.length - 1]}`;
+  return `Stai per salvare: ${elenco}.`;
 }

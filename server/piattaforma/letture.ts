@@ -15,16 +15,17 @@ import {
 } from "../abbonamenti/costanti";
 import { bloccoStorage } from "../abbonamenti/quota";
 import { giorniAllaScadenza } from "../abbonamenti/servizio";
-import { getSediStore } from "../routers/sedi";
+import { getSediStore, sedePredefinita } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
 import { ledgerCorrente } from "../tars/costi/ledger";
 import { workerSospesi } from "../tenants/cli";
 import { RUOLO_PROPRIETARIO } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
-import { getTenantRepository, payloadSenzaSegreti, type TenantRepository } from "../tenants/repository";
+import { getTenantRepository, invitoValido, payloadSenzaSegreti, type TenantRepository } from "../tenants/repository";
 import { percentualeStorage } from "../tenants/storage";
 import type {
   Abbonamento,
+  DatiFatturazione,
   Omaggio,
   Periodicita,
   StatoAbbonamento,
@@ -92,6 +93,17 @@ export type AziendaRiga = {
   comandiInAttesa: number;
   ultimoBackup: ReturnType<typeof backupLog>[number] | null;
   proprietari: Array<{ id: number; nome: string; cognome: string; email: string; attivo: boolean }>;
+  /**
+   * Un invito ancora valido quando l'azienda non ha ALCUN proprietario
+   * attivo (`null` altrimenti): serve alla riga dell'elenco (spec §5.1) per
+   * segnalare un'azienda "orfana" in attesa che qualcuno accetti. Task 3 fix
+   * round 1: NON è il campo da leggere per il proprietario di UNA scheda —
+   * quello è il booleano `SchedaAzienda.proprietari[].invitoInSospeso`, per
+   * forma e per significato diverso (questo è un oggetto `{email, scadeIl}`
+   * di riga, quasi sempre `null` appena c'è un proprietario attivo). Il
+   * dialogo «Modifica azienda» deve usare SEMPRE quello per-proprietario,
+   * mai questo campo — che `SchedaAzienda` eredita invariato da qui sotto.
+   */
   invitoInSospeso: { email: string; scadeIl: Date } | null;
 };
 
@@ -118,14 +130,53 @@ export type AbbonamentoCompleto = {
   updatedAt: Date;
 };
 
-export type SchedaAzienda = Omit<AziendaRiga, "abbonamento"> & {
+/**
+ * «Modifica azienda» (piano 09/09/2026, Task 3): il dialogo del pannello
+ * legge da qui i valori di partenza dei quattro pannelli (azienda,
+ * fatturazione, sede, proprietario). `fatturazione`/`note` vengono dal
+ * `TenantRecord` già in mano (nessuna query in più); `sedePredefinita` è la
+ * stessa nozione di "prima sede" di `server/tenants/contesto.ts`
+ * (`sedePredefinita`, da `routers/sedi.ts`), non la prima della lista senza
+ * criterio. Per ogni proprietario, `telefono` viene dallo store `utenti`
+ * (già in memoria) e `invitoInSospeso` dagli `inviti` già letti sotto per la
+ * scheda intera: anche questi arricchimenti non aggiungono query.
+ *
+ * Task 3 fix round 1: `SchedaAzienda` eredita da `AziendaRiga` (via `Omit`
+ * qui sotto, che toglie solo `abbonamento` e `proprietari`) anche il campo
+ * di RIGA `invitoInSospeso` (`{email, scadeIl} | null`, spec §5.1) — che
+ * qui è quasi sempre `null`, perché è calcolato solo quando l'azienda non
+ * ha alcun proprietario attivo. Il campo che il dialogo «Modifica azienda»
+ * deve leggere per UN proprietario è tutt'altro: il booleano
+ * `proprietari[].invitoInSospeso` dichiarato più sotto in questo stesso
+ * tipo. Vedi il commento su ciascuno dei due campi per il dettaglio.
+ */
+export type SchedaAzienda = Omit<AziendaRiga, "abbonamento" | "proprietari"> & {
   sedi: Array<{ id: number; nome: string; attiva: boolean }>;
+  sedePredefinita: { id: number; nome: string; citta: string | null } | null;
   abbonamento: AbbonamentoCompleto | null;
   eventi: TenantEvento[];
   comandi: TenantComando[];
   inviti: TenantInvito[];
   backup: ReturnType<typeof backupLog>;
   provider: string;
+  fatturazione: DatiFatturazione;
+  note: string | null;
+  proprietari: Array<{
+    id: number;
+    nome: string;
+    cognome: string;
+    email: string;
+    attivo: boolean;
+    telefono: string | null;
+    /**
+     * Un invito ancora valido per QUESTO proprietario. Booleano, non
+     * l'oggetto `{email, scadeIl}` di `AziendaRiga.invitoInSospeso` (di
+     * riga, ereditato invariato più sopra in questo stesso tipo): il
+     * dialogo «Modifica azienda» deve leggere SEMPRE questo campo,
+     * per-proprietario, mai quello di riga.
+     */
+    invitoInSospeso: boolean;
+  }>;
 };
 
 function abbonamentoNarrow(a: Abbonamento | null): AziendaRiga["abbonamento"] {
@@ -249,7 +300,7 @@ async function rigaAzienda(
     // mostrare qui, e leggere gli inviti per ognuna romperebbe la regola di
     // costo dell'elenco.
     const inviti = await repo.invitiDi(t.id);
-    const valido = inviti.find(i => !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > d.adesso.getTime());
+    const valido = inviti.find(i => invitoValido(i, d.adesso));
     if (valido) invitoInSospeso = { email: valido.email, scadeIl: valido.scadeIl };
   }
 
@@ -341,22 +392,40 @@ export async function schedaAzienda(slug: string, adesso: Date): Promise<SchedaA
     repo.invitiDi(tenant.id),
   ]);
   const idsDelTenant = new Set(tenantSedi.filter(r => r.tenantId === tenant.id).map(r => r.sedeId));
-  // sedi: control plane — quali sedi appartengono all'azienda e il loro
-  // nome/stato, non i dati che ci vivono dentro (lettura in memoria dentro
-  // il contesto dell'azienda).
-  const sedi = conTenant(tenant.id, () =>
-    getSediStore()
-      .filter(s => idsDelTenant.has(s.id))
-      .map(s => ({ id: s.id, nome: s.nome, attiva: s.attiva }))
-  );
+  // sedi, sede predefinita: control plane — quali sedi appartengono
+  // all'azienda, il loro nome/stato e quale sia la prima (lettura in memoria
+  // dentro il contesto dell'azienda). `sedePredefinita` (routers/sedi.ts) è
+  // la stessa nozione già usata da server/tenants/contesto.ts: nessuna query
+  // in più, solo un filtro sullo store già in mano.
+  const { sedi, sedePredefinitaRiga } = conTenant(tenant.id, () => {
+    const tutte = getSediStore().filter(s => idsDelTenant.has(s.id));
+    const idPredefinita = sedePredefinita(tenant.id);
+    const predefinita = idPredefinita == null ? null : (tutte.find(s => s.id === idPredefinita) ?? null);
+    return {
+      sedi: tutte.map(s => ({ id: s.id, nome: s.nome, attiva: s.attiva })),
+      sedePredefinitaRiga: predefinita && { id: predefinita.id, nome: predefinita.nome, citta: predefinita.citta },
+    };
+  });
   // backup: control plane — gli ultimi esiti di backup dell'azienda
   // (lettura in memoria dentro il contesto: il log dei backup è per-tenant).
   const backup = conTenant(tenant.id, () => backupLog(5));
+  // proprietari arricchiti di telefono e dell'invito ancora in sospeso
+  // (Task 3, per il dialogo «Modifica azienda»): `inviti` è già stato letto
+  // sopra per la scheda intera, `getUtentiStore()` è lo store in memoria —
+  // nessuna query in più.
+  const proprietari = conTenant(tenant.id, () =>
+    riga.proprietari.map(p => {
+      const utente = getUtentiStore().find((u: any) => u.id === p.id);
+      const invitoAncoraValido = inviti.some(i => i.utenteId === p.id && invitoValido(i, adesso));
+      return { ...p, telefono: utente?.telefono ?? null, invitoInSospeso: invitoAncoraValido };
+    })
+  );
 
-  const { abbonamento: _narrow, ...restoRiga } = riga;
+  const { abbonamento: _narrow, proprietari: _proprietari, ...restoRiga } = riga;
   return {
     ...restoRiga,
     sedi,
+    sedePredefinita: sedePredefinitaRiga,
     abbonamento: abbonamentoCompleto(abbonamento, adesso),
     eventi,
     // Un comando ancora `in_attesa` ha il payload com'è stato accodato:
@@ -366,5 +435,8 @@ export async function schedaAzienda(slug: string, adesso: Date): Promise<SchedaA
     inviti,
     backup,
     provider: abbonamento?.provider ?? "nessuno",
+    fatturazione: tenant.fatturazione,
+    note: tenant.note,
+    proprietari,
   };
 }

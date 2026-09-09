@@ -785,3 +785,150 @@ il pannello li mostra così come sono.
 | Tars | `server/tars/costi/ledger.ts` (+test, +pg test) |
 | Client | `client/src/App.tsx`, `components/RequirePiattaforma.tsx`, `components/layout/UserMenu.tsx`, `lib/piattaforma.ts` (+test), `pages/piattaforma/{AziendeList,AziendaDetail,NuovaAziendaDialog,ConfermaPassword,testi}.tsx/ts` (+test), `pages/InvitoPage.tsx` |
 | Docs | `docs/runbooks/multi-azienda.md` (sezione WS6), `documento_requisiti_infissi_ops.md` (5.87, §60.13, §33), `handoff.md`, `CLAUDE.md` |
+
+## 15. Modifica azienda (decisione del 09/09/2026)
+
+Decisione della direzione in chat, la sera del 09/09/2026: «devo poter
+modificare le aziende una volta create». Perimetro: **tutto** — dati,
+fatturazione, sede, proprietario. Piano in 5 task,
+`docs/superpowers/plans/2026-09-09-modifica-azienda.md`; branch
+`feature/modifica-azienda` da `main` @ `d896101` (che contiene già
+WS1-WS6, questo compreso).
+
+### 15.1 Che cosa si corregge
+
+- **Azienda**: ragione sociale, slug (con l'avviso che cambiare lo slug
+  sposta l'indirizzo della scheda e il riferimento da riga di comando),
+  note.
+- **Fatturazione** (colonne additive su `tenants`, non previste dal WS6
+  originario): P.IVA (11 cifre), codice fiscale (11-16 caratteri), sede
+  legale, email amministrativa, PEC, codice SDI (7 caratteri) — tutti
+  facoltativi, nessuna validazione fiscale oltre forma e lunghezza; una
+  stringa vuota azzera il campo (`vuotoANull` in `server/tenants/comandi.ts`).
+- **Sede predefinita**: nome, città — sostituita per intero (non è un patch
+  parziale), e deve appartenere al tenant.
+- **Proprietario**: nome, cognome, email, telefono — sostituiti per intero
+  come la sede; se l'email cambia prima che l'invito sia accettato, il
+  router lo riemette (§15.3).
+
+### 15.2 Contratto
+
+Due comandi nuovi in `tenant_comandi`, eseguiti **subito** come le altre
+mutation non in coda (§5.2): `modifica_tenant`, `modifica_proprietario`.
+
+```
+schemaPayloadModificaTenant = z.object({
+  slug,
+  nome?: testo(120),
+  nuovoSlug?: slug,
+  note?: string | null,          // "" → null (vuotoANull)
+  fatturazione?: {                // .partial(): un campo assente non tocca quello salvato
+    partitaIva, codiceFiscale, indirizzoLegale,
+    emailAmministrativa, pec, codiceSdi,      // ognuno string | null, "" → null
+  },
+  sede?: { id, nome, citta: string | null },  // sostituisce nome+città insieme
+})
+
+schemaPayloadModificaProprietario = z.object({
+  slug,
+  utenteId?: number,   // assente + un solo proprietario → quello; assente + 0 o 2+ → rifiuta
+  nome, cognome, email,
+  telefono?: string | null,       // "" → null
+})
+```
+
+Router `piattaforma` (stesso shape meno `slug`, più `passwordConferma` —
+azione sensibile, §3.2):
+
+- `modifica(...)` → accoda ed esegue `modifica_tenant`; risponde
+  `{ comando, slug }` — `slug` è quello nuovo se il comando è eseguito e lo
+  slug è cambiato davvero, altrimenti quello di partenza (copre sia il
+  rifiuto del dominio sia un comando ancora `in_attesa`).
+- `modificaProprietario(...)` → accoda ed esegue `modifica_proprietario`;
+  se `esito.emailCambiata` ed esiste un invito ancora valido per **quello
+  specifico** `utenteId`, lo annulla (`repo.annullaInvito`, evento
+  `invito_annullato`) e ne emette uno nuovo con `invitaProprietario`
+  (evento `invito_inviato`, stessa regola R9: il `link` torna solo se la
+  posta non è partita); risponde `{ comando, invito }` (`invito: null` se
+  l'email non è cambiata, o se è cambiata ma quel proprietario non ha un
+  invito pendente).
+
+Eventi (`server/tenants/tipi.ts`): `tenant_modificato`
+(`{ campi: [{ campo, prima, dopo }] }`, solo i campi davvero cambiati),
+`slug_cambiato` (`{ da, a }`, solo se lo slug cambia davvero),
+`proprietario_modificato` (`{ utenteId, campi }`).
+
+### 15.3 Regole
+
+- **Il tenant 1 non cambia slug**: un `nuovoSlug` diverso da quello attuale
+  su `TENANT_PREDEFINITO_ID` è rifiutato (`MESSAGGI.tenant1SlugIntoccabile`)
+  prima di toccare il control plane; gli altri campi nello stesso payload
+  restano applicabili.
+- **Email del proprietario unica su tutta l'installazione**,
+  case-insensitive, come `creaUtenteInterno`: la propria email attuale non
+  è un conflitto con se stessa.
+- **L'invito si riemette SOLO per il proprietario toccato**: la ricerca
+  dell'invito pendente è per `utenteId`, non per l'intera azienda — con più
+  proprietari, cambiare l'email di uno non deve annullare l'invito ancora
+  in sospeso di un altro.
+- **`accettaInvito` rifiuta se l'email non coincide più**: se
+  `modifica_proprietario` girasse fuori dal router (un domani, dal giro dei
+  30 s) e cambiasse l'email di un proprietario con un invito ancora
+  "valido" per definizione tecnica (non usato, non annullato, non
+  scaduto), quel link punterebbe a un'identità superata. `accettaInvito`
+  confronta l'email dell'invito con quella corrente dell'utente
+  (case-insensitive) e rifiuta con lo stesso esito generico di un token
+  scaduto o annullato — nessun dettaglio in più per chi tenta un vecchio
+  link.
+- **Nessun tocco a password o sessione**: cambiare l'email del proprietario
+  non tocca la sua password né la sua sessione (ruling pre-1 del ledger).
+
+### 15.4 Decisioni d'esecuzione (dal ledger)
+
+Registro: `.superpowers/sdd/2026-09-09-modifica-azienda/progress.md`.
+
+- **Ruling pre-1.** Cambiare l'email del proprietario non tocca la sua
+  password né la sessione; l'invito pendente si annulla e si riemette dal
+  router (Task 3) con l'attore piattaforma. Costo se sbagliato: un invito
+  in più.
+- **Sei nit della revisione di Task 2**, chiuse come pre-passo del Task 3:
+  `utenteId` assente e **zero** proprietari è un NOT_FOUND generico, non
+  l'ambiguità (che resta per due o più); una modifica di sola `sede` non
+  sposta più `tenants.updated_at` (`aggiornaTenant` non è chiamato a patch
+  vuoto); `MESSAGGI.emailGiaInUso` sostituisce un letterale nudo;
+  `vuotoANull` (stringa vuota → `null`) applicato anche a `note`, ai sei
+  campi di fatturazione, a `sede.citta` e al telefono del proprietario;
+  `partitaIva` ha ora `.trim()` come i suoi simili; `slugValido(nuovoSlug)`
+  in testa a `modificaTenant` come difesa in profondità.
+- **Fix round 1 di Task 3** (revisione opus, CHANGES_REQUIRED): il tipo
+  dell'input di `vuotoANull` non era più `unknown` lato zod 4
+  (`z.preprocess` senza l'input annotato) — guardia di tipo nuova
+  (`server/tenants/comandi.tipi.assert.ts`); un secondo test con due
+  proprietari prova che l'invito riemesso tocca solo quello giusto;
+  `accettaInvito` rifiuta se l'email non coincide più (§15.3);
+  `annullaInvito` può tornare `null` per una corsa vera (l'invito appena
+  accettato da chi lo possedeva) — nessun evento, nessun reinvio in quel
+  caso; l'helper `invitoValido` è unico ed esportato dal repository invece
+  di tre copie identiche.
+- **Client (Task 4).** Un dialogo, quattro pannelli a tab (non
+  `<details>`: quindici campi in colonna in un dialogo alto quanto lo
+  schermo non si leggerebbero); un solo «Salva» con la password, che manda
+  al più due mutation in fila (`modifica`, poi `modificaProprietario` se il
+  pannello Proprietario è cambiato); dopo un cambio di slug la scheda non
+  si invalida per il vecchio indirizzo (andrebbe in `NOT_FOUND`) — si
+  invalida l'elenco e si naviga alla scheda nuova solo alla chiusura del
+  dialogo.
+
+### 15.5 Verificato
+
+`pnpm check` pulito; `pnpm test` (senza `DATABASE_URL`) 355 file passati +
+15 saltati (3864 test passati + 88 saltati), zero falliti; `pnpm build`
+riuscito (`dist/index.js` 3.6 MB, avviso di dimensione preesistente);
+`DATABASE_URL=… npx vitest run --no-file-parallelism` sui quattro
+`*.pg.test.ts` di `server/tenants` (`repository`, `storage`, `tabelle`,
+`ripristino`): 4 file passati, 26 test passati, zero falliti. **Non
+verificato:** il salvataggio vero dal pannello contro un server reale (il
+montaggio di verifica del Task 4 usa un link tRPC finto, la password non
+si digita in sessione); nessun tocco a Railway. Su branch
+`feature/modifica-azienda`, PR aperta: il merge è una decisione della
+direzione.

@@ -5,6 +5,8 @@ import {
   richiestoDa,
   schemaPayloadAbbonamento,
   schemaPayloadCrea,
+  schemaPayloadModificaProprietario,
+  schemaPayloadModificaTenant,
   schemaPayloadProprietario,
   schemaPayloadStato,
 } from "./comandi";
@@ -80,5 +82,205 @@ describe("schemaPayloadAbbonamento", () => {
 
   it("extra_tars con eur: 0", () => {
     expect(() => schemaPayloadAbbonamento.parse({ azione: "extra_tars", slug, eur: 0 })).toThrow();
+  });
+});
+
+// «Modifica azienda» (piano 09/09/2026, Task 2): copertura diretta degli
+// schemi, come già per `schemaPayloadAbbonamento` sopra.
+describe("schemaPayloadModificaTenant", () => {
+  const slug = "acme";
+
+  it("solo slug: ogni altro campo è facoltativo", () => {
+    const ok = schemaPayloadModificaTenant.parse({ slug });
+    expect(ok).toEqual({ slug });
+  });
+
+  it("accetta ogni campo, fatturazione e sede comprese", () => {
+    const ok = schemaPayloadModificaTenant.parse({
+      slug,
+      nome: "Acme Infissi",
+      nuovoSlug: "acme-2",
+      note: "cliente storico",
+      fatturazione: {
+        partitaIva: "12345678901",
+        codiceFiscale: "RSSMRA80A01H501U",
+        indirizzoLegale: "Via Roma 1, Sarzana",
+        emailAmministrativa: "amministrazione@acme.it",
+        pec: "acme@pec.it",
+        codiceSdi: "ABC1234",
+      },
+      sede: { id: 7, nome: "Acme HQ", citta: "Sarzana" },
+    });
+    expect(ok.nuovoSlug).toBe("acme-2");
+    expect(ok.fatturazione?.partitaIva).toBe("12345678901");
+    expect(ok.sede).toEqual({ id: 7, nome: "Acme HQ", citta: "Sarzana" });
+  });
+
+  it("note e sede.citta accettano null", () => {
+    const ok = schemaPayloadModificaTenant.parse({
+      slug,
+      note: null,
+      sede: { id: 7, nome: "Acme HQ", citta: null },
+    });
+    expect(ok.note).toBeNull();
+    expect(ok.sede?.citta).toBeNull();
+  });
+
+  it("fatturazione è un patch parziale: un solo campo è ammesso", () => {
+    const ok = schemaPayloadModificaTenant.parse({ slug, fatturazione: { pec: "acme@pec.it" } });
+    expect(ok.fatturazione).toEqual({ pec: "acme@pec.it" });
+  });
+
+  it("rifiuta un nuovoSlug non valido", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, nuovoSlug: "Acme!" })).toThrow();
+  });
+
+  it("rifiuta una partitaIva che non ha 11 cifre", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, fatturazione: { partitaIva: "123" } })).toThrow();
+  });
+
+  it("rifiuta un codiceSdi che non ha 7 caratteri", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, fatturazione: { codiceSdi: "ABC" } })).toThrow();
+  });
+
+  it("rifiuta una emailAmministrativa non valida", () => {
+    expect(() =>
+      schemaPayloadModificaTenant.parse({ slug, fatturazione: { emailAmministrativa: "non-una-email" } })
+    ).toThrow();
+  });
+
+  it("sede vuole id, nome e citta insieme: citta mancante è rifiutata", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, sede: { id: 7, nome: "Acme HQ" } })).toThrow();
+  });
+
+  // Fix round Task 2 → Task 3 (revisione, nit 4): un form o `--note=` della
+  // CLI non sanno scrivere `null`, solo una stringa vuota — deve valere come
+  // "azzera il campo", non come un valore da rifiutare (es. l'email vuota
+  // fallirebbe `.email()` senza questa normalizzazione).
+  it("stringa vuota (anche solo spazi) su un campo nullable diventa null: note, i sei campi di fatturazione, sede.citta", () => {
+    const ok = schemaPayloadModificaTenant.parse({
+      slug,
+      note: "   ",
+      fatturazione: {
+        partitaIva: "",
+        codiceFiscale: " ",
+        indirizzoLegale: "",
+        emailAmministrativa: "",
+        pec: "",
+        codiceSdi: "",
+      },
+      sede: { id: 7, nome: "Acme HQ", citta: "" },
+    });
+    expect(ok.note).toBeNull();
+    expect(ok.fatturazione).toEqual({
+      partitaIva: null,
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: null,
+      codiceSdi: null,
+    });
+    expect(ok.sede?.citta).toBeNull();
+  });
+
+  // Fix round Task 2 → Task 3 (nit 5): `partitaIva` si trimma come i suoi
+  // cinque simili, prima del controllo delle 11 cifre.
+  it("partitaIva si trimma come i suoi cinque simili: gli spazi attorno alle 11 cifre sono ammessi", () => {
+    const ok = schemaPayloadModificaTenant.parse({ slug, fatturazione: { partitaIva: "  12345678901  " } });
+    expect(ok.fatturazione?.partitaIva).toBe("12345678901");
+  });
+
+  // Task 3 fix round 1: `vuotoANull` (comandi.ts) ora dichiara a TypeScript
+  // che l'INPUT dei campi che avvolge è `string | null` (guardia di tipo in
+  // server/tenants/comandi.tipi.assert.ts, type-checkata da `pnpm check`
+  // perché non è un `*.test.ts`). Questo test prova il lato runtime dello
+  // stesso bug: un valore che non è né stringa né null era GIÀ rifiutato
+  // prima della fix (il preprocess lo passa inalterato al validatore vero,
+  // che non lo accetta) — qui si conferma che restringere il tipo non ha
+  // allentato nulla a runtime.
+  it("un valore che non è né stringa né null resta rifiutato a runtime, non solo a tipo", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, note: 12345 as unknown as string })).toThrow();
+    expect(() =>
+      schemaPayloadModificaTenant.parse({ slug, fatturazione: { pec: {} as unknown as string } })
+    ).toThrow();
+  });
+});
+
+describe("schemaPayloadModificaProprietario", () => {
+  const slug = "acme";
+
+  it("utenteId è facoltativo", () => {
+    const ok = schemaPayloadModificaProprietario.parse({
+      slug,
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario@acme.it",
+    });
+    expect(ok.utenteId).toBeUndefined();
+    expect(ok.telefono).toBeUndefined();
+  });
+
+  it("accetta utenteId e telefono, telefono nullable", () => {
+    const ok = schemaPayloadModificaProprietario.parse({
+      slug,
+      utenteId: 42,
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario@acme.it",
+      telefono: null,
+    });
+    expect(ok.utenteId).toBe(42);
+    expect(ok.telefono).toBeNull();
+  });
+
+  it("rifiuta un'email non valida", () => {
+    expect(() =>
+      schemaPayloadModificaProprietario.parse({ slug, nome: "Mario", cognome: "Rossi", email: "non-una-email" })
+    ).toThrow();
+  });
+
+  it("rifiuta nome/cognome vuoti", () => {
+    expect(() =>
+      schemaPayloadModificaProprietario.parse({ slug, nome: "", cognome: "Rossi", email: "mario@acme.it" })
+    ).toThrow();
+  });
+
+  it("rifiuta un utenteId non positivo", () => {
+    expect(() =>
+      schemaPayloadModificaProprietario.parse({
+        slug,
+        utenteId: 0,
+        nome: "Mario",
+        cognome: "Rossi",
+        email: "mario@acme.it",
+      })
+    ).toThrow();
+  });
+
+  // Fix round Task 2 → Task 3 (nit 4): stessa regola di `note`/`fatturazione`
+  // sopra, qui per il campo telefono.
+  it("telefono vuoto (anche solo spazi) diventa null", () => {
+    const ok = schemaPayloadModificaProprietario.parse({
+      slug,
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario@acme.it",
+      telefono: "   ",
+    });
+    expect(ok.telefono).toBeNull();
+  });
+
+  // Task 3 fix round 1: stesso lato runtime del test analogo su
+  // schemaPayloadModificaTenant sopra — un array non è né stringa né null.
+  it("telefono non stringa/null resta rifiutato a runtime", () => {
+    expect(() =>
+      schemaPayloadModificaProprietario.parse({
+        slug,
+        nome: "Mario",
+        cognome: "Rossi",
+        email: "mario@acme.it",
+        telefono: [] as unknown as string,
+      })
+    ).toThrow();
   });
 });

@@ -18,6 +18,7 @@ import { getUtentiStore } from "../routers/utenti";
 // `imposta_abbonamento` — nessuna logica di dominio importata qui, resta in
 // `./servizio` via `await import` (v. il commento nel sorgente).
 import { eurInNano } from "../abbonamenti/costanti";
+import { MESSAGGI, TENANT_PREDEFINITO_ID, TENANT_PREDEFINITO_SLUG } from "./costanti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import { __impostaDriveRipristinoPerTest } from "./ripristino";
 import {
@@ -26,6 +27,8 @@ import {
   crea,
   eseguiComandiInAttesa,
   eseguiComandoSubito,
+  modificaProprietario,
+  modificaTenant,
   revocaProprietario,
   riattiva,
   sospendi,
@@ -201,6 +204,396 @@ describe("stato e proprietari", () => {
     await revocaProprietario(tenant.id, utenteId, script);
     expect(utenti.find(u => u.id === utenteId)!.ruoli).toEqual(["direzione"]);
     await expect(assegnaProprietario(tenant.id, 999_999, script)).rejects.toThrow(/inesistente/);
+  });
+});
+
+// «Modifica azienda» (piano 09/09/2026, Task 2). Ogni test semina il tenant 1
+// PRIMA di `crea(inputAcme(), script)` (come già altrove in questo file):
+// altrimenti "acme", primo tenant inserito in un repo azzerato, prenderebbe
+// proprio l'id 1 e i test sul tenant 1 (slug intoccabile) diventerebbero
+// equivoci.
+describe("modificaTenant", () => {
+  it("aggiorna nome, note e fatturazione: un solo evento tenant_modificato coi campi davvero cambiati, il merge di fatturazione è campo per campo", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const dopo1 = await modificaTenant(
+      tenant.id,
+      { nome: "Acme Infissi Srl", note: "cliente storico", fatturazione: { partitaIva: "12345678901" } },
+      script
+    );
+    expect(dopo1.nome).toBe("Acme Infissi Srl");
+    expect(dopo1.note).toBe("cliente storico");
+    expect(dopo1.fatturazione.partitaIva).toBe("12345678901");
+    expect(repo.perId(tenant.id)?.nome).toBe("Acme Infissi Srl");
+
+    const evento1 = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "tenant_modificato");
+    expect(evento1?.dettagli).toEqual({
+      campi: [
+        { campo: "nome", prima: "Acme Infissi", dopo: "Acme Infissi Srl" },
+        { campo: "note", prima: null, dopo: "cliente storico" },
+        { campo: "partitaIva", prima: null, dopo: "12345678901" },
+      ],
+    });
+
+    // Richiamare con GLI STESSI valori: nessun campo è "davvero cambiato",
+    // quindi nessun secondo evento tenant_modificato.
+    await modificaTenant(
+      tenant.id,
+      { nome: "Acme Infissi Srl", note: "cliente storico", fatturazione: { partitaIva: "12345678901" } },
+      script
+    );
+    expect((await repo.eventi(tenant.id)).filter(e => e.tipo === "tenant_modificato").length).toBe(1);
+
+    // Un secondo campo di fatturazione si aggiunge SENZA cancellare il primo:
+    // `aggiornaTenant` fonde `fatturazione` campo per campo, non sostituisce.
+    const dopo3 = await modificaTenant(tenant.id, { fatturazione: { pec: "acme@pec.it" } }, script);
+    expect(dopo3.fatturazione.partitaIva).toBe("12345678901");
+    expect(dopo3.fatturazione.pec).toBe("acme@pec.it");
+  });
+
+  it("nuovoSlug già usato da un'altra azienda: rifiutato, nessuna scrittura né evento", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    await crea(inputAcme(), script);
+    const { tenant: beta } = await crea(
+      { ...inputAcme(), slug: "beta", nome: "Beta Infissi", proprietario: { ...inputAcme().proprietario, email: "mario@beta.test" } },
+      script
+    );
+    await expect(modificaTenant(beta.id, { nuovoSlug: "acme" }, script)).rejects.toThrow(/Slug già usato/);
+    expect(repo.perId(beta.id)?.slug).toBe("beta");
+    const eventi = await repo.eventi(beta.id);
+    expect(eventi.some(e => e.tipo === "tenant_modificato" || e.tipo === "slug_cambiato")).toBe(false);
+  });
+
+  it("nuovoSlug diverso: registra slug_cambiato e perSlug segue il nuovo valore", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+    const dopo = await modificaTenant(tenant.id, { nuovoSlug: "acme-nuovo" }, script);
+    expect(dopo.slug).toBe("acme-nuovo");
+    expect(repo.perSlug("acme")).toBeNull();
+    expect(repo.perSlug("acme-nuovo")?.id).toBe(tenant.id);
+    const evento = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "slug_cambiato");
+    expect(evento?.dettagli).toEqual({ da: "acme", a: "acme-nuovo" });
+  });
+
+  it("tenant 1: rifiuta il cambio di slug, accetta lo stesso slug e gli altri campi", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    await expect(modificaTenant(TENANT_PREDEFINITO_ID, { nuovoSlug: "altro-nome" }, script)).rejects.toThrow(
+      MESSAGGI.tenant1SlugIntoccabile
+    );
+    expect(repo.perId(TENANT_PREDEFINITO_ID)?.slug).toBe(TENANT_PREDEFINITO_SLUG);
+
+    // Lo stesso slug di adesso non è un cambio: nessun rifiuto.
+    const dopo = await modificaTenant(
+      TENANT_PREDEFINITO_ID,
+      { nuovoSlug: TENANT_PREDEFINITO_SLUG, nome: "Ruffino Group Srl" },
+      script
+    );
+    expect(dopo.nome).toBe("Ruffino Group Srl");
+    expect(dopo.slug).toBe(TENANT_PREDEFINITO_SLUG);
+  });
+
+  it("sede di un'altra azienda o inesistente: NOT_FOUND, senza scrivere nulla (nemmeno gli altri campi della stessa chiamata)", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { sedeId: sedeAcme } = await crea(inputAcme(), script);
+    const { tenant: beta } = await crea(
+      { ...inputAcme(), slug: "beta", nome: "Beta Infissi", proprietario: { ...inputAcme().proprietario, email: "mario@beta.test" } },
+      script
+    );
+
+    await expect(
+      modificaTenant(beta.id, { nome: "Non deve salvare", sede: { id: sedeAcme, nome: "X", citta: null } }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI.nonTrovato });
+    expect(repo.perId(beta.id)?.nome).toBe("Beta Infissi");
+
+    await expect(
+      modificaTenant(beta.id, { sede: { id: 999_999, nome: "X", citta: null } }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("sede del proprio tenant: nome e città si aggiornano nello store sedi", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, sedeId } = await crea(inputAcme(), script);
+    const dopo = await modificaTenant(
+      tenant.id,
+      { sede: { id: sedeId, nome: "Acme Nuova Sede", citta: "Genova" } },
+      script
+    );
+    expect(dopo.id).toBe(tenant.id);
+    const sede = sedi.find(s => s.id === sedeId)!;
+    expect(sede.nome).toBe("Acme Nuova Sede");
+    expect(sede.citta).toBe("Genova");
+  });
+
+  // Fix round Task 2 → Task 3 (nit 2): una modifica di sola sede non deve
+  // chiamare `repo.aggiornaTenant` né spostare `updatedAt` del tenant — sui
+  // dati anagrafici dell'azienda non è cambiato nulla.
+  it("modifica di sola sede: non chiama aggiornaTenant né sposta l'updatedAt del tenant", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, sedeId } = await crea(inputAcme(), script);
+    const primaUpdatedAt = repo.perId(tenant.id)!.updatedAt;
+    // Orologio fermo su un istante ben diverso da `primaUpdatedAt`: se
+    // `aggiornaTenant` venisse chiamato per errore, `updated_at` si
+    // sposterebbe qui e l'asserzione lo scoprirebbe anche senza spiare la
+    // funzione.
+    vi.useFakeTimers({ now: new Date(primaUpdatedAt.getTime() + 60_000) });
+    const spia = vi.spyOn(repo, "aggiornaTenant");
+
+    const dopo = await modificaTenant(
+      tenant.id,
+      { sede: { id: sedeId, nome: "Acme Nuova Sede", citta: "Genova" } },
+      script
+    );
+
+    expect(spia).not.toHaveBeenCalled();
+    expect(dopo.updatedAt).toEqual(primaUpdatedAt);
+    expect(repo.perId(tenant.id)?.updatedAt).toEqual(primaUpdatedAt);
+  });
+
+  // Fix round Task 2 → Task 3 (nit 6): difesa in profondità, come `crea` con
+  // `input.slug` — questa funzione è chiamata anche direttamente (qui, come
+  // in tutto il resto del file), non solo attraverso lo zod di comandi.ts.
+  it("nuovoSlug non valido: rifiutato anche chiamando modificaTenant direttamente (difesa in profondità)", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+    await expect(modificaTenant(tenant.id, { nuovoSlug: "Acme Non Valido!" }, script)).rejects.toThrow(
+      /Slug non valido/
+    );
+    expect(repo.perId(tenant.id)?.slug).toBe("acme");
+  });
+});
+
+describe("modificaProprietario", () => {
+  it("aggiorna nome/cognome/telefono e registra l'evento coi soli campi davvero cambiati", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+
+    const esito = await modificaProprietario(
+      tenant.id,
+      { utenteId, nome: "Mario", cognome: "Bianchi", email: "mario@acme.test", telefono: "0187123456" },
+      script
+    );
+    expect(esito).toEqual({ utenteId, emailCambiata: false });
+    const utente = utenti.find(u => u.id === utenteId)!;
+    expect(utente.cognome).toBe("Bianchi");
+    expect(utente.telefono).toBe("0187123456");
+
+    const evento = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "proprietario_modificato");
+    expect(evento?.dettagli).toEqual({
+      utenteId,
+      campi: [
+        { campo: "cognome", prima: "Rossi", dopo: "Bianchi" },
+        { campo: "telefono", prima: null, dopo: "0187123456" },
+      ],
+    });
+
+    // Richiamare con GLI STESSI valori: nessun campo cambia, nessun secondo evento.
+    await modificaProprietario(
+      tenant.id,
+      { utenteId, nome: "Mario", cognome: "Bianchi", email: "mario@acme.test", telefono: "0187123456" },
+      script
+    );
+    expect((await repo.eventi(tenant.id)).filter(e => e.tipo === "proprietario_modificato").length).toBe(1);
+  });
+
+  it("emailCambiata: false se cambiano solo le maiuscole, true per un indirizzo davvero diverso", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+
+    const soloMaiuscole = await modificaProprietario(
+      tenant.id,
+      { utenteId, nome: "Mario", cognome: "Rossi", email: "MARIO@ACME.TEST" },
+      script
+    );
+    expect(soloMaiuscole.emailCambiata).toBe(false);
+    expect(utenti.find(u => u.id === utenteId)!.email).toBe("MARIO@ACME.TEST");
+
+    const cambiata = await modificaProprietario(
+      tenant.id,
+      { utenteId, nome: "Mario", cognome: "Rossi", email: "mario.rossi@acme.test" },
+      script
+    );
+    expect(cambiata.emailCambiata).toBe(true);
+    expect(utenti.find(u => u.id === utenteId)!.email).toBe("mario.rossi@acme.test");
+    const evento = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "proprietario_modificato");
+    expect(evento?.dettagli).toMatchObject({
+      utenteId,
+      campi: [{ campo: "email", prima: "MARIO@ACME.TEST", dopo: "mario.rossi@acme.test" }],
+    });
+  });
+
+  it("email già usata da un altro utente dell'installazione (case-insensitive): rifiutata", async () => {
+    await getTenantRepository().assicuraTenantPredefinito();
+    const { tenant: acme, utenteId: utenteAcme } = await crea(inputAcme(), script);
+    await crea(
+      { ...inputAcme(), slug: "beta", nome: "Beta Infissi", proprietario: { ...inputAcme().proprietario, email: "titolare@beta.test" } },
+      script
+    );
+    // Fix round Task 2 → Task 3 (nit 3): il letterale è ora MESSAGGI.emailGiaInUso.
+    await expect(
+      modificaProprietario(
+        acme.id,
+        { utenteId: utenteAcme, nome: "Mario", cognome: "Rossi", email: "TITOLARE@beta.test" },
+        script
+      )
+    ).rejects.toThrow(MESSAGGI.emailGiaInUso);
+  });
+
+  it("utenteId mancante: lo risolve da sé con un solo proprietario, rifiuta come ambiguo con più di uno, riesce comunque con utenteId esplicito", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, sedeId, utenteId } = await crea(inputAcme(), script);
+
+    const esito = await modificaProprietario(
+      tenant.id,
+      { nome: "Mario", cognome: "Rossi", email: "mario@acme.test", telefono: "0187000" },
+      script
+    );
+    expect(esito.utenteId).toBe(utenteId);
+
+    // Secondo proprietario nello stesso tenant (stesso stile della "guardia
+    // dell'ultimo proprietario" più sopra in questo file).
+    const now = new Date();
+    utenti.push({
+      id: 97810,
+      nome: "Anna",
+      cognome: "Verdi",
+      email: "anna@acme.test",
+      ruoli: ["proprietario"],
+      sediIds: [sedeId],
+      attivo: true,
+      tenantId: tenant.id,
+      password: "scrypt$x",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      modificaProprietario(tenant.id, { nome: "Mario", cognome: "Rossi", email: "mario@acme.test" }, script)
+    ).rejects.toThrow(MESSAGGI.proprietarioAmbiguo);
+
+    const esitoEsplicito = await modificaProprietario(
+      tenant.id,
+      { utenteId: 97810, nome: "Anna", cognome: "Verdi Bis", email: "anna@acme.test" },
+      script
+    );
+    expect(esitoEsplicito.utenteId).toBe(97810);
+    expect(utenti.find(u => u.id === 97810)!.cognome).toBe("Verdi Bis");
+  });
+
+  it("utenteId di un'altra azienda o senza ruolo proprietario: NOT_FOUND", async () => {
+    await getTenantRepository().assicuraTenantPredefinito();
+    const { tenant: acme, utenteId: utenteAcme } = await crea(inputAcme(), script);
+    const { tenant: beta } = await crea(
+      { ...inputAcme(), slug: "beta", nome: "Beta Infissi", proprietario: { ...inputAcme().proprietario, email: "mario@beta.test" } },
+      script
+    );
+    await expect(
+      modificaProprietario(beta.id, { utenteId: utenteAcme, nome: "X", cognome: "Y", email: "x@beta.test" }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI.nonTrovato });
+
+    const now = new Date();
+    utenti.push({
+      id: 97820,
+      nome: "Extra",
+      cognome: "Utente",
+      email: "extra@acme.test",
+      ruoli: ["commerciale"],
+      sediIds: [],
+      attivo: true,
+      tenantId: acme.id,
+      password: "scrypt$x",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(
+      modificaProprietario(acme.id, { utenteId: 97820, nome: "X", cognome: "Y", email: "x@acme.test" }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  // Fix round Task 2 → Task 3 (nit 1): zero proprietari non è un'ambiguità
+  // (non c'è nulla fra cui scegliere) — stesso NOT_FOUND generico degli altri
+  // rami. `revocaProprietario` impedirebbe di arrivarci togliendo l'ultimo
+  // proprietario: la mutazione diretta dello store (come già sopra in questo
+  // file, es. "assegna e revoca...") è l'unico modo di provare questo ramo.
+  it("utenteId assente e zero proprietari: NOT_FOUND generico, non l'ambiguità", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+    utenti.find(u => u.id === utenteId)!.ruoli = ["direzione"];
+
+    await expect(
+      modificaProprietario(tenant.id, { nome: "Mario", cognome: "Rossi", email: "mario@acme.test" }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI.nonTrovato });
+  });
+});
+
+// Copertura della coda dei comandi (Task 2): i due `case` nuovi di
+// `eseguiComando`, come già `imposta_abbonamento`/`ricalcola_storage` sopra
+// in questo file.
+describe("eseguiComandiInAttesa: modifica_tenant e modifica_proprietario (Task 2)", () => {
+  it("entrambi i comandi eseguono e l'esito riporta slug/emailCambiata", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+
+    const cTenant = await repo.accodaComando({
+      tipo: "modifica_tenant",
+      tenantId: tenant.id,
+      payload: { slug: "acme", nome: "Acme Infissi Srl" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(cTenant.id))?.esito).toEqual({ tenantId: tenant.id, slug: "acme" });
+    expect(repo.perId(tenant.id)?.nome).toBe("Acme Infissi Srl");
+    expect((await repo.eventi(tenant.id)).findLast(e => e.tipo === "tenant_modificato")?.attore).toBe(
+      "piattaforma:t@r.it"
+    );
+
+    const cProprietario = await repo.accodaComando({
+      tipo: "modifica_proprietario",
+      tenantId: tenant.id,
+      payload: { slug: "acme", utenteId, nome: "Mario", cognome: "Rossi", email: "mario2@acme.test" },
+      richiestoDa: "piattaforma:t@r.it",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(cProprietario.id))?.esito).toEqual({
+      tenantId: tenant.id,
+      utenteId,
+      emailCambiata: true,
+    });
+    expect(utenti.find(u => u.id === utenteId)!.email).toBe("mario2@acme.test");
+  });
+
+  it("un payload modifica_tenant non valido finisce in errore, senza bloccare i comandi successivi", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const invalido = await repo.accodaComando({
+      tipo: "modifica_tenant",
+      tenantId: null,
+      payload: {},
+      richiestoDa: "script:tenant@test",
+    });
+    const valido = await repo.accodaComando({
+      tipo: "modifica_tenant",
+      tenantId: null,
+      payload: { slug: "ruffino-group", note: "ok" },
+      richiestoDa: "script:tenant@test",
+    });
+    const esito = await eseguiComandiInAttesa();
+    expect(esito).toEqual({ eseguiti: 1, falliti: 1 });
+    expect((await repo.comando(invalido.id))?.stato).toBe("errore");
+    expect((await repo.comando(valido.id))?.stato).toBe("eseguito");
   });
 });
 

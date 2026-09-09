@@ -2,6 +2,7 @@
 // Servizio di dominio del tenant (WS1, spec §6). Unico punto che crea
 // tenant, sedi e proprietari fuori dai router: lo usano il boot, il ciclo
 // dei comandi e, dal WS6, il pannello del Platform Admin.
+import { TRPCError } from "@trpc/server";
 import { conTransazioneStoreAtomica, istanziaStoresPerTenant } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
@@ -10,11 +11,14 @@ import { MESSAGGI, RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti"
 import {
   schemaPayloadAbbonamento,
   schemaPayloadCrea,
+  schemaPayloadModificaProprietario,
+  schemaPayloadModificaTenant,
   schemaPayloadProprietario,
   schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
 } from "./comandi";
+import { conTenant } from "./contestoCorrente";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
@@ -25,7 +29,7 @@ import {
 } from "./regole";
 import { getTenantRepository } from "./repository";
 import { ricalcolaStorage } from "./storage";
-import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
+import { attoreTesto, type Attore, type DatiFatturazione, type TenantComando, type TenantRecord } from "./tipi";
 
 export type CreaTenantInput = {
   slug: string;
@@ -65,6 +69,41 @@ function tenantDaSlug(slug: string): TenantRecord {
   const tenant = getTenantRepository().perSlug(slug);
   if (!tenant) throw new Error(`Tenant ${slug} inesistente`);
   return tenant;
+}
+
+/**
+ * NOT_FOUND generico (spec CLAUDE.md «Invarianti»: un record di un'altra
+ * azienda non deve dare un indizio per enumerarlo). Stesso stile di
+ * `server/commesse/transizioni.ts#notFound` — un `TRPCError` qui, fuori da
+ * un router, arriva intatto a chi chiama `modificaTenant`/`modificaProprietario`
+ * direttamente; chi passa dalla coda dei comandi (`eseguiComando`) ne legge
+ * comunque solo il messaggio, come per ogni altro errore di dominio.
+ */
+function nonTrovato(): TRPCError {
+  return new TRPCError({ code: "NOT_FOUND", message: MESSAGGI.nonTrovato });
+}
+
+/** `campi.fatturazione` così com'è arriva dal payload zod (`.partial()`): una
+ * chiave assente dall'input finisce comunque nell'oggetto con valore
+ * `undefined` (Zod marca `alwaysSet` se la chiave era presente nell'oggetto
+ * sorgente). `repository.ts#aggiornaTenant` FONDE `fatturazione` per spread
+ * (`{ ...attuale, ...patch }`): una chiave `undefined` nel patch
+ * sovrascriverebbe il valore già salvato. Qui si tolgono PRIMA di chiamare
+ * il repository. */
+function fatturazioneSenzaUndefined(patch: Partial<DatiFatturazione>): Partial<DatiFatturazione> {
+  const pulita: Partial<DatiFatturazione> = {};
+  for (const chiave of Object.keys(patch) as Array<keyof DatiFatturazione>) {
+    const valore = patch[chiave];
+    if (valore !== undefined) pulita[chiave] = valore;
+  }
+  return pulita;
+}
+
+type CampoCambiato = { campo: string; prima: unknown; dopo: unknown };
+
+/** Spinge `{ campo, prima, dopo }` in `elenco` solo se il valore è davvero cambiato. */
+function segnaSeCambiato(elenco: CampoCambiato[], campo: string, prima: unknown, dopo: unknown): void {
+  if (prima !== dopo) elenco.push({ campo, prima, dopo });
 }
 
 /** Idempotente per slug: completa ciò che manca (sede, proprietario) e non duplica. */
@@ -232,6 +271,182 @@ export async function revocaProprietario(tenantId: number, utenteId: number, att
     tipo: "proprietario_revocato",
     attore: attoreTesto(attore),
     dettagli: { utenteId },
+  });
+}
+
+export type ModificaTenantInput = {
+  nome?: string;
+  nuovoSlug?: string;
+  note?: string | null;
+  fatturazione?: Partial<DatiFatturazione>;
+  sede?: { id: number; nome: string; citta: string | null };
+};
+
+/**
+ * «Modifica azienda» (piano 09/09/2026, Task 2). Valida tutto (tenant 1,
+ * sede) PRIMA di scrivere: se la sede non è del tenant, `repo.aggiornaTenant`
+ * non viene nemmeno chiamato — niente evento a metà per un comando che poi
+ * fallisce.
+ *
+ * `repo.aggiornaTenant` non vuole `conTenant`: parla solo col control plane
+ * (`tenants`), non con uno store per-tenant. La sede invece è un record dello
+ * store globale `sedi` (spec §3.1): l'aggiornamento gira dentro
+ * `conTenant(tenantId, …)`, come già fa `server/piattaforma/inviti.ts` per
+ * gli stessi store.
+ */
+export async function modificaTenant(tenantId: number, input: ModificaTenantInput, attore: Attore): Promise<TenantRecord> {
+  // Difesa in profondità, come `crea` con `input.slug`: lo zod di
+  // `comandi.ts` già rifiuta un `nuovoSlug` mal formato prima che il
+  // payload arrivi qui, ma questa funzione è chiamata anche direttamente
+  // (test, futuri chiamanti) senza passare da quello schema.
+  if (input.nuovoSlug !== undefined && !slugValido(input.nuovoSlug)) {
+    throw new Error(`Slug non valido: ${input.nuovoSlug}`);
+  }
+  const prima = tenantEsistente(tenantId);
+  const cambioSlug = input.nuovoSlug !== undefined && input.nuovoSlug !== prima.slug;
+  if (cambioSlug && tenantId === TENANT_PREDEFINITO_ID) {
+    throw new Error(MESSAGGI.tenant1SlugIntoccabile);
+  }
+  // La sede si verifica PRIMA di toccare il control plane (v. sopra): una
+  // sede di un'altra azienda non deve produrre un `tenant_modificato` a
+  // metà, solo un NOT_FOUND pulito.
+  if (input.sede) {
+    const sede = getSediStore().find(s => s.id === input.sede!.id) ?? null;
+    if (!sede || sede.tenantId !== tenantId) throw nonTrovato();
+  }
+
+  const repo = getTenantRepository();
+  const campiRepo: { nome?: string; slug?: string; note?: string | null; fatturazione?: Partial<DatiFatturazione> } = {};
+  if (input.nome !== undefined) campiRepo.nome = input.nome;
+  if (input.nuovoSlug !== undefined) campiRepo.slug = input.nuovoSlug;
+  if (input.note !== undefined) campiRepo.note = input.note;
+  if (input.fatturazione !== undefined) campiRepo.fatturazione = fatturazioneSenzaUndefined(input.fatturazione);
+
+  // Una modifica di sola `sede` non tocca `campiRepo`: chiamare
+  // `aggiornaTenant` con un patch vuoto sposterebbe comunque `updated_at`
+  // (sia in memoria sia su Postgres, che lo scrive incondizionatamente) per
+  // un'azienda i cui dati anagrafici non sono cambiati. Il record già
+  // caricato sopra (`prima`) resta valido: nessuno lo ha toccato nel
+  // frattempo in questa stessa chiamata.
+  const dopo = Object.keys(campiRepo).length > 0 ? await repo.aggiornaTenant(tenantId, campiRepo) : prima;
+
+  const campiCambiati: CampoCambiato[] = [];
+  if (campiRepo.nome !== undefined) segnaSeCambiato(campiCambiati, "nome", prima.nome, dopo.nome);
+  if (campiRepo.note !== undefined) segnaSeCambiato(campiCambiati, "note", prima.note, dopo.note);
+  if (campiRepo.fatturazione) {
+    for (const chiave of Object.keys(campiRepo.fatturazione) as Array<keyof DatiFatturazione>) {
+      segnaSeCambiato(campiCambiati, chiave, prima.fatturazione[chiave], dopo.fatturazione[chiave]);
+    }
+  }
+  if (campiCambiati.length > 0) {
+    await repo.registraEvento({
+      tenantId,
+      tipo: "tenant_modificato",
+      attore: attoreTesto(attore),
+      dettagli: { campi: campiCambiati },
+    });
+  }
+  if (cambioSlug) {
+    await repo.registraEvento({
+      tenantId,
+      tipo: "slug_cambiato",
+      attore: attoreTesto(attore),
+      dettagli: { da: prima.slug, a: dopo.slug },
+    });
+  }
+
+  if (input.sede) {
+    conTenant(tenantId, () => {
+      // Già verificata sopra: fra la verifica e qui non gira altro codice
+      // asincrono che potrebbe cancellarla o spostarla di tenant.
+      const sede = getSediStore().find(s => s.id === input.sede!.id)!;
+      sede.nome = input.sede!.nome;
+      sede.citta = input.sede!.citta;
+      sede.updatedAt = new Date();
+      getSediPersistedStore().save();
+    });
+  }
+
+  return dopo;
+}
+
+export type ModificaProprietarioInput = {
+  utenteId?: number;
+  nome: string;
+  cognome: string;
+  email: string;
+  telefono?: string | null;
+};
+
+export type EsitoModificaProprietario = { utenteId: number; emailCambiata: boolean };
+
+/**
+ * «Modifica azienda» (Task 2). L'email è unica su tutta l'installazione,
+ * come in `creaUtenteInterno` (`routers/utenti.ts`): il confronto ignora le
+ * maiuscole e non considera l'utente stesso un conflitto con la propria
+ * email attuale. Cambiare l'email NON tocca password né sessione (Ruling
+ * pre-1): il reinvio dell'invito vive nel router del Task 3.
+ */
+export async function modificaProprietario(
+  tenantId: number,
+  input: ModificaProprietarioInput,
+  attore: Attore
+): Promise<EsitoModificaProprietario> {
+  tenantEsistente(tenantId);
+  return conTenant(tenantId, async () => {
+    const utenti = getUtentiStore();
+    let utente: any;
+    if (input.utenteId != null) {
+      const candidato = utenti.find((u: any) => u.id === input.utenteId) ?? null;
+      if (!candidato || presidioDi(candidato).tenantId !== tenantId || !ruoliDi(candidato).includes(RUOLO_PROPRIETARIO)) {
+        throw nonTrovato();
+      }
+      utente = candidato;
+    } else {
+      const proprietari = utenti.filter(
+        (u: any) => presidioDi(u).tenantId === tenantId && ruoliDi(u).includes(RUOLO_PROPRIETARIO)
+      );
+      // Zero proprietari non è un'ambiguità (non c'è nulla fra cui scegliere):
+      // stesso NOT_FOUND generico degli altri rami di questa funzione. Con
+      // due o più, l'ambiguità resta.
+      if (proprietari.length === 0) throw nonTrovato();
+      if (proprietari.length > 1) throw new Error(MESSAGGI.proprietarioAmbiguo);
+      utente = proprietari[0];
+    }
+
+    const nuovaEmail = input.email.trim();
+    const emailCambiata = nuovaEmail.toLowerCase() !== String(utente.email).toLowerCase();
+    if (
+      emailCambiata &&
+      utenti.some((u: any) => u.id !== utente.id && String(u.email).toLowerCase() === nuovaEmail.toLowerCase())
+    ) {
+      throw new Error(MESSAGGI.emailGiaInUso);
+    }
+
+    const nuovoTelefono = input.telefono ?? null;
+    const campiCambiati: CampoCambiato[] = [];
+    segnaSeCambiato(campiCambiati, "nome", utente.nome, input.nome);
+    segnaSeCambiato(campiCambiati, "cognome", utente.cognome, input.cognome);
+    segnaSeCambiato(campiCambiati, "email", utente.email, nuovaEmail);
+    segnaSeCambiato(campiCambiati, "telefono", utente.telefono ?? null, nuovoTelefono);
+
+    utente.nome = input.nome;
+    utente.cognome = input.cognome;
+    utente.email = nuovaEmail;
+    utente.telefono = nuovoTelefono;
+    utente.updatedAt = new Date();
+    getUtentiPersistedStore().save();
+
+    if (campiCambiati.length > 0) {
+      await getTenantRepository().registraEvento({
+        tenantId,
+        tipo: "proprietario_modificato",
+        attore: attoreTesto(attore),
+        dettagli: { utenteId: utente.id, campi: campiCambiati },
+      });
+    }
+
+    return { utenteId: utente.id, emailCambiata };
   });
 }
 
@@ -414,6 +629,29 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
           stato: a?.stato ?? null,
           finePeriodo: a?.finePeriodo?.toISOString() ?? null,
         };
+      }
+      // «Modifica azienda» (piano 09/09/2026, Task 2): lo slug individua
+      // sempre il tenant per uno script (`comando.tenantId` è già valorizzato
+      // quando arriva dal pannello piattaforma, Task 3).
+      case "modifica_tenant": {
+        const p = schemaPayloadModificaTenant.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const t = await modificaTenant(
+          id,
+          { nome: p.nome, nuovoSlug: p.nuovoSlug, note: p.note, fatturazione: p.fatturazione, sede: p.sede },
+          attore
+        );
+        return { tenantId: t.id, slug: t.slug };
+      }
+      case "modifica_proprietario": {
+        const p = schemaPayloadModificaProprietario.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const esito = await modificaProprietario(
+          id,
+          { utenteId: p.utenteId, nome: p.nome, cognome: p.cognome, email: p.email, telefono: p.telefono },
+          attore
+        );
+        return { tenantId: id, utenteId: esito.utenteId, emailCambiata: esito.emailCambiata };
       }
     }
   } catch (e) {

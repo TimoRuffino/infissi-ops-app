@@ -42,6 +42,78 @@ describe("repository tenant in memoria", () => {
     expect(eventi[1].motivo).toBe("insoluto");
   });
 
+  // «Modifica azienda» (piano 2026-09-09, Task 1): un tenant nuovo nasce
+  // senza dati di fatturazione né note, tutti null finché nessuno li compila.
+  it("inserisci: fatturazione e note nascono a null", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    expect(t.note).toBeNull();
+    expect(t.fatturazione).toEqual({
+      partitaIva: null,
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: null,
+      codiceSdi: null,
+    });
+  });
+
+  it("aggiornaTenant: nome, note e fatturazione si aggiornano parzialmente, i campi non toccati restano com'erano", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "acme", nome: "Acme" });
+
+    const conNote = await repo.aggiornaTenant(t.id, { nome: "Acme Infissi", note: "cliente storico" });
+    expect(conNote.nome).toBe("Acme Infissi");
+    expect(conNote.note).toBe("cliente storico");
+    expect(conNote.fatturazione.partitaIva).toBeNull(); // non toccata da questo giro
+    expect(conNote.updatedAt.getTime()).toBeGreaterThanOrEqual(t.updatedAt.getTime());
+
+    const conFatturazione = await repo.aggiornaTenant(t.id, {
+      fatturazione: { partitaIva: "01234567890", pec: "acme@pec.it" },
+    });
+    expect(conFatturazione.fatturazione).toEqual({
+      partitaIva: "01234567890",
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: "acme@pec.it",
+      codiceSdi: null,
+    });
+    // Nome e note del giro precedente sopravvivono: l'aggiornamento è parziale.
+    expect(conFatturazione.nome).toBe("Acme Infissi");
+    expect(conFatturazione.note).toBe("cliente storico");
+
+    // Una seconda fatturazione parziale non azzera i campi già scritti.
+    const ancora = await repo.aggiornaTenant(t.id, { fatturazione: { codiceSdi: "ABC1234" } });
+    expect(ancora.fatturazione).toMatchObject({ partitaIva: "01234567890", pec: "acme@pec.it", codiceSdi: "ABC1234" });
+
+    // `null` esplicito azzera il campo; la chiave assente lo lascia stare.
+    const azzerata = await repo.aggiornaTenant(t.id, { note: null });
+    expect(azzerata.note).toBeNull();
+  });
+
+  it("aggiornaTenant: lo slug cambiato sposta perSlug, quello duplicato è rifiutato, il proprio invariato è ok", async () => {
+    const repo = getTenantRepository();
+    const acme = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    await repo.inserisci({ slug: "beta", nome: "Beta" });
+
+    await expect(repo.aggiornaTenant(acme.id, { slug: "beta" })).rejects.toThrow(/Slug già usato/);
+    expect(repo.perSlug("beta")?.nome).toBe("Beta"); // il tentativo rifiutato non ha toccato l'altra azienda
+
+    await expect(repo.aggiornaTenant(acme.id, { slug: "acme" })).resolves.toMatchObject({ slug: "acme" });
+
+    const spostato = await repo.aggiornaTenant(acme.id, { slug: "acme-nuovo" });
+    expect(spostato.slug).toBe("acme-nuovo");
+    expect(repo.perSlug("acme")).toBeNull();
+    expect(repo.perSlug("acme-nuovo")?.id).toBe(acme.id);
+    expect(repo.perId(acme.id)?.slug).toBe("acme-nuovo");
+  });
+
+  it("aggiornaTenant su un id inesistente dà errore", async () => {
+    const repo = getTenantRepository();
+    await expect(repo.aggiornaTenant(999, { nome: "x" })).rejects.toThrow(/999/);
+  });
+
   // `pnpm tenant elenco` legge gli eventi per sapere quali worker sono
   // sospesi ADESSO: senza limite si porta a casa la cronologia intera di
   // un'azienda vecchia (fix wave finale).

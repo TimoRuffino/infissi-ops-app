@@ -29,6 +29,15 @@ const tenant = (stato: "attivo" | "sospeso"): TenantRecord => ({
   createdAt: new Date(),
   updatedAt: new Date(),
   storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
+  fatturazione: {
+    partitaIva: null,
+    codiceFiscale: null,
+    indirizzoLegale: null,
+    emailAmministrativa: null,
+    pec: null,
+    codiceSdi: null,
+  },
+  note: null,
 });
 
 describe("rifiutaTenant", () => {
