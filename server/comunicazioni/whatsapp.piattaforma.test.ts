@@ -37,6 +37,7 @@ afterEach(() => {
   delete process.env.WHATSAPP_APP_ID;
   delete process.env.WHATSAPP_CONFIG_ID;
   delete process.env.WHATSAPP_APP_SECRET;
+  delete process.env.WHATSAPP_VERIFY_TOKEN;
 });
 
 describe("app WhatsApp di piattaforma", () => {
@@ -133,11 +134,9 @@ describe("verify token del webhook", () => {
   it("il token di piattaforma passa l'handshake", () => {
     process.env.WHATSAPP_VERIFY_TOKEN = "verify-di-piattaforma";
     expect(verifyTokenValido("verify-di-piattaforma")).toBe(true);
-    delete process.env.WHATSAPP_VERIFY_TOKEN;
   });
 
   it("senza la variabile, un token qualsiasi non passa", () => {
-    delete process.env.WHATSAPP_VERIFY_TOKEN;
     expect(verifyTokenValido("verify-di-piattaforma")).toBe(false);
   });
 
@@ -149,6 +148,5 @@ describe("verify token del webhook", () => {
     process.env.WHATSAPP_VERIFY_TOKEN = "   ";
     expect(verifyTokenValido("")).toBe(false);
     expect(verifyTokenValido("   ")).toBe(false);
-    delete process.env.WHATSAPP_VERIFY_TOKEN;
   });
 });

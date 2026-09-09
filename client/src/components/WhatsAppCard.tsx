@@ -563,10 +563,10 @@ export default function WhatsAppCard() {
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-xs text-muted-foreground">
-              Il collegamento normale e&apos; il QR: il numero resta dov&apos;e&apos;,
+              Il collegamento normale è il QR: il numero resta dov'è,
               con le sue chat. Il percorso a mano serve solo quando il popup di
-              Meta non e&apos; disponibile — sposta il numero sull&apos;API e non
-              conserva le conversazioni gia&apos; scambiate.
+              Meta non è disponibile — sposta il numero sull'API e non
+              conserva le conversazioni già scambiate.
             </p>
             <Button
               size="sm"
@@ -582,7 +582,7 @@ export default function WhatsAppCard() {
             {!chiaveOk && (
               <p className="text-xs text-muted-foreground">
                 Serve prima MAIL_ENCRYPTION_KEY sul server: senza chiave il
-                token non puo&apos; essere salvato.
+                token non può essere salvato.
               </p>
             )}
           </div>
