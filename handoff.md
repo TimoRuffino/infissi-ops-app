@@ -5,7 +5,7 @@
 
 **Aggiornato:** 09/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
-**Produzione:** https://crm-ruffinogroup.up.railway.app<br>
+**Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
 > **Novità 09/09/2026 — WS6 «pannello piattaforma»: su branch.** Lo stesso

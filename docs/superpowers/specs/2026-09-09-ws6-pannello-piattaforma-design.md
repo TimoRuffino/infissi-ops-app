@@ -58,7 +58,7 @@ e comandi come traccia di ogni azione.
    password provvisoria consegnata a mano: l'utente nasce con una password
    inutilizzabile e la sceglie da sé dalla pagina d'invito.
 3. **Posta in uscita della piattaforma: servizio transazionale (Resend).**
-   Mittente `noreply@wyndoor.com`, chiave nell'ambiente, record DNS a carico
+   Mittente `no-reply@wyndoor.com`, chiave nell'ambiente, record DNS a carico
    della direzione. Senza chiave il flusso non si rompe: il pannello mostra il
    link da consegnare a mano.
 4. **Esecuzione immediata dei comandi.** Il pannello registra il comando in
@@ -568,7 +568,7 @@ export function anteprimaInvito(input: { token: string; adesso: Date }): Promise
 - `baseUrl`: `APP_BASE_URL` (senza barra finale) se presente, altrimenti
   `${req.protocol}://${req.get("host")}` (lo stesso ripiego di
   `fattureInCloud.ts` per il redirect OAuth). In produzione va impostata
-  (`https://crm-ruffinogroup.up.railway.app` finché il dominio non cambia).
+  (`https://app.wyndoor.com`, il dominio dell'app; finché il dominio non cambia).
   Se manca, `avvisaBaseUrlMancante()` scrive UN avviso al boot (I5) e
   `invitaProprietario` restituisce `baseUrl` insieme al link, così il
   pannello dice sotto al link su quale indirizzo è nato.
@@ -623,7 +623,7 @@ export function __impostaPostaPerTest(finta: ((m: MessaggioPosta) => Promise<Esi
   text, html }`; timeout 10 s (`AbortController`); risposta non 2xx →
   `{ inviato: false, motivo: "Resend ha risposto <stato>" }` senza corpo nel log;
   errore di rete → `{ inviato: false, motivo }`. Non lancia mai.
-- `from` = `POSTA_PIATTAFORMA_MITTENTE`, default `Wyndoor <noreply@wyndoor.com>`.
+- `from` = `POSTA_PIATTAFORMA_MITTENTE`, default `Wyndoor <no-reply@wyndoor.com>`.
 - Senza `RESEND_API_KEY`: `{ inviato: false, motivo: MESSAGGI_PIATTAFORMA.postaNonConfigurata }`.
 - Log: una riga `[posta] invio a <dominio del destinatario>: ok|fallito (<motivo>)`
   — mai l'indirizzo intero, mai l'oggetto, mai il corpo.

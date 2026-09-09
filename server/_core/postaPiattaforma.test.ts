@@ -46,7 +46,7 @@ describe("inviaPosta", () => {
     expect(url).toBe("https://api.resend.com/emails");
     expect(init.headers.Authorization).toBe("Bearer re_test");
     expect(JSON.parse(init.body)).toMatchObject({
-      from: "Wyndoor <noreply@wyndoor.com>",
+      from: "Wyndoor <no-reply@wyndoor.com>",
       to: ["mario@acme.test"],
       subject: "Prova",
       text: "ciao",

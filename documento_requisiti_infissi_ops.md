@@ -5011,7 +5011,7 @@ tracciata, le azioni sensibili chiedono la password. La MFA arriva come passo
 a sé, per amministratori e proprietari. (2) **Primo accesso del
 proprietario**: invito via email con link, mai una password provvisoria
 consegnata a mano. (3) **Posta**: Resend, mittente
-`noreply@wyndoor.com`, chiave nell'ambiente; senza chiave il pannello mostra
+`no-reply@wyndoor.com`, chiave nell'ambiente; senza chiave il pannello mostra
 il link da copiare — il flusso non si rompe mai; con la chiave, e la posta
 partita, il link non torna nemmeno al browser (R9). (4) **Esecuzione immediata**
 dei comandi del pannello, con la stessa funzione del giro dei 30 secondi,
@@ -5081,7 +5081,7 @@ restituisce.
 il pannello: senza, nessuno lo vede indipendentemente dal ruolo);
 `RESEND_API_KEY` (facoltativa: senza, il pannello mostra il link
 dell'invito da copiare invece di mandare l'email); `POSTA_PIATTAFORMA_MITTENTE`
-(facoltativa, default `Wyndoor <noreply@wyndoor.com>`); `APP_BASE_URL`
+(facoltativa, default `Wyndoor <no-reply@wyndoor.com>`); `APP_BASE_URL`
 (consigliata, altrimenti il link dell'invito usa l'host della richiesta e al
 boot compare un avviso).
 Nessuna delle quattro accende o spegne `FLAG_MULTI_AZIENDA`: il pannello è

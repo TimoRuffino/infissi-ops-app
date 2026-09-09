@@ -603,7 +603,7 @@ describe("inviaPosta", () => {
     const [url, init] = fetchMock.mock.calls[0] as any;
     expect(url).toBe("https://api.resend.com/emails");
     expect(init.headers.Authorization).toBe("Bearer re_test");
-    expect(JSON.parse(init.body)).toMatchObject({ from: "Wyndoor <noreply@wyndoor.com>", to: ["mario@acme.test"], subject: "Prova", text: "ciao" });
+    expect(JSON.parse(init.body)).toMatchObject({ from: "Wyndoor <no-reply@wyndoor.com>", to: ["mario@acme.test"], subject: "Prova", text: "ciao" });
   });
   it("4xx e rete rotta: inviato false con motivo, senza corpo nel log", async () => {
     process.env.RESEND_API_KEY = "re_test";
@@ -625,7 +625,7 @@ describe("inviaPosta", () => {
 export type MessaggioPosta = { a: string; oggetto: string; testo: string; html?: string };
 export type EsitoPosta = { inviato: true; id: string } | { inviato: false; motivo: string };
 type Mittente = (m: MessaggioPosta) => Promise<EsitoPosta>;
-const MITTENTE_PREDEFINITO = "Wyndoor <noreply@wyndoor.com>";
+const MITTENTE_PREDEFINITO = "Wyndoor <no-reply@wyndoor.com>";
 const URL_RESEND = "https://api.resend.com/emails";
 let finta: Mittente | null = null;
 export function postaConfigurata(): boolean { return Boolean(process.env.RESEND_API_KEY?.trim()); }

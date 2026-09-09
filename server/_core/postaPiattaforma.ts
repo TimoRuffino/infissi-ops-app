@@ -20,7 +20,7 @@ export type EsitoPosta =
 
 type Mittente = (m: MessaggioPosta) => Promise<EsitoPosta>;
 
-const MITTENTE_PREDEFINITO = "Wyndoor <noreply@wyndoor.com>";
+const MITTENTE_PREDEFINITO = "Wyndoor <no-reply@wyndoor.com>";
 const URL_RESEND = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
 

@@ -1142,7 +1142,7 @@ anche:
    Invitare di nuovo lo stesso utente **annulla da solo** ogni invito
    precedente ancora valido: non ne restano mai due attivi.
 2. **Consegna.** Con `RESEND_API_KEY` impostata, l'email parte da
-   `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <noreply@wyndoor.com>`),
+   `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <no-reply@wyndoor.com>`),
    oggetto «Il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
    solo l'esito («Invito inviato a …»): il link **non torna nemmeno al
    browser** — il token è già nella casella giusta, e una seconda copia nella
@@ -1224,7 +1224,7 @@ anche:
 |---|---|---|
 | `PLATFORM_ADMIN_EMAILS` | *(nessuno)* | Email separate da virgola: senza questa variabile **nessuno** vede il pannello, indipendentemente da ruolo o capability — è l'unica porta. |
 | `RESEND_API_KEY` | *(nessuno)* | Chiave del provider Resend per la posta transazionale della piattaforma. Senza, `inviaPosta` torna sempre `{ inviato: false }` e il pannello mostra il link da copiare: nessun invito si perde, nessuno riceve un'email. |
-| `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <noreply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
+| `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <no-reply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
 | `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. Se manca, al boot compare `[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta`; il pannello mostra comunque, sotto il link da copiare, la riga «Link su &lt;base&gt;» con l'indirizzo davvero usato. |
 
 Nessuna delle quattro tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
