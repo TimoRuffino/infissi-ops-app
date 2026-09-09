@@ -9,6 +9,7 @@ import {
 import { bloccoStorage } from "../abbonamenti/quota";
 import { giorniAllaScadenza } from "../abbonamenti/servizio";
 import { interruttoreAttivo } from "../platform/interruttori";
+import { utenteAmministratore } from "../piattaforma/accesso";
 import { ledgerCorrente } from "../tars/costi/ledger";
 import {
   QUOTA_STORAGE_PREDEFINITA_BYTES,
@@ -68,6 +69,13 @@ export const tenantsRouter = router({
       // ("weak type") anche se a runtime `ruoliDi` gestisce già l'assenza.
       proprietario: ruoliDi(ctx.user as any).includes(RUOLO_PROPRIETARIO),
       multiAzienda,
+      // `piattaforma` (WS6 §3.1): stesso helper della guardia
+      // `requirePiattaforma` (server/_core/trpc.ts) — rilegge il record
+      // dallo store del tenant 1 e richiede `loginMethod === "local"`
+      // (mirror di `risolviTenantPerUtente`, tenants/contesto.ts), così un
+      // utente OAuth legacy con lo stesso id numerico di un amministratore
+      // non risulta mai amministratore della piattaforma.
+      piattaforma: utenteAmministratore(ctx.user as any) !== null,
     };
   }),
 

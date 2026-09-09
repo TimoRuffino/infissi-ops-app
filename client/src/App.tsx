@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
 import RequireDirezione from "./components/RequireDirezione";
+import RequirePiattaforma from "./components/RequirePiattaforma";
 import { legacyMessageRedirect } from "./lib/messaggi";
 import { produzioneRedirect } from "./lib/navigation";
 import { routeContractForLocation } from "./lib/routeContract";
@@ -50,6 +51,9 @@ const LimitiStampa = lazy(() => import("./pages/LimitiStampa"));
 const EmailPage = lazy(() => import("./pages/messaggi/EmailPage"));
 const WhatsAppPage = lazy(() => import("./pages/messaggi/WhatsAppPage"));
 const Notifiche = lazy(() => import("./pages/Notifiche"));
+const AziendeList = lazy(() => import("./pages/piattaforma/AziendeList"));
+const AziendaDetail = lazy(() => import("./pages/piattaforma/AziendaDetail"));
+const InvitoPage = lazy(() => import("./pages/InvitoPage"));
 
 function RouteLoading() {
   return (
@@ -109,6 +113,17 @@ function Router() {
         {() => (
           <Suspense fallback={<RouteLoading />}>
             <LimitiStampa />
+          </Suspense>
+        )}
+      </Route>
+      {/* Invito del proprietario di una azienda nuova (WS6 §6.3): pagina
+          pubblica, senza sessione e senza shell — chi la apre non ha ancora
+          una password. Deve stare qui fuori, prima di DashboardLayout, o il
+          layout la manderebbe al login. */}
+      <Route path="/invito/:token">
+        {() => (
+          <Suspense fallback={<RouteLoading />}>
+            <InvitoPage />
           </Suspense>
         )}
       </Route>
@@ -216,6 +231,30 @@ function Router() {
             </Route>
             <Route path="/integrazioni" component={Integrazioni} />
             <Route path="/tars" component={Tars} />
+            {/* Pannello della piattaforma (WS6 §8): amministra TUTTE le
+            aziende di Wyndoor, quindi non è guardato da un ruolo ma dalla
+            capacità di piattaforma, che il server calcola da
+            PLATFORM_ADMIN_EMAILS. L'elenco prima della scheda: l'ordine
+            conta, `/piattaforma/:slug` mangerebbe `/piattaforma`. */}
+            <Route path="/piattaforma">
+              {() => (
+                <RequirePiattaforma>
+                  <AziendeList />
+                </RequirePiattaforma>
+              )}
+            </Route>
+            {/* `key={params.slug}`: passando da un'azienda all'altra senza
+            uscire dalla rotta, React riuserebbe lo stesso componente e con
+            lui il suo stato — comandi lunghi in corso, dialoghi aperti,
+            l'ultimo esito mostrato — che appartengono all'azienda di prima.
+            Con la chiave la scheda si rimonta pulita. */}
+            <Route path="/piattaforma/:slug">
+              {params => (
+                <RequirePiattaforma>
+                  <AziendaDetail key={params.slug} />
+                </RequirePiattaforma>
+              )}
+            </Route>
             {/* Fallback Modular Control. `/404` è l'indirizzo esplicito, la
             route senza path raccoglie tutto il resto: l'ordine conta e non va
             invertito. Entrambe rendono la stessa pagina dentro la shell

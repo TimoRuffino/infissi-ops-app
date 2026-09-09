@@ -105,6 +105,19 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   quale azienda lavora con `--tenant=<id>` (default: 1): `pattuiti:reset`,
   `importa-clienti` e `migrate-documents-to-storage`. A interruttore spento
   `--tenant=<n>` non fallisce: il resolver risolve comunque il tenant 1.
+- Il router `piattaforma` (WS6) legge solo il control plane e scrive SOLO
+  accodando in `tenant_comandi` (eseguito subito con `eseguiComandoSubito` o
+  al giro dei 30 s) o, per gli inviti, nel control plane `tenant_inviti`/
+  `tenant_eventi`: mai una scrittura su uno store JSONB di dominio, mai un
+  import di `comunicazioni`, `fatture`, `documenti` o `tars/strumenti`
+  (guardia `server/piattaforma/confine.test.ts`).
+- `tenant_inviti` la scrive **solo** `server/tenants/repository.ts` (come il
+  resto del control plane): il token in chiaro esce una volta sola, nel link
+  restituito a chi lo ha chiesto; a terra resta solo il suo sha256
+  (`token_hash`). Nessun log, evento o messaggio d'errore contiene il token.
+- La posta della piattaforma (`server/_core/postaPiattaforma.ts`) non lancia
+  mai e non logga indirizzi, oggetti o corpi: senza `RESEND_API_KEY` il
+  pannello mostra il link da copiare invece di mandare l'email.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.

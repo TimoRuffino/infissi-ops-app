@@ -4,16 +4,19 @@
 // misurate; budget ed extra in euro solo a proprietario e direzione.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
+import { hashPassword } from "../_core/password";
 import {
   assicuraAbbonamentoPredefinito,
   concediOmaggio,
   creaProva,
 } from "../abbonamenti/servizio";
 import { GIORNI_PROVA, eurInNano } from "../abbonamenti/costanti";
+import { creaUtenteInterno, getUtentiStore } from "../routers/utenti";
 import {
   creaLedgerMemoriaPerTest,
   impostaLedgerPerTest,
 } from "../tars/costi/ledger";
+import { conTenant } from "./contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import { tenantsRouter } from "./router";
 
@@ -81,6 +84,61 @@ describe("tenantsRouter", () => {
     const risultato = await caller.mio();
     expect(risultato.id).toBe(2);
     expect(risultato.slug).toBe("acme");
+  });
+
+  describe("mio: piattaforma", () => {
+    const PASSWORD = "Password-lunga-12";
+    let admin: any;
+    let nU = 0;
+
+    beforeEach(() => {
+      const utenti = getUtentiStore();
+      nU = utenti.length;
+      admin = conTenant(1, () =>
+        creaUtenteInterno({
+          tenantId: 1,
+          nome: "Admin",
+          cognome: "Piattaforma",
+          email: "admin.piattaforma.router.test@wyndoor.test",
+          ruoli: ["direzione"],
+          sediIds: [SEDE],
+          passwordHash: hashPassword(PASSWORD),
+        })
+      );
+    });
+
+    afterEach(() => {
+      getUtentiStore().splice(nU);
+      delete process.env.PLATFORM_ADMIN_EMAILS;
+    });
+
+    // `loginMethod` di default `"local"`: l'utente locale vero, come emesso
+    // da `apriSessioneLocale`/`localUserDa` (server/localAuth.ts). Passare
+    // `"oauth"` o `null` simula l'utente OAuth legacy con lo stesso id
+    // numerico (server/tenants/contesto.ts:12-23, stesso mirror).
+    function contestoAmministratore(loginMethod: string | null = "local"): TrpcContext {
+      const base = context(1);
+      return { ...base, user: { ...(base.user as any), id: admin.id, loginMethod } };
+    }
+
+    it("con l'email dell'utente in PLATFORM_ADMIN_EMAILS: true", async () => {
+      process.env.PLATFORM_ADMIN_EMAILS = admin.email;
+      const risultato = await tenantsRouter.createCaller(contestoAmministratore("local")).mio();
+      expect(risultato.piattaforma).toBe(true);
+    });
+
+    it("senza la variabile d'ambiente: false", async () => {
+      const risultato = await tenantsRouter.createCaller(contestoAmministratore()).mio();
+      expect(risultato.piattaforma).toBe(false);
+    });
+
+    it("stesso id numerico ma non locale (OAuth legacy) o senza loginMethod: false anche con l'email in elenco", async () => {
+      process.env.PLATFORM_ADMIN_EMAILS = admin.email;
+      const conOauth = await tenantsRouter.createCaller(contestoAmministratore("oauth")).mio();
+      expect(conOauth.piattaforma).toBe(false);
+      const senzaLoginMethod = await tenantsRouter.createCaller(contestoAmministratore(null)).mio();
+      expect(senzaLoginMethod.piattaforma).toBe(false);
+    });
   });
 
   it("storage: byte, file e percentuale dell'azienda della sessione, senza bloccare", async () => {

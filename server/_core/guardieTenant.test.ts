@@ -5,6 +5,7 @@ import { contestoDiProva } from "./contestoDiProva";
 import { hashPassword } from "./password";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
+import { MESSAGGI } from "../tenants/costanti";
 import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import type { TenantRecord } from "../tenants/tipi";
@@ -107,22 +108,72 @@ describe("sede attiva obbligatoria", () => {
 });
 
 describe("login", () => {
-  it("un utente di un tenant diverso da 1 entra: riceve il cookie di sessione", async () => {
+  const PASSWORD = "Password-lunga-12";
+
+  /** Due utenti veri nello store, uno per azienda, ripuliti dal chiamante. */
+  function seminaUtenti(): () => void {
     const utenti = getUtentiStore();
     const n = utenti.length;
-    utenti.push({
-      id: 97414, nome: "A", cognome: "B", email: "porta@acme.test", ruoli: ["direzione"],
-      sediIds: [], attivo: true, tenantId: acme.id, password: hashPassword("Password-lunga-12"),
-      createdAt: new Date(), updatedAt: new Date(),
+    const base = {
+      nome: "A", cognome: "B", ruoli: ["direzione"], sediIds: [], attivo: true,
+      password: hashPassword(PASSWORD), createdAt: new Date(), updatedAt: new Date(),
+    };
+    utenti.push(
+      { ...base, id: 97414, email: "porta@acme.test", tenantId: acme.id },
+      { ...base, id: 97415, email: "porta@ruffino.test", tenantId: 1 }
+    );
+    return () => utenti.splice(n);
+  }
+
+  const callerAnonimo = () =>
+    appRouter.createCaller({
+      ...contestoDiProva({ utenteId: 0, sedeId: null, tenantId: null }),
+      user: null,
     });
+
+  it("un utente di un tenant diverso da 1 entra: riceve il cookie di sessione", async () => {
+    const pulisci = seminaUtenti();
     try {
-      const anonimo = { ...contestoDiProva({ utenteId: 0, sedeId: null, tenantId: null }), user: null };
-      const caller = appRouter.createCaller(anonimo);
       await expect(
-        caller.auth.login({ email: "porta@acme.test", password: "Password-lunga-12" })
+        callerAnonimo().auth.login({ email: "porta@acme.test", password: PASSWORD })
       ).resolves.toMatchObject({ id: 97414, email: "porta@acme.test" });
     } finally {
-      utenti.splice(n);
+      pulisci();
+    }
+  });
+
+  // R10: a interruttore spento la porta è chiusa per chi non è di Ruffino
+  // Group — la sessione lo porterebbe dentro il tenant 1 (context.ts fissa
+  // tenantId = 1 per tutti a flag spento). Il rifiuto arriva DOPO la
+  // verifica della password: senza credenziali giuste nessuno può usarlo per
+  // scoprire quali email appartengono a un'altra azienda.
+  it("a interruttore spento l'utente di un'altra azienda non entra, quello del tenant 1 sì", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    const pulisci = seminaUtenti();
+    try {
+      await expect(
+        callerAnonimo().auth.login({ email: "porta@acme.test", password: PASSWORD })
+      ).rejects.toMatchObject({
+        code: "PRECONDITION_FAILED",
+        message: MESSAGGI.multiAziendaSpento,
+      });
+      await expect(
+        callerAnonimo().auth.login({ email: "porta@ruffino.test", password: PASSWORD })
+      ).resolves.toMatchObject({ id: 97415, email: "porta@ruffino.test" });
+    } finally {
+      pulisci();
+    }
+  });
+
+  it("a interruttore spento la password sbagliata resta «Email o password non validi»: nessuna enumerazione", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    const pulisci = seminaUtenti();
+    try {
+      await expect(
+        callerAnonimo().auth.login({ email: "porta@acme.test", password: "sbagliata-ma-lunga" })
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Email o password non validi" });
+    } finally {
+      pulisci();
     }
   });
 });

@@ -17,7 +17,7 @@ import {
   fermaTenants,
   preparaTenants,
 } from "./boot";
-import { INTERVALLO_COMANDI_MS, TTL_STATE_OAUTH_MS } from "./costanti";
+import { INTERVALLO_COMANDI_MS, TTL_INVITO_MS, TTL_STATE_OAUTH_MS } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 import * as servizioModulo from "./servizio";
@@ -314,5 +314,42 @@ describe("preparaTenants: spazzata degli state OAuth scaduti", () => {
       log2.mockRestore();
     }
     expect(righe2.some(r => r.includes("oauth_state"))).toBe(false);
+  });
+});
+
+// WS6 (pannello piattaforma, spec §4.2): stessa cautela di
+// `pulisciStateScaduti` qui sopra, in un try/catch a parte.
+describe("preparaTenants: spazzata degli inviti scaduti (WS6)", () => {
+  it("toglie gli inviti scaduti da più di 30 giorni al boot e lo dice solo se ne ha tolti", async () => {
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    await repo.emettiInvito({ tenantId: 1, utenteId: 7, email: "m@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    // Scaduto da più di 30 giorni: TTL dell'invito + 31 giorni.
+    vi.advanceTimersByTime(TTL_INVITO_MS + 31 * 24 * 3600 * 1000);
+
+    const righe: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      righe.push(a.map(String).join(" "));
+    });
+    try {
+      await preparaTenants();
+    } finally {
+      log.mockRestore();
+    }
+    expect(righe).toContain("[tenants] inviti scaduti rimossi: 1");
+    // Non è rimasto niente da togliere: la spazzata ha fatto il suo lavoro.
+    expect(await repo.pulisciInvitiScaduti()).toBe(0);
+
+    // Secondo boot, nessun invito scaduto da più di 30 giorni: nessuna riga di log.
+    const righe2: string[] = [];
+    const log2 = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      righe2.push(a.map(String).join(" "));
+    });
+    try {
+      await preparaTenants();
+    } finally {
+      log2.mockRestore();
+    }
+    expect(righe2.some(r => r.includes("inviti scaduti"))).toBe(false);
   });
 });

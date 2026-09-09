@@ -19,6 +19,7 @@ const MANIFEST_SOURCE = readFileSync(
 const EXPECTED_PATHS = [
   "/fatture/:id/stampa",
   "/commesse/:id/limiti/stampa",
+  "/invito/:token",
   "/",
   "/clienti",
   "/clienti/:id",
@@ -55,6 +56,8 @@ const EXPECTED_PATHS = [
   "/conoscenza",
   "/integrazioni",
   "/tars",
+  "/piattaforma",
+  "/piattaforma/:slug",
   "/404",
   "*",
 ] as const;
@@ -114,6 +117,46 @@ describe("APP_ROUTE_CONTRACT", () => {
       expect(route.roleRule).toBe("direzione");
       expect(route.serverAuthority).not.toContain("RequireDirezione");
     }
+  });
+
+  it("registra la sezione piattaforma come guardia propria, non come ruolo", () => {
+    const piattaforma = APP_ROUTE_CONTRACT.filter(
+      route => route.uxGuard === "RequirePiattaforma"
+    );
+
+    expect(piattaforma.map(route => route.path)).toEqual([
+      "/piattaforma",
+      "/piattaforma/:slug",
+    ]);
+    for (const route of piattaforma) {
+      expect(route.kind, route.path).toBe("guarded");
+      // La capacità di piattaforma non è un ruolo e non è una capability del
+      // policy engine: la calcola il server da PLATFORM_ADMIN_EMAILS.
+      expect(route.roleRule, route.path).toBeNull();
+      expect(route.requiredCapabilities, route.path).toEqual([]);
+      expect(route.serverAuthority, route.path).toContain(
+        "piattaformaProcedure"
+      );
+      // Nessuna voce in navigazione: si entra dal menu profilo.
+      expect(route.navigation, route.path).toBe("hidden");
+    }
+  });
+
+  it("tiene la pagina d'invito pubblica e fuori dalla shell", () => {
+    const invito = APP_ROUTE_CONTRACT.find(
+      route => route.path === "/invito/:token"
+    );
+
+    expect(invito?.kind).toBe("page");
+    expect(invito?.target).toBe("InvitoPage");
+    expect(invito?.requiredCapabilities).toEqual([]);
+    expect(invito?.roleRule).toBeNull();
+    expect(invito?.serverAuthority).toContain("invitiRouter");
+    // Sta prima di DashboardLayout in App.tsx, come le stampe: il layout
+    // manderebbe al login chi una password non ce l'ha ancora.
+    expect(APP_SOURCE.indexOf('path="/invito/:token"')).toBeLessThan(
+      APP_SOURCE.indexOf("<DashboardLayout>")
+    );
   });
 
   it("makes economic shaping and the Tars kill switch explicit", () => {

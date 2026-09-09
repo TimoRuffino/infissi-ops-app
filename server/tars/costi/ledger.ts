@@ -165,6 +165,14 @@ export type LedgerCosti = {
    * Tars.
    */
   consumoAziendaMese(input: { tenantId: number; adesso: Date }): Promise<number>;
+  /**
+   * WS6 (pannello piattaforma, spec §4.4): la stessa somma di
+   * `consumoAziendaMese`, per TUTTE le aziende in una query sola — l'elenco
+   * del pannello non fa un giro per azienda. Un'azienda senza righe questo
+   * mese è assente dalla mappa (mai uno zero bugiardo: stessa regola di
+   * `tenants.consumi`, il chiamante decide come mostrarlo).
+   */
+  consumoAziendeMese(input: { adesso: Date }): Promise<Map<number, number>>;
   riepilogo(adesso: Date): Promise<RiepilogoCosti>;
 };
 
@@ -576,6 +584,23 @@ export function creaLedgerPostgres(): LedgerCosti {
       return Number(somma?.azienda ?? 0);
     },
 
+    async consumoAziendeMese(input) {
+      const db = sql();
+      await ensureCostiSchema();
+      // Stessa formula di `consumoAziendaMese` (stesso `CASE stato`, stesso
+      // `COALESCE(tenant_id, 1)`), raggruppata per azienda: una query per
+      // l'elenco intero invece di N.
+      const righe = await db`SELECT COALESCE(tenant_id, 1) AS tenant_id,
+          COALESCE(SUM(CASE stato
+            WHEN 'released' THEN 0
+            WHEN 'settled' THEN COALESCE(costo_reale_nano, costo_prenotato_nano)
+            ELSE costo_prenotato_nano END), 0) AS azienda
+        FROM tars_costi
+        WHERE mese_locale = ${periodiLocali(input.adesso).mese}
+        GROUP BY COALESCE(tenant_id, 1)`;
+      return new Map(righe.map((r: any) => [Number(r.tenant_id), Number(r.azienda)]));
+    },
+
     async riepilogo(adesso) {
       const db = sql();
       await ensureCostiSchema();
@@ -764,6 +789,18 @@ export function creaLedgerMemoriaPerTest(): LedgerCosti & {
         return righe
           .filter(r => r.meseLocale === mese && r.tenantId === input.tenantId)
           .reduce((s, r) => s + costoContato(r), 0);
+      });
+    },
+
+    consumoAziendeMese(input) {
+      return inSequenza(() => {
+        const { mese } = periodiLocali(input.adesso);
+        const somme = new Map<number, number>();
+        for (const r of righe) {
+          if (r.meseLocale !== mese) continue;
+          somme.set(r.tenantId, (somme.get(r.tenantId) ?? 0) + costoContato(r));
+        }
+        return somme;
       });
     },
 

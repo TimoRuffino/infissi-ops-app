@@ -435,6 +435,9 @@ async function startServer() {
 
   // WS4 (Task 3): import dinamico come gli altri di questo blocco.
   const { avviaWorkerAbbonamenti } = await import("../abbonamenti/worker");
+  // WS6 (I5): un avviso solo se APP_BASE_URL manca — i link d'invito
+  // nascerebbero dall'Host della richiesta.
+  const { avvisaBaseUrlMancante } = await import("../piattaforma/inviti");
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
@@ -449,6 +452,10 @@ async function startServer() {
     // dal boot: subito un giro, poi ogni 6 ore; a interruttore spento non fa
     // nulla (se lo verifica da sé).
     avviaWorkerAbbonamenti();
+    // Senza APP_BASE_URL i link d'invito del pannello piattaforma useranno
+    // l'host della richiesta: una riga sola, qui, dove si guardano gli altri
+    // avvisi di avvio.
+    avvisaBaseUrlMancante();
   });
 }
 

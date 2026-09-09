@@ -26,6 +26,11 @@ export default defineConfig({
       // quindi qui girano solo i test SENZA DOM: la logica pura, non il
       // rendering.
       "client/src/components/**/*.test.ts",
+      // Stessa ragione ancora un piano più in là: una pagina può portarsi
+      // accanto il proprio modulo di testi puri (es.
+      // `pages/piattaforma/testi.ts`, WS6 §8). Anche qui solo logica pura,
+      // senza DOM.
+      "client/src/pages/**/*.test.ts",
       // Le regole condivise fra server e client vivono in `shared/`: senza
       // questa riga i loro test esistono e non girano mai, che è peggio che
       // non averli — sembrano una rete e non lo sono.

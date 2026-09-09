@@ -7,7 +7,7 @@ import { SEDE_COOKIE } from "@shared/const";
 import { allowedSediForUser, DEFAULT_SEDE_ID } from "../routers/sedi";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
-import { risolviTenantPerUtente, sediAmmesse } from "../tenants/contesto";
+import { risolviTenantPerUtente, sediAmmesse, tenantVietatoASpento } from "../tenants/contesto";
 import { ruoliDi } from "../tenants/regole";
 import type { TenantRecord } from "../tenants/tipi";
 
@@ -76,8 +76,17 @@ export async function createContext(
       } as typeof user;
     }
   } else if (user) {
-    tenantId = TENANT_PREDEFINITO_ID;
-    sediIds = allowedSediForUser(user);
+    // Porta chiusa a interruttore spento (WS6, R10): un utente la cui azienda
+    // non è Ruffino Group entrerebbe qui dentro il tenant 1, con le sue sedi.
+    // Non ha sessione finché il multi-azienda resta spento.
+    const vietato = tenantVietatoASpento(user);
+    if (vietato != null) {
+      console.warn(`[tenants] sessione rifiutata a interruttore spento (tenant ${vietato})`);
+      user = null;
+    } else {
+      tenantId = TENANT_PREDEFINITO_ID;
+      sediIds = allowedSediForUser(user);
+    }
   }
 
   // Resolve the active sede. The requested sede comes from the `active_sede`

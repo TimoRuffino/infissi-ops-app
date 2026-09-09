@@ -6,7 +6,7 @@ import { conTransazioneStoreAtomica, istanziaStoresPerTenant } from "../_core/pe
 import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
-import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
+import { MESSAGGI, RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
 import {
   schemaPayloadAbbonamento,
   schemaPayloadCrea,
@@ -280,7 +280,14 @@ export async function allineaTenantPredefinito(): Promise<void> {
 }
 
 async function eseguiComando(comando: TenantComando): Promise<Record<string, unknown>> {
-  const attore: Attore = { tipo: "script", nome: comando.richiestoDa };
+  // WS6 (pannello piattaforma, spec §4.3): un comando accodato dal pannello
+  // porta `richiestoDa: "piattaforma:<email>"`; l'attore diventa
+  // `{ tipo: "piattaforma", email }` così `tenant_eventi` dice
+  // «piattaforma:t.ruffino@…», non «script:…». Ogni altro produttore
+  // (script CLI compresi) resta un attore script, comportamento invariato.
+  const attore: Attore = comando.richiestoDa.startsWith("piattaforma:")
+    ? { tipo: "piattaforma", email: comando.richiestoDa.slice("piattaforma:".length) }
+    : { tipo: "script", nome: comando.richiestoDa };
   try {
     switch (comando.tipo) {
       case "crea": {
@@ -437,4 +444,26 @@ export async function eseguiComandiInAttesa(): Promise<{ eseguiti: number; falli
     else falliti++;
   }
   return { eseguiti, falliti };
+}
+
+/**
+ * WS6: il pannello accoda e vuole l'esito subito. Stessa funzione del giro,
+ * preso in carico per id (FOR UPDATE SKIP LOCKED): se il giro lo ha già
+ * preso, si aspetta che chiuda invece di rieseguire.
+ */
+export async function eseguiComandoSubito(
+  id: number,
+  opzioni: { attesaMs?: number; passoMs?: number } = {}
+): Promise<TenantComando> {
+  if (!interruttoreAttivo("multiAzienda")) throw new Error(MESSAGGI.comandiSpenti);
+  const repo = getTenantRepository();
+  await repo.prendiEdEsegui(eseguiComando, { soloId: id });
+  const scadenza = Date.now() + (opzioni.attesaMs ?? 10_000);
+  const passo = opzioni.passoMs ?? 500;
+  for (;;) {
+    const c = await repo.comando(id);
+    if (!c) throw new Error(`Comando #${id} inesistente`);
+    if (c.stato !== "in_attesa" || Date.now() >= scadenza) return c;
+    await new Promise(r => setTimeout(r, passo));
+  }
 }

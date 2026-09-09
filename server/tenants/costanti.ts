@@ -17,6 +17,9 @@ export const QUOTA_STORAGE_PREDEFINITA_BYTES = 100 * 1024 ** 3; // 100 GiB
 /** Un `state` OAuth non consumato entro questa finestra è scaduto (WS3 §5). */
 export const TTL_STATE_OAUTH_MS = 10 * 60_000;
 
+/** Un invito del pannello piattaforma non accettato entro una settimana è scaduto (WS6 §4.1). */
+export const TTL_INVITO_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Minuscole, cifre, trattini interni; da 1 a 40 caratteri. */
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
@@ -26,10 +29,19 @@ export const MESSAGGI = {
   soloProprietari: "Solo un proprietario può nominare o revocare un proprietario.",
   proprietarioRichiedeFlag: "Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.",
   nonTrovato: "Risorsa non trovata.",
-  // Le sette tabelle sono quelle che `verificaSchema` chiede davvero
+  // Le otto tabelle sono quelle che `verificaSchema` chiede davvero
   // (repository.ts): il messaggio ne nominava tre e mandava l'operatore a
   // cercare il guasto sulla tabella sbagliata — di solito a mancare sono le
-  // due del WS3 (fix wave finale). `abbonamenti` è del WS4.
+  // due del WS3 (fix wave finale). `abbonamenti` è del WS4, `tenant_inviti`
+  // del WS6 (pannello piattaforma).
   schemaAssente:
-    "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage, oauth_state, abbonamenti): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
+    "Tabelle del control plane del tenant assenti (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage, oauth_state, abbonamenti, tenant_inviti): le crea il server al primo avvio con questa versione; lo script non tocca lo schema.",
+  // WS6 (pannello piattaforma, spec §5.2): `eseguiComandoSubito` a
+  // interruttore spento — il pannello lo dice invece di eseguire comunque.
+  comandiSpenti: "Con FLAG_MULTI_AZIENDA spento i comandi non vengono eseguiti.",
+  // WS6 ruling R10: porta chiusa a interruttore spento. A flag spento il
+  // contesto fissa `tenantId = 1` per chiunque, quindi la sessione di un
+  // utente di un'altra azienda lo porterebbe dentro Ruffino Group. Finché il
+  // multi-azienda è spento, quelle sessioni non si aprono.
+  multiAziendaSpento: "Accesso non disponibile: il multi-azienda della piattaforma è spento.",
 } as const;

@@ -1,5 +1,5 @@
 // server/_core/context.tenant.test.ts
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COOKIE_NAME, SEDE_COOKIE } from "@shared/const";
 import { createContext } from "./context";
 import { createLocalToken, type LocalUser } from "../localAuth";
@@ -13,6 +13,7 @@ const COMMERCIALE_T2 = 97311;
 const SPENTO_T2 = 97312;
 const SENZA_SEDE_T3 = 97313;
 const PROPRIETARIO_T2 = 97314;
+const SPENTO_T1 = 97315;
 
 const sedi = getSediStore();
 const utenti = getUtentiStore();
@@ -63,7 +64,8 @@ beforeEach(async () => {
     { ...base, id: COMMERCIALE_T2, email: "c@acme.test", ruoli: ["commerciale"], tenantId: 2 },
     { ...base, id: SPENTO_T2, email: "s@acme.test", ruoli: ["commerciale"], tenantId: 2, attivo: false },
     { ...base, id: SENZA_SEDE_T3, email: "v@vuota.test", ruoli: ["direzione"], tenantId: 3, sediIds: [] },
-    { ...base, id: PROPRIETARIO_T2, email: "p@acme.test", ruoli: ["proprietario", "direzione"], tenantId: 2 }
+    { ...base, id: PROPRIETARIO_T2, email: "p@acme.test", ruoli: ["proprietario", "direzione"], tenantId: 2 },
+    { ...base, id: SPENTO_T1, email: "s@ruffino.test", ruoli: ["commerciale"], tenantId: 1, attivo: false }
   );
 });
 
@@ -115,13 +117,39 @@ describe("createContext con FLAG_MULTI_AZIENDA acceso", () => {
 });
 
 describe("createContext con FLAG_MULTI_AZIENDA spento", () => {
-  it("tenant 1 implicito, nessuna rilettura dello store, sedi come oggi", async () => {
+  it("un utente del tenant 1: tenant implicito, nessuna rilettura dei ruoli, sedi come oggi", async () => {
+    // `attivo: false` e la sessione regge lo stesso: a flag spento il CRM è
+    // quello di prima, che il record disattivato non lo rilegge. L'unico
+    // controllo nuovo (R10) è sull'azienda, non sui ruoli né su `attivo`.
     process.env.FLAG_MULTI_AZIENDA = "off";
-    const ctx = await contestoCon(SPENTO_T2, ["commerciale"]);
-    expect(ctx.user?.id).toBe(SPENTO_T2);
+    const ctx = await contestoCon(SPENTO_T1, ["commerciale"]);
+    expect(ctx.user?.id).toBe(SPENTO_T1);
     expect(ctx.tenantId).toBe(1);
     expect(ctx.tenant).toBeNull();
     expect(ctx.sediIds).toEqual([SEDE_T2]);
     expect(ctx.sedeId).toBe(SEDE_T2);
+  });
+
+  // R10 (revisione finale del WS6): a flag spento `createContext` fissava
+  // tenantId = 1 per CHIUNQUE e `allowedSediForUser` dava a un utente del
+  // tenant 2 le sedi di Ruffino Group. Con una seconda azienda a terra, dopo
+  // il WS6, spegnere l'interruttore non è più «il CRM di prima»: è la porta
+  // di Ruffino Group aperta ai suoi clienti. Quindi la porta si chiude.
+  it("un utente di un'altra azienda non entra: sessione rifiutata, una riga di log", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    const spia = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const ctx = await contestoCon(COMMERCIALE_T2, ["commerciale"], SEDE_T1);
+      expect(ctx.user).toBeNull();
+      expect(ctx.tenantId).toBeNull();
+      expect(ctx.sediIds).toEqual([]);
+      expect(ctx.sedeId).toBeNull();
+      expect(spia).toHaveBeenCalledTimes(1);
+      expect(String(spia.mock.calls[0]?.[0])).toBe(
+        "[tenants] sessione rifiutata a interruttore spento (tenant 2)"
+      );
+    } finally {
+      spia.mockRestore();
+    }
   });
 });

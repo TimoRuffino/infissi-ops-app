@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TTL_INVITO_MS } from "./costanti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
 
 beforeEach(() => {
@@ -222,5 +223,89 @@ describe("repository tenant in memoria", () => {
         createdAt: ora, updatedAt: ora,
       })
     ).rejects.toThrow(/tenant 999 inesistente/);
+  });
+});
+
+// Pannello piattaforma (WS6, spec §4.1-§4.3): inviti a token monouso e le
+// letture in blocco che la scheda azienda e l'elenco useranno (una query per
+// tutte le aziende, non una per tenant).
+describe("inviti e letture in blocco (WS6)", () => {
+  const T0 = new Date("2026-09-09T10:00:00Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("emette un invito con token monouso e ne annulla i precedenti dello stesso utente", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    const primo = await repo.emettiInvito({ tenantId: t.id, utenteId: 7, email: "m@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    const secondo = await repo.emettiInvito({ tenantId: t.id, utenteId: 7, email: "m@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    expect(primo.token).not.toBe(secondo.token);
+    expect(primo.token.length).toBeGreaterThanOrEqual(40);
+    expect(await repo.invitoPerToken(primo.token)).toBeNull(); // annullato dal secondo
+    expect((await repo.invitoPerToken(secondo.token))?.id).toBe(secondo.invito.id);
+    expect((await repo.invitiDi(t.id)).map(i => [i.id, i.annullatoIl !== null])).toEqual([
+      [secondo.invito.id, false],
+      [primo.invito.id, true],
+    ]);
+    expect(secondo.invito.scadeIl.getTime()).toBe(T0.getTime() + TTL_INVITO_MS);
+  });
+
+  it("consuma una volta sola, mai scaduto o annullato", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    const { token, invito } = await repo.emettiInvito({ tenantId: t.id, utenteId: 7, email: "m@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    expect((await repo.consumaInvito(token))?.id).toBe(invito.id);
+    expect(await repo.consumaInvito(token)).toBeNull();
+    const { token: t2 } = await repo.emettiInvito({ tenantId: t.id, utenteId: 8, email: "g@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    vi.setSystemTime(new Date(T0.getTime() + TTL_INVITO_MS + 1));
+    expect(await repo.invitoPerToken(t2)).toBeNull();
+    expect(await repo.consumaInvito(t2)).toBeNull();
+    const { token: t3, invito: i3 } = await repo.emettiInvito({ tenantId: t.id, utenteId: 9, email: "z@acme.test", tipo: "proprietario", creatoDa: "piattaforma:t@r.it" });
+    expect((await repo.annullaInvito(i3.id))?.annullatoIl).not.toBeNull();
+    expect(await repo.consumaInvito(t3)).toBeNull();
+    expect(await repo.pulisciInvitiScaduti()).toBe(0); // scaduti da meno di 30 giorni: restano
+    vi.setSystemTime(new Date(T0.getTime() + TTL_INVITO_MS + 31 * 24 * 3600 * 1000));
+    expect(await repo.pulisciInvitiScaduti()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("comandiDi, storageTutti ed eventiRecenti leggono in blocco", async () => {
+    const repo = getTenantRepository();
+    const a = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    const b = await repo.inserisci({ slug: "beta", nome: "Beta" });
+    await repo.aggiornaStorage(a.id, 10, 1);
+    await repo.aggiornaStorage(b.id, 20, 2);
+    await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: a.id, payload: { slug: "acme" }, richiestoDa: "piattaforma:t@r.it" });
+    await repo.registraEvento({ tenantId: b.id, tipo: "worker_sospeso", attore: "boot", dettagli: { etichetta: "imap", minuti: 15 } });
+    expect((await repo.storageTutti()).map(s => [s.tenantId, s.bytes])).toEqual([[a.id, 10], [b.id, 20]]);
+    expect((await repo.comandiDi(a.id, { ultimi: 20 })).map(c => c.tipo)).toEqual(["ricalcola_storage"]);
+    expect(await repo.comandiDi(b.id)).toEqual([]);
+    const recenti = await repo.eventiRecenti({ tipi: ["worker_sospeso", "worker_riarmato"], da: new Date(T0.getTime() - 3600_000) });
+    expect(recenti.map(e => [e.tenantId, e.tipo])).toEqual([[b.id, "worker_sospeso"]]);
+  });
+
+  it("prendiEdEsegui con soloId prende solo quel comando", async () => {
+    const repo = getTenantRepository();
+    const a = await repo.inserisci({ slug: "acme", nome: "Acme" });
+    const c1 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: a.id, payload: { slug: "acme" }, richiestoDa: "x" });
+    const c2 = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: a.id, payload: { slug: "acme" }, richiestoDa: "x" });
+    const visti: number[] = [];
+    expect(
+      await repo.prendiEdEsegui(
+        async c => {
+          visti.push(c.id);
+          return { ok: true };
+        },
+        { soloId: c2.id }
+      )
+    ).toBe("eseguito");
+    expect(visti).toEqual([c2.id]);
+    expect((await repo.comando(c1.id))?.stato).toBe("in_attesa");
+    expect(await repo.prendiEdEsegui(async () => ({}), { soloId: c2.id })).toBe("nessuno");
   });
 });

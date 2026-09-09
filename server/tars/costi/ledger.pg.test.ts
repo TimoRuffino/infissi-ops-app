@@ -11,7 +11,7 @@
 // prova l'atomicità sulla stessa tabella con altre righe).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { kvSql } from "../../_core/persistence";
-import { creaLedgerPostgres, ensureCostiSchema, type LimitiNano } from "./ledger";
+import { creaLedgerPostgres, ensureCostiSchema, periodiLocali, type LimitiNano } from "./ledger";
 import { usdInNano } from "./tariffe";
 
 const conDatabase = Boolean(process.env.DATABASE_URL && kvSql);
@@ -168,6 +168,44 @@ describe.skipIf(!conDatabase)(
       expect(
         await ledger.consumoAziendaMese({ tenantId: 90299, adesso })
       ).toBe(0);
+    });
+
+    // WS6 (pannello piattaforma, spec §4.4): l'elenco vuole la stessa somma
+    // di `consumoAziendaMese`, ma per tutte le aziende in una query sola.
+    it("consumoAziendeMese somma per tutte le aziende in una query; una riga con tenant_id NULL conta per l'azienda 1", async () => {
+      const adesso = new Date();
+      const primaDi1 = await ledger.consumoAziendaMese({ tenantId: 1, adesso });
+
+      // Riga "legacy" (precedente al WS2/WS4): nessun tenant_id scritto.
+      // `rigaDa` la legge come tenant 1 per ogni altra query del ledger;
+      // `consumoAziendeMese` deve fare lo stesso `COALESCE(tenant_id, 1)`.
+      const { giorno, mese } = periodiLocali(adesso);
+      await sql`INSERT INTO tars_costi (
+          chiamata_id, run_id, sede_id, utente_id, modello, stato,
+          costo_prenotato_nano, giorno_locale, mese_locale
+        ) VALUES (
+          ${`${PREFISSO}-null-tenant`}, ${`${PREFISSO}-run-null`}, 1, 1, ${MODELLO}, 'reserved',
+          ${quota}, ${giorno}, ${mese}
+        )`;
+      // Una riga fresca anche per A e B: il confronto sotto non dipende
+      // dall'ordine dei test precedenti in questo file.
+      await prenota("elenco-a", TENANT_A);
+      await prenota("elenco-b", TENANT_B);
+
+      const tutte = await ledger.consumoAziendeMese({ adesso });
+      // Uguaglianza larga, non stretta: il tenant 1 è condiviso, e
+      // `pgConcorrenza.test.ts` scrive righe con tenantId 1 sulla stessa
+      // tabella (stessa convenzione già in uso in questo file, v. sopra).
+      expect(tutte.get(1)).toBeGreaterThanOrEqual(primaDi1 + quota);
+
+      // Stesso numero di `consumoAziendaMese`, azienda per azienda: una
+      // query per l'elenco non deve raccontare una storia diversa da una
+      // query per azienda.
+      for (const tenantId of [1, TENANT_A, TENANT_B]) {
+        expect(tutte.get(tenantId) ?? 0).toBe(
+          await ledger.consumoAziendaMese({ tenantId, adesso })
+        );
+      }
     });
   }
 );

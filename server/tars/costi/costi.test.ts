@@ -982,30 +982,34 @@ describe("governor — classi di costo (T9)", () => {
 // azienda in QUESTO mese — senza passare da una prenotazione: la stessa
 // somma di `prenota`, in sola lettura e senza lock.
 
+// Fixture condivisa dai due describe seguenti (consumoAziendaMese e
+// consumoAziendeMese, WS6): `ledger` è la `let` di modulo riassegnata dal
+// `beforeEach` di riga ~126 prima di ogni test, quindi `prenota` legge
+// sempre il ledger fresco del test in corso, mai uno catturato alla
+// dichiarazione.
+const NANO = 1_000_000;
+const prenota = (
+  chiamataId: string,
+  tenantId: number,
+  adesso: Date,
+  costoPrenotatoNano = NANO
+) =>
+  ledger.prenota({
+    chiamataId,
+    runId: `run-${tenantId}`,
+    tenantId,
+    sedeId: 1,
+    utenteId: 1,
+    conversazioneId: null,
+    modello: MODELLO,
+    costoPrenotatoNano,
+    limiti: { runNano: null, giornoNano: null, meseNano: null },
+    adesso,
+  });
+const settembre = new Date("2026-09-08T09:00:00.000Z");
+const ottobre = new Date("2026-10-02T09:00:00.000Z");
+
 describe("ledger — consumoAziendaMese", () => {
-  const NANO = 1_000_000;
-  const prenota = (
-    chiamataId: string,
-    tenantId: number,
-    adesso: Date,
-    costoPrenotatoNano = NANO
-  ) =>
-    ledger.prenota({
-      chiamataId,
-      runId: `run-${tenantId}`,
-      tenantId,
-      sedeId: 1,
-      utenteId: 1,
-      conversazioneId: null,
-      modello: MODELLO,
-      costoPrenotatoNano,
-      limiti: { runNano: null, giornoNano: null, meseNano: null },
-      adesso,
-    });
-
-  const settembre = new Date("2026-09-08T09:00:00.000Z");
-  const ottobre = new Date("2026-10-02T09:00:00.000Z");
-
   it("somma solo le righe di quell'azienda e di quel mese", async () => {
     await prenota("a1", 2, settembre);
     await prenota("a2", 2, settembre);
@@ -1033,5 +1037,59 @@ describe("ledger — consumoAziendaMese", () => {
       tokenOutput: 1,
     });
     expect(await ledger.consumoAziendaMese({ tenantId: 4, adesso: settembre })).toBe(NANO / 4);
+  });
+});
+
+// ── Consumo del mese per TUTTE le aziende (WS6 §4.4) ─────────────────────
+//
+// L'elenco del pannello piattaforma vuole la stessa somma di
+// `consumoAziendaMese`, ma per ogni azienda in una query sola — mai un giro
+// per azienda nel ciclo (§5.1: al più cinque query in tutto per l'elenco).
+
+describe("ledger — consumoAziendeMese (WS6)", () => {
+  it("somma il mese richiesto per ogni azienda che ha righe, ignorando gli altri mesi", async () => {
+    await prenota("we1", 2, settembre);
+    await prenota("we2", 2, settembre);
+    await prenota("we3", 3, settembre);
+    await prenota("we-ottobre", 2, ottobre);
+
+    const diSettembre = await ledger.consumoAziendeMese({ adesso: settembre });
+    expect(diSettembre.get(2)).toBe(2 * NANO);
+    expect(diSettembre.get(3)).toBe(NANO);
+    // Nessuna riga per l'azienda 4 questo mese: assente dalla mappa, non uno
+    // zero — la stessa regola di "mai uno zero bugiardo" (spec §4.4).
+    expect(diSettembre.has(4)).toBe(false);
+
+    const diOttobre = await ledger.consumoAziendeMese({ adesso: ottobre });
+    expect(diOttobre.get(2)).toBe(NANO);
+    expect(diOttobre.has(3)).toBe(false);
+  });
+
+  it("conta come consumoAziendaMese: released vale zero, settled il costo reale", async () => {
+    await prenota("wr1", 5, settembre);
+    await prenota("wr2", 5, settembre);
+    await ledger.chiudi({ chiamataId: "wr1", stato: "released", motivo: "4xx" });
+    await ledger.riconcilia({
+      chiamataId: "wr2",
+      costoRealeNano: NANO / 4,
+      tokenInput: 1,
+      tokenCached: 0,
+      tokenOutput: 1,
+    });
+
+    expect((await ledger.consumoAziendeMese({ adesso: settembre })).get(5)).toBe(NANO / 4);
+  });
+
+  it("dà lo stesso numero di consumoAziendaMese, azienda per azienda (anche senza righe)", async () => {
+    await prenota("wc1", 6, settembre);
+    await prenota("wc2", 7, settembre);
+    await prenota("wc3", 7, settembre);
+
+    const somme = await ledger.consumoAziendeMese({ adesso: settembre });
+    for (const tenantId of [6, 7, 99]) {
+      expect(somme.get(tenantId) ?? 0).toBe(
+        await ledger.consumoAziendaMese({ tenantId, adesso: settembre })
+      );
+    }
   });
 });

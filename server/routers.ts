@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { creaLimiteTentativi } from "./_core/limiteTentativi";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { commesseRouter } from "./routers/commesse";
@@ -48,54 +49,29 @@ import { fatturazioneConfigRouter } from "./routers/fatturazioneConfig";
 import { fatturazioneGuidataRouter } from "./routers/fatturazioneGuidata";
 import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
+import { interruttoreAttivo } from "./platform/interruttori";
+import { tenantVietato } from "./tenants/contesto";
+import { MESSAGGI } from "./tenants/costanti";
 import { tenantsRouter } from "./tenants/router";
-import {
-  createLocalToken,
-  clearLocalSessionFromRequest,
-  type LocalUser,
-} from "./localAuth";
+import { invitiRouter } from "./piattaforma/invitiRouter";
+import { piattaformaRouter } from "./piattaforma/router";
+import { apriSessioneLocale, clearLocalSessionFromRequest } from "./localAuth";
 import { verifyPassword } from "./_core/password";
 import { TRPCError } from "@trpc/server";
 
 // ── Login rate limiting ──────────────────────────────────────────────────
-// In-memory per-email throttle: after MAX_LOGIN_ATTEMPTS failed attempts
-// inside LOGIN_WINDOW_MS the account is locked until the window expires.
-// Blunts brute-force / credential-stuffing. A successful login clears the
-// counter. Keyed by lowercased email so a targeted account stays protected
-// even if the attacker rotates IP addresses.
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const MAX_LOGIN_ATTEMPTS = 5;
-const loginAttempts = new Map<string, { count: number; firstAt: number }>();
-
-function checkLoginRateLimit(email: string): void {
-  const key = email.toLowerCase();
-  const rec = loginAttempts.get(key);
-  if (!rec) return;
-  if (Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
-    loginAttempts.delete(key);
-    return;
-  }
-  if (rec.count >= MAX_LOGIN_ATTEMPTS) {
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: "Troppi tentativi di accesso. Riprova tra qualche minuto.",
-    });
-  }
-}
-
-function recordLoginFailure(email: string): void {
-  const key = email.toLowerCase();
-  const rec = loginAttempts.get(key);
-  if (!rec || Date.now() - rec.firstAt > LOGIN_WINDOW_MS) {
-    loginAttempts.set(key, { count: 1, firstAt: Date.now() });
-  } else {
-    rec.count++;
-  }
-}
-
-function clearLoginAttempts(email: string): void {
-  loginAttempts.delete(email.toLowerCase());
-}
+// In-memory per-email throttle: after 5 failed attempts inside 15 minutes
+// the account is locked until the window expires. Blunts brute-force /
+// credential-stuffing. A successful login clears the counter. Keyed by
+// lowercased email so a targeted account stays protected even if the
+// attacker rotates IP addresses. Estratto in server/_core/limiteTentativi.ts
+// (WS6 §3.2): la conferma password del pannello piattaforma riusa la stessa
+// logica, con la propria chiave.
+const limiteLogin = creaLimiteTentativi({
+  finestraMs: 15 * 60 * 1000,
+  massimo: 5,
+  messaggio: "Troppi tentativi di accesso. Riprova tra qualche minuto.",
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -110,14 +86,14 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         // Block before doing any work if the account is rate-limited.
-        checkLoginRateLimit(input.email);
+        limiteLogin.verifica(input.email);
         const utenti = getUtentiStore();
         const utente = utenti.find(
           (u: any) =>
             u.email.toLowerCase() === input.email.toLowerCase() && u.attivo
         );
         if (!utente) {
-          recordLoginFailure(input.email);
+          limiteLogin.fallito(input.email);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Email o password non validi",
@@ -127,42 +103,29 @@ export const appRouter = router({
         // legacy plaintext value, though the utenti store upgrades those to
         // hashes on load).
         if (!verifyPassword(input.password, utente.password)) {
-          recordLoginFailure(input.email);
+          limiteLogin.fallito(input.email);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Email o password non validi",
           });
         }
         // Success — reset the failure counter for this account.
-        clearLoginAttempts(input.email);
+        limiteLogin.azzera(input.email);
 
-        const ruoli: string[] =
-          Array.isArray(utente.ruoli) && utente.ruoli.length > 0
-            ? utente.ruoli
-            : [utente.ruolo ?? "direzione"];
-        const primaryRuolo = ruoli[0];
-        const localUser: LocalUser = {
-          id: utente.id,
-          openId: `local-${utente.id}`,
-          name: `${utente.cognome} ${utente.nome}`.trim(),
-          email: utente.email,
-          loginMethod: "local",
-          role: ruoli.includes("direzione") ? "admin" : "user",
-          ruolo: primaryRuolo,
-          ruoli,
-          createdAt: utente.createdAt,
-          updatedAt: utente.updatedAt,
-          lastSignedIn: new Date(),
-        };
+        // Porta chiusa a interruttore spento (WS6, R10): a flag spento
+        // `createContext` fissa `tenantId = 1` per chiunque, quindi la
+        // sessione di un utente di un'altra azienda lo porterebbe dentro
+        // Ruffino Group. Il rifiuto arriva DOPO la verifica della password:
+        // senza credenziali giuste nessuno può usarlo per scoprire quali
+        // email appartengono a un'altra azienda.
+        if (!interruttoreAttivo("multiAzienda") && tenantVietato(utente) != null) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: MESSAGGI.multiAziendaSpento,
+          });
+        }
 
-        const token = await createLocalToken(localUser);
-        const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, token, {
-          ...cookieOptions,
-          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-        });
-
-        return localUser;
+        return apriSessioneLocale(ctx, utente);
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
       // Invalidate the server-side session cache entry too — not just the
@@ -203,6 +166,8 @@ export const appRouter = router({
   conoscenza: conoscenzaRouter,
   platform: platformRouter,
   tenants: tenantsRouter,
+  inviti: invitiRouter,
+  piattaforma: piattaformaRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,
