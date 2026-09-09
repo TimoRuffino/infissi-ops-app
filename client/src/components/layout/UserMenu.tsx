@@ -11,7 +11,8 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 import { avatarSrcSetForName, avatarUrlForName } from "@/lib/avatars";
 import { getRuoli } from "@/lib/roles";
-import { ChevronDown, LogOut, Moon, Settings, Sun } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { Building2, ChevronDown, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { useLocation } from "wouter";
 
 function initials(name: string | null | undefined): string {
@@ -32,6 +33,10 @@ export default function UserMenu() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [, setLocation] = useLocation();
+  // La voce «Piattaforma» esiste solo per chi amministra Wyndoor (spec WS6
+  // §8): la capacità non è un ruolo e non si deduce dal profilo — la calcola
+  // il server e arriva con `tenants.mio`.
+  const mio = trpc.tenants.mio.useQuery(undefined, { enabled: Boolean(user) });
   const roles = getRuoli(user);
   const roleSummary = roles.length
     ? roles.map(roleLabel).join(" · ")
@@ -94,6 +99,12 @@ export default function UserMenu() {
           <Settings className="h-4 w-4" aria-hidden="true" />
           Impostazioni
         </DropdownMenuItem>
+        {mio.data?.piattaforma ? (
+          <DropdownMenuItem onClick={() => setLocation("/piattaforma")}>
+            <Building2 className="h-4 w-4" aria-hidden="true" />
+            Piattaforma
+          </DropdownMenuItem>
+        ) : null}
         {toggleTheme ? (
           <DropdownMenuItem onClick={toggleTheme}>
             {theme === "dark" ? (
