@@ -1101,9 +1101,13 @@ anche:
 
 1. In `preparaTenants()`, con lo schema del control plane: la tabella
    `tenant_inviti` (id, azienda, utente, email, tipo, `token_hash` UNIQUE,
-   scadenza, chi l'ha creata, quando usata o annullata) e il suo indice
-   `(tenant_id, created_at DESC)`. Additiva come le altre: `CREATE TABLE IF
-   NOT EXISTS`, nessun `ALTER` su tabelle esistenti.
+   scadenza, chi l'ha creata, quando usata o annullata), il suo indice
+   `(tenant_id, created_at DESC)` e l'indice parziale **unico**
+   `tenant_inviti_valido_idx` su `(tenant_id, utente_id)` fra gli inviti non
+   usati e non annullati — un solo invito vivo per utente e azienda, garantito
+   dalla tabella e non solo dal codice. Additivi come gli altri: `CREATE …
+   IF NOT EXISTS`, nessun `ALTER` su tabelle esistenti (la tabella nasce con
+   questa stessa versione, quindi nessuna riga può violare l'indice).
 2. **Dal WS6 la sonda dello script chiede otto tabelle, non sette**: alle
    sette di WS2+WS3+WS4 si aggiunge `tenant_inviti` (`verificaSchema`,
    `server/tenants/repository.ts`; `MESSAGGI.schemaAssente` le nomina tutte
@@ -1117,12 +1121,20 @@ anche:
    `[tenants] inviti scaduti rimossi: N`. Un errore qui non ferma l'avvio
    (il control plane è già a posto) e lascia
    `[tenants] pulizia inviti: <messaggio>`.
+4. **Dopo il `listen`**, accanto agli altri avvisi di avvio: se
+   `APP_BASE_URL` manca, una riga sola — `[piattaforma] APP_BASE_URL non
+   impostata: i link d'invito useranno l'host della richiesta`. Non ferma
+   niente: è il promemoria che i link nasceranno dall'Host visto dal server.
 
 ### Il percorso di un invito
 
 1. **Creazione.** Da «Nuova azienda» (il proprietario nasce con l'azienda) o
-   da «Invita»/«Reinvia» nella scheda di un'azienda esistente (sezione
-   Proprietari e inviti). In entrambi i casi il proprietario riceve una
+   da «Invia invito» nella scheda di un'azienda esistente (sezione
+   Proprietari e inviti). **Entrambe chiedono la password
+   dell'amministratore** — un link d'invito è la presa dell'account del
+   proprietario di un'altra azienda, quindi è un'azione sensibile come
+   sospendere o toccare un abbonamento. In entrambi i casi il proprietario
+   riceve una
    **password inutilizzabile** (un hash di 32 byte casuali: nessuno può
    entrare prima di accettare l'invito) e il servizio emette un token
    monouso (`randomBytes(32)` in base64url) — a terra resta solo il suo
@@ -1132,11 +1144,16 @@ anche:
 2. **Consegna.** Con `RESEND_API_KEY` impostata, l'email parte da
    `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <noreply@wyndoor.com>`),
    oggetto «Il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
-   solo l'esito («Invito inviato a …»). **Senza chiave, o se Resend rifiuta o
-   non risponde entro 10 s, l'invio non si rompe**: il pannello mostra
-   invece il link con un pulsante «Copia» — si consegna a mano (email a
-   parte, WhatsApp, di persona). Nessun invito va perso per questo: il link
-   resta valido comunque.
+   solo l'esito («Invito inviato a …»): il link **non torna nemmeno al
+   browser** — il token è già nella casella giusta, e una seconda copia nella
+   pagina dell'amministratore sarebbe soltanto un'altra copia da rubare.
+   **Senza chiave, o se Resend rifiuta o non risponde entro 10 s, l'invio non
+   si rompe**: allora il link c'è, con un pulsante «Copia» e la riga «Link su
+   &lt;base&gt;» che dice su quale indirizzo è nato — si consegna a mano
+   (email a parte, WhatsApp, di persona). Nessun invito va perso per questo:
+   il link resta valido comunque. Conseguenza operativa: **se la posta è
+   partita e il proprietario non trova l'email, il link non si recupera** —
+   si manda un invito nuovo, che annulla il precedente.
 3. **La pagina pubblica `/invito/<token>`** (fuori dalla shell, senza
    sessione) mostra azienda, nome ed email di chi è stato invitato, chiede la
    password (minimo 12 caratteri, conferma) e apre la sessione da sola
@@ -1147,10 +1164,12 @@ anche:
 4. **Validità: 7 giorni, un solo uso.** Passata la scadenza, o dopo il primo
    uso, il token non vale più — `consumaInvito` è atomico: due tentativi
    concorrenti sullo stesso token hanno esattamente un vincitore.
-5. **Rinvio e annullo.** «Invita» di nuovo sullo stesso proprietario rinnova
-   il link (annulla il vecchio, ne emette uno nuovo). «Annulla invito» nella
-   scheda azienda smette di far valere un invito non ancora usato, senza
-   toccarne uno già accettato.
+5. **Rinvio e annullo.** «Invia invito» di nuovo sullo stesso proprietario
+   rinnova il link (annulla il vecchio, ne emette uno nuovo; su Postgres lo
+   garantisce anche un indice parziale unico, `tenant_inviti_valido_idx`, non
+   solo il codice). «Annulla invito» nella scheda azienda smette di far
+   valere un invito non ancora usato, senza toccarne uno già accettato, e
+   **non** chiede la password: toglie potere, non ne dà.
 6. **Nessuna scorciatoia da riga di comando.** Non esiste un `pnpm tenant
    invita`: il link è un segreto a tempo che non deve restare scritto in
    `tenant_comandi` (o in un terminale, o in uno script). Solo il pannello lo
@@ -1188,7 +1207,13 @@ anche:
 - **`invita` e `annullaInvito` non sono comandi**: passano dal servizio degli
   inviti (sopra), non da `tenant_comandi` — il link è un segreto a tempo, un
   comando invece lascia il suo `payload`/`esito` leggibile a chiunque legga
-  la tabella.
+  la tabella. `invita` chiede comunque la password (è sensibile);
+  `annullaInvito` no.
+- **Le azioni sensibili** (password dell'amministratore, 5 tentativi in 15
+  minuti): `crea`, `invita`, `sospendi`, `riattiva`, `proprietario`, tutte e
+  sette le azioni sull'abbonamento e `ripristina` con scrittura. **Non**
+  sensibili: ricalcolo dello spazio, ripristino in prova, annullo di un
+  invito.
 - `pnpm tenant elenco` e `pnpm tenant verifica` restano validi e mostrano gli
   stessi dati di sempre: nessun comando dello script cambia forma per via del
   pannello.
@@ -1261,7 +1286,19 @@ roll-forward.
 - «Questo invito non è valido o è scaduto: chiedi un nuovo invito.»
   (`NOT_FOUND`) su `/invito/<token>` — token già usato, annullato, scaduto
   (oltre 7 giorni) o inventato: stesso messaggio per ogni motivo, di
-  proposito. Rimedio: dalla scheda dell'azienda, «Invita» di nuovo.
+  proposito. Rimedio: dalla scheda dell'azienda, «Invia invito» di nuovo.
+- «Accesso non disponibile: il multi-azienda della piattaforma è spento.»
+  (`PRECONDITION_FAILED`) al login — porta chiusa a interruttore spento
+  (sezione «Interruttore»): l'utente è di un'azienda diversa dal tenant 1 e
+  `FLAG_MULTI_AZIENDA` è `off`. Rimedio: riaccendere l'interruttore, non
+  toccare l'utente. Nello stesso stato `/invito/<token>` risponde «Con
+  FLAG_MULTI_AZIENDA spento il pannello è in sola lettura.» senza consumare
+  il token.
+- «Troppi tentativi di accesso. Riprova tra qualche minuto.»
+  (`TOO_MANY_REQUESTS`) su `/invito/<token>` — 30 token sbagliati in 15
+  minuti dallo stesso indirizzo (il limite dell'anteprima), o 5 accettazioni
+  fallite sullo stesso token. Un invito valido azzera il contatore
+  dell'indirizzo: chi ricarica la propria pagina non lo consuma.
 - «Posta della piattaforma non configurata: copia il link e consegnalo a
   mano.» — `RESEND_API_KEY` assente, oppure Resend ha rifiutato o non ha
   risposto entro 10 s. Il link resta valido: si copia e si consegna
@@ -1330,7 +1367,10 @@ L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
   canali, `412` anche su download, anteprime, allegati mail e SSE.
 - ~~«L'azienda non è ancora attiva su questa installazione.»~~ — era la
   «porta chiusa» del WS1: **rimossa dal WS2**, insieme al suo gemello nel
-  login.
+  login. Dal WS6 esiste una porta chiusa diversa, che vale **solo a
+  interruttore spento** (v. «Interruttore»): «Accesso non disponibile: il
+  multi-azienda della piattaforma è spento.» A interruttore acceso — cioè in
+  produzione dal 09/09 — nessun utente la vede.
 - «Impossibile: è l'ultima sede attiva dell'azienda. Attiva un'altra sede
   prima di disattivarla.» — `sedi.update` con `attiva: false` sull'unica
   sede attiva del tenant.

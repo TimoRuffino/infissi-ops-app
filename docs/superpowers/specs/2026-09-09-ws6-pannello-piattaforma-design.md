@@ -70,10 +70,11 @@ e comandi come traccia di ogni azione.
 
 Il registro dell'esecuzione
 (`.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/progress.md`) ha
-prodotto dieci ruling, in ordine di apparizione: due prima del Task 1
-(pre-flight, sul piano) e otto durante la revisione dei task (R1…R8). Ognuno
-con che cosa è stato deciso, perché, e il costo se la decisione fosse
-sbagliata.
+prodotto tredici ruling, in ordine di apparizione: due prima del Task 1
+(pre-flight, sul piano), otto durante la revisione dei task (R1…R8) e tre
+dalla revisione finale del branch intero (R9…R11), chiusi in un'unica fix
+wave. Ognuno con che cosa è stato deciso, perché, e il costo se la decisione
+fosse sbagliata.
 
 **Ruling pre-1.** La rotta `/piattaforma/:slug` la registra il Task 8 (con un
 componente provvisorio, segnaposto per `AziendaDetail`, che rimanda
@@ -189,6 +190,61 @@ file client e l'assenza di un invito a un indirizzo email libero (per
 costruzione: `crea` semina sempre un proprietario) restano deferred alla
 revisione finale del branch. Costo se sbagliato: nessuno.
 
+**R9** (revisione finale del branch, Important I1). `invita` non chiedeva la
+password e restituiva il `link` anche quando la posta era partita. La spec
+§3.2 classificava l'invito fra le azioni non sensibili, ragionando sul fatto
+che non cambia nulla nei dati; ma un link d'invito è la presa dell'account
+del proprietario di un'altra azienda — chi ce l'ha sceglie la password ed
+entra — e nessuno lo aveva guardato da lì. Obiezione accolta contro la spec.
+Deciso: `invita` accetta `passwordConferma` e la verifica prima di emettere
+qualunque token; il `link` esce verso il browser SOLO con `inviato === false`,
+in `invita` e nell'invito che `crea` manda da sé — se la posta è partita il
+token è già nella casella giusta e una seconda copia nella pagina
+dell'amministratore è soltanto un'altra copia da rubare (cronologia,
+screenshot, appunti). Lato client «Invia invito» passa dallo stesso dialogo
+`ConfermaPassword` delle altre azioni. Costo se sbagliato: un campo in più
+nel dialogo, e un link da rimandare invece che da rileggere.
+
+**R10** (revisione finale, Important I2). Il runbook consigliava
+`FLAG_MULTI_AZIENDA=off` come rollback, ma a interruttore spento
+`createContext` fissa `tenantId = 1` per chiunque e `allowedSediForUser` non
+guarda l'azienda: la sessione di un utente del tenant 2 lo porterebbe dentro
+Ruffino Group, con tutte le sue sedi. Il difetto era già su `main` — solo che
+prima creare una seconda azienda voleva dire una riga di comando, e dopo il
+WS6 è un dialogo. Deciso: guardia di codice, non solo di documentazione. A
+flag spento `auth.login` risponde `PRECONDITION_FAILED`
+(`MESSAGGI.multiAziendaSpento`, «Accesso non disponibile: il multi-azienda
+della piattaforma è spento.») **dopo** la verifica della password — senza
+credenziali giuste non si scopre quali email appartengono a un'altra azienda
+— e `createContext` tratta quella sessione come inesistente, con una riga
+`[tenants] sessione rifiutata a interruttore spento (tenant <id>)`;
+`inviti.anteprima` e `inviti.accetta` rifiutano allo stesso modo, senza
+consumare il token. Il runbook dice che il rollback a `off` vale finché
+l'unica azienda è il tenant 1: per fermarne una si sospende. Costo se
+sbagliato: un login rifiutato a interruttore spento a un utente che comunque
+non deve entrare.
+
+**R11** (revisione finale, Important I3–I6 e i minori a buon mercato). Tutto
+il resto della revisione finale, raccolto in una sola ondata perché nessuno
+dei punti valeva un giro a sé. Documentazione: i tre banner «Stato al 08/09»
+del runbook dicevano ancora che WS3 e WS4 non erano su `main` (I3) e la
+sezione WS6 era accodata dopo le sezioni di coda invece che prima come le
+altre (I4). Codice: un avviso al boot se `APP_BASE_URL` manca, con la base
+mostrata accanto al link d'invito (I5); la scheda dell'azienda si rilegge
+ogni 60 s invece di 15 e `schedaAzienda` dichiara di ricomporre l'elenco
+intero per tenerne una riga (I6); `TENANT_PIATTAFORMA_ID` in un modulo client
+solo; `key={slug}` sulla rotta della scheda; la password azzerata da
+«Riprova»; l'indice parziale unico `tenant_inviti_valido_idx` con un
+ritentativo in `emettiInvito`; `adesso` onorato dal driver Postgres degli
+inviti; un limite di tentativi anche su `anteprima`, per indirizzo;
+`payloadSenzaSegreti` applicato ai comandi che il pannello restituisce.
+Restano deferred, dichiarati: il token dell'invito nella query string
+(`anteprima` è una query e `httpBatchLink` la manda in GET: farne una
+mutation è un cambio di contratto lato client, da fare a parte),
+`RequirePiattaforma` senza test DOM, l'invito non annullato quando l'utente
+viene disattivato, `tenants.mio` chiesto a tutti dal `UserMenu`. Costo se
+sbagliato: nessuno — sono tutte scelte reversibili in un commit.
+
 **Ancora aperti** (minori, lasciati deliberatamente fuori da questo
 workstream — nessuno blocca il rilascio):
 
@@ -211,14 +267,31 @@ workstream — nessuno blocca il rilascio):
 - Client, `esitoCreazione` (`pages/piattaforma/testi.ts`): lo stato
   `"eseguito"` senza nota né invito produce una descrizione vuota — un caso
   che il server oggi non produce mai.
-- `TENANT_PIATTAFORMA_ID` è ricopiato in due file client (`AziendeList.tsx`,
-  `AziendaDetail.tsx`, che lo passa come prop `tenant1` ai componenti
-  figli) perché il client non può importare `TENANT_PREDEFINITO_ID` dal
-  server: da unificare in un modulo condiviso se un terzo punto ne avrà
-  bisogno.
 - Nessun invito a un indirizzo email libero dal pannello: `crea` semina
   sempre un proprietario, quindi non esiste oggi un percorso per invitare un
   indirizzo che non sia già un utente dell'azienda.
+- **Il token dell'invito viaggia in GET.** `inviti.anteprima` è una query e
+  `httpBatchLink` mette l'input nella query string: il token finisce nei log
+  di accesso del proxy e nella cronologia del browser. Non è un buco (il
+  token è monouso, dura sette giorni e chi apre il link ce l'ha già), ma
+  farne una mutation è un cambio di contratto lato client: rimandato a parte.
+  Nel frattempo `anteprima` ha il suo limite di tentativi per indirizzo (R11).
+- **`RequirePiattaforma` non ha un test.** È una guardia di rendering con tre
+  stati (attesa, permesso, rifiuto) e nel repository non esiste un harness
+  `.test.tsx`: la logica pura sta in `piattaformaGateLabel`, testata, ma il
+  componente che la usa no. La verità resta lato server
+  (`piattaformaProcedure`), quindi il rischio è una pagina che lampeggia, non
+  un accesso indebito.
+- **Disattivare un utente non annulla i suoi inviti.** Un invito già emesso
+  resta valido: chi lo accetta rimette `attivo = true` (è il modo in cui il
+  proprietario entra la prima volta). Oggi non è un percorso raggiungibile
+  per sbaglio — l'unico utente con un invito in sospeso è un proprietario
+  appena creato — ma quando il pannello saprà invitare altri utenti andrà
+  chiuso: annullare gli inviti vivi dell'utente disattivato.
+- **`tenants.mio` viene chiesto a ogni utente** dal `UserMenu`, solo per
+  sapere se mostrare la voce «Piattaforma»: una query in più per chiunque,
+  per un segnale che riguarda una persona sola. Innocua oggi (la risposta è
+  piccola e in cache), da rivedere se il menu diventerà più caro.
 - `schedaAzienda` (`server/piattaforma/letture.ts`) ricompone l'elenco intero
   e ne tiene una riga: paga il costo di tutte le aziende per mostrarne una.
   Con le aziende che si contano sulle dita va bene — la composizione dei campi

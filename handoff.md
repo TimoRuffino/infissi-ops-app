@@ -14,9 +14,10 @@
 > nasce da quel `main` il branch `feature/ws6-pannello-piattaforma`, dove i
 > 10 task del piano
 > (`docs/superpowers/plans/2026-09-09-ws6-pannello-piattaforma.md`) sono
-> implementati e committati (`9dc4c54`…`a606515`). **Nessun push, nessun
-> merge su `main` da qui, PR ancora da aprire**: il merge è una decisione
-> della direzione.
+> implementati e committati (`9dc4c54`…`a606515`), più la **fix wave finale**
+> uscita dalla revisione dell'intero branch (`e59d8ed`…, ruling R9-R11).
+> **Nessun push, nessun merge su `main` da qui, PR ancora da aprire**: il
+> merge è una decisione della direzione.
 > **Che cosa cambia.** Chi amministra la piattaforma (oggi la direzione,
 > tramite `PLATFORM_ADMIN_EMAILS`) trova una sezione `/piattaforma` nel CRM:
 > elenco di tutte le aziende con stato, abbonamento, spazio, Tars del mese,
@@ -29,10 +30,10 @@
 > utente, potere in più, **deviazione dichiarata** dal design madre (che
 > voleva un'identità separata con MFA, §6.2/§15/§18): un secondo login e un
 > TOTP restano rimandati finché non esiste un secondo amministratore. Le
-> azioni sensibili (creazione, sospensione, riattivazione, proprietari,
-> abbonamento, ripristino scritto) chiedono di reinserire la password, con
-> lo stesso limitatore del login estratto in `server/_core/limiteTentativi.ts`
-> e riusato con una chiave propria. **Ogni scrittura è un comando** in
+> azioni sensibili (creazione, **invito**, sospensione, riattivazione,
+> proprietari, abbonamento, ripristino scritto) chiedono di reinserire la
+> password, con lo stesso limitatore del login estratto in
+> `server/_core/limiteTentativi.ts` e riusato con una chiave propria. **Ogni scrittura è un comando** in
 > `tenant_comandi` con `richiesto_da = piattaforma:<email>`, eseguito
 > **subito** dalla stessa funzione del giro dei 30 secondi (ricalcolo dello
 > spazio e ripristino restano in coda: li esegue il server contro il Drive
@@ -41,8 +42,17 @@
 > chiaro a terra — solo il suo sha256), mandato via Resend o, senza
 > `RESEND_API_KEY`, mostrato da copiare a mano — il flusso non si rompe mai;
 > la pagina pubblica `/invito/<token>` imposta la password e apre la
-> sessione come il login.
-> **Dieci decisioni d'esecuzione** (due pre-volo, R1-R8) nella spec
+> sessione come il login. **Se la posta è partita il link non torna al
+> browser** (R9): il token è già nella casella del proprietario, e una
+> seconda copia nella pagina dell'amministratore sarebbe soltanto un'altra
+> copia da rubare — se l'email si perde, si manda un invito nuovo.
+> **Porta chiusa a interruttore spento** (R10): a `FLAG_MULTI_AZIENDA=off` il
+> contesto fissa `tenantId = 1` per chiunque, quindi un utente di un'altra
+> azienda non fa login («Accesso non disponibile: il multi-azienda della
+> piattaforma è spento.») e non ha sessione; il rollback a `off` vale solo
+> finché l'azienda è una sola — per fermarne una, si sospende.
+> **Tredici decisioni d'esecuzione** (due pre-volo, R1-R8 durante i task,
+> R9-R11 dalla revisione finale) nella spec
 > `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
 > **§2-bis**, con motivo e costo se sbagliate; registro esteso in
 > `.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/progress.md`. Le più
@@ -53,13 +63,17 @@
 > non controllava `loginMethod` come già fa `risolviTenantPerUtente` — non
 > sfruttabile oggi, OAuth è spento; **R8**, un secondo comando lungo avviato
 > mentre il primo era in corso gli faceva perdere il polling e il toast di
-> chiusura, corretto seguendo ogni comando lungo in una mappa per id.
-> **Verificato:** `npx vitest run shared/brand.test.ts` (4/4), `pnpm check`
-> pulito, `pnpm test` (suite intera, senza `DATABASE_URL`) 339 file passati +
-> 15 saltati (354), 3651 test passati + 84 saltati (3735), zero falliti,
-> `pnpm build` riuscito (client e server); `DATABASE_URL=… npx vitest run
-> pg.test --no-file-parallelism` contro `perf-pg-test`: 14 file passati, 69
-> test passati, zero falliti. Interfaccia a 1440×900 e 390×844 verificata dai
+> chiusura, corretto seguendo ogni comando lungo in una mappa per id;
+> **R9** e **R10**, l'invito sensibile e la porta chiusa qui sopra — R9 è
+> l'unica che corregge la spec (§3.2 metteva `invita` fra le azioni non
+> sensibili); **R11**, i minori a buon mercato, dai banner del runbook
+> all'indice parziale unico su `tenant_inviti`.
+> **Verificato (dopo la fix wave):** `npx vitest run shared/brand.test.ts`
+> (4/4), `pnpm check` pulito, `pnpm test` (suite intera, senza
+> `DATABASE_URL`) 339 file passati + 15 saltati (354), 3665 test passati + 86
+> saltati (3751), zero falliti, `pnpm build` riuscito (client e server);
+> `DATABASE_URL=… npx vitest run pg.test --no-file-parallelism` contro
+> `perf-pg-test`: 14 file passati, 71 test passati, zero falliti. Interfaccia a 1440×900 e 390×844 verificata dai
 > Task 8 e 9 con un link tRPC finto e dati seminati (screenshot in
 > `.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/task-{8,9}-screens/`).
 > **Non verificato:** `/piattaforma` con una sessione reale (guardia, voce di
@@ -5303,10 +5317,17 @@ a vuoto e dice «57 saltati»).
     comandi come traccia. Chi amministra è un utente del
     tenant 1 in `PLATFORM_ADMIN_EMAILS` — **deviazione dichiarata** dal
     design madre (identità separata con MFA): non c'è un secondo login,
-    resta la conferma password sulle azioni sensibili. Dieci decisioni
-    d'esecuzione nella spec §2-bis; PRD §60.13 (v5.87); runbook
+    resta la conferma password sulle azioni sensibili — e dalla revisione
+    finale anche l'invito è fra quelle. Sopra i 10 task, la fix wave finale
+    (R9-R11): invito sensibile con il link che esce solo se la posta non è
+    partita, **porta chiusa a interruttore spento** (a `off` un utente di
+    un'azienda diversa dal tenant 1 non fa login e non ha sessione: il
+    rollback col flag vale solo finché l'azienda è una sola), avviso al boot
+    se manca `APP_BASE_URL`, indice parziale unico su `tenant_inviti`, limite
+    di tentativi sull'anteprima dell'invito. Tredici decisioni d'esecuzione
+    nella spec §2-bis; PRD §60.13 (v5.87); runbook
     `docs/runbooks/multi-azienda.md`, sezione «WS6 — pannello piattaforma».
-    `pnpm check`/`test`/`build` verdi, test su Postgres vero (69 casi su 14
+    `pnpm check`/`test`/`build` verdi, test su Postgres vero (71 casi su 14
     file); interfaccia verificata a 1440 e 390 con un link tRPC finto, non
     con una sessione vera (v. la novità in cima a questo documento per i
     numeri e per che cosa resta). **PR verso `main` ancora da aprire.**
