@@ -99,12 +99,17 @@ export default function InvitoPage() {
   }
 
   if (anteprima.error || !anteprima.data) {
+    // Il testo è sempre questo, mai `anteprima.error.message`: un token
+    // troppo corto viene rifiutato da zod (validazione dell'input, prima
+    // ancora della query) con un messaggio tecnico che qui non deve
+    // comparire mai (fix-round Task 8 #3) — chi apre questo link non deve
+    // leggere un dettaglio da sviluppatori.
     return (
       <Involucro>
         <div className="min-w-0 space-y-3" role="alert">
           <h2 className="text-lg font-semibold">Invito non valido</h2>
           <p className="text-sm leading-6 text-text-2">
-            {anteprima.error?.message ?? TESTO_INVITO_NON_VALIDO}
+            {TESTO_INVITO_NON_VALIDO}
           </p>
           <p className="text-sm leading-6 text-text-3">
             Chiedi un nuovo invito a chi ti ha registrato.

@@ -7,7 +7,7 @@
 // perché se la posta non è configurata il link è l'unica copia esistente e
 // chiuderlo lo perderebbe (spec §6.1: `invitaProprietario` non lancia).
 import { AlertCircle, Check, Copy, Plus } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -27,11 +27,13 @@ import { Switch } from "@/components/ui/switch";
 import { slugSuggerito } from "@/lib/piattaforma";
 import { trpc } from "@/lib/trpc";
 
-import { erroreDelComando, testoEsitoInvito } from "./testi";
+import { erroreDelComando, esitoCreazione } from "./testi";
 
 type Esito = {
   slug: string;
   nome: string;
+  /** `comando.stato`: decide se l'azienda è nata davvero (fix-round Task 8 #1). */
+  stato: string;
   nota?: string;
   errore?: string;
   invito: { inviato: boolean; email?: string | null; link?: string | null } | null;
@@ -91,13 +93,25 @@ export default function NuovaAziendaDialog({
   const [sedeToccata, setSedeToccata] = useState(false);
   const [esito, setEsito] = useState<Esito | null>(null);
   const [copiato, setCopiato] = useState(false);
+  // Se l'amministratore chiude il dialogo mentre `crea` è ancora in volo
+  // (fix-round Task 8 #2), l'esito arriva comunque: senza questo riferimento
+  // popolerebbe `esito` a dialogo chiuso, e alla riapertura si vedrebbe il
+  // riepilogo di una creazione che non si è mai guardato. Un ref (non uno
+  // stato) perché deve riflettere `open` anche dentro la `onSuccess` già
+  // pianificata, senza ricreare la mutation.
+  const apertoRef = useRef(open);
+  apertoRef.current = open;
 
   const crea = trpc.piattaforma.crea.useMutation({
     onSuccess: risultato => {
+      // L'azienda esiste comunque: l'elenco deve rifletterlo anche se nel
+      // frattempo il dialogo si è chiuso.
       utils.piattaforma.aziende.invalidate();
+      if (!apertoRef.current) return;
       setEsito({
         slug: form.slug,
         nome: form.nome,
+        stato: risultato.comando.stato,
         nota: risultato.nota,
         errore: erroreDelComando(risultato.comando.esito),
         invito: risultato.invito
@@ -133,6 +147,12 @@ export default function NuovaAziendaDialog({
       crea.reset();
     }
     onOpenChange(apri);
+  }
+
+  /** Il comando è fallito: si torna al modulo SENZA perdere quello che l'amministratore ha già scritto. */
+  function riprova() {
+    setEsito(null);
+    crea.reset();
   }
 
   const completo =
@@ -181,21 +201,47 @@ export default function NuovaAziendaDialog({
     }
   }
 
+  const risultato = esito ? esitoCreazione(esito) : null;
+
   return (
     <Dialog open={open} onOpenChange={chiudi}>
       <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>
-            {esito ? "Azienda creata" : "Nuova azienda"}
-          </DialogTitle>
+          <DialogTitle>{risultato ? risultato.titolo : "Nuova azienda"}</DialogTitle>
           <DialogDescription>
-            {esito
-              ? "L'azienda esiste, la sede è aperta e il proprietario riceve l'invito con cui sceglie la password."
+            {risultato
+              ? risultato.mostraScheda
+                ? "L'azienda esiste, la sede è aperta e il proprietario riceve l'invito con cui sceglie la password."
+                : "Il comando non ha creato l'azienda: puoi correggere i dati e riprovare."
               : "Nascono insieme l'azienda, la sua prima sede e il proprietario. Il proprietario non riceve una password: la sceglie dall'invito."}
           </DialogDescription>
         </DialogHeader>
 
-        {esito ? (
+        {risultato && esito && !risultato.mostraScheda ? (
+          <div className="min-w-0 space-y-4">
+            <p
+              role="alert"
+              className="flex min-w-0 items-start gap-2 rounded-[var(--radius-control)] border border-danger/25 bg-danger-soft p-3 text-sm leading-5 text-danger"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0">{risultato.descrizione}</span>
+            </p>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="quiet"
+                className="min-h-11"
+                onClick={() => chiudi(false)}
+              >
+                Chiudi
+              </Button>
+              <Button type="button" className="min-h-11" onClick={riprova}>
+                Riprova
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : risultato && esito ? (
           <div className="min-w-0 space-y-4">
             <div className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -206,56 +252,37 @@ export default function NuovaAziendaDialog({
                   {esito.slug}
                 </Badge>
               </div>
-              {esito.nota ? (
-                <p className="mt-2 text-sm leading-5 text-warning">
-                  {esito.nota}
-                </p>
-              ) : null}
-              {esito.errore ? (
-                <p
-                  role="alert"
-                  className="mt-2 flex items-start gap-1.5 text-sm leading-5 text-danger"
-                >
-                  <AlertCircle
-                    className="mt-0.5 size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0">{esito.errore}</span>
-                </p>
-              ) : null}
             </div>
 
-            {esito.invito ? (
-              <div className="min-w-0 space-y-2">
-                <p className="text-sm leading-5 text-text-2">
-                  {testoEsitoInvito(esito.invito)}
-                </p>
-                {!esito.invito.inviato && esito.invito.link ? (
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                    <Input
-                      readOnly
-                      value={esito.invito.link}
-                      aria-label="Link dell'invito"
-                      className="h-11 min-w-0 font-mono text-xs"
-                      onFocus={event => event.currentTarget.select()}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11 shrink-0"
-                      onClick={() => void copiaLink(esito.invito!.link!)}
-                    >
-                      {copiato ? (
-                        <Check className="size-4" aria-hidden="true" />
-                      ) : (
-                        <Copy className="size-4" aria-hidden="true" />
-                      )}
-                      {copiato ? "Copiato" : "Copia"}
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="min-w-0 space-y-2">
+              {risultato.descrizione ? (
+                <p className="text-sm leading-5 text-text-2">{risultato.descrizione}</p>
+              ) : null}
+              {risultato.link ? (
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                  <Input
+                    readOnly
+                    value={risultato.link}
+                    aria-label="Link dell'invito"
+                    className="h-11 min-w-0 font-mono text-xs"
+                    onFocus={event => event.currentTarget.select()}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 shrink-0"
+                    onClick={() => void copiaLink(risultato.link!)}
+                  >
+                    {copiato ? (
+                      <Check className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Copy className="size-4" aria-hidden="true" />
+                    )}
+                    {copiato ? "Copiato" : "Copia"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
 
             <DialogFooter>
               <Button

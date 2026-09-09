@@ -132,6 +132,45 @@ export function scadenzaInvito(scadeIl: Date): string {
   return `Scade il ${dataItaliana(scadeIl)}`;
 }
 
+/**
+ * L'esito del dialogo «Nuova azienda» dopo `piattaforma.crea` (fix-round
+ * Task 8, promemoria #1): prima di questa funzione il dialogo mostrava
+ * «Azienda creata» e «Apri la scheda» anche quando `comando.stato ===
+ * "errore"` — un'azienda mai nata. `stato !== "eseguito"` (errore, o
+ * `in_attesa` ancora aperto oltre il timeout di `eseguiComandoSubito`)
+ * decide tutto: nessuna frase sull'invito, nessuna scheda da aprire, solo
+ * l'errore del dominio (`comando.esito.errore`) o un ripiego generico se il
+ * comando non ne ha ancora uno. Quando l'azienda nasce invece, la `nota`
+ * (esisteva già, spec §5.2) prende il posto della frase sull'invito — i due
+ * casi non capitano insieme, il server manda o l'una o l'altra.
+ */
+export function esitoCreazione(dati: {
+  stato: string;
+  errore?: string;
+  nota?: string;
+  invito: { inviato: boolean; email?: string | null; link?: string | null } | null;
+}): { titolo: string; descrizione: string; mostraScheda: boolean; link?: string } {
+  if (dati.stato !== "eseguito") {
+    return {
+      titolo: "Creazione non riuscita",
+      descrizione: dati.errore || "Il comando non è andato a buon fine.",
+      mostraScheda: false,
+    };
+  }
+  if (dati.nota) {
+    return { titolo: "Azienda creata", descrizione: dati.nota, mostraScheda: true };
+  }
+  if (dati.invito) {
+    return {
+      titolo: "Azienda creata",
+      descrizione: testoEsitoInvito(dati.invito),
+      mostraScheda: true,
+      link: !dati.invito.inviato && dati.invito.link ? dati.invito.link : undefined,
+    };
+  }
+  return { titolo: "Azienda creata", descrizione: "", mostraScheda: true };
+}
+
 // ── Registro: eventi, attori, comandi ──────────────────────────────────
 
 /**

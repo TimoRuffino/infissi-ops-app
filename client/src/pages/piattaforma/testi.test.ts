@@ -6,6 +6,7 @@ import {
   dataOraItaliana,
   dettagliCompatti,
   erroreDelComando,
+  esitoCreazione,
   etichettaBlocco,
   etichettaComando,
   etichettaEvento,
@@ -117,6 +118,76 @@ describe("testoEsitoInvito", () => {
     });
     expect(testo).toContain("copia");
     expect(testo).toBe(TESTO_POSTA_NON_CONFIGURATA);
+  });
+});
+
+describe("esitoCreazione", () => {
+  it("azienda creata e invito inviato: il titolo è di successo e la scheda si apre", () => {
+    expect(
+      esitoCreazione({
+        stato: "eseguito",
+        invito: { inviato: true, email: "anna@esempio.it" },
+      })
+    ).toEqual({
+      titolo: "Azienda creata",
+      descrizione: "Invito inviato a anna@esempio.it.",
+      mostraScheda: true,
+      link: undefined,
+    });
+  });
+
+  it("azienda creata ma la posta non è configurata: c'è il link da copiare", () => {
+    expect(
+      esitoCreazione({
+        stato: "eseguito",
+        invito: { inviato: false, link: "https://app.wyndoor.com/invito/abc" },
+      })
+    ).toEqual({
+      titolo: "Azienda creata",
+      descrizione: TESTO_POSTA_NON_CONFIGURATA,
+      mostraScheda: true,
+      link: "https://app.wyndoor.com/invito/abc",
+    });
+  });
+
+  it("azienda già esistente: la nota prende il posto della frase sull'invito", () => {
+    expect(
+      esitoCreazione({
+        stato: "eseguito",
+        nota: "L'azienda esiste già: nessun invito inviato.",
+        invito: null,
+      })
+    ).toEqual({
+      titolo: "Azienda creata",
+      descrizione: "L'azienda esiste già: nessun invito inviato.",
+      mostraScheda: true,
+    });
+  });
+
+  it("comando fallito: niente invito, niente scheda, solo l'errore del dominio", () => {
+    expect(
+      esitoCreazione({
+        stato: "errore",
+        errore: "Email già in uso da un'altra azienda",
+        invito: null,
+      })
+    ).toEqual({
+      titolo: "Creazione non riuscita",
+      descrizione: "Email già in uso da un'altra azienda",
+      mostraScheda: false,
+    });
+  });
+
+  it("comando fallito senza un errore del dominio: un ripiego generico, non un buco vuoto", () => {
+    expect(esitoCreazione({ stato: "errore", invito: null })).toEqual({
+      titolo: "Creazione non riuscita",
+      descrizione: "Il comando non è andato a buon fine.",
+      mostraScheda: false,
+    });
+  });
+
+  it("comando ancora in attesa (timeout di eseguiComandoSubito): stessa cautela dell'errore", () => {
+    expect(esitoCreazione({ stato: "in_attesa", invito: null }).mostraScheda).toBe(false);
   });
 });
 
