@@ -305,6 +305,76 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     expect((await repo.invitiDi(acme.id)).map(i => i.id)).not.toContain(terzo.invito.id);
   });
 
+  // Fix wave finale (a): due `emettiInvito` per lo stesso utente partiti
+  // insieme potevano restare entrambi validi — ognuno annullava i precedenti
+  // senza vedere l'altro, ancora dentro la sua transazione. Ora un indice
+  // parziale unico su (tenant_id, utente_id) fra gli inviti VIVI lo rende
+  // impossibile, e chi perde la corsa (23505) rifà annulla+inserisci una
+  // volta sola: alla fine ne resta esattamente uno, e nessuno dei due
+  // chiamanti riceve un errore.
+  it("inviti concorrenti allo stesso utente: alla fine ne resta valido uno solo", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const acme =
+      repo.perSlug("acme-inviti-gara") ?? (await repo.inserisci({ slug: "acme-inviti-gara", nome: "Acme Gara" }));
+    const emetti = () =>
+      repo.emettiInvito({
+        tenantId: acme.id,
+        utenteId: 901,
+        email: "gara@acme.test",
+        tipo: "proprietario",
+        creatoDa: "piattaforma:t@r.it",
+      });
+
+    const [primo, secondo] = await Promise.all([emetti(), emetti()]);
+    expect(primo.token).not.toBe(secondo.token);
+
+    const vivi = (await repo.invitiDi(acme.id)).filter(
+      i => i.usatoIl === null && i.annullatoIl === null && i.scadeIl > new Date()
+    );
+    expect(vivi).toHaveLength(1);
+    // E il token che vale è quello dell'invito rimasto vivo.
+    const validi = (await Promise.all([repo.invitoPerToken(primo.token), repo.invitoPerToken(secondo.token)])).filter(
+      i => i !== null
+    );
+    expect(validi.map(i => i!.id)).toEqual([vivi[0].id]);
+
+    // L'indice c'è davvero, con la stessa condizione parziale.
+    const [indice] = await sql<{ def: string }[]>`
+      SELECT indexdef AS def FROM pg_indexes WHERE indexname = 'tenant_inviti_valido_idx'`;
+    expect(indice?.def).toContain("UNIQUE");
+    expect(indice?.def).toContain("usato_il IS NULL");
+    expect(indice?.def).toContain("annullato_il IS NULL");
+  });
+
+  // Fix wave finale (b): la firma dell'interfaccia porta `adesso`, ma il
+  // driver Postgres confrontava sempre con NOW() — un invito «già scaduto
+  // alla data che ti passo» risultava valido. Ora `adesso` vale su tutte e
+  // tre le operazioni, come nel repository in memoria.
+  it("invitoPerToken e consumaInvito onorano `adesso` (non solo NOW())", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const acme =
+      repo.perSlug("acme-inviti-tempo") ?? (await repo.inserisci({ slug: "acme-inviti-tempo", nome: "Acme Tempo" }));
+    const { token, invito } = await repo.emettiInvito({
+      tenantId: acme.id,
+      utenteId: 902,
+      email: "tempo@acme.test",
+      tipo: "proprietario",
+      creatoDa: "piattaforma:t@r.it",
+    });
+    const dopoLaScadenza = new Date(invito.scadeIl.getTime() + 1000);
+    const primaDellaScadenza = new Date(invito.scadeIl.getTime() - 1000);
+
+    expect((await repo.invitoPerToken(token, primaDellaScadenza))?.id).toBe(invito.id);
+    expect(await repo.invitoPerToken(token, dopoLaScadenza)).toBeNull();
+    expect(await repo.consumaInvito(token, dopoLaScadenza)).toBeNull();
+    // Non consumato dal tentativo scaduto: adesso, davvero, si può usare.
+    expect((await repo.consumaInvito(token))?.id).toBe(invito.id);
+  });
+
   it("concorrenza: due consumaInvito sullo stesso token danno esattamente un vincitore; prendiEdEsegui(soloId) con due comandi", async () => {
     const repo = getTenantRepository();
     await repo.ensureSchema();

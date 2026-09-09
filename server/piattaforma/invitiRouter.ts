@@ -26,14 +26,32 @@ const limiteInviti = creaLimiteTentativi({
   messaggio: MESSAGGI_PIATTAFORMA.troppiTentativi,
 });
 
+/**
+ * `anteprima` è una query pubblica che, con un token indovinato, direbbe il
+ * nome dell'azienda e l'email di chi ci lavora: senza limite si possono
+ * provare token quanto si vuole. La chiave è l'indirizzo, non il token —
+ * chi enumera cambia token a ogni colpo — e la finestra è più larga di
+ * quella di `accetta` (30 invece di 5): ricaricare la propria pagina
+ * d'invito è legittimo, e un token valido azzera comunque il contatore.
+ */
+const limiteAnteprime = creaLimiteTentativi({
+  finestraMs: 15 * 60 * 1000,
+  massimo: 30,
+  messaggio: MESSAGGI_PIATTAFORMA.troppiTentativi,
+});
+
 /** Chiave del limitatore: l'hash del token, mai il token in chiaro. */
 const chiaveToken = (token: string): string =>
   `invito:${createHash("sha256").update(token).digest("hex").slice(0, 32)}`;
 
-/** Solo per i test: azzera il limitatore degli inviti. */
+/** Chiave dell'anteprima: l'indirizzo di chi chiede, `?` se il proxy non lo dà. */
+const chiaveIndirizzo = (req: { ip?: string }): string => `anteprima:${req.ip || "?"}`;
+
+/** Solo per i test: azzera i limitatori della pagina d'invito. */
 export function __azzeraLimiteInvitiPerTest(): void {
   if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY");
   limiteInviti.__azzeraTutto();
+  limiteAnteprime.__azzeraTutto();
 }
 
 const tokenSchema = z.string().min(20).max(200);
@@ -56,10 +74,16 @@ function assicuraMultiAziendaAcceso(): void {
 
 export const invitiRouter = router({
   /** Non consuma: la pagina la richiama a ogni caricamento senza bruciare il token. */
-  anteprima: publicProcedure.input(z.object({ token: tokenSchema })).query(async ({ input }) => {
+  anteprima: publicProcedure.input(z.object({ token: tokenSchema })).query(async ({ input, ctx }) => {
     assicuraMultiAziendaAcceso();
+    const chiave = chiaveIndirizzo(ctx.req);
+    limiteAnteprime.verifica(chiave);
     const invito = await anteprimaInvito({ token: input.token, adesso: new Date() });
-    if (!invito) throw new TRPCError({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
+    if (!invito) {
+      limiteAnteprime.fallito(chiave);
+      throw new TRPCError({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
+    }
+    limiteAnteprime.azzera(chiave);
     return invito;
   }),
 

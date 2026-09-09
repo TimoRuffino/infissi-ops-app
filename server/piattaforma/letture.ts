@@ -21,7 +21,7 @@ import { ledgerCorrente } from "../tars/costi/ledger";
 import { workerSospesi } from "../tenants/cli";
 import { RUOLO_PROPRIETARIO } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
-import { getTenantRepository, type TenantRepository } from "../tenants/repository";
+import { getTenantRepository, payloadSenzaSegreti, type TenantRepository } from "../tenants/repository";
 import { percentualeStorage } from "../tenants/storage";
 import type {
   Abbonamento,
@@ -359,7 +359,10 @@ export async function schedaAzienda(slug: string, adesso: Date): Promise<SchedaA
     sedi,
     abbonamento: abbonamentoCompleto(abbonamento, adesso),
     eventi,
-    comandi,
+    // Un comando ancora `in_attesa` ha il payload com'è stato accodato:
+    // `crea` ci porta dentro `proprietario.passwordHash`, che il repository
+    // toglie solo alla chiusura. Verso il browser non esce comunque.
+    comandi: comandi.map(c => ({ ...c, payload: payloadSenzaSegreti(c.payload) })),
     inviti,
     backup,
     provider: abbonamento?.provider ?? "nessuno",

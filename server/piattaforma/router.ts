@@ -26,7 +26,7 @@ import {
   schemaPayloadStorage,
 } from "../tenants/comandi";
 import { SLUG_RE, TENANT_PREDEFINITO_ID } from "../tenants/costanti";
-import { getTenantRepository } from "../tenants/repository";
+import { getTenantRepository, payloadSenzaSegreti } from "../tenants/repository";
 import { eseguiComandoSubito } from "../tenants/servizio";
 import type { TenantComando, TipoComando } from "../tenants/tipi";
 import { confermaPassword } from "./accesso";
@@ -73,7 +73,18 @@ async function accodaEdEsegui(
     payload,
     richiestoDa: `piattaforma:${ctx.amministratore.email}`,
   });
-  return subito ? eseguiComandoSubito(c.id) : c;
+  return senzaSegreti(subito ? await eseguiComandoSubito(c.id) : c);
+}
+
+/**
+ * Il payload di un comando `crea` porta `proprietario.passwordHash` finché il
+ * comando non si chiude (il repository lo toglie alla chiusura): se
+ * `eseguiComandoSubito` esaurisce i suoi 10 s, o se il comando resta in coda,
+ * quell'hash uscirebbe verso il browser. Ogni comando che il pannello
+ * restituisce passa di qui.
+ */
+function senzaSegreti(comando: TenantComando): TenantComando {
+  return { ...comando, payload: payloadSenzaSegreti(comando.payload) };
 }
 
 /**
@@ -118,7 +129,10 @@ export const piattaformaRouter = router({
   /** Un comando per id, per seguire l'esito di ricalcolo e ripristino accodati (`null` se non esiste). */
   comando: piattaformaProcedure
     .input(z.object({ id: z.number().int().positive() }))
-    .query(({ input }) => getTenantRepository().comando(input.id)),
+    .query(async ({ input }) => {
+      const comando = await getTenantRepository().comando(input.id);
+      return comando && senzaSegreti(comando);
+    }),
 
   /**
    * Crea l'azienda (sede, proprietario) con una password inutilizzabile

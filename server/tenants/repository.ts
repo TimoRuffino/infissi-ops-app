@@ -183,8 +183,12 @@ function messaggioErrore(e: unknown): string {
  * scrypt, non la password in chiaro, ma pur sempre un segreto): lo togliamo
  * alla chiusura del comando — eseguito o in errore — così `tenant_comandi`
  * non lo conserva a tempo indeterminato dopo che è servito.
+ *
+ * Esportata perché finché il comando è ancora `in_attesa` l'hash è a terra:
+ * le letture del pannello (server/piattaforma) lo tolgono comunque prima di
+ * rispondere al browser, invece di aspettare la chiusura.
  */
-function payloadSenzaSegreti(p: Record<string, unknown>): Record<string, unknown> {
+export function payloadSenzaSegreti(p: Record<string, unknown>): Record<string, unknown> {
   const copia = structuredClone(p);
   if (copia.proprietario && typeof copia.proprietario === "object") {
     delete (copia.proprietario as any).passwordHash;
@@ -442,10 +446,13 @@ function createMemoryTenantRepository(): TenantRepository {
     },
     async emettiInvito(input) {
       const adesso = input.adesso ?? new Date();
-      // Annulla prima ogni invito ancora valido dello stesso utente sullo
+      // Annulla prima ogni invito non ancora usato dello stesso utente sullo
       // stesso tenant: un secondo invito rimpiazza il primo, non lo affianca.
+      // Anche quelli scaduti — è la stessa condizione dell'indice parziale
+      // unico di Postgres (`tenant_inviti_valido_idx`), che non guarda la
+      // scadenza: le due implementazioni restano equivalenti.
       for (const i of inviti) {
-        if (i.tenantId === input.tenantId && i.utenteId === input.utenteId && invitoValido(i, adesso)) {
+        if (i.tenantId === input.tenantId && i.utenteId === input.utenteId && !i.usatoIl && !i.annullatoIl) {
           i.annullatoIl = adesso;
         }
       }
@@ -760,6 +767,17 @@ export function createPostgresTenantRepository(
           annullato_il TIMESTAMPTZ
         )`;
         await tx`CREATE INDEX IF NOT EXISTS tenant_inviti_tenant_idx ON tenant_inviti (tenant_id, created_at DESC)`;
+        // Un solo invito VIVO per utente e azienda (fix wave finale del WS6):
+        // `emettiInvito` annulla i precedenti prima di inserire, ma due
+        // chiamate partite insieme non si vedono l'un l'altra finché non
+        // hanno commesso — e restavano entrambe valide. Con questo indice
+        // la seconda si schianta su 23505 e rifà annulla+inserisci una volta:
+        // la regola non è più solo nel codice, è nella tabella. Additiva e
+        // sicura: `tenant_inviti` nasce con questa stessa versione, quindi
+        // nessun database esistente può avere righe che la violano.
+        await tx`CREATE UNIQUE INDEX IF NOT EXISTS tenant_inviti_valido_idx
+          ON tenant_inviti (tenant_id, utente_id)
+          WHERE usato_il IS NULL AND annullato_il IS NULL`;
         // Tipi di comando nuovi: il CHECK di `tenant_comandi` è nato nel WS1 con
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
@@ -1059,34 +1077,53 @@ export function createPostgresTenantRepository(
     },
     async emettiInvito(input) {
       await ensureSchema();
-      const token = randomBytes(32).toString("base64url");
-      const hash = hashToken(token);
-      const rows = await sql.begin(async tx => {
-        // Annulla prima ogni invito ancora valido dello stesso utente sullo
-        // stesso tenant: un secondo invito rimpiazza il primo, non lo affianca.
-        await tx`UPDATE tenant_inviti SET annullato_il = NOW()
-          WHERE tenant_id = ${input.tenantId} AND utente_id = ${input.utenteId}
-            AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()`;
-        return tx`INSERT INTO tenant_inviti (tenant_id, utente_id, email, tipo, token_hash, scade_il, creato_da)
-          VALUES (${input.tenantId}, ${input.utenteId}, ${input.email.trim().toLowerCase()}, ${input.tipo}, ${hash},
-            NOW() + make_interval(secs => ${TTL_INVITO_MS / 1000}), ${input.creatoDa})
-          RETURNING *`;
-      });
-      return { invito: rigaInvito(rows[0]), token };
+      const adesso = input.adesso ?? new Date();
+      const emetti = async () => {
+        const token = randomBytes(32).toString("base64url");
+        const hash = hashToken(token);
+        const rows = await sql.begin(async tx => {
+          // Annulla prima ogni invito non ancora usato dello stesso utente
+          // sullo stesso tenant: un secondo invito rimpiazza il primo, non lo
+          // affianca. Anche quelli scaduti: è la condizione esatta
+          // dell'indice parziale unico qui sotto, che non guarda la scadenza
+          // — se restassero a terra bloccherebbero l'inserimento nuovo.
+          await tx`UPDATE tenant_inviti SET annullato_il = ${adesso}
+            WHERE tenant_id = ${input.tenantId} AND utente_id = ${input.utenteId}
+              AND usato_il IS NULL AND annullato_il IS NULL`;
+          return tx`INSERT INTO tenant_inviti (tenant_id, utente_id, email, tipo, token_hash, scade_il, creato_da, created_at)
+            VALUES (${input.tenantId}, ${input.utenteId}, ${input.email.trim().toLowerCase()}, ${input.tipo}, ${hash},
+              ${new Date(adesso.getTime() + TTL_INVITO_MS)}, ${input.creatoDa}, ${adesso})
+            RETURNING *`;
+        });
+        return { invito: rigaInvito(rows[0]), token };
+      };
+      try {
+        return await emetti();
+      } catch (e) {
+        // 23505 = violazione di unicità. L'unica raggiungibile è
+        // `tenant_inviti_valido_idx`: un secondo invito allo stesso utente
+        // partito insieme a questo ha commesso per primo, e il nostro
+        // «annulla i precedenti» non lo aveva ancora visto. Si rifà una
+        // volta sola — ora quell'invito c'è, viene annullato, e il nostro
+        // entra. Un secondo scontro di fila vorrebbe dire un terzo
+        // chiamante: rilanciamo invece di girare in tondo.
+        if ((e as { code?: string })?.code !== "23505") throw e;
+        return await emetti();
+      }
     },
-    async invitoPerToken(token) {
+    async invitoPerToken(token, adesso = new Date()) {
       await ensureSchema();
       const rows = await sql`SELECT * FROM tenant_inviti
-        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()`;
+        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > ${adesso}`;
       return rows.length ? rigaInvito(rows[0]) : null;
     },
-    async consumaInvito(token) {
+    async consumaInvito(token, adesso = new Date()) {
       await ensureSchema();
       // UPDATE … RETURNING atomico: con due chiamate concorrenti sullo
       // stesso token, il WHERE della seconda non trova più righe (la prima
       // ha già messo `usato_il`) — esattamente un vincitore, senza lock a mano.
-      const rows = await sql`UPDATE tenant_inviti SET usato_il = NOW()
-        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW()
+      const rows = await sql`UPDATE tenant_inviti SET usato_il = ${adesso}
+        WHERE token_hash = ${hashToken(token)} AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > ${adesso}
         RETURNING *`;
       return rows.length ? rigaInvito(rows[0]) : null;
     },

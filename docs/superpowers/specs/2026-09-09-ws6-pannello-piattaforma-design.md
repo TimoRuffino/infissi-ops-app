@@ -305,6 +305,11 @@ CREATE TABLE IF NOT EXISTS tenant_inviti (
   annullato_il TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS tenant_inviti_tenant_idx ON tenant_inviti (tenant_id, created_at DESC);
+-- Un solo invito vivo per utente e azienda (fix wave finale): la regola che
+-- `emettiInvito` applica nel codice, applicata anche dalla tabella.
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_inviti_valido_idx
+  ON tenant_inviti (tenant_id, utente_id)
+  WHERE usato_il IS NULL AND annullato_il IS NULL;
 ```
 
 - Il token in chiaro (`randomBytes(32).toString("base64url")`) esce una volta
@@ -326,9 +331,11 @@ CREATE INDEX IF NOT EXISTS tenant_inviti_tenant_idx ON tenant_inviti (tenant_id,
 
 ```ts
 emettiInvito(input: { tenantId: number; utenteId: number; email: string; tipo: TipoInvito; creatoDa: string; adesso?: Date }): Promise<{ invito: TenantInvito; token: string }>;
-// annulla prima ogni invito ancora valido dello stesso utente (annullato_il = NOW()); poi inserisce
-invitoPerToken(token: string, adesso?: Date): Promise<TenantInvito | null>;  // valido: non usato, non annullato, non scaduto
-consumaInvito(token: string, adesso?: Date): Promise<TenantInvito | null>;   // UPDATE … WHERE token_hash = $1 AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > NOW() RETURNING *
+// annulla prima ogni invito NON USATO dello stesso utente (annullato_il = adesso, scaduti compresi:
+// è la condizione esatta di tenant_inviti_valido_idx); poi inserisce. Se due chiamate corrono e la
+// seconda perde (23505 sull'indice), rifà annulla+inserisci UNA volta: alla fine ne resta uno solo
+invitoPerToken(token: string, adesso?: Date): Promise<TenantInvito | null>;  // valido: non usato, non annullato, non scaduto rispetto ad `adesso`
+consumaInvito(token: string, adesso?: Date): Promise<TenantInvito | null>;   // UPDATE … WHERE token_hash = $1 AND usato_il IS NULL AND annullato_il IS NULL AND scade_il > $adesso RETURNING *
 invitiDi(tenantId: number): Promise<TenantInvito[]>;                            // più recenti prima
 annullaInvito(id: number): Promise<TenantInvito | null>;                         // solo se non usato
 pulisciInvitiScaduti(): Promise<number>;                                          // cancella gli scaduti da più di 30 giorni; al boot con pulisciStateScaduti

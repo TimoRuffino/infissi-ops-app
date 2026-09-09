@@ -147,6 +147,37 @@ describe("piattaformaRouter", () => {
     await expect(caller.comando({ id: accodato.id + 9999 })).resolves.toBeNull();
   });
 
+  // `payloadSenzaSegreti` toglie `proprietario.passwordHash` alla CHIUSURA del
+  // comando: finché resta `in_attesa` (il giro non l'ha ancora preso, o
+  // `eseguiComandoSubito` ha esaurito i suoi 10 s) l'hash è ancora nella riga.
+  // Le letture del pannello lo tolgono comunque, prima di rispondere.
+  it("un comando crea ancora in attesa non porta passwordHash né nella scheda né in comando({id})", async () => {
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    const accodato = await repo.accodaComando({
+      tipo: "crea",
+      tenantId,
+      payload: {
+        slug: "zeta",
+        nome: "Zeta",
+        sede: { nome: "Zeta" },
+        proprietario: { nome: "Z", cognome: "Z", email: "z@zeta.test", passwordHash: "scrypt$segreto" },
+      },
+      richiestoDa: `piattaforma:${admin.email}`,
+    });
+    expect((accodato.payload as any).proprietario.passwordHash).toBe("scrypt$segreto"); // a terra c'è
+
+    const scheda = await caller.azienda({ slug: "acme" });
+    const daScheda = scheda.comandi.find(c => c.id === accodato.id)!;
+    expect(daScheda.stato).toBe("in_attesa");
+    expect((daScheda.payload as any).proprietario).not.toHaveProperty("passwordHash");
+    expect((daScheda.payload as any).proprietario.email).toBe("z@zeta.test"); // il resto resta
+
+    const perId = await caller.comando({ id: accodato.id });
+    expect((perId!.payload as any).proprietario).not.toHaveProperty("passwordHash");
+    expect(JSON.stringify(perId)).not.toContain("scrypt$segreto");
+  });
+
   it("non amministratore → FORBIDDEN; nessuna procedura accetta tenantId", async () => {
     const utenteNonInElenco = { id: 999999, loginMethod: "local" };
     await expect(

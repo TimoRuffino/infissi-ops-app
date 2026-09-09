@@ -37,10 +37,10 @@ const inputAcme = () => ({
   },
 });
 
-function contesto(): TrpcContext {
+function contesto(ip?: string): TrpcContext {
   return {
     user: null,
-    req: { protocol: "http", headers: {} } as any,
+    req: { protocol: "http", headers: {}, ip } as any,
     res: { cookie: vi.fn(), clearCookie: vi.fn() } as any,
     sedeId: null,
     sediIds: [],
@@ -91,6 +91,46 @@ describe("invitiRouter.anteprima", () => {
     await expect(
       invitiRouter.createCaller(contesto()).anteprima({ token: "x".repeat(43) })
     ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
+  });
+
+  // `anteprima` è una query pubblica che, con un token indovinato, direbbe
+  // nome dell'azienda ed email di chi ci lavora: senza limite si possono
+  // provare token quanto si vuole. Trenta buchi in 15 minuti per indirizzo
+  // (più larghi dei 5 di `accetta`: qui ricaricare la pagina è legittimo).
+  it("trenta token sbagliati dallo stesso indirizzo: il trentunesimo dà TOO_MANY_REQUESTS", async () => {
+    const caller = () => invitiRouter.createCaller(contesto("203.0.113.9"));
+    for (let i = 0; i < 30; i++) {
+      await expect(caller().anteprima({ token: `x${String(i).padStart(42, "0")}` })).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
+    }
+    await expect(caller().anteprima({ token: "y".repeat(43) })).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+      message: MESSAGGI_PIATTAFORMA.troppiTentativi,
+    });
+    // Un altro indirizzo non paga per il primo.
+    await expect(
+      invitiRouter.createCaller(contesto("198.51.100.4")).anteprima({ token: "z".repeat(43) })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("un token valido azzera il contatore: ricaricare la propria pagina non consuma nulla", async () => {
+    const { token } = await nuovoInvito();
+    const ip = "203.0.113.10";
+    for (let i = 0; i < 29; i++) {
+      await expect(
+        invitiRouter.createCaller(contesto(ip)).anteprima({ token: `q${String(i).padStart(42, "0")}` })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
+    await expect(invitiRouter.createCaller(contesto(ip)).anteprima({ token })).resolves.toMatchObject({
+      email: "mario@acme.test",
+    });
+    // Azzerato: si ricomincia da zero, non dal trentesimo.
+    for (let i = 0; i < 30; i++) {
+      await expect(
+        invitiRouter.createCaller(contesto(ip)).anteprima({ token: `r${String(i).padStart(42, "0")}` })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
   });
 });
 
