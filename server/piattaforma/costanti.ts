@@ -11,6 +11,10 @@ export const MESSAGGI_PIATTAFORMA = {
   proprietarioAmbiguo: "L'azienda ha più proprietari: indica l'email di chi invitare.",
   tenantGiaEsistente: "L'azienda esiste già: nessun invito inviato.",
   troppiTentativi: "Troppi tentativi di accesso. Riprova tra qualche minuto.",
+  // Stesso rifiuto di `pnpm tenant sospendi` (scripts/tenant.ts) per il
+  // tenant 1, adattato al campo del pannello (`ancheTenant1`, non un flag CLI).
+  tenant1SospensioneConferma:
+    "Sospendere il tenant 1 mette Ruffino Group in sola lettura: conferma con «anche Ruffino Group» (ancheTenant1).",
 } as const;
 export const VARIABILE_AMMINISTRATORI = "PLATFORM_ADMIN_EMAILS";
 export const VARIABILE_BASE_URL = "APP_BASE_URL";

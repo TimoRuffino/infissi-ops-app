@@ -6,7 +6,8 @@
 // repo finta, come indicato dal brief del task.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
-import { hashPassword } from "../_core/password";
+import { hashPassword, isHashed, verifyPassword } from "../_core/password";
+import { __impostaPostaPerTest } from "../_core/postaPiattaforma";
 import { creaUtenteInterno, getUtentiStore } from "../routers/utenti";
 import { getSediStore } from "../routers/sedi";
 import { creaLedgerMemoriaPerTest, impostaLedgerPerTest } from "../tars/costi/ledger";
@@ -14,6 +15,8 @@ import { conTenant } from "../tenants/contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import { crea } from "../tenants/servizio";
 import type { Attore } from "../tenants/tipi";
+import { __azzeraLimiteConfermePerTest } from "./accesso";
+import { MESSAGGI_PIATTAFORMA } from "./costanti";
 import { piattaformaRouter } from "./router";
 
 const SEDE = 96401;
@@ -29,7 +32,8 @@ let nS = 0;
 function context(tenantId: number, sedeId = SEDE, ruoli = ["direzione"], user?: any): TrpcContext {
   return {
     user: user ?? ({ id: admin.id, loginMethod: "local", role: "admin", ruolo: ruoli[0], ruoli, name: "Admin" } as any),
-    req: { protocol: "http", headers: {} } as any,
+    // `get` per `baseUrlDa` (inviti, Task 7): senza APP_BASE_URL usa protocollo+host della richiesta.
+    req: { protocol: "http", headers: {}, get: (_nome: string) => "app.test" } as any,
     res: {} as any,
     sedeId,
     sediIds: [sedeId],
@@ -61,6 +65,7 @@ describe("piattaformaRouter", () => {
       })
     );
     process.env.PLATFORM_ADMIN_EMAILS = admin.email;
+    __azzeraLimiteConfermePerTest();
 
     await crea(
       {
@@ -91,6 +96,8 @@ describe("piattaformaRouter", () => {
     impostaLedgerPerTest(null);
     delete process.env.PLATFORM_ADMIN_EMAILS;
     delete process.env.FLAG_MULTI_AZIENDA;
+    __impostaPostaPerTest(null);
+    __azzeraLimiteConfermePerTest();
     vi.useRealTimers();
   });
 
@@ -145,5 +152,129 @@ describe("piattaformaRouter", () => {
     await expect(
       piattaformaRouter.createCaller(context(1, SEDE, ["direzione"], utenteNonInElenco)).aziende()
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("crea: comando eseguito subito, proprietario con password inutilizzabile, omaggio e invito", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em" }));
+    const esito = await caller.crea({
+      slug: "gamma",
+      nome: "Gamma Srl",
+      sede: { nome: "Gamma", citta: "Carrara" },
+      proprietario: { nome: "Gina", cognome: "Verdi", email: "gina@gamma.test" },
+      omaggio: { motivo: "pilota", scadenza: null },
+      passwordConferma: PASSWORD,
+    });
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.comando.richiestoDa).toBe(`piattaforma:${admin.email}`);
+    expect(esito.comando.payload).not.toHaveProperty(["proprietario", "passwordHash"]); // tolto alla chiusura
+    expect(esito.invito).toMatchObject({ inviato: true });
+    const repo = getTenantRepository();
+    expect(repo.abbonamentoDi(repo.perSlug("gamma")!.id)).toMatchObject({ tipo: "complimentary", stato: "active" });
+    const gina = conTenant(repo.perSlug("gamma")!.id, () =>
+      getUtentiStore().find((u: any) => u.email === "gina@gamma.test")
+    );
+    expect(verifyPassword("", gina.password)).toBe(false);
+    expect(isHashed(gina.password)).toBe(true);
+  });
+
+  it("crea idempotente: la seconda chiamata sullo stesso slug non manda invito e lo dice in nota", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em2" }));
+    const inputCrea = {
+      slug: "delta",
+      nome: "Delta Srl",
+      sede: { nome: "Delta", citta: "La Spezia" },
+      proprietario: { nome: "Dario", cognome: "Neri", email: "dario@delta.test" },
+      passwordConferma: PASSWORD,
+    };
+    const prima = await caller.crea(inputCrea);
+    expect(prima.comando.stato).toBe("eseguito");
+    expect(prima.invito).toMatchObject({ inviato: true });
+
+    const seconda = await caller.crea(inputCrea);
+    expect(seconda.comando.stato).toBe("eseguito");
+    expect(seconda.invito).toBeNull();
+    expect(seconda.omaggio).toBeNull();
+    expect(seconda.nota).toBe(MESSAGGI_PIATTAFORMA.tenantGiaEsistente);
+  });
+
+  it("crea rifiutato dal dominio (email già di un'altra azienda): comando in errore, nessun invito", async () => {
+    const esito = await caller.crea({
+      slug: "epsilon",
+      nome: "Epsilon Srl",
+      sede: { nome: "Epsilon", citta: "Massa" },
+      proprietario: { nome: "Mario", cognome: "Rossi", email: "mario@acme.test" },
+      passwordConferma: PASSWORD,
+    });
+    expect(esito.comando.stato).toBe("errore");
+    expect(esito.invito).toBeNull();
+    expect(esito.omaggio).toBeNull();
+    expect(getTenantRepository().perSlug("epsilon")).toBeNull();
+  });
+
+  it("password di conferma sbagliata → UNAUTHORIZED e nessun comando accodato", async () => {
+    await expect(
+      caller.sospendi({ slug: "acme", motivo: "prova", passwordConferma: "sbagliata-ma-lunga" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(await getTenantRepository().comandiInAttesa()).toEqual([]);
+  });
+
+  it("sospendi/riattiva/abbonamento/proprietario: comando eseguito con l'attore piattaforma negli eventi", async () => {
+    const repo = getTenantRepository();
+    const s = await caller.sospendi({ slug: "acme", motivo: "insoluto di prova", passwordConferma: PASSWORD });
+    expect(s.comando.stato).toBe("eseguito");
+    const eventi = await repo.eventi(repo.perSlug("acme")!.id);
+    expect(eventi.at(-1)).toMatchObject({ tipo: "sospeso", attore: `piattaforma:${admin.email}` });
+
+    const r = await caller.riattiva({ slug: "acme", motivo: "risolto: riattivata", passwordConferma: PASSWORD });
+    expect(r.comando.stato).toBe("eseguito");
+    expect(repo.perSlug("acme")?.stato).toBe("attivo");
+
+    const a = await caller.abbonamento({ azione: "quota", slug: "acme", quotaGb: 200, passwordConferma: PASSWORD });
+    expect(a.comando.stato).toBe("eseguito");
+    expect(repo.perSlug("acme")?.storageQuotaBytes).toBe(200 * 1024 ** 3);
+
+    const p = await caller.proprietario({ slug: "acme", email: "mario@acme.test", azione: "assegna", passwordConferma: PASSWORD });
+    expect(p.comando.stato).toBe("eseguito");
+    expect(p.comando.richiestoDa).toBe(`piattaforma:${admin.email}`);
+  });
+
+  it("tenant 1: sospendere senza ancheTenant1 rifiuta; omaggio rifiutato dal dominio arriva come esito.errore", async () => {
+    await expect(
+      caller.sospendi({ slug: "ruffino-group", motivo: "prova prova", passwordConferma: PASSWORD })
+    ).rejects.toThrow(/anche-tenant-1|ancheTenant1/);
+    const o = await caller.abbonamento({
+      azione: "omaggio",
+      slug: "ruffino-group",
+      motivo: "prova prova",
+      scadenza: null,
+      passwordConferma: PASSWORD,
+    });
+    expect(o.comando.stato).toBe("errore");
+    expect(String(o.comando.esito?.errore)).toContain("tenant 1");
+  });
+
+  it("ricalcolaStorage e ripristina in prova restano in coda e non chiedono la password", async () => {
+    const r = await caller.ricalcolaStorage({ slug: "acme" });
+    expect(r.comando.stato).toBe("in_attesa");
+
+    const rip = await caller.ripristina({ slug: "acme", backup: "2026-09-01", scrivi: false });
+    expect(rip.comando.stato).toBe("in_attesa");
+  });
+
+  it("a interruttore spento le mutation rifiutano con PRECONDITION_FAILED", async () => {
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    await expect(caller.ricalcolaStorage({ slug: "acme" })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI_PIATTAFORMA.solaLetturaFlagSpento,
+    });
+  });
+
+  it("invita e annullaInvito", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const i = await caller.invita({ slug: "acme" });
+    expect(i.inviato).toBe(false);
+    expect(i.link).toContain("/invito/");
+    const annullato = await caller.annullaInvito({ id: i.invito.id });
+    expect(annullato?.annullatoIl).not.toBeNull();
   });
 });
