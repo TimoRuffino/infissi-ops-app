@@ -54,7 +54,11 @@ export const fic: Adattatore = {
         ? {
             causa:
               "Il tuo account Fatture in Cloud non ha ancora un'azienda collegata a questa sede.",
-            rimedio: "Scegli quale azienda usare: l'elenco è qui sotto.",
+            // La stessa frase vale nella pagina Impostazioni e nel percorso
+            // guidato, dove sotto non c'è nessun elenco: nomina il pannello,
+            // che è dove il gesto vive davvero.
+            rimedio:
+              "Scegli quale azienda usare: l'elenco è nel pannello Fatture in Cloud.",
             azione: "scegli",
           }
         : null;

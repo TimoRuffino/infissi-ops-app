@@ -64,8 +64,17 @@ export function SchedaIntegrazione({
 }) {
   // Il guasto trovato dalla prova viva vale più di quello che il server sapeva
   // prima: è l'unico che sa la verità il giorno dopo una revoca.
+  //
+  // Ma una prova andata bene NON cancella il problema che lo stato conosce:
+  // «scegli un'azienda» e «la piattaforma non è configurata» parlano d'altro
+  // e restano veri anche mentre il fornitore risponde. Il verde si aggiunge,
+  // non copre.
   const problema = esitoProva ?? stato.problema;
-  const Icona = problema ? AlertTriangle : stato.collegato ? CheckCircle2 : Circle;
+  const Icona = problema
+    ? AlertTriangle
+    : stato.collegato
+      ? CheckCircle2
+      : Circle;
   const coloreIcona = problema
     ? "text-warning"
     : stato.collegato
@@ -79,29 +88,41 @@ export function SchedaIntegrazione({
 
   return (
     <div className="min-w-0 space-y-2">
+      {/* `basis-64` sul blocco di sinistra e non solo `flex-1`: a 390 px il
+          testo si sarebbe ristretto a un nastro di settanta pixel accanto ai
+          pulsanti invece di mandarli a capo — `min-w-0` glielo permetteva.
+          Con una base dichiarata i pulsanti scendono sotto, e la frase resta
+          leggibile. */}
       <div className="flex min-w-0 flex-wrap items-start gap-3 px-1">
-        <Icona aria-hidden="true" className={`mt-0.5 size-4 shrink-0 ${coloreIcona}`} />
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
-            <span className="font-semibold text-text-1">{titolo}</span>
-            <span className="text-text-2">
-              {stato.collegato ? (
-                <>
-                  collegato a{" "}
-                  <strong className="font-semibold text-text-1">
-                    {stato.soggetto ?? "—"}
-                  </strong>
-                </>
-              ) : (
-                "non ancora collegato"
-              )}
-            </span>
-            <span className="text-xs text-text-3">
-              {stato.ambito === "azienda" ? "per l'azienda" : "per la sede"}
-              {quando ? ` · verificato il ${quando}` : ""}
-            </span>
-          </p>
-          <p className="mt-0.5 text-xs leading-5 text-text-3">{descrizione}</p>
+        <div className="flex min-w-0 flex-1 basis-64 items-start gap-3">
+          <Icona
+            aria-hidden="true"
+            className={`mt-0.5 size-4 shrink-0 ${coloreIcona}`}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+              <span className="font-semibold text-text-1">{titolo}</span>
+              <span className="text-text-2">
+                {stato.collegato ? (
+                  <>
+                    collegato a{" "}
+                    <strong className="font-semibold text-text-1">
+                      {stato.soggetto ?? "—"}
+                    </strong>
+                  </>
+                ) : (
+                  "non ancora collegato"
+                )}
+              </span>
+              <span className="text-xs text-text-3">
+                {stato.ambito === "azienda" ? "per l'azienda" : "per la sede"}
+                {quando ? ` · verificato il ${quando}` : ""}
+              </span>
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-text-3">
+              {descrizione}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {onProva && (
@@ -132,11 +153,8 @@ export function SchedaIntegrazione({
         </div>
       </div>
 
-      {esitoProva === null && !stato.problema && (
-        <p
-          role="status"
-          className="px-1 text-xs text-success"
-        >
+      {esitoProva === null && (
+        <p role="status" className="px-1 text-xs text-success">
           Il fornitore risponde: il collegamento è valido.
         </p>
       )}
