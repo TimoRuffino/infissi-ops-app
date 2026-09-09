@@ -1069,7 +1069,251 @@ L'ultima deve dare 0 dopo il primo boot col nuovo codice (backfill).
 - «Il ruolo proprietario richiede FLAG_MULTI_AZIENDA.»
 - (solo operatore, `pnpm tenant`) «Tabelle del control plane del tenant assenti
   (tenants, tenant_eventi, tenant_comandi, tenant_sedi, tenant_storage,
-  oauth_state, abbonamenti)…» — script lanciato contro un database su cui il
-  server con questa versione non è mai partito. Il messaggio nomina tutte e
-  sette le tabelle che la sonda chiede: quella che manca è fra queste
-  (`abbonamenti` è del WS4, `tenant_storage` e `oauth_state` del WS3).
+  oauth_state, abbonamenti, tenant_inviti)…» — script lanciato contro un
+  database su cui il server con questa versione non è mai partito. Dal WS6 il
+  messaggio nomina tutte e **otto** le tabelle che la sonda chiede (prima
+  erano sette): quella che manca è fra queste (`abbonamenti` è del WS4,
+  `tenant_storage` e `oauth_state` del WS3, `tenant_inviti` del WS6, pannello
+  piattaforma).
+
+## WS6 — pannello piattaforma
+
+Spec: `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
+(le decisioni prese durante l'esecuzione sono nella sua §2-bis). Modulo:
+`server/piattaforma/`. Nessun interruttore nuovo: il pannello è gated
+dall'identità (chi è in `PLATFORM_ADMIN_EMAILS`), non da un flag — a
+differenza di WS2/WS3/WS4, non c'è un «acceso/spento» da decidere qui.
+
+> **Stato al 09/09/2026:** WS1, WS2, WS3 e WS4 sono su `main` e in produzione
+> (PR #3, #5 e #8; `FLAG_MULTI_AZIENDA` acceso dalle 09:54 del 09/09/2026). Il
+> **WS6** è implementato sul branch `feature/ws6-pannello-piattaforma`
+> (nato da `main` @ `37c1889`, cioè dopo quel merge) e **non è su `main`**:
+> questa sezione vale dal momento in cui il branch viene distribuito.
+
+### Accesso
+
+- `PLATFORM_ADMIN_EMAILS`: email separate da virgola, confrontate senza
+  maiuscole né spazi. Letta a ogni chiamata (come `interruttoreAttivo`),
+  nessuna cache: aggiungere o togliere un'email vale dalla richiesta
+  successiva, senza bisogno di ricaricare nient'altro lato codice — su
+  Railway, però, cambiare una variabile d'ambiente riavvia comunque il
+  servizio da sé.
+- La voce **«Piattaforma»** in cima al menu utente (accanto a
+  «Impostazioni») compare **solo** se `tenants.mio.piattaforma` è vero:
+  utente attivo, login **locale** (non OAuth), del tenant 1, con l'email
+  nell'elenco. Chi non ci rientra non vede la voce e, se prova comunque
+  `/piattaforma` o `/piattaforma/<slug>` a mano, trova la stessa guardia
+  («Sezione riservata alla piattaforma»); ogni query e mutation del router
+  `piattaforma` ricontrolla comunque l'email a ogni chiamata — la voce di
+  menu è solo comodità, non è la sicurezza.
+- Le azioni sensibili (creare un'azienda, sospendere, riattivare, assegnare o
+  revocare un proprietario, ogni azione sull'abbonamento, un ripristino
+  **scritto** — non la prova) chiedono di reinserire la **password
+  dell'amministratore**. Stesso limitatore del login — 5 tentativi in 15
+  minuti — estratto in `server/_core/limiteTentativi.ts` e riusato con una
+  chiave propria (`conferma:<email>`): sbagliarla troppe volte blocca la
+  conferma, non il login stesso. Un tentativo sbagliato lascia
+  `[piattaforma] conferma password rifiutata per <dominio email>` nei log
+  (mai l'indirizzo intero).
+- L'amministratore **agisce SU un'altra azienda**, non dentro la propria: il
+  router non passa dalla guardia di tenant del resto del CRM
+  (`guardiaTenant`), quindi può riattivare anche un tenant 1 sospeso. Ogni
+  azienda si individua per `slug`, mai per un `tenantId` passato dal client.
+
+### Cosa fa il boot, in ordine (aggiunte del WS6)
+
+Sopra i passi delle sezioni WS2, WS3 e WS4, il boot con questo codice fa
+anche:
+
+1. In `preparaTenants()`, con lo schema del control plane: la tabella
+   `tenant_inviti` (id, azienda, utente, email, tipo, `token_hash` UNIQUE,
+   scadenza, chi l'ha creata, quando usata o annullata) e il suo indice
+   `(tenant_id, created_at DESC)`. Additiva come le altre: `CREATE TABLE IF
+   NOT EXISTS`, nessun `ALTER` su tabelle esistenti.
+2. **Dal WS6 la sonda dello script chiede otto tabelle, non sette**: alle
+   sette di WS2+WS3+WS4 si aggiunge `tenant_inviti` (`verificaSchema`,
+   `server/tenants/repository.ts`; `MESSAGGI.schemaAssente` le nomina tutte
+   e otto). Su un database dove gira il WS4 ma il WS6 non ha ancora fatto
+   boot, ogni sottocomando tranne `verifica` si ferma con lo stesso messaggio
+   di sempre: non è un guasto, deploy prima, pannello poi.
+3. Subito dopo la spazzata degli `oauth_state` scaduti, in un `try/catch` a
+   parte (così un guasto nell'uno non nasconde il messaggio dell'altro):
+   `repo.pulisciInvitiScaduti()` cancella gli inviti scaduti da **più di 30
+   giorni**. Riga di log solo se ne toglie almeno uno:
+   `[tenants] inviti scaduti rimossi: N`. Un errore qui non ferma l'avvio
+   (il control plane è già a posto) e lascia
+   `[tenants] pulizia inviti: <messaggio>`.
+
+### Il percorso di un invito
+
+1. **Creazione.** Da «Nuova azienda» (il proprietario nasce con l'azienda) o
+   da «Invita»/«Reinvia» nella scheda di un'azienda esistente (sezione
+   Proprietari e inviti). In entrambi i casi il proprietario riceve una
+   **password inutilizzabile** (un hash di 32 byte casuali: nessuno può
+   entrare prima di accettare l'invito) e il servizio emette un token
+   monouso (`randomBytes(32)` in base64url) — a terra resta solo il suo
+   sha256, il token in chiaro esce **una volta sola**, dentro il link.
+   Invitare di nuovo lo stesso utente **annulla da solo** ogni invito
+   precedente ancora valido: non ne restano mai due attivi.
+2. **Consegna.** Con `RESEND_API_KEY` impostata, l'email parte da
+   `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <noreply@wyndoor.com>`),
+   oggetto «Il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
+   solo l'esito («Invito inviato a …»). **Senza chiave, o se Resend rifiuta o
+   non risponde entro 10 s, l'invio non si rompe**: il pannello mostra
+   invece il link con un pulsante «Copia» — si consegna a mano (email a
+   parte, WhatsApp, di persona). Nessun invito va perso per questo: il link
+   resta valido comunque.
+3. **La pagina pubblica `/invito/<token>`** (fuori dalla shell, senza
+   sessione) mostra azienda, nome ed email di chi è stato invitato, chiede la
+   password (minimo 12 caratteri, conferma) e apre la sessione da sola
+   all'accettazione — stesso cookie del login. Un token sbagliato, scaduto,
+   già usato o annullato dà sempre lo stesso «Questo invito non è valido o è
+   scaduto: chiedi un nuovo invito»: nessun indizio su quale motivo sia,
+   apposta.
+4. **Validità: 7 giorni, un solo uso.** Passata la scadenza, o dopo il primo
+   uso, il token non vale più — `consumaInvito` è atomico: due tentativi
+   concorrenti sullo stesso token hanno esattamente un vincitore.
+5. **Rinvio e annullo.** «Invita» di nuovo sullo stesso proprietario rinnova
+   il link (annulla il vecchio, ne emette uno nuovo). «Annulla invito» nella
+   scheda azienda smette di far valere un invito non ancora usato, senza
+   toccarne uno già accettato.
+6. **Nessuna scorciatoia da riga di comando.** Non esiste un `pnpm tenant
+   invita`: il link è un segreto a tempo che non deve restare scritto in
+   `tenant_comandi` (o in un terminale, o in uno script). Solo il pannello lo
+   emette e lo consegna.
+7. **Audit.** Tre eventi in `tenant_eventi`, mai col token:
+   `invito_inviato` (con l'esito dell'invio e l'eventuale motivo del
+   fallimento), `invito_accettato`, `invito_annullato`.
+
+### Le azioni del pannello e la loro traccia
+
+- Ogni mutation del pannello **accoda** un comando in `tenant_comandi` con
+  `richiesto_da = piattaforma:<email dell'amministratore>` — mai
+  `script:…`, mai `boot`. L'evento che ne risulta porta lo stesso attore:
+  `tenant_eventi.attore = piattaforma:<email>`, leggibile alla lettera nella
+  scheda dell'azienda (sezione Eventi) e da SQL:
+
+      SELECT tipo, attore, created_at FROM tenant_eventi
+       WHERE attore LIKE 'piattaforma:%' ORDER BY id DESC LIMIT 20;
+
+- **Esecuzione immediata.** Cinque delle nove mutation del router (`crea`,
+  `sospendi`, `riattiva`, `proprietario`, `abbonamento` — quest'ultima porta
+  da sola le sette azioni sul contratto: omaggio, proroga, budget, extra,
+  quota, tolleranze, disdetta/annulla) accodano e **subito dopo** eseguono lo
+  stesso comando con `eseguiComandoSubito`: la
+  stessa funzione del giro dei 30 secondi, chiamata su un solo id, con lo
+  stesso claim atomico (`FOR UPDATE SKIP LOCKED` su Postgres) — se il giro
+  regolare lo ha già preso nel frattempo, il pannello aspetta ed espone
+  l'esito vero, non lo riesegue. L'amministratore vede l'esito nella
+  risposta della mutation, senza dover ricaricare la pagina.
+- **Le due che restano in coda:** `ricalcolaStorage` e `ripristina` (perché
+  il server, non lo script né il pannello, deve parlare col Drive
+  dell'azienda). Il pannello segue il comando con `piattaforma.comando({id})`
+  ogni 2 secondi finché non chiude, e mostra «In corso…» sotto la sezione
+  Spazio o Backup rispettivamente.
+- **`invita` e `annullaInvito` non sono comandi**: passano dal servizio degli
+  inviti (sopra), non da `tenant_comandi` — il link è un segreto a tempo, un
+  comando invece lascia il suo `payload`/`esito` leggibile a chiunque legga
+  la tabella.
+- `pnpm tenant elenco` e `pnpm tenant verifica` restano validi e mostrano gli
+  stessi dati di sempre: nessun comando dello script cambia forma per via del
+  pannello.
+
+### Variabili d'ambiente (WS6)
+
+| Variabile | Default | A che serve |
+|---|---|---|
+| `PLATFORM_ADMIN_EMAILS` | *(nessuno)* | Email separate da virgola: senza questa variabile **nessuno** vede il pannello, indipendentemente da ruolo o capability — è l'unica porta. |
+| `RESEND_API_KEY` | *(nessuno)* | Chiave del provider Resend per la posta transazionale della piattaforma. Senza, `inviaPosta` torna sempre `{ inviato: false }` e il pannello mostra il link da copiare: nessun invito si perde, nessuno riceve un'email. |
+| `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <noreply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
+| `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. |
+
+Nessuna delle quattro tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
+dall'identità, come detto sopra.
+
+### Produzione, in ordine (WS6)
+
+1. **Deploy.** `FLAG_MULTI_AZIENDA` è già acceso dal 09/09 (WS3+WS4): il WS6
+   non ne dipende e non lo tocca. Nei log nessun errore `[tenants]`; la
+   tabella `tenant_inviti` nasce da sola nello schema, come le altre.
+2. **Impostare `PLATFORM_ADMIN_EMAILS`** (almeno l'email di chi amministra
+   oggi la piattaforma) sul servizio Wyndoor di Railway — il riavvio è
+   automatico quando si cambia una variabile.
+3. **Login** con quell'utente: la voce **«Piattaforma»** compare nel menu
+   utente. Aprirla mostra Ruffino Group con l'etichetta «piattaforma» e il
+   suo abbonamento omaggio.
+4. **Posta**, prima di invitare qualcuno per email: account Resend, dominio
+   `wyndoor.com` aggiunto e verificato (i record DNS — SPF via TXT, DKIM via
+   CNAME — li assegna Resend alla registrazione del dominio: si copiano dal
+   suo pannello, non sono fissi), poi `RESEND_API_KEY` nell'ambiente. **Finché
+   non è fatto**, ogni invito funziona lo stesso: il pannello mostra il link
+   da copiare e consegnare a mano.
+5. **Azienda pilota**: «Nuova azienda» dall'elenco — slug, ragione sociale,
+   prima sede, proprietario (nome, cognome, email, telefono), omaggio
+   opzionale, password di conferma dell'amministratore.
+6. **L'invito**: arriva via email se Resend è configurato, altrimenti si
+   copia il link dal riepilogo (o più tardi dalla scheda azienda, sezione
+   Proprietari e inviti) e lo si consegna. Il proprietario apre
+   `/invito/<token>`, sceglie la password, entra: da qui in poi lavora come
+   qualunque proprietario del CRM.
+
+**Rollback = build precedente.** Additivo come le sezioni WS2/WS3/WS4:
+`tenant_inviti` resta a terra, invisibile e innocua; un invito già emesso con
+il codice nuovo **non si accetta** finché il codice nuovo non torna (la
+pagina `/invito` e il router pubblico `inviti` non esistono nel build
+precedente) — non è una perdita di dati, solo un invito da riemettere dopo il
+roll-forward.
+
+### Errori che l'operatore può vedere (WS6)
+
+- «Questa sezione è riservata all'amministrazione della piattaforma.»
+  (`FORBIDDEN`) — l'utente loggato non è (più) nell'elenco
+  `PLATFORM_ADMIN_EMAILS`, non è attivo, oppure non è un utente locale del
+  tenant 1. Non è un guasto: aggiungere l'email e riavviare, se doveva
+  esserci.
+- «Password non corretta.» (`UNAUTHORIZED`) sulla conferma di un'azione
+  sensibile — password dell'amministratore sbagliata. Dopo 5 tentativi in 15
+  minuti: «Troppi tentativi di accesso. Riprova tra qualche minuto.»
+  (`TOO_MANY_REQUESTS`), lo stesso testo del login.
+- «Con FLAG_MULTI_AZIENDA spento il pannello è in sola lettura.»
+  (`PRECONDITION_FAILED`) — ogni mutation rifiuta a interruttore spento; le
+  query rispondono comunque (si vede il tenant 1 e il suo omaggio). Non
+  capita in produzione dal 09/09 (il flag è acceso); capita su un ambiente di
+  prova senza `FLAG_MULTI_AZIENDA=on`.
+- «Sospendere il tenant 1 mette Ruffino Group in sola lettura: conferma con
+  «anche Ruffino Group» (ancheTenant1).» — stesso rifiuto di `pnpm tenant
+  sospendi` senza `--anche-tenant-1`: nel dialogo di sospensione si spunta la
+  casella «Anche Ruffino Group».
+- «Questo invito non è valido o è scaduto: chiedi un nuovo invito.»
+  (`NOT_FOUND`) su `/invito/<token>` — token già usato, annullato, scaduto
+  (oltre 7 giorni) o inventato: stesso messaggio per ogni motivo, di
+  proposito. Rimedio: dalla scheda dell'azienda, «Invita» di nuovo.
+- «Posta della piattaforma non configurata: copia il link e consegnalo a
+  mano.» — `RESEND_API_KEY` assente, oppure Resend ha rifiutato o non ha
+  risposto entro 10 s. Il link resta valido: si copia e si consegna
+  altrimenti. Non blocca né la creazione dell'azienda né l'invito.
+- «L'azienda ha più proprietari: indica l'email di chi invitare.»
+  (`BAD_REQUEST`) — «Invita» senza scegliere l'email quando l'azienda ha più
+  di un proprietario: si sceglie dalla sezione Proprietari e inviti.
+- «L'azienda esiste già: nessun invito inviato.» — «Nuova azienda» con uno
+  slug già usato: idempotente come `pnpm tenant crea`, non manda un secondo
+  invito né tocca l'azienda esistente.
+- «Risorsa non trovata.» (`NOT_FOUND`) su uno slug che non esiste — stesso
+  comportamento del resto del CRM dal WS3: nessun indizio per enumerare gli
+  slug altrui.
+- `[piattaforma] conferma password rifiutata per <dominio email>` — un
+  tentativo di conferma sbagliato; se si ripete su un dominio noto, verificare
+  chi sta provando.
+- `[posta] invio a <dominio>: fallito (<motivo>)` — l'invito non è partito
+  (chiave assente, Resend ha risposto un errore, timeout di 10 s); mai
+  l'indirizzo intero nel log. Il link resta comunque disponibile da copiare.
+- `[inviti] accettazione fallita: <messaggio>` — un errore inatteso (non un
+  token scaduto/usato/sconosciuto) durante l'accettazione: chi lo prova vede
+  comunque «invito non valido», ma qui c'è il motivo vero, mai il token.
+- `[tenants] inviti scaduti rimossi: N` — spazzata di boot, normale, non un
+  errore. `[tenants] pulizia inviti: <messaggio>` — quella spazzata è
+  fallita: l'avvio prosegue lo stesso, ma la tabella cresce finché non si
+  risolve.
+- (solo operatore) «Tabelle del control plane del tenant assenti (…,
+  `tenant_inviti`)…» — il server non ha ancora fatto boot con questa
+  versione: deploy prima, pannello poi (v. sopra, ora sono otto).

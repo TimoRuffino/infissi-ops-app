@@ -68,8 +68,157 @@ e comandi come traccia di ogni azione.
 
 ## 2-bis. Decisioni in corso d'opera
 
-(Vuota alla nascita della spec. Il registro dell'esecuzione le aggiunge qui,
-numerate R1…, con motivo e costo se sbagliate.)
+Il registro dell'esecuzione
+(`.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/progress.md`) ha
+prodotto dieci ruling, in ordine di apparizione: due prima del Task 1
+(pre-flight, sul piano) e otto durante la revisione dei task (R1…R8). Ognuno
+con che cosa è stato deciso, perché, e il costo se la decisione fosse
+sbagliata.
+
+**Ruling pre-1.** La rotta `/piattaforma/:slug` la registra il Task 8 (con un
+componente provvisorio, segnaposto per `AziendaDetail`, che rimanda
+all'elenco) e il Task 9 la sostituisce per intero con la scheda vera. Motivo:
+così il Task 8 chiude con rotte, menu e contratto delle rotte
+(`routeContract.ts`) già coerenti, senza dover aspettare la scheda completa.
+Costo se sbagliato: nessuno — è un ordine di consegna, non una scelta di
+comportamento.
+
+**Ruling pre-2.** `passwordSchema` di `server/routers/utenti.ts` diventa
+`export const passwordSchema` (consumato dal Task 5 nel router pubblico
+`inviti`), senza cambiarne testo né vincoli. Motivo: un solo schema di
+validazione della password in tutto il repository, mai una seconda copia per
+la pagina d'invito. Costo se sbagliato: nessuno.
+
+**R1** (dopo la review del Task 1). `comandiDi`, `storageTutti` ed
+`eventiRecenti` — le tre letture in blocco su Postgres — non erano mai state
+esercitate contro un database vero: solo l'implementazione in memoria aveva
+test. Il router del pannello (Task 6) costruisce l'elenco delle aziende
+proprio su questi tre metodi, quindi la lacuna era a monte di tutto ciò che
+segue. Deciso: tre test nuovi in `repository.pg.test.ts`, fatti SUBITO (Task 2
+già chiuso, nessun conflitto) e prima di partire col Task 3. Esito: nessun bug
+nel SQL, i tre metodi hanno passato i test al primo tentativo — la lacuna era
+di copertura, non di correttezza. Costo se sbagliato: un test in più.
+
+**R2** (dopo la review del Task 2). Il test «se il giro dei 30 s ha già preso
+il comando, `eseguiComandoSubito` aspetta e restituisce la riga chiusa» non
+provava nessuna attesa reale: il repository in MEMORIA non aveva alcun claim
+sul comando in esecuzione (`FOR UPDATE SKIP LOCKED` esiste solo su Postgres),
+quindi un secondo `prendiEdEsegui` concorrente poteva rieseguirlo invece di
+aspettare. Deciso: (a) un insieme `inEsecuzione` nel repository in memoria,
+così un comando già preso non viene ripreso da un secondo chiamante; (b) due
+test con timer reali che provano davvero il ciclo di attesa e lo scadere di
+`attesaMs`; (c) la fixture del ledger dei costi, duplicata fra i due
+`describe` di `costi.test.ts`, portata a costanti condivise, e il confronto
+sul tenant 1 in `ledger.pg.test.ts` allargato da uguaglianza stretta a `≥`
+(tenant 1 è condiviso con `pgConcorrenza.test.ts`, che ci scrive sopra) —
+fatti insieme perché nello stesso file. Costo se sbagliato: un test in più e
+una simulazione più fedele; nessun rischio sul codice di produzione, che su
+Postgres si comportava già correttamente.
+
+**R3** (dopo la review del Task 3). `utenteAmministratore` e `tenants.mio`
+consideravano amministratore chiunque avesse l'`id` numerico giusto, senza
+controllare `loginMethod`: un utente OAuth legacy con lo stesso `id` numerico
+di un amministratore locale sarebbe stato risolto contro lo store del tenant 1
+e trattato come amministratore. Non sfruttabile oggi (OAuth è spento in
+produzione e, a flag acceso, `createContext` scarta già gli utenti non
+locali), ma un confine di sicurezza su cui i task successivi costruiscono.
+Deciso: (a) `utenteAmministratore` richiede `loginMethod === "local"` **e**
+`id` numerico, come già fa `risolviTenantPerUtente`
+(`server/tenants/contesto.ts`); (b) `tenants.mio` chiama lo stesso helper
+condiviso invece di rileggere lo store per conto proprio (elimina anche la
+duplicazione fra `accesso.ts` e `router.ts`); (c) un test con un utente OAuth
+dallo stesso `id` numerico → `null`/`FORBIDDEN`; (d) i fake timer del test del
+limitatore spostati in `beforeEach`/`afterEach`. Costo se sbagliato: nessuno.
+
+**R4** (dopo la review del Task 5). Nel catch di `inviti.accetta`, un errore
+inatteso (per esempio un guasto del database) veniva scartato in silenzio e
+diventava lo stesso `NOT_FOUND` di un token sbagliato: un bug vero sarebbe
+stato indistinguibile da un token indovinato a caso. Deciso: se l'errore non è
+`MESSAGGI_PIATTAFORMA.invitoNonValido`, loggare
+`console.error("[inviti] accettazione fallita: <messaggio>")` — solo il
+messaggio, mai il token — prima di rilanciare la stessa risposta di sempre
+(nessun segnale in più per chi tenta di enumerare token); in più,
+`attoreTesto({ tipo: "utente", id })` al posto di una stringa scritta a mano
+per l'evento `invito_accettato`, e `__azzeraLimiteInvitiPerTest` per isolare i
+test dal limitatore condiviso, per simmetria con `accesso.ts`. Costo se
+sbagliato: una riga di log in più.
+
+**R5** (dopo la review del Task 6). Lo sketch del brief indicava per
+`ultimoBackup`/`backup` solo un sottoinsieme di campi (`finishedAt, ok, files,
+bytes, target`), ma l'implementazione porta l'intero record di `BackupLog`
+(`trigger`, `error`, `id` compresi). Deciso: accettata così com'è — nessun
+segreto nel record, la scheda client lo usa già per intero, e duplicare il
+tipo `BackupLog` solo per il pannello sarebbe stato un costo senza beneficio —
+annotata qui e in §5.1. Costo se sbagliato: nessuno.
+
+**R6** (dopo la review del Task 7). La mutation più rischiosa del router —
+`ripristina` con `scrivi: true`, l'unico ramo davvero sensibile del comando —
+non aveva nessun test sul cancello della password. Deciso: aggiungere in
+`router.test.ts` password corretta → comando in coda; nessuna password o
+password sbagliata → `UNAUTHORIZED` e nessun comando accodato; più quattro
+lacune minori chiuse nello stesso giro (il ramo `revoca` di `proprietario` mai
+esercitato, uno slug sconosciuto su ciascuna mutation → `NOT_FOUND`, l'evento
+`invito_annullato` mai asserito, il campo `email` mancante nella fixture
+`context()`). Fatto DOPO il Task 8 (un solo implementer alla volta sul codice
+server; il Task 8 tocca solo client). Costo se sbagliato: nessuno.
+
+**R7** (dopo la review del Task 8). `NuovaAziendaDialog` mostrava «Azienda
+creata» e «Apri la scheda» anche quando il comando `crea` era finito in
+`errore` (per esempio un'email già di un'altra azienda): un percorso
+raggiungibile e previsto dalla spec §8, ma non guardato dal componente.
+Deciso: titolo, descrizione e il pulsante «Apri la scheda» seguono
+`comando.stato` (`esitoCreazione`, funzione pura e testata) — con `errore` o
+`in_attesa` oltre il timeout diventa «Creazione non riuscita» con «Riprova»;
+una guardia (`apertoRef`) ignora un esito arrivato dopo che il dialogo è stato
+chiuso; nella pagina d'invito ogni errore di `anteprima` (token rifiutato da
+zod compreso) mostra sempre il testo amichevole, mai il messaggio tecnico.
+Fatto DOPO il Task 9 (stesso file `NuovaAziendaDialog.tsx` in lavorazione).
+Costo se sbagliato: nessuno.
+
+**R8** (dopo la review del Task 9). `AziendaDetail` seguiva UN solo comando
+lungo alla volta: avviare un ricalcolo e poi, prima che si chiudesse, un
+ripristino in prova faceva perdere il polling e il toast del primo (il
+comando restava comunque accodato e si chiudeva sul server, ma senza più
+nessuno che lo interrogasse). Deciso: i comandi lunghi si seguono in una mappa
+per id (`SeguiComando`, un'istanza — e un polling — per id, mai un hook
+condizionale); il gating del tenant 1 («Anche Ruffino Group») si applica anche
+al ripristino vero, non solo alla sospensione; il ripiego morto
+`eur: extraEur ?? 0` sull'extra Tars è sostituito da una guardia esplicita che
+non accoda nulla senza un importo. `TENANT_PIATTAFORMA_ID` duplicato in due
+file client e l'assenza di un invito a un indirizzo email libero (per
+costruzione: `crea` semina sempre un proprietario) restano deferred alla
+revisione finale del branch. Costo se sbagliato: nessuno.
+
+**Ancora aperti** (minori, lasciati deliberatamente fuori da questo
+workstream — nessuno blocca il rilascio):
+
+- `emettiInvito` non è auto-concorrente: due inviti emessi nello stesso
+  istante per lo stesso utente potrebbero restare entrambi validi (idea
+  proposta dal reviewer del Task 1: un indice parziale unico su
+  `(tenant_id, utente_id) WHERE usato_il IS NULL AND annullato_il IS NULL`).
+- In `ledger.pg.test.ts`, nel test di coerenza fra `consumoAziendeMese` e
+  `consumoAziendaMese`, un confronto sul tenant 1 resta a uguaglianza stretta
+  invece di `≥` (R2 ha corretto il confronto sulla somma condivisa, non
+  questo secondo confronto puntuale): può soffrire di scritture concorrenti
+  di `pgConcorrenza.test.ts`.
+- `server/_core/postaPiattaforma.test.ts`: il ramo `AbortError` del timeout e
+  una risposta 2xx senza corpo JSON non sono coperti da un test;
+  `postaConfigurata() === true` non è asserito direttamente.
+- `server/piattaforma/router.test.ts`: uno spy senza `restoreAllMocks`
+  (innocuo: la repo finta viene azzerata a ogni test).
+  `server/piattaforma/confine.test.ts`: l'allow-list dei path relativi resta
+  fragile a eventuali sottocartelle (fragilità ereditata da prima del WS6).
+- Client, `esitoCreazione` (`pages/piattaforma/testi.ts`): lo stato
+  `"eseguito"` senza nota né invito produce una descrizione vuota — un caso
+  che il server oggi non produce mai.
+- `TENANT_PIATTAFORMA_ID` è ricopiato in due file client (`AziendeList.tsx`,
+  `AziendaDetail.tsx`, che lo passa come prop `tenant1` ai componenti
+  figli) perché il client non può importare `TENANT_PREDEFINITO_ID` dal
+  server: da unificare in un modulo condiviso se un terzo punto ne avrà
+  bisogno.
+- Nessun invito a un indirizzo email libero dal pannello: `crea` semina
+  sempre un proprietario, quindi non esiste oggi un percorso per invitare un
+  indirizzo che non sia già un utente dell'azienda.
 
 ## 3. Accesso
 
@@ -228,7 +377,11 @@ individuano l'azienda per `slug`, mai per `tenantId` (guardia
   giorni), `eventi: TenantEvento[]` (ultimi 50), `comandi: TenantComando[]`
   (ultimi 20, `payload` già senza segreti), `inviti: TenantInvito[]`,
   `backup: BackupLog[]` (ultimi 5 via `conTenant(tenantId, () => backupLog(5))`),
-  `provider: string`.
+  `provider: string`. (R5: `ultimoBackup` e `backup` portano il record
+  intero di `BackupLog` — `trigger`, `error` e `id` compresi, non solo il
+  sottoinsieme sopra — perché non contiene segreti e la scheda client lo usa
+  già per intero; duplicare il tipo solo per il pannello sarebbe stato un
+  costo senza beneficio.)
 - `comando({ id })` → `TenantComando | null`, per seguire ricalcolo e ripristino.
 
 ### 5.2 Scritture: accoda ed esegui subito

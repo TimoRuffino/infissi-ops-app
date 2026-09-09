@@ -8,6 +8,73 @@
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 09/09/2026 — WS6 «pannello piattaforma»: su branch.** Lo stesso
+> giorno in cui WS3 e WS4 sono andati su `main` (PR #8, merge `37c1889`) e
+> `FLAG_MULTI_AZIENDA` è stato acceso in produzione (09:54, Europe/Rome),
+> nasce da quel `main` il branch `feature/ws6-pannello-piattaforma`, dove i
+> 10 task del piano
+> (`docs/superpowers/plans/2026-09-09-ws6-pannello-piattaforma.md`) sono
+> implementati e committati (`9dc4c54`…`a606515`). **Nessun push, nessun
+> merge su `main` da qui, PR ancora da aprire**: il merge è una decisione
+> della direzione.
+> **Che cosa cambia.** Chi amministra la piattaforma (oggi la direzione,
+> tramite `PLATFORM_ADMIN_EMAILS`) trova una sezione `/piattaforma` nel CRM:
+> elenco di tutte le aziende con stato, abbonamento, spazio, Tars del mese,
+> worker sospesi e ultimo backup; «Nuova azienda» che crea sede e
+> proprietario e manda subito l'invito; la scheda di ogni azienda con le
+> sette azioni sull'abbonamento (omaggio, proroga, quota, budget e extra
+> Tars, tolleranze, disdetta), proprietari e inviti, backup e ripristino,
+> eventi e comandi. **Identità, non un flag nuovo:** l'amministratore è un
+> utente attivo del tenant 1 con l'email in `PLATFORM_ADMIN_EMAILS` — stesso
+> utente, potere in più, **deviazione dichiarata** dal design madre (che
+> voleva un'identità separata con MFA, §6.2/§15/§18): un secondo login e un
+> TOTP restano rimandati finché non esiste un secondo amministratore. Le
+> azioni sensibili (creazione, sospensione, riattivazione, proprietari,
+> abbonamento, ripristino scritto) chiedono di reinserire la password, con
+> lo stesso limitatore del login estratto in `server/_core/limiteTentativi.ts`
+> e riusato con una chiave propria. **Ogni scrittura è un comando** in
+> `tenant_comandi` con `richiesto_da = piattaforma:<email>`, eseguito
+> **subito** dalla stessa funzione del giro dei 30 secondi (ricalcolo dello
+> spazio e ripristino restano in coda: li esegue il server contro il Drive
+> dell'azienda). **L'invito al proprietario:** password inutilizzabile alla
+> creazione, link monouso valido 7 giorni (`tenant_inviti`, token mai in
+> chiaro a terra — solo il suo sha256), mandato via Resend o, senza
+> `RESEND_API_KEY`, mostrato da copiare a mano — il flusso non si rompe mai;
+> la pagina pubblica `/invito/<token>` imposta la password e apre la
+> sessione come il login.
+> **Dieci decisioni d'esecuzione** (due pre-volo, R1-R8) nella spec
+> `docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md`
+> **§2-bis**, con motivo e costo se sbagliate; registro esteso in
+> `.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/progress.md`. Le più
+> rilevanti: **R2**, il repository in memoria non aveva un claim sul comando
+> in esecuzione, quindi nessun test in memoria poteva provare l'attesa di
+> `eseguiComandoSubito` (su Postgres il comportamento era già corretto,
+> grazie a `FOR UPDATE SKIP LOCKED`); **R3**, la guardia dell'amministratore
+> non controllava `loginMethod` come già fa `risolviTenantPerUtente` — non
+> sfruttabile oggi, OAuth è spento; **R8**, un secondo comando lungo avviato
+> mentre il primo era in corso gli faceva perdere il polling e il toast di
+> chiusura, corretto seguendo ogni comando lungo in una mappa per id.
+> **Verificato:** `npx vitest run shared/brand.test.ts` (4/4), `pnpm check`
+> pulito, `pnpm test` (suite intera, senza `DATABASE_URL`) 339 file passati +
+> 15 saltati (354), 3651 test passati + 84 saltati (3735), zero falliti,
+> `pnpm build` riuscito (client e server); `DATABASE_URL=… npx vitest run
+> pg.test --no-file-parallelism` contro `perf-pg-test`: 14 file passati, 69
+> test passati, zero falliti. Interfaccia a 1440×900 e 390×844 verificata dai
+> Task 8 e 9 con un link tRPC finto e dati seminati (screenshot in
+> `.superpowers/sdd/2026-09-09-ws6-pannello-piattaforma/task-{8,9}-screens/`).
+> **Non verificato:** `/piattaforma` con una sessione reale (guardia, voce di
+> menu, riga → scheda, ogni mutation contro il server vero, il giro completo
+> dei comandi lunghi): il pannello Browser di quelle sessioni non aveva un
+> cookie di sviluppo, e digitare la password demo o firmare a mano un token
+> sono entrambi fuori dalle regole dell'agente. Nessuna consegna reale via
+> Resend (account e verifica del dominio `wyndoor.com` a carico della
+> direzione); nulla distribuito su Railway. **Fuori dal perimetro di questo
+> workstream** (dichiarato in spec §1): il provider di pagamento (Stripe o
+> equivalente — resta «nessuno»), la MFA per amministratori e proprietari,
+> l'accesso di supporto con motivazione e audit, il reset password
+> self-service. PRD §60.13 (v5.87); runbook `docs/runbooks/multi-azienda.md`,
+> sezione «WS6 — pannello piattaforma». Voce 21 del debito estesa.
+
 > **Novità 08/09/2026 — WS4 «abbonamenti»: su branch.** Dal branch del WS3
 > (`feature/ws3-file-integrazioni` @ `a44fc37`) nasce
 > `feature/ws4-abbonamenti`, dove i 9 task del piano
@@ -4998,9 +5065,10 @@ a vuoto e dice «57 saltati»).
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
-21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2 su
-    `main` dall'08/09/2026, WS3 e WS4 implementati su branch lo stesso
-    giorno.**
+21. **SaaS multi-azienda (06/09/2026): design approvato; WS1, WS2, WS3 e
+    WS4 su `main` e in produzione dal 09/09/2026 (`FLAG_MULTI_AZIENDA`
+    acceso dalle 09:54), WS6 «pannello piattaforma» implementato sul branch
+    lo stesso giorno.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -5213,6 +5281,35 @@ a vuoto e dice «57 saltati»).
     scritti da un'altra sessione, codice non iniziato; quel branch aveva
     fuso il WS4 a metà (`873b6c6`) e dovrà rifonderlo aggiornato. Non
     avviare il WS5 da qui senza coordinarsi con la direzione.
+
+    **09/09/2026, mattina: WS3 e WS4 fusi in `main` (PR #8, merge
+    `37c1889`) e `FLAG_MULTI_AZIENDA` acceso in produzione alle 09:54
+    (Europe/Rome).** Da qui in poi ogni azienda in produzione ha davvero un
+    contratto, uno spazio e un budget Tars che possono bloccarla: i punti
+    aperti chiusi da WS3 e WS4 (elencati sopra) sono ora dal vivo, non solo
+    sul branch. Restano aperti **(12)–(16)** del design madre, e l'**export
+    aziendale** del proprietario in sola lettura (WS6).
+
+    **09/09/2026, pomeriggio: WS6 «pannello piattaforma» codificato su
+    branch, PR da aprire.** `feature/ws6-pannello-piattaforma` nasce da
+    `main` @ `37c1889` — quindi dal `main` in cui WS3 e WS4 sono già dentro
+    — e porta i 10 task del piano
+    (`docs/superpowers/plans/2026-09-09-ws6-pannello-piattaforma.md`,
+    `9dc4c54`…`a606515`): una sezione `/piattaforma` nel CRM con l'elenco di
+    tutte le aziende, «Nuova azienda» con invito via email al proprietario,
+    sospensione/riattivazione, le sette azioni sull'abbonamento (eseguite
+    subito), proprietari, ricalcolo dello spazio e ripristino degli archivi
+    (i due soli comandi che restano in coda per il giro dei 30 s), eventi e
+    comandi come traccia. Chi amministra è un utente del
+    tenant 1 in `PLATFORM_ADMIN_EMAILS` — **deviazione dichiarata** dal
+    design madre (identità separata con MFA): non c'è un secondo login,
+    resta la conferma password sulle azioni sensibili. Dieci decisioni
+    d'esecuzione nella spec §2-bis; PRD §60.13 (v5.87); runbook
+    `docs/runbooks/multi-azienda.md`, sezione «WS6 — pannello piattaforma».
+    `pnpm check`/`test`/`build` verdi, test su Postgres vero (69 casi su 14
+    file); interfaccia verificata a 1440 e 390 con un link tRPC finto, non
+    con una sessione vera (v. la novità in cima a questo documento per i
+    numeri e per che cosa resta). **PR verso `main` ancora da aprire.**
 22. **Pagina Tars riscritta come coda di decisioni (08/09/2026)**: su
     `main` (PRD §62). Le proposte si leggono come azioni — il testo lo
     prepara `client/src/lib/tarsDecisioniView.ts`, puro e con 22 test — e
