@@ -5,6 +5,7 @@
 // restituisce mai, nemmeno cifrata.
 
 import { trpc } from "@/lib/trpc";
+import { useVistaEssenziale } from "@/integrazioni/useVistaEssenziale";
 import { permessoNegato } from "@/lib/trpcErrors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 export default function CaselleEmailCard() {
+  const essenziale = useVistaEssenziale();
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const stato = trpc.mail.caselle.stato.useQuery(undefined, { retry: false });
@@ -192,7 +194,16 @@ export default function CaselleEmailCard() {
       }
     >
       <div className="min-w-0 space-y-3 text-sm">
-        {!chiaveOk && (
+        {!chiaveOk && essenziale && (
+          <p
+            role="status"
+            className="rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft p-3 text-xs text-text-1"
+          >
+            Il collegamento della posta non è disponibile in questo momento:
+            scrivi all&apos;assistenza.
+          </p>
+        )}
+        {!chiaveOk && !essenziale && (
           <div
             role="status"
             className="flex items-start gap-2 rounded-[var(--radius-control)] border border-warning/40 bg-warning-soft p-3 text-xs text-text-1"

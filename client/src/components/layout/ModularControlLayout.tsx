@@ -179,10 +179,14 @@ export default function ModularControlLayout({
     }
   };
 
+  // `h-full` e non `h-[calc(100dvh-32px)]`: la colonna che lo ospita è alta
+  // quanto la cornice MENO i suoi bordi, e i due pixel di differenza davano
+  // alla cornice — che ha overflow hidden — qualcosa da scorrere: bastava un
+  // `focus()` in fondo alla pagina per farla saltare di due pixel.
   const navigation = (
     <div
       className={cn(
-        "sticky top-4 h-[calc(100dvh-32px)] min-h-0 transition-[width] duration-(--duration-base) ease-(--ease-standard)",
+        "sticky top-4 h-full min-h-0 transition-[width] duration-(--duration-base) ease-(--ease-standard)",
         navigationCollapsed ? "w-[72px]" : "w-60"
       )}
     >

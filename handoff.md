@@ -8,6 +8,62 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 09/09/2026 (notte) — hotfix della cornice: lo scorrimento
+> automatico non sposta più il CRM.** Il WS5 descritto qui sotto è nel
+> frattempo su `main` (PR #10, merge `d896101`, in produzione dalle 20:22).
+> Il percorso guidato delle integrazioni e la scheda «Abbonamento»
+> portavano un pannello in vista con `scrollIntoView`, che scorre TUTTI gli
+> antenati, finestra compresa: nel regime desktop (≥ 1200 px) il documento
+> non dovrebbe scorrere mai — html e body hanno `overflow: hidden` — ma le
+> etichette `sr-only` e gli input nascosti di Radix, posizionati in assoluto
+> senza un blocco contenitore, lo allungavano; la cornice intera saliva di
+> 88 px (margine più barra di contesto) e la rotella non la riportava giù.
+> Tre correzioni, tutte in `client/`: il `main` di `ShellWorkspace` è
+> `relative` (contiene quegli elementi), la navigazione è alta `h-full`
+> invece di `calc(100dvh-32px)` (due pixel di sforo che facevano scorrere
+> la cornice), e `portaInCima` (`client/src/lib/scorrimento.ts`) scorre solo
+> il primo antenato che scorre davvero, mai la finestra; `portaA` non apre
+> più i `<details>` dei pannelli (erano il token d'emergenza di FiC e le
+> credenziali avanzate di WhatsApp: rumore, non il modulo del
+> collegamento). Guardia strutturale:
+> `client/src/components/layout/cornice.confine.test.ts`. Nota fuori dal
+> codice: nell'app Meta di Wyndoor `https://app.wyndoor.com/` va sia nei
+> «Domini consentiti per l'SDK JavaScript» sia negli «URI di
+> reindirizzamento OAuth validi» (Accesso di Facebook per le aziende →
+> Impostazioni), altrimenti l'Embedded Signup risponde «Dominio dell'host
+> JSSDK sconosciuto». **Seconda tornata (stessa sera):** la configurazione
+> dell'app Meta — URL del webhook, verify token, credenziali proprie,
+> percorso a mano/Diagnostica — è della piattaforma e **un'azienda cliente
+> non la vede né la tocca** (decisione della direzione davanti alla scheda
+> dell'azienda pilota): `mail.whatsapp.app` risponde `piattaforma: boolean`
+> (vero solo per il tenant 1 della sessione, mai per la persona) e non manda
+> il verify token agli altri; `setApp` e il `create` a mano rispondono
+> `FORBIDDEN` fuori dalla piattaforma; `WhatsAppCard` mostra a loro solo
+> stato, «Collega col QR» e le istruzioni per il popup. In più il
+> `?scheda=` fa un secondo passaggio a 1,2 s: i pannelli sopra si
+> accorciavano dopo il primo scorrimento e la striscia arrivava tagliata.
+> **Terza tornata — «lascia l'indispensabile», per tutte le integrazioni.**
+> La direzione, davanti alla scheda dell'azienda pilota: «una scheda così
+> piena di roba confonde e basta». Nasce la **vista essenziale**
+> (`client/src/integrazioni/useVistaEssenziale.ts`, helper puro
+> `vistaEssenziale` in `client/src/lib/piattaforma.ts`): decide l'azienda
+> della sessione (`tenants.mio.id`), mai la persona; a risposta assente
+> nasconde. Cosa vede un'azienda cliente: Posta = caselle, Aggiungi, Prova,
+> acceso/spento, elimina, storico (sparisce l'avviso su
+> `MAIL_ENCRYPTION_KEY`, sostituito da «scrivi all'assistenza»); WhatsApp =
+> stato, «Collega col QR», istruzioni del popup, numeri con Prova e
+> acceso/spento, avanzamento (spariscono contatori del webhook, registro
+> della prova, media arretrati); FiC = Collega/Ricollega, Scegli azienda,
+> Scollega, sincronizzazione, stato, permessi di scrittura (spariscono
+> token manuale, avviso sulle variabili, contatori, «Riallinea dalle
+> fatture»); Calendari = iCal e feed (sparisce «Rigenera token»); Backup =
+> Collega, stato, Esegui ora, esito (spariscono ID cartella e istruzioni
+> Cloud Console); Agente = la striscia «incluso nell'abbonamento» con una
+> descrizione piana (sparisce il pannello tecnico); sparisce «Reset
+> pattuiti». Invariati: Abbonamento, Fatturazione, Importa clienti, tariffe
+> dei limiti, sezione Direzione. Ruffino Group (tenant 1) vede tutto come
+> prima. Regola in `CLAUDE.md` («Integrazioni»).
+
 > **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
 > self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
 > fuso in `main` (PR #9, merge `cff8ef0`): a questo punto il **WS5 è

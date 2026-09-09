@@ -5,6 +5,7 @@
 // Meta e approvazione esplicita.
 
 import { trpc } from "@/lib/trpc";
+import { useVistaEssenziale } from "@/integrazioni/useVistaEssenziale";
 import { permessoNegato } from "@/lib/trpcErrors";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,13 @@ export default function WhatsAppCard() {
     retry: false,
   });
   const app = trpc.mail.whatsapp.app.useQuery(undefined, { retry: false });
+  // Webhook, verify token, credenziali proprie e percorso a mano sono
+  // dell'app Meta della piattaforma: li vede solo chi la gestisce. A
+  // un'azienda cliente resta «Collega col QR» (direzione, 09/09/2026).
+  const piattaforma = app.data?.piattaforma === true;
+  // Vista essenziale (tutte le integrazioni, 09/09/2026): contatori del
+  // webhook, registro della prova e recupero dei media sono della piattaforma.
+  const essenziale = useVistaEssenziale();
 
   const [aperto, setAperto] = useState(false);
   const [daEliminare, setDaEliminare] = useState<any>(null);
@@ -415,7 +423,7 @@ export default function WhatsAppCard() {
           </div>
         )}
 
-        {!chiaveOk && (
+        {piattaforma && !chiaveOk && (
           <div className="flex items-start gap-2 text-warning text-xs">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
@@ -425,7 +433,8 @@ export default function WhatsAppCard() {
           </div>
         )}
 
-        {/* L'URL da incollare su Meta */}
+        {/* L'URL da incollare su Meta: solo per chi gestisce l'app. */}
+        {piattaforma && (
         <div className="space-y-1.5">
           <Label className="text-xs">URL del webhook (da incollare su Meta)</Label>
           <div className="flex gap-2">
@@ -478,6 +487,7 @@ export default function WhatsAppCard() {
             incollati, URL con http al posto di https).
           </p>
         </div>
+        )}
 
         {/* App Meta — credenziali proprie della sede.
             Dal WS5 l'app è della piattaforma: il cliente non apre mai
@@ -487,7 +497,9 @@ export default function WhatsAppCard() {
         <details
           className="rounded-lg border p-3"
           open={!app.data?.pronta}
-          hidden={app.data?.pronta && app.data?.diPiattaforma}
+          hidden={
+            !piattaforma || (app.data?.pronta && app.data?.diPiattaforma)
+          }
         >
           <summary className="text-sm font-medium cursor-pointer select-none">
             Credenziali proprie dell&apos;app (avanzate)
@@ -557,7 +569,11 @@ export default function WhatsAppCard() {
             sparisce mai, perche' e' l'unica strada quando il popup non parte
             (SDK bloccato, popup negati dal browser) e per chi il numero l'ha
             collegato cosi'. */}
-        <details className="rounded-lg border p-3" data-diagnostica="1">
+        <details
+          className="rounded-lg border p-3"
+          data-diagnostica="1"
+          hidden={!piattaforma}
+        >
           <summary className="cursor-pointer select-none text-sm font-medium">
             Diagnostica
           </summary>
@@ -652,7 +668,9 @@ export default function WhatsAppCard() {
               </div>
 
               {/* Il verify token serve subito, prima ancora del numero:
-                  è quello da incollare su Meta per verificare il webhook. */}
+                  è quello da incollare su Meta per verificare il webhook.
+                  Roba della piattaforma: il cliente non lo vede. */}
+              {piattaforma && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">
                   Verify token:
@@ -677,6 +695,7 @@ export default function WhatsAppCard() {
                   )}
                 </Button>
               </div>
+              )}
 
               {mancanti.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap">
@@ -775,7 +794,7 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
-              {c.attiva && (
+              {!essenziale && c.attiva && (
                 <div className="flex flex-wrap items-start justify-between gap-2 rounded-md border bg-muted/35 p-2.5 text-xs">
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">Media arretrati</p>
@@ -800,7 +819,7 @@ export default function WhatsAppCard() {
                 </div>
               )}
 
-              {c.attiva && (
+              {!essenziale && c.attiva && (
                 <div className="grid gap-2 rounded-md border bg-muted/35 p-2.5 text-xs sm:grid-cols-2">
                   <div className="flex min-w-0 items-start gap-2">
                     <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -836,7 +855,7 @@ export default function WhatsAppCard() {
               {/* Esito della prova: cosa Meta ci ha risposto, chiamata per
                   chiamata. Serve a vedere quale permesso è stato esercitato
                   davvero mentre i contatori della App Review si muovono. */}
-              {esitoProva && (
+              {!essenziale && esitoProva && (
                 <div className="rounded-md border bg-muted/40 p-2 space-y-1.5">
                   {esitoProva.account && (
                     <p className="text-xs font-medium">

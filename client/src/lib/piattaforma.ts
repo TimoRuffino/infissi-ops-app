@@ -54,3 +54,16 @@ export function slugSuggerito(nome: string): string {
     .slice(0, 40)
     .replace(/-+$/g, "");
 }
+
+/**
+ * Vista «essenziale» delle Impostazioni (direzione, 09/09/2026): un'azienda
+ * cliente vede di ogni integrazione solo collegamento, stato e azioni;
+ * variabili del server, token, percorsi a mano e diagnostica restano alla
+ * piattaforma. Decide l'azienda della sessione (`tenants.mio.id`), non la
+ * persona. Senza risposta la vista è essenziale: fail-closed.
+ */
+export function vistaEssenziale(
+  mio: { id: number } | null | undefined
+): boolean {
+  return !mio || mio.id !== TENANT_PIATTAFORMA_ID;
+}

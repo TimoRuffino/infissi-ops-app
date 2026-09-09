@@ -173,6 +173,15 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 
 ## Integrazioni
 
+- **Vista essenziale** (direzione, 09/09/2026): un'azienda cliente vede di
+  ogni integrazione solo collegamento, stato e azioni per collegare e
+  provare. Variabili del server, URL di callback e webhook, token, percorsi
+  a mano o d'emergenza, contatori tecnici e diagnostica stanno dietro
+  `useVistaEssenziale()` (`client/src/integrazioni/`), che decide
+  sull'AZIENDA della sessione (`tenants.mio.id === TENANT_PIATTAFORMA_ID`),
+  mai sulla persona, e a risposta assente nasconde. Un segreto di
+  piattaforma non si affida al solo client: il server non lo manda (v.
+  `mail.whatsapp.app.piattaforma`).
 - FiC usa OAuth Authorization Code e refresh automatico; il token manuale è
   solo fallback. Callback: `/api/oauth/fic/callback`.
 - Drive usa OAuth utente con scope `drive.file`; callback:
