@@ -13,6 +13,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { creaLimiteTentativi } from "../_core/limiteTentativi";
 import { publicProcedure, router } from "../_core/trpc";
+import { interruttoreAttivo } from "../platform/interruttori";
 import { apriSessioneLocale } from "../localAuth";
 import { getUtentiStore, passwordSchema } from "../routers/utenti";
 import { conTenant } from "../tenants/contestoCorrente";
@@ -37,9 +38,26 @@ export function __azzeraLimiteInvitiPerTest(): void {
 
 const tokenSchema = z.string().min(20).max(200);
 
+/**
+ * Porta chiusa a interruttore spento (WS6, R10): accettare un invito
+ * aprirebbe la sessione di un utente di un'altra azienda, che a flag spento
+ * finisce dentro il tenant 1; e già l'anteprima direbbe a chi ha il link il
+ * nome dell'azienda e di chi ci lavora. Il token non viene toccato: quando
+ * l'interruttore torna acceso l'invito vale ancora.
+ */
+function assicuraMultiAziendaAcceso(): void {
+  if (!interruttoreAttivo("multiAzienda")) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI_PIATTAFORMA.solaLetturaFlagSpento,
+    });
+  }
+}
+
 export const invitiRouter = router({
   /** Non consuma: la pagina la richiama a ogni caricamento senza bruciare il token. */
   anteprima: publicProcedure.input(z.object({ token: tokenSchema })).query(async ({ input }) => {
+    assicuraMultiAziendaAcceso();
     const invito = await anteprimaInvito({ token: input.token, adesso: new Date() });
     if (!invito) throw new TRPCError({ code: "NOT_FOUND", message: MESSAGGI_PIATTAFORMA.invitoNonValido });
     return invito;
@@ -48,6 +66,7 @@ export const invitiRouter = router({
   accetta: publicProcedure
     .input(z.object({ token: tokenSchema, password: passwordSchema }))
     .mutation(async ({ input, ctx }) => {
+      assicuraMultiAziendaAcceso();
       const chiave = chiaveToken(input.token);
       limiteInviti.verifica(chiave);
       let esito: Awaited<ReturnType<typeof accettaInvito>>;

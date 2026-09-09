@@ -30,6 +30,33 @@ export function risolviTenantPerUtente(
 }
 
 /**
+ * Porta chiusa a interruttore SPENTO (WS6, ruling R10). A flag spento
+ * `createContext` fissa `tenantId = TENANT_PREDEFINITO_ID` per chiunque e
+ * `allowedSediForUser` non guarda l'azienda: la sessione di un utente del
+ * tenant 2 lo porterebbe dentro Ruffino Group, con tutte le sue sedi. Finché
+ * il multi-azienda è spento, quindi, chi non è di Ruffino Group non ha
+ * sessione e non fa login — spegnere l'interruttore torna a essere «il CRM
+ * di prima» solo perché nessun altro entra.
+ *
+ * Restituisce l'id dell'azienda che vieta la sessione, `null` quando la
+ * sessione è ammessa: utente di Ruffino Group, oppure record assente dallo
+ * store (un utente OAuth legacy non ha azienda e resta com'era).
+ */
+export function tenantVietatoASpento(
+  user: { id?: number | null; loginMethod?: string | null } | null | undefined
+): number | null {
+  if (!user || user.id == null || user.loginMethod !== "local") return null;
+  const utente = getUtentiStore().find((u: any) => u.id === user.id);
+  return tenantVietato(utente);
+}
+
+/** Come sopra, ma dal record dello store già in mano (il login ce l'ha). */
+export function tenantVietato(utente: { tenantId?: unknown } | null | undefined): number | null {
+  const tenantId = typeof utente?.tenantId === "number" ? utente.tenantId : null;
+  return tenantId != null && tenantId !== TENANT_PREDEFINITO_ID ? tenantId : null;
+}
+
+/**
  * Le sedi che l'utente può vedere nel tenant: direzione e proprietario tutte
  * quelle attive; gli altri le assegnate che appartengono al tenant; se nessuna,
  * la prima sede attiva del tenant. Mai una sede di un altro tenant.

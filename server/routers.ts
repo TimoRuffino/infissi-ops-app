@@ -49,6 +49,9 @@ import { fatturazioneConfigRouter } from "./routers/fatturazioneConfig";
 import { fatturazioneGuidataRouter } from "./routers/fatturazioneGuidata";
 import { proposteRouter } from "./routers/proposte";
 import { tarsRouter } from "./routers/tars";
+import { interruttoreAttivo } from "./platform/interruttori";
+import { tenantVietato } from "./tenants/contesto";
+import { MESSAGGI } from "./tenants/costanti";
 import { tenantsRouter } from "./tenants/router";
 import { invitiRouter } from "./piattaforma/invitiRouter";
 import { piattaformaRouter } from "./piattaforma/router";
@@ -108,6 +111,19 @@ export const appRouter = router({
         }
         // Success — reset the failure counter for this account.
         limiteLogin.azzera(input.email);
+
+        // Porta chiusa a interruttore spento (WS6, R10): a flag spento
+        // `createContext` fissa `tenantId = 1` per chiunque, quindi la
+        // sessione di un utente di un'altra azienda lo porterebbe dentro
+        // Ruffino Group. Il rifiuto arriva DOPO la verifica della password:
+        // senza credenziali giuste nessuno può usarlo per scoprire quali
+        // email appartengono a un'altra azienda.
+        if (!interruttoreAttivo("multiAzienda") && tenantVietato(utente) != null) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: MESSAGGI.multiAziendaSpento,
+          });
+        }
 
         return apriSessioneLocale(ctx, utente);
       }),

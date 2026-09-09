@@ -37,11 +37,32 @@ tenant 1 e tiene le chiavi di sempre.
   archivio per azienda su ogni store, guardia anche sulle rotte Express
   (412), worker che girano per tenant. **La «porta chiusa» non esiste più**:
   un tenant diverso da 1 entra e vede i propri dati.
-- Rollback: rimetti `off` e riavvia. Nessun dato da toccare.
+- Rollback: **ammesso solo finché l'unica azienda è il tenant 1.** Rimetti
+  `off` e riavvia: nessun dato da toccare. Con una seconda azienda a terra il
+  flag NON è più un rollback — a interruttore spento il contesto fissa
+  `tenantId = 1` per chiunque, quindi la porta si chiude in faccia agli utenti
+  delle altre aziende (vedi il punto qui sotto). Per fermare **una** azienda
+  si usa `pnpm tenant stato --slug=<slug> --sospendi --motivo="…" --scrivi`
+  (o il pannello piattaforma), che la mette in sola lettura senza toccare le
+  altre.
+- **Porta chiusa a interruttore spento** (WS6, ruling R10): a `off` un utente
+  il cui record dice un'azienda diversa da 1 non entra. `auth.login` risponde
+  `PRECONDITION_FAILED` «Accesso non disponibile: il multi-azienda della
+  piattaforma è spento.» (dopo la verifica della password: senza credenziali
+  giuste non si scopre quali email appartengono a un'altra azienda) e
+  `createContext` tratta la sua sessione come inesistente, con una riga di log
+  `[tenants] sessione rifiutata a interruttore spento (tenant <id>)`. Anche
+  `inviti.anteprima` e `inviti.accetta` rifiutano con `PRECONDITION_FAILED`,
+  senza consumare il token: riacceso l'interruttore l'invito vale ancora.
+  Gli utenti di Ruffino Group entrano come sempre.
 - Recupero — un'azienda resta senza sedi attive (dati manipolati fuori
   dall'app, non dalla guardia sull'ultima sede attiva introdotta col WS1):
-  `FLAG_MULTI_AZIENDA=off`, riavvio, riattiva una sede sul tenant colpito,
-  poi `on`.
+  finché l'unica azienda è il tenant 1, `FLAG_MULTI_AZIENDA=off`, riavvio,
+  riattiva una sede, poi `on`. Con più aziende NON spegnere l'interruttore
+  (chiuderesti fuori gli utenti di tutte le altre): sospendi solo l'azienda
+  colpita — `pnpm tenant stato --slug=<slug> --sospendi --motivo="…" --scrivi`
+  — rimetti attiva una sua sede lavorando sul suo archivio (sezione «Script di
+  manutenzione: `--tenant`»), poi `--riattiva`.
 
 ## Boot (log `[tenants]`)
 Dal WS2 l'avvio del modulo è in due tempi attorno a `bootstrapAll()`:

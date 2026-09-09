@@ -39,4 +39,9 @@ export const MESSAGGI = {
   // WS6 (pannello piattaforma, spec §5.2): `eseguiComandoSubito` a
   // interruttore spento — il pannello lo dice invece di eseguire comunque.
   comandiSpenti: "Con FLAG_MULTI_AZIENDA spento i comandi non vengono eseguiti.",
+  // WS6 ruling R10: porta chiusa a interruttore spento. A flag spento il
+  // contesto fissa `tenantId = 1` per chiunque, quindi la sessione di un
+  // utente di un'altra azienda lo porterebbe dentro Ruffino Group. Finché il
+  // multi-azienda è spento, quelle sessioni non si aprono.
+  multiAziendaSpento: "Accesso non disponibile: il multi-azienda della piattaforma è spento.",
 } as const;

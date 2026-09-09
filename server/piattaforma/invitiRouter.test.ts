@@ -72,6 +72,7 @@ afterEach(() => {
   sedi.splice(nS);
   utenti.splice(nU);
   __impostaPostaPerTest(null);
+  delete process.env.FLAG_MULTI_AZIENDA;
   vi.restoreAllMocks();
 });
 
@@ -162,5 +163,34 @@ describe("invitiRouter.accetta", () => {
     } finally {
       consoleErrorSpy.mockRestore();
     }
+  });
+});
+
+// R10: a interruttore spento la porta è chiusa. Un invito accettato
+// creerebbe la sessione di un utente di un'altra azienda, che a flag spento
+// finirebbe dentro il tenant 1 — e l'anteprima direbbe comunque a un
+// estraneo il nome dell'azienda e di chi ci lavora.
+describe("inviti a FLAG_MULTI_AZIENDA spento", () => {
+  it("anteprima e accetta rifiutano con PRECONDITION_FAILED, senza consumare il token", async () => {
+    const { token } = await nuovoInvito();
+    process.env.FLAG_MULTI_AZIENDA = "off";
+    await expect(invitiRouter.createCaller(contesto()).anteprima({ token })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI_PIATTAFORMA.solaLetturaFlagSpento,
+    });
+    const ctx = contesto();
+    await expect(
+      invitiRouter.createCaller(ctx).accetta({ token, password: "Password-nuova-12" })
+    ).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI_PIATTAFORMA.solaLetturaFlagSpento,
+    });
+    expect(ctx.res.cookie).not.toHaveBeenCalled();
+
+    // Il token è intatto: riacceso l'interruttore, l'invito vale ancora.
+    delete process.env.FLAG_MULTI_AZIENDA;
+    await expect(invitiRouter.createCaller(contesto()).anteprima({ token })).resolves.toMatchObject({
+      email: "mario@acme.test",
+    });
   });
 });
