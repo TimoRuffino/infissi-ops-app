@@ -218,9 +218,16 @@ export default function Integrazioni() {
   useEffect(() => {
     if (!schedaChiesta || !ETICHETTE[schedaChiesta]) return;
     // Appena montata la pagina è ancora corta: i pannelli non hanno preso la
-    // loro altezza e lo scorrimento arriverebbe a metà strada.
+    // loro altezza e lo scorrimento arriverebbe a metà strada. Il secondo
+    // passaggio, quando i pannelli sopra hanno finito di caricare (e magari
+    // si sono accorciati: la striscia arrivava tagliata sotto la barra),
+    // rimette il pannello in cima; `portaInCima` non tocca nulla se è già lì.
     const timer = window.setTimeout(() => portaA(schedaChiesta), 400);
-    return () => window.clearTimeout(timer);
+    const ripasso = window.setTimeout(() => portaA(schedaChiesta), 1200);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(ripasso);
+    };
   }, [schedaChiesta]);
 
   const collega = async (chiave: string) => {

@@ -31,7 +31,17 @@
 > «Domini consentiti per l'SDK JavaScript» sia negli «URI di
 > reindirizzamento OAuth validi» (Accesso di Facebook per le aziende →
 > Impostazioni), altrimenti l'Embedded Signup risponde «Dominio dell'host
-> JSSDK sconosciuto».
+> JSSDK sconosciuto». **Seconda tornata (stessa sera):** la configurazione
+> dell'app Meta — URL del webhook, verify token, credenziali proprie,
+> percorso a mano/Diagnostica — è della piattaforma e **un'azienda cliente
+> non la vede né la tocca** (decisione della direzione davanti alla scheda
+> dell'azienda pilota): `mail.whatsapp.app` risponde `piattaforma: boolean`
+> (vero solo per il tenant 1 della sessione, mai per la persona) e non manda
+> il verify token agli altri; `setApp` e il `create` a mano rispondono
+> `FORBIDDEN` fuori dalla piattaforma; `WhatsAppCard` mostra a loro solo
+> stato, «Collega col QR» e le istruzioni per il popup. In più il
+> `?scheda=` fa un secondo passaggio a 1,2 s: i pannelli sopra si
+> accorciavano dopo il primo scorrimento e la striscia arrivava tagliata.
 
 > **Novità 09/09/2026 (sera) — WS5 «collegamento delle integrazioni in
 > self-service»: su branch.** Il **WS6**, qui sotto, si è nel frattempo
