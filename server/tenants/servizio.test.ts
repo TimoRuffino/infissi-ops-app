@@ -330,6 +330,45 @@ describe("modificaTenant", () => {
     expect(sede.nome).toBe("Acme Nuova Sede");
     expect(sede.citta).toBe("Genova");
   });
+
+  // Fix round Task 2 → Task 3 (nit 2): una modifica di sola sede non deve
+  // chiamare `repo.aggiornaTenant` né spostare `updatedAt` del tenant — sui
+  // dati anagrafici dell'azienda non è cambiato nulla.
+  it("modifica di sola sede: non chiama aggiornaTenant né sposta l'updatedAt del tenant", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, sedeId } = await crea(inputAcme(), script);
+    const primaUpdatedAt = repo.perId(tenant.id)!.updatedAt;
+    // Orologio fermo su un istante ben diverso da `primaUpdatedAt`: se
+    // `aggiornaTenant` venisse chiamato per errore, `updated_at` si
+    // sposterebbe qui e l'asserzione lo scoprirebbe anche senza spiare la
+    // funzione.
+    vi.useFakeTimers({ now: new Date(primaUpdatedAt.getTime() + 60_000) });
+    const spia = vi.spyOn(repo, "aggiornaTenant");
+
+    const dopo = await modificaTenant(
+      tenant.id,
+      { sede: { id: sedeId, nome: "Acme Nuova Sede", citta: "Genova" } },
+      script
+    );
+
+    expect(spia).not.toHaveBeenCalled();
+    expect(dopo.updatedAt).toEqual(primaUpdatedAt);
+    expect(repo.perId(tenant.id)?.updatedAt).toEqual(primaUpdatedAt);
+  });
+
+  // Fix round Task 2 → Task 3 (nit 6): difesa in profondità, come `crea` con
+  // `input.slug` — questa funzione è chiamata anche direttamente (qui, come
+  // in tutto il resto del file), non solo attraverso lo zod di comandi.ts.
+  it("nuovoSlug non valido: rifiutato anche chiamando modificaTenant direttamente (difesa in profondità)", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+    await expect(modificaTenant(tenant.id, { nuovoSlug: "Acme Non Valido!" }, script)).rejects.toThrow(
+      /Slug non valido/
+    );
+    expect(repo.perId(tenant.id)?.slug).toBe("acme");
+  });
 });
 
 describe("modificaProprietario", () => {
@@ -400,13 +439,14 @@ describe("modificaProprietario", () => {
       { ...inputAcme(), slug: "beta", nome: "Beta Infissi", proprietario: { ...inputAcme().proprietario, email: "titolare@beta.test" } },
       script
     );
+    // Fix round Task 2 → Task 3 (nit 3): il letterale è ora MESSAGGI.emailGiaInUso.
     await expect(
       modificaProprietario(
         acme.id,
         { utenteId: utenteAcme, nome: "Mario", cognome: "Rossi", email: "TITOLARE@beta.test" },
         script
       )
-    ).rejects.toThrow(/già in uso/);
+    ).rejects.toThrow(MESSAGGI.emailGiaInUso);
   });
 
   it("utenteId mancante: lo risolve da sé con un solo proprietario, rifiuta come ambiguo con più di uno, riesce comunque con utenteId esplicito", async () => {
@@ -479,6 +519,22 @@ describe("modificaProprietario", () => {
     await expect(
       modificaProprietario(acme.id, { utenteId: 97820, nome: "X", cognome: "Y", email: "x@acme.test" }, script)
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  // Fix round Task 2 → Task 3 (nit 1): zero proprietari non è un'ambiguità
+  // (non c'è nulla fra cui scegliere) — stesso NOT_FOUND generico degli altri
+  // rami. `revocaProprietario` impedirebbe di arrivarci togliendo l'ultimo
+  // proprietario: la mutazione diretta dello store (come già sopra in questo
+  // file, es. "assegna e revoca...") è l'unico modo di provare questo ramo.
+  it("utenteId assente e zero proprietari: NOT_FOUND generico, non l'ambiguità", async () => {
+    const repo = getTenantRepository();
+    await repo.assicuraTenantPredefinito();
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+    utenti.find(u => u.id === utenteId)!.ruoli = ["direzione"];
+
+    await expect(
+      modificaProprietario(tenant.id, { nome: "Mario", cognome: "Rossi", email: "mario@acme.test" }, script)
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: MESSAGGI.nonTrovato });
   });
 });
 

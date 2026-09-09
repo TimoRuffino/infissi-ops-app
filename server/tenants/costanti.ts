@@ -53,4 +53,8 @@ export const MESSAGGI = {
   // proprietario esistente. Non si importa da lì: il verso della dipendenza
   // va da piattaforma verso tenants, mai il contrario.
   proprietarioAmbiguo: "L'azienda ha più proprietari: indica utenteId.",
+  // Estratta dal letterale sparso in `modificaProprietario` (revisione Task
+  // 2 → Task 3): stessa parola, così il router del pannello può confrontare
+  // l'esito del comando con la costante invece che con una stringa a mano.
+  emailGiaInUso: "Email già in uso",
 } as const;

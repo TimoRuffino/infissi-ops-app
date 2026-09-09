@@ -295,6 +295,13 @@ export type ModificaTenantInput = {
  * gli stessi store.
  */
 export async function modificaTenant(tenantId: number, input: ModificaTenantInput, attore: Attore): Promise<TenantRecord> {
+  // Difesa in profondità, come `crea` con `input.slug`: lo zod di
+  // `comandi.ts` già rifiuta un `nuovoSlug` mal formato prima che il
+  // payload arrivi qui, ma questa funzione è chiamata anche direttamente
+  // (test, futuri chiamanti) senza passare da quello schema.
+  if (input.nuovoSlug !== undefined && !slugValido(input.nuovoSlug)) {
+    throw new Error(`Slug non valido: ${input.nuovoSlug}`);
+  }
   const prima = tenantEsistente(tenantId);
   const cambioSlug = input.nuovoSlug !== undefined && input.nuovoSlug !== prima.slug;
   if (cambioSlug && tenantId === TENANT_PREDEFINITO_ID) {
@@ -315,7 +322,13 @@ export async function modificaTenant(tenantId: number, input: ModificaTenantInpu
   if (input.note !== undefined) campiRepo.note = input.note;
   if (input.fatturazione !== undefined) campiRepo.fatturazione = fatturazioneSenzaUndefined(input.fatturazione);
 
-  const dopo = await repo.aggiornaTenant(tenantId, campiRepo);
+  // Una modifica di sola `sede` non tocca `campiRepo`: chiamare
+  // `aggiornaTenant` con un patch vuoto sposterebbe comunque `updated_at`
+  // (sia in memoria sia su Postgres, che lo scrive incondizionatamente) per
+  // un'azienda i cui dati anagrafici non sono cambiati. Il record già
+  // caricato sopra (`prima`) resta valido: nessuno lo ha toccato nel
+  // frattempo in questa stessa chiamata.
+  const dopo = Object.keys(campiRepo).length > 0 ? await repo.aggiornaTenant(tenantId, campiRepo) : prima;
 
   const campiCambiati: CampoCambiato[] = [];
   if (campiRepo.nome !== undefined) segnaSeCambiato(campiCambiati, "nome", prima.nome, dopo.nome);
@@ -393,7 +406,11 @@ export async function modificaProprietario(
       const proprietari = utenti.filter(
         (u: any) => presidioDi(u).tenantId === tenantId && ruoliDi(u).includes(RUOLO_PROPRIETARIO)
       );
-      if (proprietari.length !== 1) throw new Error(MESSAGGI.proprietarioAmbiguo);
+      // Zero proprietari non è un'ambiguità (non c'è nulla fra cui scegliere):
+      // stesso NOT_FOUND generico degli altri rami di questa funzione. Con
+      // due o più, l'ambiguità resta.
+      if (proprietari.length === 0) throw nonTrovato();
+      if (proprietari.length > 1) throw new Error(MESSAGGI.proprietarioAmbiguo);
       utente = proprietari[0];
     }
 
@@ -403,7 +420,7 @@ export async function modificaProprietario(
       emailCambiata &&
       utenti.some((u: any) => u.id !== utente.id && String(u.email).toLowerCase() === nuovaEmail.toLowerCase())
     ) {
-      throw new Error("Email già in uso");
+      throw new Error(MESSAGGI.emailGiaInUso);
     }
 
     const nuovoTelefono = input.telefono ?? null;

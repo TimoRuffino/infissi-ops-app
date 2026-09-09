@@ -9,6 +9,15 @@ import { SLUG_RE } from "./costanti";
 const slug = z.string().regex(SLUG_RE, "Slug non valido: minuscole, cifre e trattini interni, max 40");
 const testo = (max: number) => z.string().trim().min(1).max(max);
 
+// Fix round Task 2 → Task 3 (revisione): un campo testuale nullable arriva
+// da un form o da `--campo=` della CLI, che non sanno scrivere `null` — solo
+// una stringa vuota. Senza questa normalizzazione "" cadrebbe nel validatore
+// vero (es. `.email()`) e darebbe un errore invece di azzerare il campo.
+// Applicato PRIMA del validatore: un valore genuinamente non valido continua
+// a dare lo stesso errore di sempre.
+const vuotoANull = <T extends z.ZodTypeAny>(validato: T) =>
+  z.preprocess(v => (typeof v === "string" && v.trim() === "" ? null : v), validato);
+
 export const schemaPayloadCrea = z.object({
   slug,
   nome: testo(120),
@@ -119,15 +128,17 @@ export const schemaPayloadModificaTenant = z.object({
   slug,
   nome: testo(120).optional(),
   nuovoSlug: slug.optional(),
-  note: z.string().trim().max(2000).nullable().optional(),
+  note: vuotoANull(z.string().trim().max(2000).nullable()).optional(),
   fatturazione: z
     .object({
-      partitaIva: z.string().regex(/^\d{11}$/).nullable(),
-      codiceFiscale: z.string().trim().min(11).max(16).nullable(),
-      indirizzoLegale: z.string().trim().max(200).nullable(),
-      emailAmministrativa: z.string().trim().email().nullable(),
-      pec: z.string().trim().email().nullable(),
-      codiceSdi: z.string().trim().length(7).nullable(),
+      // `.trim()` come i cinque campi vicini (fix round Task 2 → Task 3): lo
+      // spazio attorno alle 11 cifre non deve far fallire una P.IVA valida.
+      partitaIva: vuotoANull(z.string().trim().regex(/^\d{11}$/).nullable()),
+      codiceFiscale: vuotoANull(z.string().trim().min(11).max(16).nullable()),
+      indirizzoLegale: vuotoANull(z.string().trim().max(200).nullable()),
+      emailAmministrativa: vuotoANull(z.string().trim().email().nullable()),
+      pec: vuotoANull(z.string().trim().email().nullable()),
+      codiceSdi: vuotoANull(z.string().trim().length(7).nullable()),
     })
     .partial()
     .optional(),
@@ -135,7 +146,7 @@ export const schemaPayloadModificaTenant = z.object({
     .object({
       id: z.number().int().positive(),
       nome: testo(120),
-      citta: z.string().trim().max(80).nullable(),
+      citta: vuotoANull(z.string().trim().max(80).nullable()),
     })
     .optional(),
 });
@@ -154,7 +165,7 @@ export const schemaPayloadModificaProprietario = z.object({
   nome: testo(80),
   cognome: testo(80),
   email: z.string().trim().email(),
-  telefono: z.string().trim().max(40).nullable().optional(),
+  telefono: vuotoANull(z.string().trim().max(40).nullable()).optional(),
 });
 export type PayloadModificaProprietario = z.infer<typeof schemaPayloadModificaProprietario>;
 

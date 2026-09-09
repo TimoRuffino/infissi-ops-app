@@ -152,6 +152,43 @@ describe("schemaPayloadModificaTenant", () => {
   it("sede vuole id, nome e citta insieme: citta mancante è rifiutata", () => {
     expect(() => schemaPayloadModificaTenant.parse({ slug, sede: { id: 7, nome: "Acme HQ" } })).toThrow();
   });
+
+  // Fix round Task 2 → Task 3 (revisione, nit 4): un form o `--note=` della
+  // CLI non sanno scrivere `null`, solo una stringa vuota — deve valere come
+  // "azzera il campo", non come un valore da rifiutare (es. l'email vuota
+  // fallirebbe `.email()` senza questa normalizzazione).
+  it("stringa vuota (anche solo spazi) su un campo nullable diventa null: note, i sei campi di fatturazione, sede.citta", () => {
+    const ok = schemaPayloadModificaTenant.parse({
+      slug,
+      note: "   ",
+      fatturazione: {
+        partitaIva: "",
+        codiceFiscale: " ",
+        indirizzoLegale: "",
+        emailAmministrativa: "",
+        pec: "",
+        codiceSdi: "",
+      },
+      sede: { id: 7, nome: "Acme HQ", citta: "" },
+    });
+    expect(ok.note).toBeNull();
+    expect(ok.fatturazione).toEqual({
+      partitaIva: null,
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: null,
+      codiceSdi: null,
+    });
+    expect(ok.sede?.citta).toBeNull();
+  });
+
+  // Fix round Task 2 → Task 3 (nit 5): `partitaIva` si trimma come i suoi
+  // cinque simili, prima del controllo delle 11 cifre.
+  it("partitaIva si trimma come i suoi cinque simili: gli spazi attorno alle 11 cifre sono ammessi", () => {
+    const ok = schemaPayloadModificaTenant.parse({ slug, fatturazione: { partitaIva: "  12345678901  " } });
+    expect(ok.fatturazione?.partitaIva).toBe("12345678901");
+  });
 });
 
 describe("schemaPayloadModificaProprietario", () => {
@@ -203,5 +240,18 @@ describe("schemaPayloadModificaProprietario", () => {
         email: "mario@acme.it",
       })
     ).toThrow();
+  });
+
+  // Fix round Task 2 → Task 3 (nit 4): stessa regola di `note`/`fatturazione`
+  // sopra, qui per il campo telefono.
+  it("telefono vuoto (anche solo spazi) diventa null", () => {
+    const ok = schemaPayloadModificaProprietario.parse({
+      slug,
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario@acme.it",
+      telefono: "   ",
+    });
+    expect(ok.telefono).toBeNull();
   });
 });
