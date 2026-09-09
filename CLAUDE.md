@@ -159,6 +159,10 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   devono usare `min-w-0`, colonne responsive o una vista mobile dedicata.
 - Verificare almeno 1440x900 e 390x844 nel browser prima di chiudere una modifica
   visuale.
+- Mai `scrollIntoView` per portare un pannello in vista dentro la shell:
+  `portaInCima` (`client/src/lib/scorrimento.ts`); il `main` di
+  `ShellWorkspace` resta `relative` (guardia
+  `client/src/components/layout/cornice.confine.test.ts`).
 
 ## Storage e backup
 

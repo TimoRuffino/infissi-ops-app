@@ -25,15 +25,14 @@ piattaforma invece che del cliente, dentro un percorso guidato dopo l'invito
 aziende senza toccare la riga di comando (WS6). Ruffino Group è il tenant 1 e
 tiene le chiavi di sempre.
 
-> **Stato al 09/09/2026 (sera):** WS1, WS2, WS3, WS4 e WS6 sono su `main`
-> (PR #3, #5, #8 — che porta insieme WS3 e WS4, merge `37c1889` — e #9 per
-> WS6, merge `cff8ef0`) e quindi distribuiti: Railway segue `main`.
-> `FLAG_MULTI_AZIENDA` è **acceso in produzione dalle 09:54 del 09/09/2026**:
-> le sezioni che dicono «in che ordine si accende» restano come storia della
-> procedura, non come lavoro da fare. Il **WS5** (collegamento delle
-> integrazioni in self-service) è l'unico rimasto fuori da `main`, su
-> `feature/ws5-integrazioni-su-main`: la sua sezione vale dal momento in cui
-> quel branch viene distribuito.
+> **Stato al 09/09/2026 (sera):** WS1, WS2, WS3, WS4, WS5 e WS6 sono su
+> `main` (PR #3, #5, #8 — che porta insieme WS3 e WS4, merge `37c1889` — #9
+> per WS6, merge `cff8ef0`, e #10 per WS5, merge `d896101`) e quindi
+> distribuiti: Railway segue `main`. `FLAG_MULTI_AZIENDA` è **acceso in
+> produzione dalle 09:54 del 09/09/2026**: le sezioni che dicono «in che
+> ordine si accende» restano come storia della procedura, non come lavoro da
+> fare. Il WS5 è in produzione dalle 20:22 dello stesso giorno: nessun
+> workstream del design SaaS multi-azienda resta fuori da `main`.
 
 ## Interruttore
 - `FLAG_MULTI_AZIENDA=off` (default in produzione): il CRM di oggi. Tabelle,
@@ -640,13 +639,19 @@ sessione**, non dell'installazione.
    --scrivi` prima di accendere l'interruttore.
 5. **Accensione** — `FLAG_MULTI_AZIENDA=on` e riavvio, se non è già accesa;
    poi un nuovo login.
-6. **Prima azienda 2 in staging**, non in produzione: `pnpm tenant crea …`;
-   entra il proprietario; collega il Drive **dell'azienda** da Integrazioni;
-   lancia un backup a mano e verifica sul suo Drive la cartella «Backup
-   Wyndoor — `<nome azienda>`»; poi `pnpm tenant ripristina --slug=<slug>
-   --backup=<data> --prova --attendi` e leggi l'esito.
-7. Solo dopo, **la stessa sequenza in produzione**. Dal WS3 una seconda
-   azienda in produzione è ammessa: la regola del WS2 decade qui.
+6. **Seconda azienda.** Ai tempi del WS3 si raccomandava di provarla prima
+   in staging: `pnpm tenant crea …`; entra il proprietario; collega il
+   Drive **dell'azienda** da Integrazioni; lancia un backup a mano e
+   verifica sul suo Drive la cartella «Backup Wyndoor — `<nome azienda>`»;
+   poi `pnpm tenant ripristina --slug=<slug> --backup=<data> --prova
+   --attendi` e leggi l'esito — prima di ripeterla in produzione. Dal WS6
+   (09/09/2026) la creazione passa dal pannello piattaforma
+   (`/piattaforma`, «Nuova azienda»), e la prima azienda pilota è nata così
+   già **in produzione** (tenant 2, invito accettato): questo passo via
+   script resta la via per chi non usa il pannello.
+7. Se si segue ancora questa sequenza via script, **solo dopo la prova in
+   staging**, la stessa in produzione. Dal WS3 una seconda azienda in
+   produzione è ammessa: la regola del WS2 decade qui.
 
 **Rollback = redeploy del build precedente**, con **un'unica eccezione**: il
 refresh token del Drive è cifrato e il codice vecchio non lo legge, quindi
@@ -1063,15 +1068,15 @@ aperti» compreso). Moduli: `server/integrazioni/` (contratto, registro,
 adattatori, router) e `client/src/integrazioni/` (scheda, percorso guidato,
 etichette).
 
-> **Stato al 09/09/2026 (sera):** implementato su
-> `feature/ws5-integrazioni-su-main` (nato da `main` @ `cff8ef0` — un `main`
-> che contiene già WS1, WS2, WS3, WS4 **e WS6**: questo è l'unico workstream
-> rimasto fuori da `main`). I 13 task del piano sono stati eseguiti su un
-> altro worktree e fusi qui (merge `c139b83`), poi sottoposti a una
-> revisione dell'intero branch (2 Critical, 11 Important) e a un'unica fix
-> wave (8 commit, `2901017`…`0d6d70d`). `pnpm check`/`test`/`build` verdi
-> (351 file / 3759 test), `pg.test` 14 file / 71 test. **Non su `main`, non
-> in produzione.**
+> **Stato al 09/09/2026 (sera):** fuso in `main` (PR #10, merge `d896101`)
+> e **in produzione dalle 20:22**. Nato da
+> `feature/ws5-integrazioni-su-main` (a sua volta da `main` @ `cff8ef0`, che
+> contiene già WS1, WS2, WS3, WS4 e WS6). I 13 task del piano sono stati
+> eseguiti su un altro worktree e fusi qui (merge `c139b83`), poi
+> sottoposti a una revisione dell'intero branch (2 Critical, 11 Important)
+> e a un'unica fix wave (8 commit, `2901017`…`0d6d70d`).
+> `pnpm check`/`test`/`build` verdi (351 file / 3759 test), `pg.test` 14
+> file / 71 test.
 
 Con WS3 un'azienda ha i suoi file, il suo backup e le sue credenziali; con
 WS4 ha un contratto. Restava scoperto il gesto che viene prima di tutti:
@@ -1399,8 +1404,10 @@ differenza di WS2/WS3/WS4, non c'è un «acceso/spento» da decidere qui.
 > `feature/ws6-pannello-piattaforma` (nato da `main` @ `37c1889`, cioè dopo
 > quel merge) e da quella sera è a sua volta **su `main`** (PR #9, merge
 > `cff8ef0`): questa sezione descrive il codice distribuito. Il WS5
-> (collegamento delle integrazioni, sezione precedente) è nato da questo
-> stesso `main` ed è, al momento, l'unico workstream rimasto fuori.
+> (collegamento delle integrazioni, sezione precedente), nato da questo
+> stesso `main`, si è fuso a sua volta la sera stessa (PR #10, merge
+> `d896101`), in produzione dalle 20:22: nessun workstream resta fuori da
+> `main`.
 
 ### Accesso
 
@@ -1527,11 +1534,12 @@ anche:
       SELECT tipo, attore, created_at FROM tenant_eventi
        WHERE attore LIKE 'piattaforma:%' ORDER BY id DESC LIMIT 20;
 
-- **Esecuzione immediata.** Cinque delle nove mutation del router (`crea`,
-  `sospendi`, `riattiva`, `proprietario`, `abbonamento` — quest'ultima porta
-  da sola le sette azioni sul contratto: omaggio, proroga, budget, extra,
-  quota, tolleranze, disdetta/annulla) accodano e **subito dopo** eseguono lo
-  stesso comando con `eseguiComandoSubito`: la
+- **Esecuzione immediata.** Sette delle undici mutation del router (`crea`,
+  `modifica`, `modificaProprietario`, `sospendi`, `riattiva`, `proprietario`,
+  `abbonamento` — quest'ultima porta da sola le sette azioni sul contratto:
+  omaggio, proroga, budget, extra, quota, tolleranze, disdetta/annulla)
+  accodano e **subito dopo** eseguono lo stesso comando con
+  `eseguiComandoSubito`: la
   stessa funzione del giro dei 30 secondi, chiamata su un solo id, con lo
   stesso claim atomico (`FOR UPDATE SKIP LOCKED` su Postgres) — se il giro
   regolare lo ha già preso nel frattempo, il pannello aspetta ed espone
@@ -1548,13 +1556,67 @@ anche:
   la tabella. `invita` chiede comunque la password (è sensibile);
   `annullaInvito` no.
 - **Le azioni sensibili** (password dell'amministratore, 5 tentativi in 15
-  minuti): `crea`, `invita`, `sospendi`, `riattiva`, `proprietario`, tutte e
-  sette le azioni sull'abbonamento e `ripristina` con scrittura. **Non**
-  sensibili: ricalcolo dello spazio, ripristino in prova, annullo di un
-  invito.
+  minuti): `crea`, `invita`, `sospendi`, `riattiva`, `proprietario`,
+  `modifica`, `modificaProprietario`, tutte e sette le azioni
+  sull'abbonamento e `ripristina` con scrittura. **Non** sensibili:
+  ricalcolo dello spazio, ripristino in prova, annullo di un invito.
 - `pnpm tenant elenco` e `pnpm tenant verifica` restano validi e mostrano gli
   stessi dati di sempre: nessun comando dello script cambia forma per via del
   pannello.
+
+### Modificare un'azienda
+
+Dopo la creazione, un'azienda si corregge — mai un secondo `pnpm tenant
+crea` con lo stesso slug per cambiare un dato che non sia la sede o il
+proprietario iniziali. Decisione della direzione, 09/09/2026 (sera); spec
+`docs/superpowers/specs/2026-09-09-ws6-pannello-piattaforma-design.md` §15.
+
+- **Dal pannello:** pulsante «Modifica» nella scheda (fra «Tutte le
+  aziende» e «Sospendi»), dialogo a quattro pannelli — **Azienda** (ragione
+  sociale, slug con l'avviso che cambiarlo sposta l'indirizzo della scheda
+  e il riferimento da riga di comando, note), **Fatturazione** (P.IVA,
+  codice fiscale, sede legale, email amministrativa, PEC, codice SDI),
+  **Sede** (nome, città della sede predefinita) e **Proprietario** (nome,
+  cognome, email, telefono; avviso se un invito è ancora in sospeso) — con
+  un solo «Salva» dietro la password dell'amministratore. Il dialogo manda
+  al più due mutation in fila (`modifica`, poi `modificaProprietario` solo
+  se il pannello Proprietario è cambiato): se la prima riesce e la seconda
+  no, lo dice, invece di lasciar credere che non sia successo niente. Dopo
+  un cambio di slug la scheda non si invalida per il vecchio indirizzo
+  (andrebbe in NOT_FOUND): si invalida l'elenco e si naviga alla scheda
+  nuova alla chiusura del dialogo.
+- **Da script**, solo per dati e fatturazione (non per sede né
+  proprietario, che restano dal pannello):
+
+      pnpm tenant modifica --slug=acme --nome="Acme S.r.l." --scrivi --attendi
+      pnpm tenant modifica --slug=acme --piva=01234567890 --cf=RSSMRA80A01H501U \
+           --sede-legale="Via Roma 1, Firenze" --email-amministrativa=amm@acme.it \
+           --pec=acme@pec.it --sdi=ABC1234 --scrivi --attendi
+      pnpm tenant modifica --slug=acme --note="" --scrivi --attendi
+
+  Almeno un campo oltre `--slug`, altrimenti lo script si ferma da solo.
+  **Un flag a stringa vuota (`--note=`, `--pec=`, …) azzera quel campo**
+  invece di lasciarlo com'è (`vuotoANull` in `server/tenants/comandi.ts`:
+  vale anche dal pannello). Il tenant 1 rifiuta `--nuovo-slug` con lo
+  stesso messaggio del pannello (`MESSAGGI.tenant1SlugIntoccabile`): è
+  l'ancora di ogni URL.
+- **Eventi da leggere** (`tenant_eventi`, stessa query di sopra):
+  `tenant_modificato` (`{ campi: [{ campo, prima, dopo }] }`, solo i campi
+  davvero cambiati), `slug_cambiato` (`{ da, a }`, solo se lo slug cambia
+  davvero), `proprietario_modificato` (`{ utenteId, campi }`); se l'email
+  del proprietario cambia e per lui c'è ancora un invito valido,
+  `invito_annullato` seguito da un nuovo `invito_inviato` — **mai** per un
+  altro proprietario della stessa azienda, e mai se l'invito di quello
+  toccato era già stato accettato.
+- **Il tenant 1 non cambia slug**; l'**email del proprietario resta unica**
+  su tutta l'installazione (case-insensitive); un vecchio link d'invito
+  smette di funzionare (stesso esito generico di uno scaduto) se l'email
+  del proprietario è cambiata nel frattempo, per chiudere la finestra di
+  chi lo tenta dopo un `modifica_proprietario` girato fuori dal pannello.
+- I due comandi passano dalla stessa `tenant_comandi`, con lo stesso
+  `richiesto_da = piattaforma:<email>` dal pannello o `script:tenant` dalla
+  riga di comando, e la stessa esecuzione **subito** delle altre mutation
+  non in coda (sopra).
 
 ### Variabili d'ambiente (WS6)
 
