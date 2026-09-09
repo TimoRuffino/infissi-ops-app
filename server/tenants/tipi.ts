@@ -1,5 +1,19 @@
 export type StatoTenant = "attivo" | "sospeso";
 
+/**
+ * Dati di fatturazione dell'azienda («Modifica azienda», piano 09/09/2026,
+ * Task 1): tutti facoltativi, nessuna validazione fiscale oltre forma e
+ * lunghezza (spec nel piano, Task 2 li applica). Mai nei log.
+ */
+export type DatiFatturazione = {
+  partitaIva: string | null;
+  codiceFiscale: string | null;
+  indirizzoLegale: string | null;
+  emailAmministrativa: string | null;
+  pec: string | null;
+  codiceSdi: string | null;
+};
+
 export type TenantRecord = {
   id: number;
   slug: string;
@@ -9,6 +23,8 @@ export type TenantRecord = {
   createdAt: Date;
   updatedAt: Date;
   storageQuotaBytes: number;
+  fatturazione: DatiFatturazione;
+  note: string | null;
 };
 
 export type Attore =
@@ -57,7 +73,15 @@ export type TipoEvento =
   // `invito_accettato` `{ invitoId, utenteId }`, `invito_annullato` `{ invitoId }`.
   | "invito_inviato"
   | "invito_accettato"
-  | "invito_annullato";
+  | "invito_annullato"
+  // «Modifica azienda» (pannello piattaforma, piano 09/09/2026): `tenant_modificato`
+  // porta `{ campi: [{ campo, prima, dopo }] }` (solo i campi davvero
+  // cambiati, nessun dato sensibile oltre ai valori stessi — non ci sono
+  // segreti), `proprietario_modificato` `{ utenteId, campi }`, `slug_cambiato`
+  // `{ da, a }`.
+  | "tenant_modificato"
+  | "proprietario_modificato"
+  | "slug_cambiato";
 
 export type TenantEvento = {
   id: number;
@@ -77,7 +101,10 @@ export type TipoComando =
   | "revoca_proprietario"
   | "ricalcola_storage"
   | "ripristina_archivi"
-  | "imposta_abbonamento";
+  | "imposta_abbonamento"
+  // «Modifica azienda» (piano 09/09/2026, Task 2 li esegue in `eseguiComando`).
+  | "modifica_tenant"
+  | "modifica_proprietario";
 
 export type StatoComando = "in_attesa" | "eseguito" | "errore";
 

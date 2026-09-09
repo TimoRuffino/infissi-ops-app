@@ -16,6 +16,7 @@ import {
 } from "./costanti";
 import type {
   Abbonamento,
+  DatiFatturazione,
   StateOAuth,
   StatoStorage,
   StatoTenant,
@@ -39,6 +40,24 @@ export type TenantRepository = {
   perSlug(slug: string): TenantRecord | null;
   inserisci(input: { slug: string; nome: string; stato?: StatoTenant; id?: number }): Promise<TenantRecord>;
   aggiornaStato(id: number, stato: StatoTenant, motivo: string | null): Promise<TenantRecord>;
+  /**
+   * Aggiornamento parziale dei dati dell'azienda («Modifica azienda», piano
+   * 09/09/2026, Task 1): SOLO i campi presenti in `campi` cambiano.
+   * `fatturazione` si fonde campo per campo con quella esistente — una
+   * chiave assente resta invariata, `null` esplicito azzera quel campo (mai
+   * un azzeramento totale: è un merge, non una sostituzione). `note` segue
+   * la stessa regola (`undefined` = non toccare, `null` = azzera).
+   *
+   * `slug` diverso da quello attuale e già usato da un'altra azienda →
+   * errore «Slug già usato»; passare lo slug già in uso dalla STESSA azienda
+   * non è un conflitto. `updatedAt = adesso`; la cache (Postgres) o la riga
+   * (memoria) riflettono subito il cambio, quindi `perSlug` risponde già col
+   * nuovo slug e `perSlug(vecchio)` torna `null`.
+   */
+  aggiornaTenant(
+    id: number,
+    campi: { nome?: string; slug?: string; note?: string | null; fatturazione?: Partial<DatiFatturazione> }
+  ): Promise<TenantRecord>;
   registraEvento(evento: {
     tenantId: number;
     tipo: TipoEvento;
@@ -178,6 +197,16 @@ function messaggioErrore(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Un tenant nuovo non ha ancora dati di fatturazione: tutti null (Task 1, «Modifica azienda»). */
+const FATTURAZIONE_VUOTA: DatiFatturazione = {
+  partitaIva: null,
+  codiceFiscale: null,
+  indirizzoLegale: null,
+  emailAmministrativa: null,
+  pec: null,
+  codiceSdi: null,
+};
+
 /**
  * Il payload di un comando `crea` porta `proprietario.passwordHash` (un hash
  * scrypt, non la password in chiaro, ma pur sempre un segreto): lo togliamo
@@ -275,6 +304,8 @@ function createMemoryTenantRepository(): TenantRepository {
         createdAt: now,
         updatedAt: now,
         storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
+        fatturazione: clone(FATTURAZIONE_VUOTA),
+        note: null,
       };
       tenants.push(t);
       return clone(t);
@@ -284,6 +315,19 @@ function createMemoryTenantRepository(): TenantRepository {
       if (!t) throw new Error(`tenant ${id} inesistente`);
       t.stato = stato;
       t.motivoStato = motivo;
+      t.updatedAt = new Date();
+      return clone(t);
+    },
+    async aggiornaTenant(id, campi) {
+      const t = tenants.find(x => x.id === id);
+      if (!t) throw new Error(`tenant ${id} inesistente`);
+      if (campi.slug !== undefined && campi.slug !== t.slug && tenants.some(x => x.slug === campi.slug)) {
+        throw new Error("Slug già usato");
+      }
+      if (campi.nome !== undefined) t.nome = campi.nome;
+      if (campi.slug !== undefined) t.slug = campi.slug;
+      if (campi.note !== undefined) t.note = campi.note;
+      if (campi.fatturazione) t.fatturazione = { ...t.fatturazione, ...campi.fatturazione };
       t.updatedAt = new Date();
       return clone(t);
     },
@@ -537,6 +581,17 @@ export function createPostgresTenantRepository(
     updatedAt: new Date(r.updated_at),
     // `storage_quota_bytes` è BIGINT: postgres-js lo restituisce come stringa.
     storageQuotaBytes: Number(r.storage_quota_bytes ?? QUOTA_STORAGE_PREDEFINITA_BYTES),
+    // Dati di fatturazione e note («Modifica azienda», Task 1): colonne
+    // additive, NULL finché nessuno le compila.
+    fatturazione: {
+      partitaIva: r.partita_iva ?? null,
+      codiceFiscale: r.codice_fiscale ?? null,
+      indirizzoLegale: r.indirizzo_legale ?? null,
+      emailAmministrativa: r.email_amministrativa ?? null,
+      pec: r.pec ?? null,
+      codiceSdi: r.codice_sdi ?? null,
+    },
+    note: r.note ?? null,
   });
   const rigaEvento = (r: any): TenantEvento => ({
     id: Number(r.id),
@@ -648,6 +703,19 @@ export function createPostgresTenantRepository(
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`;
+        // Dati di fatturazione e note («Modifica azienda», piano 09/09/2026,
+        // Task 1): additivi su una tabella già a terra, come storage_quota_bytes
+        // più sotto — un'azienda esistente li ha tutti NULL finché nessuno
+        // li compila da `aggiornaTenant`. Nessun DEFAULT bindato: sono TEXT
+        // semplici, non serve `tx.unsafe` come per storage_quota_bytes.
+        await tx`ALTER TABLE tenants
+          ADD COLUMN IF NOT EXISTS partita_iva TEXT,
+          ADD COLUMN IF NOT EXISTS codice_fiscale TEXT,
+          ADD COLUMN IF NOT EXISTS indirizzo_legale TEXT,
+          ADD COLUMN IF NOT EXISTS email_amministrativa TEXT,
+          ADD COLUMN IF NOT EXISTS pec TEXT,
+          ADD COLUMN IF NOT EXISTS codice_sdi TEXT,
+          ADD COLUMN IF NOT EXISTS note TEXT`;
         await tx`CREATE TABLE IF NOT EXISTS tenant_eventi (
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id),
@@ -669,7 +737,7 @@ export function createPostgresTenantRepository(
           FOR EACH ROW EXECUTE FUNCTION tenant_eventi_solo_insert()`;
         await tx`CREATE TABLE IF NOT EXISTS tenant_comandi (
           id BIGSERIAL PRIMARY KEY,
-          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento')),
+          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario')),
           tenant_id BIGINT,
           payload JSONB NOT NULL,
           stato TEXT NOT NULL DEFAULT 'in_attesa' CHECK (stato IN ('in_attesa','eseguito','errore')),
@@ -782,19 +850,20 @@ export function createPostgresTenantRepository(
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
         //
-        // Si rifà SOLO se serve (fix wave finale, esteso dal WS4): `DROP` +
-        // `ADD CONSTRAINT` prende un lock ACCESS EXCLUSIVE su `tenant_comandi`
-        // e rivalida tutte le righe — a ogni boot, anche quando il vincolo è
-        // già quello giusto. Si guarda prima com'è fatto: se nomina già
-        // `imposta_abbonamento` (l'ultimo degli otto tipi) non si tocca niente.
+        // Si rifà SOLO se serve (fix wave finale, esteso dal WS4 e dal piano
+        // «Modifica azienda»): `DROP` + `ADD CONSTRAINT` prende un lock
+        // ACCESS EXCLUSIVE su `tenant_comandi` e rivalida tutte le righe — a
+        // ogni boot, anche quando il vincolo è già quello giusto. Si guarda
+        // prima com'è fatto: se nomina già `modifica_proprietario` (l'ultimo
+        // dei dieci tipi) non si tocca niente.
         const [vincoloTipo] = await tx<{ definizione: string }[]>`
           SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
            WHERE conname = 'tenant_comandi_tipo_check'
              AND conrelid = 'tenant_comandi'::regclass`;
-        if (!vincoloTipo?.definizione?.includes("imposta_abbonamento")) {
+        if (!vincoloTipo?.definizione?.includes("modifica_proprietario")) {
           await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
           await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
-            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento'))`;
+            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario'))`;
         }
       })
       .then(() => undefined);
@@ -857,6 +926,46 @@ export function createPostgresTenantRepository(
         WHERE id = ${id} RETURNING *`;
       if (!rows.length) throw new Error(`tenant ${id} inesistente`);
       return memorizza(rigaTenant(rows[0]));
+    },
+    async aggiornaTenant(id, campi) {
+      await ensureSchema();
+      try {
+        // `FOR UPDATE` dentro la transazione: blocca la riga fra la lettura
+        // e la scrittura, così un `aggiornaTenant` concorrente sullo stesso
+        // tenant aspetta invece di correre sullo stesso valore letto (il
+        // merge di `fatturazione` e il "non toccare" di nome/slug/note non
+        // si possono esprimere in un UPDATE SQL puro con COALESCE: un `null`
+        // esplicito per azzerare un campo sarebbe indistinguibile da "non
+        // fornito" — la distinzione va fatta qui, in JS, sui valori letti).
+        const rows = await sql.begin(async tx => {
+          const attuali = await tx`SELECT * FROM tenants WHERE id = ${id} FOR UPDATE`;
+          if (!attuali.length) throw new Error(`tenant ${id} inesistente`);
+          const attuale = rigaTenant(attuali[0]);
+          const nome = campi.nome ?? attuale.nome;
+          const slug = campi.slug ?? attuale.slug;
+          const note = campi.note !== undefined ? campi.note : attuale.note;
+          const fatturazione = { ...attuale.fatturazione, ...(campi.fatturazione ?? {}) };
+          return tx`UPDATE tenants SET
+              nome = ${nome},
+              slug = ${slug},
+              note = ${note},
+              partita_iva = ${fatturazione.partitaIva},
+              codice_fiscale = ${fatturazione.codiceFiscale},
+              indirizzo_legale = ${fatturazione.indirizzoLegale},
+              email_amministrativa = ${fatturazione.emailAmministrativa},
+              pec = ${fatturazione.pec},
+              codice_sdi = ${fatturazione.codiceSdi},
+              updated_at = NOW()
+            WHERE id = ${id}
+            RETURNING *`;
+        });
+        return memorizza(rigaTenant(rows[0]));
+      } catch (e) {
+        if ((e as { code?: string } | undefined)?.code === "23505") {
+          throw new Error("Slug già usato");
+        }
+        throw e;
+      }
     },
     async registraEvento(e) {
       await ensureSchema();

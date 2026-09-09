@@ -415,6 +415,13 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
           finePeriodo: a?.finePeriodo?.toISOString() ?? null,
         };
       }
+      // «Modifica azienda» (piano 09/09/2026): il Task 1 aggiunge solo il
+      // tipo al control plane (colonne di fatturazione, CHECK allargato,
+      // `aggiornaTenant`); nessun produttore accoda ancora questi comandi.
+      // Il Task 2 implementa `modificaTenant`/`modificaProprietario` qui.
+      case "modifica_tenant":
+      case "modifica_proprietario":
+        throw new Error(`Comando "${comando.tipo}" non ancora implementato`);
     }
   } catch (e) {
     const tenantId = comando.tenantId ?? getTenantRepository().perSlug(String((comando.payload as any)?.slug ?? ""))?.id;

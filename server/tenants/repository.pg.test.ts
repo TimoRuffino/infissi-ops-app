@@ -82,6 +82,57 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     expect(righe[0].n).toBe(1);
   });
 
+  // «Modifica azienda» (piano 2026-09-09, Task 1): stessa copertura del
+  // repository in memoria, sulla tabella vera — aggiornamento parziale di
+  // nome/note/fatturazione, cambio slug che sposta perSlug, slug duplicato
+  // rifiutato dal vincolo UNIQUE (23505) tradotto nello stesso messaggio.
+  it("aggiornaTenant su Postgres: nome/note/fatturazione parziali, slug cambiato sposta perSlug, slug duplicato rifiutato", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    const a = repo.perSlug("modifica-a") ?? (await repo.inserisci({ slug: "modifica-a", nome: "Modifica A" }));
+    const b = repo.perSlug("modifica-b") ?? (await repo.inserisci({ slug: "modifica-b", nome: "Modifica B" }));
+    expect(a.fatturazione).toEqual({
+      partitaIva: null,
+      codiceFiscale: null,
+      indirizzoLegale: null,
+      emailAmministrativa: null,
+      pec: null,
+      codiceSdi: null,
+    });
+    expect(a.note).toBeNull();
+
+    const conNote = await repo.aggiornaTenant(a.id, { nome: "Modifica A Srl", note: "vip" });
+    expect(conNote.nome).toBe("Modifica A Srl");
+    expect(conNote.note).toBe("vip");
+    expect(conNote.updatedAt.getTime()).toBeGreaterThanOrEqual(a.updatedAt.getTime());
+
+    const conFatturazione = await repo.aggiornaTenant(a.id, {
+      fatturazione: { partitaIva: "01234567890", pec: "modifica-a@pec.it" },
+    });
+    expect(conFatturazione.fatturazione).toMatchObject({ partitaIva: "01234567890", pec: "modifica-a@pec.it" });
+    expect(conFatturazione.fatturazione.codiceSdi).toBeNull();
+    expect(conFatturazione.note).toBe("vip"); // non toccata da questo giro
+    expect(repo.perId(a.id)?.fatturazione.partitaIva).toBe("01234567890"); // la cache riflette subito il cambio
+
+    await expect(repo.aggiornaTenant(a.id, { slug: b.slug })).rejects.toThrow(/Slug già usato/);
+
+    const spostato = await repo.aggiornaTenant(a.id, { slug: "modifica-a-nuovo" });
+    expect(spostato.slug).toBe("modifica-a-nuovo");
+    expect(repo.perSlug("modifica-a")).toBeNull();
+    expect(repo.perSlug("modifica-a-nuovo")?.id).toBe(a.id);
+
+    const righe = await sql`SELECT slug, note, partita_iva, pec FROM tenants WHERE id = ${a.id}`;
+    expect(righe[0]).toMatchObject({
+      slug: "modifica-a-nuovo",
+      note: "vip",
+      partita_iva: "01234567890",
+      pec: "modifica-a@pec.it",
+    });
+
+    await expect(repo.aggiornaTenant(999999, { nome: "x" })).rejects.toThrow(/999999/);
+  });
+
   it("lo specchio tenant_sedi è idempotente e segue il tenant di una sede", async () => {
     const repo = getTenantRepository();
     await repo.assicuraTenantPredefinito();
@@ -495,5 +546,53 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     const c = await repo.accodaComando({ tipo: "ripristina_archivi", tenantId: 1, payload: {}, richiestoDa: "test" });
     expect(c.tipo).toBe("ripristina_archivi");
     expect((await sql`SELECT storage_quota_bytes FROM tenants WHERE id = 1`)[0].storage_quota_bytes).toBe(String(100 * 1024 ** 3));
+  });
+
+  // «Modifica azienda» (piano 2026-09-09, Task 1): una `tenants` vecchia
+  // (prima di questo task) non ha le colonne di fatturazione/note, e il
+  // CHECK di `tenant_comandi` non conosce ancora `modifica_tenant` /
+  // `modifica_proprietario`. Al boot `ensureSchema()` deve aggiungere le
+  // colonne (additive, NULL di default) e riallargare il CHECK — senza
+  // toccare niente se sono già a posto, come il test sopra per il WS3.
+  it("tenants senza le colonne di fatturazione/note e tenant_comandi con il CHECK vecchio: entrambi aggiornati al boot", async () => {
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
+      stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')), motivo_stato TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+    await sql`CREATE TABLE tenant_comandi (id BIGSERIAL PRIMARY KEY,
+      tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento')),
+      tenant_id BIGINT, payload JSONB NOT NULL, stato TEXT NOT NULL DEFAULT 'in_attesa', esito JSONB,
+      richiesto_da TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), eseguito_at TIMESTAMPTZ)`;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+
+    const colonne = await sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'tenants' AND column_name IN
+         ('partita_iva','codice_fiscale','indirizzo_legale','email_amministrativa','pec','codice_sdi','note')`;
+    expect(colonne.map(c => c.column_name).sort()).toEqual(
+      ["codice_fiscale", "codice_sdi", "email_amministrativa", "indirizzo_legale", "note", "partita_iva", "pec"]
+    );
+
+    const [vincolo] = await sql<{ definizione: string }[]>`
+      SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
+       WHERE conname = 'tenant_comandi_tipo_check' AND conrelid = 'tenant_comandi'::regclass`;
+    expect(vincolo?.definizione).toContain("modifica_tenant");
+    expect(vincolo?.definizione).toContain("modifica_proprietario");
+
+    await repo.assicuraTenantPredefinito();
+    const comando = await repo.accodaComando({ tipo: "modifica_proprietario", tenantId: 1, payload: {}, richiestoDa: "test" });
+    expect(comando.tipo).toBe("modifica_proprietario");
+
+    // Le colonne sono davvero utilizzabili, non solo presenti: aggiornaTenant le scrive e le rilegge.
+    const aggiornato = await repo.aggiornaTenant(1, { note: "prova", fatturazione: { partitaIva: "01234567890" } });
+    expect(aggiornato.note).toBe("prova");
+    expect(aggiornato.fatturazione.partitaIva).toBe("01234567890");
+
+    // Idempotenza: un secondo ensureSchema (repository fresco) non tocca né
+    // rialza le colonne né il CHECK una seconda volta.
+    resetTenantRepositoryForTesting();
+    await expect(getTenantRepository().ensureSchema()).resolves.toBeUndefined();
   });
 });
