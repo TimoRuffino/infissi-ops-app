@@ -8,9 +8,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
+import { tenantIdDellaSede } from "../tenants/contesto";
 import type { Adattatore, Chiave, Ctx } from "./contratto";
 import { passiAttivazione, segnaSaltata } from "./attivazione";
 import { invalidaVerifica, verificaConCache } from "./cache";
+import { statiDiTutti } from "./errori";
 import { REGISTRO, adattatoreDi } from "./registro";
 
 const chiaveSchema = z.enum([
@@ -32,13 +34,31 @@ const chiaveSchema = z.enum([
 export function risolvi(ctx: Ctx, chiave: Chiave): Adattatore {
   const a = adattatoreDi(chiave);
   const direzione = ctx.user?.role === "admin";
-  if (!a || (a.permesso === "direzione" && !direzione)) {
+  if (!a || (a.permesso === "direzione" && !direzione) || !sedeSua(a, ctx)) {
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "Integrazione non trovata.",
     });
   }
   return a;
+}
+
+/**
+ * La sede attiva è davvero di chi sta chiedendo?
+ *
+ * Il contesto la risolve già dentro le sedi ammesse dell'azienda, quindi in
+ * produzione la risposta è sempre sì: questa è difesa in profondità, e vale
+ * il costo perché un adattatore lavora sulla sede senza poterla verificare —
+ * un `sedeId` di un'altra azienda non darebbe errore, mostrerebbe i dati
+ * sbagliati dentro la pagina giusta. `NOT_FOUND` come sempre: l'id di una
+ * sede altrui non riceve nemmeno conferma di esistere.
+ */
+function sedeSua(a: Adattatore, ctx: Ctx): boolean {
+  if (a.ambito !== "sede" || ctx.sedeId == null) return true;
+  if (ctx.sediIds.length > 0 && !ctx.sediIds.includes(ctx.sedeId)) return false;
+  // Una sede che non esiste (i contesti di prova, le installazioni a sede
+  // unica) risponde col tenant predefinito: non è un confine attraversato.
+  return ctx.tenantId == null || tenantIdDellaSede(ctx.sedeId) === ctx.tenantId;
 }
 
 /** La sede su cui l'adattatore lavora: `null` per quelli ad ambito azienda. */
@@ -52,7 +72,9 @@ export const integrazioniRouter = router({
     const visibili = REGISTRO.filter(
       a => a.permesso !== "direzione" || ctx.user?.role === "admin"
     );
-    return Promise.all(visibili.map(a => a.stato(ctx)));
+    // `allSettled`, non `all`: un adattatore che lancia diventa la sua riga
+    // «stato non disponibile», e le altre cinque restano leggibili (spec §9).
+    return statiDiTutti(visibili, a => a.stato(ctx));
   }),
 
   verifica: protectedProcedure
