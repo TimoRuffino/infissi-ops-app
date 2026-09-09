@@ -154,6 +154,20 @@ export async function accettaInvito(
   const email = conTenant(invito.tenantId, () => {
     const utente = getUtentiStore().find((u: any) => u.id === invito.utenteId);
     if (!utente) throw new Error(MESSAGGI_PIATTAFORMA.invitoNonValido);
+    // Fix round 1 (Task 3, revisione): l'email sull'invito è quella di
+    // quando è stato emesso. Se nel frattempo `modifica_proprietario` ha
+    // cambiato l'email del proprietario FUORI dal router (es. dal giro dei
+    // 30s, che non passa dal reinvio dell'invito del router), questo invito
+    // resta "valido" per la sola definizione tecnica (non usato, non
+    // annullato, non scaduto) ma punta a un'identità superata — chi lo
+    // possiede ancora (una vecchia casella, un link salvato) potrebbe
+    // impostare la password sull'account rinominato. Stesso esito generico
+    // di un token scaduto o annullato, nessun dettaglio in più da dare a chi
+    // tenta un vecchio link: il confronto ignora le maiuscole, come ogni
+    // altro confronto email di questo servizio.
+    if (String(utente.email).toLowerCase() !== invito.email.toLowerCase()) {
+      throw new Error(MESSAGGI_PIATTAFORMA.invitoNonValido);
+    }
     utente.password = hashPassword(input.password);
     utente.attivo = true;
     utente.updatedAt = input.adesso;

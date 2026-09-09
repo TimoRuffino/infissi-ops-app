@@ -322,6 +322,23 @@ describe("piattaformaRouter", () => {
     expect(scheda.fatturazione).toMatchObject({ partitaIva: "12345678901", pec: "acme@pec.it" });
   });
 
+  // Task 3 fix round 1: prova end-to-end, attraverso il confine tRPC, dello
+  // stesso `vuotoANull` già provato a livello di schema in comandi.test.ts —
+  // qui si passa dall'INPUT reale della mutation, non da uno `.parse()` diretto.
+  it("modifica: note e un campo di fatturazione vuoti (\"\") diventano null, letti tramite azienda", async () => {
+    const esito = await caller.modifica({
+      slug: "acme",
+      note: "",
+      fatturazione: { pec: "" },
+      passwordConferma: PASSWORD,
+    });
+    expect(esito.comando.stato).toBe("eseguito");
+
+    const scheda = await caller.azienda({ slug: "acme" });
+    expect(scheda.note).toBeNull();
+    expect(scheda.fatturazione.pec).toBeNull();
+  });
+
   it("modifica: slug del tenant 1 rifiutato dal dominio, comando in errore", async () => {
     const esito = await caller.modifica({
       slug: "ruffino-group",
@@ -388,6 +405,124 @@ describe("piattaformaRouter", () => {
     expect(esito.invito).toBeNull();
     const invitoAncora = (await repo.invitiDi(tenantId)).find(i => i.id === primo.invito.id)!;
     expect(invitoAncora.annullatoIl).toBeNull();
+  });
+
+  // Task 3 fix round 1: `emailCambiata` è vero (indirizzo davvero diverso,
+  // non solo ricasato) ma il proprietario non ha mai avuto un invito
+  // pendente — distinto dal test sopra (stessa email) e da quello sotto
+  // (due proprietari, invito ALTRUI): qui il ramo `if (!pendente)` scatta
+  // perché l'array `inviti` per questo utenteId è proprio vuoto.
+  it("modificaProprietario: email cambiata ma nessun invito pendente → nessun annullamento, nessun invito nuovo", async () => {
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+
+    const esito = await caller.modificaProprietario({
+      slug: "acme",
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario.cambiata@acme.test",
+      passwordConferma: PASSWORD,
+    });
+
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.invito).toBeNull();
+    expect(await repo.invitiDi(tenantId)).toEqual([]);
+    const eventi = await repo.eventi(tenantId);
+    expect(eventi.some(e => e.tipo === "invito_annullato" || e.tipo === "invito_inviato")).toBe(false);
+    expect(eventi.some(e => e.tipo === "proprietario_modificato")).toBe(true);
+  });
+
+  // Task 3 fix round 1: due proprietari sulla stessa azienda — modificare
+  // UNO non deve toccare l'invito pendente dell'ALTRO. `utenteId` esplicito
+  // è obbligatorio qui: con due proprietari e nessuna scelta,
+  // servizio.ts#modificaProprietario rifiuterebbe con l'ambiguità.
+  it("modificaProprietario: azienda con due proprietari — modificare il primo non tocca l'invito pendente del secondo", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    const marioId = conTenant(tenantId, () => getUtentiStore().find((u: any) => u.email === "mario@acme.test")!.id);
+
+    // Anna: un secondo utente dell'azienda, promosso proprietario come fa
+    // già questo file per gli altri test (`caller.proprietario({azione: "assegna"})`).
+    const annaId = conTenant(tenantId, () =>
+      creaUtenteInterno({
+        tenantId,
+        nome: "Anna",
+        cognome: "Verdi",
+        email: "anna@acme.test",
+        ruoli: [],
+        sediIds: [],
+        passwordHash: hashPassword(PASSWORD),
+      }).id
+    );
+    const assegna = await caller.proprietario({
+      slug: "acme",
+      email: "anna@acme.test",
+      azione: "assegna",
+      passwordConferma: PASSWORD,
+    });
+    expect(assegna.comando.stato).toBe("eseguito");
+
+    // Invito pendente per Anna soltanto: Mario non ne ha mai avuto uno.
+    const invitoAnna = await caller.invita({ slug: "acme", email: "anna@acme.test", passwordConferma: PASSWORD });
+
+    const esito = await caller.modificaProprietario({
+      slug: "acme",
+      utenteId: marioId,
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario.nuovo2@acme.test",
+      passwordConferma: PASSWORD,
+    });
+
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.invito).toBeNull(); // l'unico invito pendente non è di Mario
+
+    const invitiFinali = await repo.invitiDi(tenantId);
+    expect(invitiFinali.filter(i => i.utenteId === annaId)).toHaveLength(1); // nessun secondo invito per Anna
+    const diAnna = invitiFinali.find(i => i.id === invitoAnna.invito.id)!;
+    expect(diAnna.annullatoIl).toBeNull();
+    expect(diAnna.usatoIl).toBeNull();
+
+    const eventi = await repo.eventi(tenantId);
+    expect(
+      eventi.some(e => e.tipo === "invito_annullato" && (e.dettagli as any)?.invitoId === invitoAnna.invito.id)
+    ).toBe(false);
+  });
+
+  // Task 3 fix round 1: `repo.annullaInvito` torna `null` quando, fra la
+  // lettura degli inviti e la chiamata, l'invito è già stato consumato
+  // altrove (una corsa vera, impossibile da orchestrare in due passi separati
+  // senza un doppio giro di eventi reale — da qui lo spia invece di una
+  // concorrenza autentica).
+  it("modificaProprietario: l'invito pendente viene consumato nell'istante fra la lettura e l'annullamento → nessun evento, nessun nuovo invito", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    const primo = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
+    vi.spyOn(repo, "annullaInvito").mockResolvedValueOnce(null);
+
+    const esito = await caller.modificaProprietario({
+      slug: "acme",
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario.rincorsa@acme.test",
+      passwordConferma: PASSWORD,
+    });
+
+    expect(esito.comando.stato).toBe("eseguito"); // modifica_proprietario è comunque riuscita
+    expect(esito.invito).toBeNull();
+
+    const invitiFinali = await repo.invitiDi(tenantId);
+    expect(invitiFinali).toHaveLength(1); // nessun nuovo invito emesso
+    expect(invitiFinali[0].id).toBe(primo.invito.id);
+    expect(invitiFinali[0].annullatoIl).toBeNull(); // la vera annullaInvito non è mai girata
+
+    const eventi = await repo.eventi(tenantId);
+    expect(eventi.some(e => e.tipo === "invito_annullato")).toBe(false);
+    // Un solo "invito_inviato": quello del `primo` in cima al test. Nessun
+    // secondo invito è partito per il tentativo di reinvio.
+    expect(eventi.filter(e => e.tipo === "invito_inviato")).toHaveLength(1);
   });
 
   it("ricalcolaStorage e ripristina in prova restano in coda e non chiedono la password", async () => {

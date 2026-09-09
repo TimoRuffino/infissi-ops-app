@@ -233,8 +233,13 @@ export function payloadSenzaSegreti(p: Record<string, unknown>): Record<string, 
  */
 const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
-/** Valido: non usato, non annullato, non scaduto rispetto ad `adesso`. */
-const invitoValido = (
+/**
+ * Valido: non usato, non annullato, non scaduto rispetto ad `adesso`.
+ * Esportata (Task 3 fix round 1) perché `server/piattaforma/letture.ts` (due
+ * punti) e `server/piattaforma/router.ts` ripetevano la stessa condizione a
+ * mano: un solo posto dove cambiarla se un giorno cambiasse.
+ */
+export const invitoValido = (
   i: { usatoIl: Date | null; annullatoIl: Date | null; scadeIl: Date },
   adesso: Date
 ): boolean => !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > adesso.getTime();

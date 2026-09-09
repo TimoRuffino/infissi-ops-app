@@ -189,6 +189,21 @@ describe("schemaPayloadModificaTenant", () => {
     const ok = schemaPayloadModificaTenant.parse({ slug, fatturazione: { partitaIva: "  12345678901  " } });
     expect(ok.fatturazione?.partitaIva).toBe("12345678901");
   });
+
+  // Task 3 fix round 1: `vuotoANull` (comandi.ts) ora dichiara a TypeScript
+  // che l'INPUT dei campi che avvolge è `string | null` (guardia di tipo in
+  // server/tenants/comandi.tipi.assert.ts, type-checkata da `pnpm check`
+  // perché non è un `*.test.ts`). Questo test prova il lato runtime dello
+  // stesso bug: un valore che non è né stringa né null era GIÀ rifiutato
+  // prima della fix (il preprocess lo passa inalterato al validatore vero,
+  // che non lo accetta) — qui si conferma che restringere il tipo non ha
+  // allentato nulla a runtime.
+  it("un valore che non è né stringa né null resta rifiutato a runtime, non solo a tipo", () => {
+    expect(() => schemaPayloadModificaTenant.parse({ slug, note: 12345 as unknown as string })).toThrow();
+    expect(() =>
+      schemaPayloadModificaTenant.parse({ slug, fatturazione: { pec: {} as unknown as string } })
+    ).toThrow();
+  });
 });
 
 describe("schemaPayloadModificaProprietario", () => {
@@ -253,5 +268,19 @@ describe("schemaPayloadModificaProprietario", () => {
       telefono: "   ",
     });
     expect(ok.telefono).toBeNull();
+  });
+
+  // Task 3 fix round 1: stesso lato runtime del test analogo su
+  // schemaPayloadModificaTenant sopra — un array non è né stringa né null.
+  it("telefono non stringa/null resta rifiutato a runtime", () => {
+    expect(() =>
+      schemaPayloadModificaProprietario.parse({
+        slug,
+        nome: "Mario",
+        cognome: "Rossi",
+        email: "mario@acme.it",
+        telefono: [] as unknown as string,
+      })
+    ).toThrow();
   });
 });

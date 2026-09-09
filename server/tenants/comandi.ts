@@ -15,8 +15,21 @@ const testo = (max: number) => z.string().trim().min(1).max(max);
 // vero (es. `.email()`) e darebbe un errore invece di azzerare il campo.
 // Applicato PRIMA del validatore: un valore genuinamente non valido continua
 // a dare lo stesso errore di sempre.
+//
+// Fix round 1 (Task 3, revisione): `z.preprocess<A, U, B = unknown>(fn, schema)`
+// di zod 4 lascia `B` (il tipo del parametro di `fn`, cioè l'INPUT del nodo)
+// a `unknown` quando non può essere dedotto — e da una lambda senza
+// annotazione non lo deduce mai. Risultato: `z.input<>` di ognuno dei dieci
+// campi avvolti da questo helper diventava `unknown`, e uno slug legittimo
+// come `{ note: 12345 }` o `{ fatturazione: { pec: {} } }` passava il
+// type-check pur restando (correttamente) rifiutato a runtime dal validatore
+// vero. L'annotazione esplicita sul parametro (e sul ritorno) della lambda
+// dice a TypeScript qual è il vero input — `string | null`, lo stesso di
+// OGNI validatore passato qui sotto (una stringa se resta tale, altrimenti
+// `null` dopo l'azzeramento) — senza toccare il comportamento a runtime.
+// Guardia di tipo: server/tenants/comandi.tipi.assert.ts.
 const vuotoANull = <T extends z.ZodTypeAny>(validato: T) =>
-  z.preprocess(v => (typeof v === "string" && v.trim() === "" ? null : v), validato);
+  z.preprocess((v: string | null): string | null => (typeof v === "string" && v.trim() === "" ? null : v), validato);
 
 export const schemaPayloadCrea = z.object({
   slug,

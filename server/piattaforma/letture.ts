@@ -21,7 +21,7 @@ import { ledgerCorrente } from "../tars/costi/ledger";
 import { workerSospesi } from "../tenants/cli";
 import { RUOLO_PROPRIETARIO } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
-import { getTenantRepository, payloadSenzaSegreti, type TenantRepository } from "../tenants/repository";
+import { getTenantRepository, invitoValido, payloadSenzaSegreti, type TenantRepository } from "../tenants/repository";
 import { percentualeStorage } from "../tenants/storage";
 import type {
   Abbonamento,
@@ -93,6 +93,17 @@ export type AziendaRiga = {
   comandiInAttesa: number;
   ultimoBackup: ReturnType<typeof backupLog>[number] | null;
   proprietari: Array<{ id: number; nome: string; cognome: string; email: string; attivo: boolean }>;
+  /**
+   * Un invito ancora valido quando l'azienda non ha ALCUN proprietario
+   * attivo (`null` altrimenti): serve alla riga dell'elenco (spec §5.1) per
+   * segnalare un'azienda "orfana" in attesa che qualcuno accetti. Task 3 fix
+   * round 1: NON è il campo da leggere per il proprietario di UNA scheda —
+   * quello è il booleano `SchedaAzienda.proprietari[].invitoInSospeso`, per
+   * forma e per significato diverso (questo è un oggetto `{email, scadeIl}`
+   * di riga, quasi sempre `null` appena c'è un proprietario attivo). Il
+   * dialogo «Modifica azienda» deve usare SEMPRE quello per-proprietario,
+   * mai questo campo — che `SchedaAzienda` eredita invariato da qui sotto.
+   */
   invitoInSospeso: { email: string; scadeIl: Date } | null;
 };
 
@@ -129,6 +140,15 @@ export type AbbonamentoCompleto = {
  * criterio. Per ogni proprietario, `telefono` viene dallo store `utenti`
  * (già in memoria) e `invitoInSospeso` dagli `inviti` già letti sotto per la
  * scheda intera: anche questi arricchimenti non aggiungono query.
+ *
+ * Task 3 fix round 1: `SchedaAzienda` eredita da `AziendaRiga` (via `Omit`
+ * qui sotto, che toglie solo `abbonamento` e `proprietari`) anche il campo
+ * di RIGA `invitoInSospeso` (`{email, scadeIl} | null`, spec §5.1) — che
+ * qui è quasi sempre `null`, perché è calcolato solo quando l'azienda non
+ * ha alcun proprietario attivo. Il campo che il dialogo «Modifica azienda»
+ * deve leggere per UN proprietario è tutt'altro: il booleano
+ * `proprietari[].invitoInSospeso` dichiarato più sotto in questo stesso
+ * tipo. Vedi il commento su ciascuno dei due campi per il dettaglio.
  */
 export type SchedaAzienda = Omit<AziendaRiga, "abbonamento" | "proprietari"> & {
   sedi: Array<{ id: number; nome: string; attiva: boolean }>;
@@ -148,6 +168,13 @@ export type SchedaAzienda = Omit<AziendaRiga, "abbonamento" | "proprietari"> & {
     email: string;
     attivo: boolean;
     telefono: string | null;
+    /**
+     * Un invito ancora valido per QUESTO proprietario. Booleano, non
+     * l'oggetto `{email, scadeIl}` di `AziendaRiga.invitoInSospeso` (di
+     * riga, ereditato invariato più sopra in questo stesso tipo): il
+     * dialogo «Modifica azienda» deve leggere SEMPRE questo campo,
+     * per-proprietario, mai quello di riga.
+     */
     invitoInSospeso: boolean;
   }>;
 };
@@ -273,7 +300,7 @@ async function rigaAzienda(
     // mostrare qui, e leggere gli inviti per ognuna romperebbe la regola di
     // costo dell'elenco.
     const inviti = await repo.invitiDi(t.id);
-    const valido = inviti.find(i => !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > d.adesso.getTime());
+    const valido = inviti.find(i => invitoValido(i, d.adesso));
     if (valido) invitoInSospeso = { email: valido.email, scadeIl: valido.scadeIl };
   }
 
@@ -389,10 +416,8 @@ export async function schedaAzienda(slug: string, adesso: Date): Promise<SchedaA
   const proprietari = conTenant(tenant.id, () =>
     riga.proprietari.map(p => {
       const utente = getUtentiStore().find((u: any) => u.id === p.id);
-      const invitoValido = inviti.some(
-        i => i.utenteId === p.id && !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > adesso.getTime()
-      );
-      return { ...p, telefono: utente?.telefono ?? null, invitoInSospeso: invitoValido };
+      const invitoAncoraValido = inviti.some(i => i.utenteId === p.id && invitoValido(i, adesso));
+      return { ...p, telefono: utente?.telefono ?? null, invitoInSospeso: invitoAncoraValido };
     })
   );
 

@@ -202,6 +202,38 @@ describe("anteprimaInvito e accettaInvito", () => {
       MESSAGGI_PIATTAFORMA.invitoNonValido
     );
   });
+
+  // Task 3 fix round 1: chiude la finestra in cui `modifica_proprietario`
+  // gira DOPO l'emissione dell'invito ma FUORI dal router (es. dal giro dei
+  // 30s, che non passa dal reinvio) — l'invito resta "valido" per la sola
+  // definizione tecnica ma punta a un'email che il proprietario non ha più.
+  it("email cambiata dopo l'emissione: accettazione rifiuta con lo stesso esito generico, nessuna mutazione", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "x" }));
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+    const { link } = await invitaProprietario({
+      tenantId: tenant.id,
+      attore: piattaforma,
+      adesso: T0,
+      baseUrl: "https://crm.test",
+    });
+    const token = link.split("/invito/")[1];
+    const hashPrima = conTenant(tenant.id, () => getUtentiStore().find((u: any) => u.id === utenteId)!.password);
+
+    conTenant(tenant.id, () => {
+      getUtentiStore().find((u: any) => u.id === utenteId)!.email = "mario.nuovo@acme.test";
+    });
+
+    await expect(accettaInvito({ token, password: "Password-nuova-12", adesso: T0 })).rejects.toThrow(
+      MESSAGGI_PIATTAFORMA.invitoNonValido
+    );
+
+    const utenteDopo = conTenant(tenant.id, () => getUtentiStore().find((u: any) => u.id === utenteId)!);
+    expect(utenteDopo.password).toBe(hashPrima); // nessuna password nuova impostata
+    expect(utenteDopo.email).toBe("mario.nuovo@acme.test"); // l'email non torna indietro da sola
+    expect(await anteprimaInvito({ token, adesso: T0 })).toBeNull(); // bruciato, come un token già usato
+    const eventi = await getTenantRepository().eventi(tenant.id);
+    expect(eventi.some(e => e.tipo === "invito_accettato")).toBe(false);
+  });
 });
 
 // I5 (revisione finale): senza APP_BASE_URL il link d'invito nasce dall'Host

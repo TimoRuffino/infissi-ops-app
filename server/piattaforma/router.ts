@@ -28,7 +28,7 @@ import {
   schemaPayloadStorage,
 } from "../tenants/comandi";
 import { SLUG_RE, TENANT_PREDEFINITO_ID } from "../tenants/costanti";
-import { getTenantRepository, payloadSenzaSegreti } from "../tenants/repository";
+import { getTenantRepository, invitoValido, payloadSenzaSegreti } from "../tenants/repository";
 import { eseguiComandoSubito } from "../tenants/servizio";
 import type { TenantComando, TipoComando } from "../tenants/tipi";
 import { confermaPassword } from "./accesso";
@@ -211,6 +211,16 @@ export const piattaformaRouter = router({
    * La risposta porta lo slug FINALE: quello nuovo se il cambio è riuscito,
    * altrimenti quello di partenza, così il chiamante sa sempre su quale
    * scheda restare (e il client naviga solo se davvero è cambiato).
+   *
+   * Task 3 fix round 1: «quello di partenza» copre DUE casi, non uno solo.
+   * Il primo è il rifiuto del dominio (`comando.stato === "errore"`, es.
+   * tenant 1). Il secondo è meno ovvio: `subito: true` fa aspettare
+   * `eseguiComandoSubito`, che ha un suo timeout — se il lock del giro dei
+   * 30s non si libera in tempo il comando resta `in_attesa` quando la
+   * risposta parte, `esito` è `null` e lo slug tornato è quello VECCHIO
+   * anche se il cambio potrebbe ancora succedere poco dopo, quando il giro
+   * dei 30s riprende quel comando. La risposta non lo sa: un chiamante che
+   * deve esserne sicuro rilegge `comando({id: comando.id})`.
    */
   modifica: piattaformaProcedure
     .input(
@@ -269,17 +279,23 @@ export const piattaformaRouter = router({
       const repo = getTenantRepository();
       const adesso = new Date();
       const inviti = await repo.invitiDi(t.id);
-      const pendente = inviti.find(
-        i => i.utenteId === esito.utenteId && !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > adesso.getTime()
-      );
+      const pendente = inviti.find(i => i.utenteId === esito.utenteId && invitoValido(i, adesso));
       if (!pendente) return { comando, invito: null };
 
-      await repo.annullaInvito(pendente.id);
+      // Fix round 1 (Task 3, revisione): `annullaInvito` torna `null` se fra
+      // la lettura di `inviti` qui sopra e questa chiamata qualcun altro lo
+      // ha già consumato (accettato) — una corsa vera, non solo teorica: lo
+      // stesso invito potrebbe essere aperto in una scheda dell'invito nello
+      // stesso istante. In quel caso non c'è nulla da annullare né da
+      // rimpiazzare: niente evento `invito_annullato` per un invito che non
+      // è stato toccato, niente reinvio sopra un accettato.
+      const annullato = await repo.annullaInvito(pendente.id);
+      if (!annullato) return { comando, invito: null };
       await repo.registraEvento({
         tenantId: t.id,
         tipo: "invito_annullato",
         attore: `piattaforma:${ctx.amministratore.email}`,
-        dettagli: { invitoId: pendente.id },
+        dettagli: { invitoId: annullato.id },
       });
       const invito = await invitaProprietario({
         tenantId: t.id,
