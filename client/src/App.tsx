@@ -243,10 +243,15 @@ function Router() {
                 </RequirePiattaforma>
               )}
             </Route>
+            {/* `key={params.slug}`: passando da un'azienda all'altra senza
+            uscire dalla rotta, React riuserebbe lo stesso componente e con
+            lui il suo stato — comandi lunghi in corso, dialoghi aperti,
+            l'ultimo esito mostrato — che appartengono all'azienda di prima.
+            Con la chiave la scheda si rimonta pulita. */}
             <Route path="/piattaforma/:slug">
-              {() => (
+              {params => (
                 <RequirePiattaforma>
-                  <AziendaDetail />
+                  <AziendaDetail key={params.slug} />
                 </RequirePiattaforma>
               )}
             </Route>

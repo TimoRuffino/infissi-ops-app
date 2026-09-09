@@ -6,6 +6,16 @@
 // (server/_core/trpc.ts), che rilegge l'utente dallo store e confronta
 // l'email con PLATFORM_ADMIN_EMAILS a ogni chiamata.
 
+/**
+ * L'azienda che possiede la piattaforma: si amministra come le altre, ma si
+ * dice — un badge nell'elenco, e le conferme in più su sospensione e
+ * ripristino. È lo stesso numero di `TENANT_PREDEFINITO_ID`
+ * (server/tenants/costanti.ts), che il client non può importare: il server
+ * non si importa dal browser. Sta qui, una volta sola, invece che ricopiato
+ * in ogni pagina che ne ha bisogno.
+ */
+export const TENANT_PIATTAFORMA_ID = 1;
+
 /** Esito della guardia visuale della piattaforma: attesa, accesso o rifiuto. */
 export type PiattaformaGate = "allowed" | "blocked" | "loading";
 

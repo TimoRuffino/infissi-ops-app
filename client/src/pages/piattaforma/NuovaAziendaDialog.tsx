@@ -155,9 +155,15 @@ export default function NuovaAziendaDialog({
     onOpenChange(apri);
   }
 
-  /** Il comando è fallito: si torna al modulo SENZA perdere quello che l'amministratore ha già scritto. */
+  /**
+   * Il comando è fallito: si torna al modulo SENZA perdere quello che
+   * l'amministratore ha già scritto — tranne la password, che si riscrive.
+   * Restare in uno stato React dopo un tentativo andato male non serve a
+   * nessuno, e la conferma vale per il tentativo che la porta.
+   */
   function riprova() {
     setEsito(null);
+    aggiorna({ password: "" });
     crea.reset();
   }
 

@@ -19,6 +19,7 @@ import { etichettaStato, etichettaTipo, tonoStato } from "@/components/abbonamen
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TENANT_PIATTAFORMA_ID } from "@/lib/piattaforma";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
@@ -32,9 +33,6 @@ import {
   riassuntoTars,
   tonoStatoAzienda,
 } from "./testi";
-
-/** L'azienda che possiede la piattaforma: si amministra come le altre, ma si dice. */
-const TENANT_PIATTAFORMA_ID = 1;
 
 /** La riga dell'elenco, come la restituisce `piattaforma.aziende`. */
 type Riga = inferRouterOutputs<AppRouter>["piattaforma"]["aziende"][number];

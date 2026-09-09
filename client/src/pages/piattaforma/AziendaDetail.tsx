@@ -39,6 +39,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatEuroSimbolo } from "@/lib/euro";
+import { TENANT_PIATTAFORMA_ID } from "@/lib/piattaforma";
 import { trpc } from "@/lib/trpc";
 
 import AzioniAbbonamento from "./AzioniAbbonamento";
@@ -64,9 +65,6 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 type Scheda = RouterOutputs["piattaforma"]["azienda"];
 type Comando = NonNullable<RouterOutputs["piattaforma"]["comando"]>;
 type TipoComando = Comando["tipo"];
-
-/** L'azienda che possiede la piattaforma (stesso `TENANT_PREDEFINITO_ID` del server). */
-const TENANT_PIATTAFORMA_ID = 1;
 
 const VARIANTE_ABBONAMENTO = {
   quieto: "secondary",

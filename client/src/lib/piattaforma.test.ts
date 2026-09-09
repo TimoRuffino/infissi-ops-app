@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { piattaformaGateLabel, slugSuggerito } from "./piattaforma";
+import { piattaformaGateLabel, slugSuggerito, TENANT_PIATTAFORMA_ID } from "./piattaforma";
 
 describe("piattaformaGateLabel", () => {
   it("aspetta finché l'identità è in volo", () => {
@@ -58,5 +58,13 @@ describe("slugSuggerito", () => {
   it("resta vuoto se non c'è niente da cui ricavarlo", () => {
     expect(slugSuggerito("")).toBe("");
     expect(slugSuggerito("!!!")).toBe("");
+  });
+});
+
+describe("TENANT_PIATTAFORMA_ID", () => {
+  it("è 1, come TENANT_PREDEFINITO_ID del server, e vive in un posto solo", () => {
+    // Il client non può importare server/tenants/costanti.ts: la costante è
+    // ricopiata, ma UNA volta — prima stava in due pagine (fix wave finale).
+    expect(TENANT_PIATTAFORMA_ID).toBe(1);
   });
 });
