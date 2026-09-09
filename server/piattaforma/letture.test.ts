@@ -175,4 +175,73 @@ describe("schedaAzienda", () => {
     await crea(inputAzienda("acme", "mario@acme.test"), SCRIPT);
     await expect(schedaAzienda("nessuna", T0)).resolves.toBeNull();
   });
+
+  // «Modifica azienda» (piano 09/09/2026, Task 3): i campi che il dialogo
+  // del pannello legge come valori di partenza.
+  it("fatturazione, note, sedePredefinita e, per il proprietario, telefono e invitoInSospeso", async () => {
+    const repo = getTenantRepository();
+    const acme = await crea(inputAzienda("acme", "mario@acme.test"), SCRIPT);
+    await repo.aggiornaTenant(acme.tenant.id, {
+      note: "cliente storico",
+      fatturazione: { partitaIva: "12345678901", pec: "acme@pec.it" },
+    });
+    conTenant(acme.tenant.id, () => {
+      const utente = getUtentiStore().find((u: any) => u.email === "mario@acme.test");
+      utente.telefono = "0187123456";
+    });
+    const { invito } = await repo.emettiInvito({
+      tenantId: acme.tenant.id,
+      utenteId: acme.utenteId,
+      email: "mario@acme.test",
+      tipo: "proprietario",
+      creatoDa: "piattaforma:test",
+      adesso: T0,
+    });
+
+    const scheda = await schedaAzienda("acme", T0);
+    expect(scheda!.note).toBe("cliente storico");
+    expect(scheda!.fatturazione).toMatchObject({ partitaIva: "12345678901", pec: "acme@pec.it" });
+    expect(scheda!.sedePredefinita).toEqual({ id: acme.sedeId, nome: "acme sede", citta: "Sarzana" });
+    expect(scheda!.proprietari).toEqual([
+      {
+        id: acme.utenteId,
+        nome: "Prop",
+        cognome: "acme",
+        email: "mario@acme.test",
+        attivo: true,
+        telefono: "0187123456",
+        invitoInSospeso: true,
+      },
+    ]);
+    expect(invito.email).toBe("mario@acme.test");
+  });
+
+  it("invitoInSospeso del proprietario è false quando l'invito è annullato o scaduto", async () => {
+    const repo = getTenantRepository();
+    const acme = await crea(inputAzienda("acme", "mario@acme.test"), SCRIPT);
+    const { invito } = await repo.emettiInvito({
+      tenantId: acme.tenant.id,
+      utenteId: acme.utenteId,
+      email: "mario@acme.test",
+      tipo: "proprietario",
+      creatoDa: "piattaforma:test",
+      adesso: T0,
+    });
+    await repo.annullaInvito(invito.id);
+
+    const scheda = await schedaAzienda("acme", T0);
+    expect(scheda!.proprietari[0]).toMatchObject({ invitoInSospeso: false });
+  });
+
+  it("sedePredefinita è null per un'azienda senza sedi", async () => {
+    const acme = await crea(inputAzienda("acme", "mario@acme.test"), SCRIPT);
+    conTenant(acme.tenant.id, () => {
+      const s = getSediStore();
+      s.splice(s.findIndex(x => x.id === acme.sedeId), 1);
+    });
+
+    const scheda = await schedaAzienda("acme", T0);
+    expect(scheda!.sedePredefinita).toBeNull();
+    expect(scheda!.sedi).toEqual([]);
+  });
 });

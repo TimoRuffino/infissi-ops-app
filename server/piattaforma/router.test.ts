@@ -287,6 +287,109 @@ describe("piattaformaRouter", () => {
     expect(String(o.comando.esito?.errore)).toContain("tenant 1");
   });
 
+  // «Modifica azienda» (piano 09/09/2026, Task 3): `modifica` e `modificaProprietario`.
+  it("modifica: password sbagliata → UNAUTHORIZED e nessun comando accodato", async () => {
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    await expect(
+      caller.modifica({ slug: "acme", nome: "Acme Nuovo", passwordConferma: "sbagliata-ma-lunga" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(await repo.comandiInAttesa()).toEqual([]);
+    expect(await repo.comandiDi(tenantId)).toEqual([]);
+    expect(repo.perSlug("acme")?.nome).toBe("Acme Infissi");
+  });
+
+  it("modifica: slug cambiato — azienda(nuovo) risponde, azienda(vecchio) dà NOT_FOUND", async () => {
+    const esito = await caller.modifica({ slug: "acme", nuovoSlug: "acme-nuovo", passwordConferma: PASSWORD });
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.slug).toBe("acme-nuovo");
+
+    await expect(caller.azienda({ slug: "acme" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const scheda = await caller.azienda({ slug: "acme-nuovo" });
+    expect(scheda.slug).toBe("acme-nuovo");
+  });
+
+  it("modifica: fatturazione salvata e leggibile tramite azienda", async () => {
+    const esito = await caller.modifica({
+      slug: "acme",
+      fatturazione: { partitaIva: "12345678901", pec: "acme@pec.it" },
+      passwordConferma: PASSWORD,
+    });
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.slug).toBe("acme");
+
+    const scheda = await caller.azienda({ slug: "acme" });
+    expect(scheda.fatturazione).toMatchObject({ partitaIva: "12345678901", pec: "acme@pec.it" });
+  });
+
+  it("modifica: slug del tenant 1 rifiutato dal dominio, comando in errore", async () => {
+    const esito = await caller.modifica({
+      slug: "ruffino-group",
+      nuovoSlug: "altro-nome",
+      passwordConferma: PASSWORD,
+    });
+    expect(esito.comando.stato).toBe("errore");
+    expect(String(esito.comando.esito?.errore)).toContain("tenant 1");
+    expect(esito.slug).toBe("ruffino-group"); // rifiutato: lo slug di partenza resta quello finale
+    expect(getTenantRepository().perSlug("ruffino-group")).not.toBeNull();
+  });
+
+  it("modificaProprietario: email nuova con invito pendente → il vecchio si annulla, ne parte uno nuovo, evento e invito nella risposta", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    const primo = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
+    const utenteId = conTenant(tenantId, () => getUtentiStore().find((u: any) => u.email === "mario@acme.test")!.id);
+
+    const esito = await caller.modificaProprietario({
+      slug: "acme",
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "mario.nuovo@acme.test",
+      passwordConferma: PASSWORD,
+    });
+
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.invito).toBeTruthy();
+    expect(esito.invito?.link).toContain("/invito/");
+    expect(esito.invito?.invito.email).toBe("mario.nuovo@acme.test");
+
+    const invitiFinali = await repo.invitiDi(tenantId);
+    const vecchio = invitiFinali.find(i => i.id === primo.invito.id)!;
+    expect(vecchio.annullatoIl).not.toBeNull();
+    const nuovo = invitiFinali.find(i => i.id === esito.invito!.invito.id)!;
+    expect(nuovo.utenteId).toBe(utenteId);
+    expect(nuovo.annullatoIl).toBeNull();
+
+    const eventi = await repo.eventi(tenantId);
+    expect(
+      eventi.some(e => e.tipo === "invito_annullato" && (e.dettagli as any)?.invitoId === primo.invito.id)
+    ).toBe(true);
+    expect(eventi.some(e => e.tipo === "invito_inviato" && (e.dettagli as any)?.invitoId === nuovo.id)).toBe(true);
+    expect(eventi.some(e => e.tipo === "proprietario_modificato")).toBe(true);
+  });
+
+  it("modificaProprietario: email invariata (solo maiuscole) → nessun invito toccato, invito null nella risposta", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+    const primo = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
+
+    const esito = await caller.modificaProprietario({
+      slug: "acme",
+      nome: "Mario",
+      cognome: "Rossi",
+      email: "MARIO@acme.test",
+      telefono: "0187123456",
+      passwordConferma: PASSWORD,
+    });
+
+    expect(esito.comando.stato).toBe("eseguito");
+    expect(esito.invito).toBeNull();
+    const invitoAncora = (await repo.invitiDi(tenantId)).find(i => i.id === primo.invito.id)!;
+    expect(invitoAncora.annullatoIl).toBeNull();
+  });
+
   it("ricalcolaStorage e ripristina in prova restano in coda e non chiedono la password", async () => {
     const r = await caller.ricalcolaStorage({ slug: "acme" });
     expect(r.comando.stato).toBe("in_attesa");

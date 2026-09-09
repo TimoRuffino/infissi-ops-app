@@ -20,6 +20,8 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import {
   schemaPayloadAbbonamento,
   schemaPayloadCrea,
+  schemaPayloadModificaProprietario,
+  schemaPayloadModificaTenant,
   schemaPayloadProprietario,
   schemaPayloadRipristino,
   schemaPayloadStato,
@@ -197,6 +199,96 @@ export const piattaformaRouter = router({
         baseUrl: baseUrlDa(ctx.req),
       });
       return { comando, omaggio, invito: esitoPubblico(invito) };
+    }),
+
+  /**
+   * Ragione sociale, slug, note, dati di fatturazione, prima sede
+   * («Modifica azienda», piano 09/09/2026, Task 3). `slug` individua
+   * l'azienda; `nuovoSlug`, se presente e diverso, la sposta di indirizzo —
+   * il tenant 1 non si tocca: il servizio rifiuta con
+   * `tenant1SlugIntoccabile` e qui arriva come un comando in errore, non
+   * diversamente da come le altre mutation mostrano un rifiuto del dominio.
+   * La risposta porta lo slug FINALE: quello nuovo se il cambio è riuscito,
+   * altrimenti quello di partenza, così il chiamante sa sempre su quale
+   * scheda restare (e il client naviga solo se davvero è cambiato).
+   */
+  modifica: piattaformaProcedure
+    .input(
+      conPassword({
+        ...schemaPayloadModificaTenant.omit({ slug: true }).shape,
+        slug: slugInput,
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      assicuraScrivibile();
+      confermaPassword(ctx.user as any, input.passwordConferma);
+      const t = tenantDaSlug(input.slug);
+      const { passwordConferma: _passwordConferma, ...payload } = input;
+      const comando = await accodaEdEsegui(
+        ctx,
+        "modifica_tenant",
+        t.id,
+        schemaPayloadModificaTenant.parse(payload),
+        true
+      );
+      const esito = comando.stato === "eseguito" ? (comando.esito as { tenantId: number; slug: string }) : null;
+      return { comando, slug: esito?.slug ?? input.slug };
+    }),
+
+  /**
+   * Nome, cognome, email, telefono del proprietario. Se l'email cambia e
+   * l'azienda ha per lui un invito ancora valido (non accettato), quel link
+   * punta a un indirizzo che non è più il suo: si annulla e se ne emette uno
+   * nuovo verso il nuovo indirizzo, come `invita` (R9: il link esce solo se
+   * la posta non è partita). Un proprietario che ha già accettato il suo
+   * invito non ne ha uno da rinnovare: cambiargli l'email non manda nulla.
+   */
+  modificaProprietario: piattaformaProcedure
+    .input(
+      conPassword({
+        ...schemaPayloadModificaProprietario.omit({ slug: true }).shape,
+        slug: slugInput,
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      assicuraScrivibile();
+      confermaPassword(ctx.user as any, input.passwordConferma);
+      const t = tenantDaSlug(input.slug);
+      const { passwordConferma: _passwordConferma, ...payload } = input;
+      const comando = await accodaEdEsegui(
+        ctx,
+        "modifica_proprietario",
+        t.id,
+        schemaPayloadModificaProprietario.parse(payload),
+        true
+      );
+      if (comando.stato !== "eseguito") return { comando, invito: null };
+      const esito = comando.esito as { tenantId: number; utenteId: number; emailCambiata: boolean };
+      if (!esito.emailCambiata) return { comando, invito: null };
+
+      const repo = getTenantRepository();
+      const adesso = new Date();
+      const inviti = await repo.invitiDi(t.id);
+      const pendente = inviti.find(
+        i => i.utenteId === esito.utenteId && !i.usatoIl && !i.annullatoIl && i.scadeIl.getTime() > adesso.getTime()
+      );
+      if (!pendente) return { comando, invito: null };
+
+      await repo.annullaInvito(pendente.id);
+      await repo.registraEvento({
+        tenantId: t.id,
+        tipo: "invito_annullato",
+        attore: `piattaforma:${ctx.amministratore.email}`,
+        dettagli: { invitoId: pendente.id },
+      });
+      const invito = await invitaProprietario({
+        tenantId: t.id,
+        utenteId: esito.utenteId,
+        attore: { tipo: "piattaforma", email: ctx.amministratore.email },
+        adesso,
+        baseUrl: baseUrlDa(ctx.req),
+      });
+      return { comando, invito: esitoPubblico(invito) };
     }),
 
   /**
