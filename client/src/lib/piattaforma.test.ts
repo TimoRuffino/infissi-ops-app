@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { piattaformaGateLabel, slugSuggerito, TENANT_PIATTAFORMA_ID } from "./piattaforma";
+import {
+  piattaformaGateLabel,
+  slugSuggerito,
+  slugValido,
+  TENANT_PIATTAFORMA_ID,
+} from "./piattaforma";
 
 describe("piattaformaGateLabel", () => {
   it("aspetta finché l'identità è in volo", () => {
@@ -66,5 +71,25 @@ describe("TENANT_PIATTAFORMA_ID", () => {
     // Il client non può importare server/tenants/costanti.ts: la costante è
     // ricopiata, ma UNA volta — prima stava in due pagine (fix wave finale).
     expect(TENANT_PIATTAFORMA_ID).toBe(1);
+  });
+});
+
+describe("slugValido", () => {
+  it("accetta le stesse forme di SLUG_RE (server/tenants/costanti.ts)", () => {
+    expect(slugValido("ruffino-group")).toBe(true);
+    expect(slugValido("hvuv")).toBe(true);
+    expect(slugValido("a")).toBe(true);
+    expect(slugValido("a1-b2-c3")).toBe(true);
+    expect(slugValido("a".repeat(40))).toBe(true);
+  });
+
+  it("rifiuta quello che il server rifiuterebbe, prima del viaggio", () => {
+    expect(slugValido("")).toBe(false);
+    expect(slugValido("-ruffino")).toBe(false);
+    expect(slugValido("ruffino-")).toBe(false);
+    expect(slugValido("Ruffino")).toBe(false);
+    expect(slugValido("ruffino group")).toBe(false);
+    expect(slugValido("ruffino_group")).toBe(false);
+    expect(slugValido("a".repeat(41))).toBe(false);
   });
 });
