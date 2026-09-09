@@ -3,7 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getClienteById } from "./clienti";
 import { getCommessaById } from "./commesse";
-import { assertSedeScope, isDirezione } from "../_core/permissions";
+import { assertSedeScope, isDirezione, recordOppureNotFound } from "../_core/permissions";
 import { authorizeCoreOperation } from "../authz/enforcement";
 import {
   TIPI_INTERVENTO,
@@ -324,8 +324,7 @@ export const interventiRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
-      if (idx === -1) throw new Error("Intervento non trovato");
-      assertSedeScope(interventi[idx], ctx.sedeId);
+      recordOppureNotFound(interventi[idx], ctx.sedeId);
       const parent = interventi[idx].commessaId == null
         ? null
         : getCommessaById(interventi[idx].commessaId);
@@ -374,8 +373,7 @@ export const interventiRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input);
-      if (idx === -1) throw new Error("Intervento non trovato");
-      assertSedeScope(interventi[idx], ctx.sedeId);
+      recordOppureNotFound(interventi[idx], ctx.sedeId);
       const parent = interventi[idx].commessaId == null
         ? null
         : getCommessaById(interventi[idx].commessaId);
@@ -410,8 +408,7 @@ export const interventiRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = interventi.findIndex((i) => i.id === input.id);
-      if (idx === -1) throw new Error("Intervento non trovato");
-      assertSedeScope(interventi[idx], ctx.sedeId);
+      recordOppureNotFound(interventi[idx], ctx.sedeId);
       const parent = interventi[idx].commessaId == null
         ? null
         : getCommessaById(interventi[idx].commessaId);

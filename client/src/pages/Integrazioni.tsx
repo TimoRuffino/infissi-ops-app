@@ -44,14 +44,17 @@ import {
   BookOpen,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { isDirezione } from "@/lib/roles";
+import { hasRuolo, isDirezione } from "@/lib/roles";
 import { presentFicSyncStats } from "@/lib/paymentView";
 import { trpc } from "@/lib/trpc";
 import { permessoNegato } from "@/lib/trpcErrors";
 import { toast } from "sonner";
+import AbbonamentoCard, {
+  ID_SCHEDA_ABBONAMENTO,
+} from "@/components/abbonamento/AbbonamentoCard";
 import CaselleEmailCard from "@/components/CaselleEmailCard";
 import WhatsAppCard from "@/components/WhatsAppCard";
 import TarsAgentCard from "@/components/tars/TarsAgentCard";
@@ -133,6 +136,43 @@ export default function Integrazioni() {
   // `permessoNegato` dentro ogni pannello restano come difesa in profondità.
   // Non è una capability e non va usato per decidere cosa può essere scritto.
   const canManage = isDirezione(user);
+  // Il contratto dell'azienda lo legge chi ce l'ha in mano: la direzione e il
+  // proprietario (WS1, ottavo ruolo), che non è detto abbia anche direzione.
+  const vedeAbbonamento = canManage || hasRuolo(user, "proprietario");
+  // Le notifiche degli abbonamenti linkano `/integrazioni?scheda=abbonamento`:
+  // atterrare in cima a una pagina lunga e cercare la scheda a occhio non è
+  // un arrivo, è un secondo compito.
+  const ricerca = useSearch();
+  const schedaChiesta = new URLSearchParams(ricerca).get("scheda");
+  const giaScrollato = useRef(false);
+  useEffect(() => {
+    if (schedaChiesta !== ID_SCHEDA_ABBONAMENTO) {
+      giaScrollato.current = false;
+      return;
+    }
+    // La scheda compare solo quando l'identità è arrivata: l'effetto ripassa
+    // a ogni cambio di `vedeAbbonamento` e si ferma al primo arrivo buono.
+    if (giaScrollato.current || !vedeAbbonamento) return;
+    giaScrollato.current = true;
+    const ridotto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const porta = () => {
+      const nodo = document.getElementById(ID_SCHEDA_ABBONAMENTO);
+      const contenitore = nodo?.closest("main");
+      if (!nodo || !contenitore) return;
+      const distanza =
+        nodo.getBoundingClientRect().top - contenitore.getBoundingClientRect().top;
+      if (Math.abs(distanza) <= 4) return; // già in cima: non si tocca nulla
+      nodo.scrollIntoView({ block: "start", behavior: ridotto ? "auto" : "smooth" });
+    };
+    porta();
+    // Appena montata, la pagina può essere ancora corta — ogni pannello è in
+    // caricamento — e il contenitore non ha abbastanza da scorrere: il primo
+    // tentativo arriverebbe a metà strada e resterebbe lì. Un secondo
+    // passaggio, quando i pannelli hanno preso la loro altezza, rimette la
+    // scheda in cima; due tentativi, non un inseguimento del layout.
+    const timer = window.setTimeout(porta, 600);
+    return () => window.clearTimeout(timer);
+  }, [schedaChiesta, vedeAbbonamento]);
   // Kill switch «limiti»: la UI nasconde la sezione, il server decide.
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
     staleTime: 300_000,
@@ -168,6 +208,15 @@ export default function Integrazioni() {
           </>
         }
       />
+
+      {vedeAbbonamento && (
+        <SezioneHub
+          titolo="Abbonamento e consumi"
+          descrizione="Il piano dell'azienda, la sua scadenza e quanto è stato consumato di spazio e di budget Tars. Proroghe e capacità aggiuntiva passano da chi gestisce la piattaforma."
+        >
+          <AbbonamentoCard />
+        </SezioneHub>
+      )}
 
       {canManage && (
         <SezioneHub

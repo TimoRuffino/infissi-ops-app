@@ -1,7 +1,7 @@
 // server/_core/persistence.tenant.test.ts
 // Senza DATABASE_URL: gli store vivono in memoria (loaded = true), il che
 // basta per provare famiglie, Proxy, chiavi e resolver.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   bootstrapAll,
   chiaveStore,
@@ -10,6 +10,7 @@ import {
   impostaResolverTenant,
   istanziaStoresPerTenant,
   persistedStore,
+  sostituisciStore,
   storeDi,
   tenantsNoti,
   __resetPersistenzaPerTest,
@@ -169,6 +170,42 @@ describe("persistence per tenant", () => {
     await bootstrapAll({ tenantIds: [1] });
     expect(s.items).toEqual([{ id: 1 }]);
     expect(s.prossimoId()).toBe(2);
+  });
+
+  it("sostituisciStore rimpiazza gli item dell'istanza, alza il contatore degli id e rifiuta globali e sconosciuti", async () => {
+    const s = persistedStore<any>("da_ripristinare");
+    // `sedi` è globale ma la registra il router: qui, che i router non li
+    // importa, una famiglia globale qualsiasi prova la stessa cosa.
+    persistedStore<any>("globale_x", undefined, { ambito: "globale" });
+    await bootstrapAll({ tenantIds: [1, 2] });
+    tenant = 2;
+    s.items.push({ id: 3 });
+    await sostituisciStore(2, "da_ripristinare", [{ id: 10 }, { id: 11 }]);
+    expect(storeDi(2, "da_ripristinare")).toEqual([{ id: 10 }, { id: 11 }]);
+    expect(s.prossimoId()).toBe(12);
+    expect(storeDi(1, "da_ripristinare")).toEqual([]);
+    await expect(sostituisciStore(2, "globale_x", [])).rejects.toThrow(/globale/);
+    await expect(sostituisciStore(2, "inesistente", [])).rejects.toThrow(/sconosciuto/);
+  });
+
+  it("sostituisciStore senza DATABASE_URL avverte che la sostituzione resta in memoria", async () => {
+    // Qui non c'è database: la sostituzione vale comunque (test e sviluppo
+    // locale girano così), ma chi la chiede deve leggere che a disco non è
+    // arrivato niente — un ripristino «riuscito» solo in RAM sparisce al
+    // primo riavvio.
+    persistedStore<any>("solo_in_memoria");
+    await bootstrapAll({ tenantIds: [1, 2] });
+    const spia = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let avvisi = "";
+    try {
+      await sostituisciStore(2, "solo_in_memoria", [{ id: 4 }]);
+      // Letti PRIMA di `mockRestore()`, che azzera anche `mock.calls`.
+      avvisi = spia.mock.calls.flat().join(" ");
+    } finally {
+      spia.mockRestore();
+    }
+    expect(storeDi(2, "solo_in_memoria")).toEqual([{ id: 4 }]);
+    expect(avvisi).toContain("sostituisciStore tenant:2:solo_in_memoria: nessun DATABASE_URL");
   });
 
   it("senza resolver: nei test ripiega sul tenant 1, fuori dai test è un errore", () => {

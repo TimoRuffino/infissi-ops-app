@@ -3,11 +3,209 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 08/09/2026<br>
+**Aggiornato:** 09/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://crm-ruffinogroup.up.railway.app<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 08/09/2026 — WS4 «abbonamenti»: su branch.** Dal branch del WS3
+> (`feature/ws3-file-integrazioni` @ `a44fc37`) nasce
+> `feature/ws4-abbonamenti`, dove i 9 task del piano
+> (`docs/superpowers/plans/2026-09-08-ws4-abbonamenti.md`) sono implementati e
+> committati (`bb2f147`…`d335a68`). La revisione dell'intero branch ha poi
+> prodotto una **fix wave finale** (09/09/2026, `fa5b8be`…`3a5cf0b`): la suite
+> era rossa per un orologio non finto in un blocco di test (la deduplicazione
+> «un evento al giorno» confrontava `adesso` col `createdAt` vero), e ne sono
+> usciti tre ruling nuovi — R15, R16, R17, qui sotto. Finché la PR #7 del WS3
+> non è fusa, questo branch **contiene anche tutto il WS3**. **Nessun push,
+> nessun merge su `main` da qui, PR ancora da aprire**: il merge è una
+> decisione della direzione.
+> **Che cosa cambia.** Ogni azienda ha un **abbonamento** nel control plane
+> (tabella `abbonamenti`, una riga per tenant): tipo `paid`/`complimentary`,
+> stati `trialing|active|past_due|grace|suspended|cancelled`, periodo, budget
+> Tars del mese, extra del mese, tolleranze, disdetta, omaggio. Un'azienda
+> nuova nasce **in prova per 30 giorni** con 25 €/mese di Tars incluso e
+> tolleranze 7/7; Ruffino Group nasce **omaggio senza scadenza e senza tetto
+> per azienda**, ed è intoccabile da omaggio, proroga e disdetta. Un worker
+> ogni 6 ore — avviato **solo dopo `server.listen`**, mai dal boot — avvisa a
+> 7, 3 e 1 giorno dalla scadenza (una volta ciascuno), poi porta a `past_due`
+> e, dopo 7 giorni, a `suspended`, cioè alla **sola lettura** del WS1
+> (`motivoStato` = «abbonamento: …», il marcatore che distingue la chiusura
+> del dominio da una sospensione decisa a mano). Si riapre con `--omaggio` o
+> `--proroga`, **non** con `stato --riattiva`: quella riapre l'azienda
+> lasciando il contratto sospeso, e il giro successivo del worker la
+> **risospende** (R15, «abbonamento: contratto sospeso, azienda risultava
+> attiva»). Una sospensione senza quel marcatore — la mano dell'operatore, o
+> il «ripristino archivi in corso» del WS3 — non viene invece toccata.
+> **Le due risorse misurate ora fermano.** Lo spazio: superata la quota, un
+> timbro `tenant_storage.soglia_100_dal` fa partire la tolleranza (7 giorni),
+> dopo la quale `putFile` rifiuta ogni caricamento nuovo con
+> `PRECONDITION_FAILED` «Spazio esaurito: l'azienda ha superato i `<N>` GB
+> inclusi…»; l'errore **si propaga** dai cinque siti di upload, che prima
+> ripiegavano sul base64 inline o lo riavvolgevano in un errore generico — un
+> ripiego pensato per lo storage non durevole avrebbe aggirato il blocco.
+> Tars: `tars_costi` conta ora **per azienda e per mese**, il governor riceve
+> una politica iniettata dal control plane (`limite` e `dopoPrenotazione`),
+> soglie 50/80/100 % e, dopo la tolleranza, il rifiuto `limite: "azienda"` con
+> «Tars ha esaurito il budget mensile dell'azienda…». Si ferma solo ciò che
+> costa; i tetti globali `TARS_*` restano come rete della piattaforma.
+> **Comandi nuovi:** `pnpm tenant abbonamento --slug=… <una azione>
+> [--motivo=…] [--scrivi] [--attendi]` con `--omaggio [--scadenza=AAAA-MM-GG]`,
+> `--proroga=<gg>`, `--quota-gb=<n>`, `--budget-tars-eur=<n|nessuno>`,
+> `--extra-tars-eur=<n>`, `--tolleranza-storage=<gg>`, `--tolleranza-tars=<gg>`,
+> `--disdetta`/`--annulla-disdetta`; `pnpm tenant elenco` stampa la riga
+> dell'abbonamento. Env nuove, entrambe con un default: `SAAS_BUDGET_TARS_EUR_MESE`
+> (25; `0` è valido) e `SAAS_CAMBIO_EUR_USD` (1.08). La sonda dello script
+> chiede ora **sette** tabelle: si aggiunge `abbonamenti`.
+> **Che cosa vede l'azienda:** query `tenants.abbonamento` e `tenants.consumi`
+> (budget ed extra in euro solo a proprietario e direzione), una riga d'avviso
+> nelle due shell — solo a interruttore acceso — e la scheda «Abbonamento e
+> consumi» in Integrazioni, visibile anche a interruttore spento, dove mostra
+> l'omaggio di Ruffino Group. **Nessun pulsante di pagamento:** il provider
+> resta «nessuno» dietro l'adattatore `server/abbonamenti/provider.ts`, che
+> però consuma già eventi normalizzati e idempotenti — è il punto in cui
+> entreranno checkout e webhook. Le cinque notifiche (avviso, insoluto,
+> sospeso, storage, Tars) si scrivono **direttamente** nel repository delle
+> notifiche, per proprietari e direzione, e **solo dove `notificationMode`
+> della sede è `active`** (default `legacy`, e l'endpoint di scrittura dei
+> flag non esiste: §13): dove non lo è, gli stati si muovono lo stesso ma
+> nessuno riceve la notifica.
+> **A `FLAG_MULTI_AZIENDA` spento** non parte il worker, non blocca niente,
+> non esiste alcun tetto per azienda: le sole aggiunte sono le tabelle, la
+> colonna e la riga omaggio del tenant 1. **Rollback = redeploy del build
+> precedente**, senza eccezioni: tutto il WS4 è additivo.
+> **Decisioni d'esecuzione:** venti (tre pre-volo, R1–R14 durante i task,
+> R15–R17 dalla fix wave finale), registrate nella spec
+> `docs/superpowers/specs/2026-09-08-ws4-abbonamenti-design.md`
+> **§2-bis** con motivo e costo se sbagliate; registro esteso in
+> `.superpowers/sdd/2026-09-08-ws4-abbonamenti/progress.md`. Le più pesanti:
+> `ErroreQuotaStorage` si propaga sempre dai siti di upload, mai il ripiego
+> inline (R10); il worker parte solo dopo il `listen` (R7); `pnpm tenant crea`
+> è idempotente **anche per l'abbonamento**, così un'azienda non resta senza
+> contratto, e il worker segnala chi non ce l'ha invece di ripararlo da solo
+> (R8); un pagamento verificato azzera sempre insoluto e omaggio, anche senza
+> periodo (R9); la proroga riporta il contratto a prova piena (R3, R6).
+> Le tre della fix wave: **R15**, l'abbonamento è la fonte di verità — un
+> contratto `suspended`/`cancelled` con l'azienda attiva viene risospeso dal
+> giro successivo (sopra); **R16**, il tenant 1 non si blocca mai per lo
+> spazio, come già non ha un tetto Tars: le soglie lo avvisano, `--quota-gb`
+> resta la leva; **R17**, la migrazione dei record legacy passa da `putFile`,
+> quindi rispetta il blocco — si ferma al primo rifiuto col messaggio della
+> quota, senza toccare nessun `dataBase64`.
+> **Verificato dopo la fix wave:** `pnpm check` pulito, `pnpm test` 3276 verdi
+> su 313 file (78 saltati), `pnpm build` riuscito, e i test su Postgres vero
+> rieseguiti a parte contro il Docker locale (19 casi in tre file).
+> **Un incidente da sapere:** alle 20:47 dell'08/09 il ref del branch WS4 è
+> stato fatto avanzare per errore su un merge del branch WS5 di un'altra
+> sessione; rimediato con un reset a `873b6c6` e il cherry-pick del fix
+> (`3c49d1c`). Il branch WS5 è rimasto com'era: **quella sessione dovrà
+> rifondere il WS4 aggiornato**.
+> **Verificato:** `pnpm check`, `pnpm test` e `pnpm build`; test su Postgres
+> vero per il control plane e per il ledger dei costi con due aziende;
+> interfaccia a 1440 e 390 con il login demo dell'anteprima (nessuno scroll
+> orizzontale, console pulita). **Non verificato:** nulla distribuito su
+> Railway, nessun pagamento reale (il provider non esiste), nessuna prova con
+> un'azienda vera oltre la quota. Runbook: `docs/runbooks/multi-azienda.md`,
+> sezione «WS4 — abbonamenti, quota che blocca, budget Tars per azienda». PRD
+> §60.12 (v5.66). Voce 21 del debito aggiornata.
+
+> **Novità 08/09/2026 — WS3 «file, backup, credenziali e guasti per
+> azienda»: su branch.** WS1 e WS2 sono stati fusi in `main` dalla direzione
+> l'08/09 (PR #3 e #5); da lì nasce `feature/ws3-file-integrazioni`, dove i
+> 13 task del piano
+> (`docs/superpowers/plans/2026-09-08-ws3-file-integrazioni.md`) sono
+> implementati e committati (`cea968e`…`3c9b2e3`; poi la fusione `212bf6f` e l'ondata di fix `33c6056`/`1f33a4f`). Poi `origin/main` è stato
+> **fuso nel branch** (merge `212bf6f`: grafia Wyndoor, allegati dei messaggi
+> come documenti, media WhatsApp, Tars che legge gli allegati), il branch
+> intero è andato in revisione e una fix wave ha chiuso i quattro punti
+> importanti usciti da lì (v. «Revisione finale» qui sotto). **Nessun push,
+> nessun merge su `main` da qui, PR ancora da aprire**: il merge è una
+> decisione della direzione.
+> **Che cosa cambia.** I file **nuovi** nascono sotto `tenant/<id>/…` per
+> ogni azienda, tenant 1 compreso; le chiavi nude restano di Ruffino Group e
+> non si spostano, e in lettura una chiave di un'altra azienda torna `null`
+> («non trovato»). Un ledger `tenant_storage` conta byte e file per azienda —
+> aggiornato da `putFile`/`deleteFileQuiet`, rifatto su comando — e avvisa al
+> 50, 80 e 100 % di `tenants.storage_quota_bytes` (100 GiB) con l'evento
+> `storage_soglia`: **avvisa, non blocca**. `backup_config`, `backup_oauth` e
+> `backup_log` diventano store **per azienda** (i globali scendono a quattro:
+> `sedi`, `utenti`, i due flag di piattaforma): ogni azienda collega il
+> proprio Drive da Integrazioni, il refresh token vive **cifrato**
+> (`MAIL_ENCRYPTION_KEY`), la cartella radice è «Backup CRM Ruffino» per il
+> tenant 1 e «Backup Wyndoor — `<nome azienda>`» per le altre, e l'albero
+> contiene solo l'azienda del contesto (`Utenti.json` per azienda: chiuso il
+> difetto lasciato dal WS2). Il giro notturno passa da `perOgniTenantAttivo`,
+> coi tre ritentativi per azienda; i ripieghi service account e disco locale
+> restano solo per Ruffino Group. Nuovo: il **ripristino degli archivi** dal
+> Drive dell'azienda come comando eseguito dal server, in prova e poi vero
+> (sospende l'azienda, sostituisce gli store, la riattiva); i file non si
+> ricaricano. Gli `state` OAuth (Drive e Fatture in Cloud) stanno in
+> `oauth_state`, legati ad azienda, sede e utente, e non muoiono più a ogni
+> deploy. Il webhook WhatsApp verifica la firma e poi instrada **per
+> `phone_number_id`** fra le aziende attive (numero sconosciuto → `200` e
+> log; l'errore di un numero non ferma gli altri). `perOgniTenantAttivo` ha
+> un interruttore per (worker, azienda): 3 errori consecutivi → 15, 30, 60,
+> 120 minuti di salto, eventi `worker_sospeso`/`worker_riarmato`, visibili in
+> `pnpm tenant elenco`. **Questo si vede anche a `FLAG_MULTI_AZIENDA`
+> spento** (solo tenant 1): è l'unico comportamento del WS3 non invisibile in
+> mono-azienda — un'integrazione rotta smette di riprovare a ogni giro e
+> riparte dopo l'attesa; un riavvio riarma. Il giro notturno **salta**
+> l'azienda che non ha collegato il suo Drive (log, nessun tentativo, nessun
+> errore) e fa invece contare all'interruttore un backup fallito tre volte. I **98** «non trovato» rimasti nei 19 router passano
+> a `recordOppureNotFound`/`oppureNotFound` (`NOT_FOUND` «Risorsa non
+> trovata.»), con guardia strutturale: il debito aperto dal WS2 è chiuso.
+> **Comandi nuovi:** `pnpm tenant storage --slug=… [--ricalcola --scrivi]` e
+> `pnpm tenant ripristina --slug=… --backup=<AAAA-MM-GG|folderId>
+> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]`; `pnpm tenant
+> elenco` mostra i worker sospesi. Lo script
+> `migrate-documents-to-storage.ts` accetta `--tenant=<id>` come gli altri —
+> con l'interruttore **spento** `--tenant=2` non fallisce, lavora sul tenant
+> 1 (è il resolver a decidere: scritto nel runbook).
+> **Rollback: un punto non additivo.** Il refresh token del Drive viene
+> cifrato al primo caricamento e il codice precedente non lo rilegge: tornare
+> al build di prima significa **ricollegare il Drive** di ogni azienda che lo
+> aveva collegato. Tutto il resto (chiavi col prefisso, `tenant_storage`,
+> `oauth_state`, `storage_quota_bytes`) è additivo e innocuo per il codice
+> vecchio.
+> **Decisioni d'esecuzione:** quindici più due pre-volo, più quattro della
+> fix wave finale, registrate nella
+> spec `docs/superpowers/specs/2026-09-08-ws3-file-integrazioni-design.md`
+> **§2-bis «Decisioni in corso d'opera»** (pre-1, pre-2, R1…R19) con motivo e
+> costo se sbagliate; registro esteso in
+> `.superpowers/sdd/2026-09-08-ws3-file-integrazioni/progress.md`. Le più
+> pesanti: `sostituisciStore` scrive sotto il lock e **propaga** l'errore —
+> senza, un ripristino fallito avrebbe riferito successo e riattivato
+> l'azienda (R12); il ripristino **rifiuta** quando non c'è niente da
+> sostituire, invece di fermare l'azienda per nulla (R11); gli archivi
+> ripristinati non passano da `onLoad`, quindi l'esito porta un'avvertenza e
+> il runbook chiede il riavvio se il backup è più vecchio del codice (R13);
+> lo specchio su file `data/backup-oauth*.json` è spento sotto test — un giro
+> di `pnpm test` aveva cifrato il token vero con la chiave di prova (R6).
+> **Revisione finale del branch intero (08/09).** Nessun Critical; quattro
+> Important, tutti chiusi da una fix wave sul branch: (1) l'interruttore del
+> worker `backup` non poteva scattare — `runBackup` scrive l'errore nel log e
+> non lancia — e un'azienda senza Drive collegato bruciava 40 minuti di
+> attese davanti alle altre ogni notte (R16); (2) una gara al primo boot: un
+> `putFile` fra `preparaTenants()` e il ricalcolo iniziale creava la riga del
+> ledger e quell'azienda restava senza ricalcolo per sempre — ora si guarda
+> il timbro `ricalcolatoIl`, non la riga (R17); (3) il backoff dei worker
+> vale anche a interruttore spento e non era scritto da nessuna parte (R18,
+> sola documentazione); (4) il ramo SQL del ricalcolo non era esercitato da
+> nessun test pg, e non tollerava una colonna `tenant_id` non ancora
+> aggiunta (R19). Con loro, undici minori: sei tabelle nel messaggio di
+> schema assente, `pulisciStateScaduti()` collegata al boot, `misura()` che
+> non conta un file assente, `deleteFileQuiet` con due `catch` distinti, due
+> punti di `tars.ts`, i gradini 60/120 dell'interruttore asseriti,
+> `pnpm tenant elenco` che legge solo gli ultimi 200 eventi, il `CHECK` di
+> `tenant_comandi` rifatto solo se serve.
+> **Verificato:** `pnpm check`, `pnpm test` (3131 test verdi, suite intera) e
+> `pnpm build`; test su Postgres vero per ledger, ricalcolo e ripristino
+> (`--no-file-parallelism`); backup con due aziende e Drive finti. **Non
+> verificato:** nulla distribuito su Railway, nessun collegamento OAuth reale
+> di una seconda azienda, nessuna verifica a schermo (il WS3 non tocca il
+> client). Runbook:
+> `docs/runbooks/multi-azienda.md`, sezione «WS3 — file, backup, credenziali
+> e guasti per tenant». PRD §60.11 (v5.65). Voce 21 del debito aggiornata.
 > **Novità 08/09/2026 (sera) — il salto: l'analisi può chiedere** (piano
 > `docs/superpowers/plans/2026-09-08-tars-piu-intelligente.md`, punto 19,
 > decisione D4 «senza tetto»; PRD §54.17). Prima di rispondere il modello
@@ -900,7 +1098,29 @@ pnpm storage:migrate
 - La migrazione è idempotente, rileggibile e protetta dal requisito di un
   backup Drive riuscito nelle ultime 24 ore.
 
-La procedura completa R2 è in `docs/storage-r2.md`.
+**Dal WS3 (branch `feature/ws3-file-integrazioni`, non su `main`): file e
+backup sono per azienda.** I file nuovi nascono sotto `tenant/<id>/…` (ogni
+azienda, tenant 1 compreso); le chiavi nude restano quelle di Ruffino Group
+e una lettura fuori dalla propria azienda torna «non trovato». Un ledger
+`tenant_storage` conta byte e file per azienda e avvisa al 50, 80 e 100 %
+della quota (100 GiB di default) **senza bloccare** gli upload; si legge e
+si rifà con `pnpm tenant storage --slug=… [--ricalcola --scrivi]`. Il
+backup **non è più dell'installazione**: `backup_config`, `backup_oauth` e
+`backup_log` sono store per azienda, ogni azienda collega il proprio Drive
+da Integrazioni (refresh token cifrato con `MAIL_ENCRYPTION_KEY`), la
+cartella radice è «Backup CRM Ruffino» per il tenant 1 e «Backup Wyndoor —
+`<nome azienda>`» per le altre, e l'albero contiene solo l'azienda del
+contesto — `Utenti.json` compreso. `backup_log` e `backup_oauth` non entrano
+nel dump. Il giro notturno passa per ogni azienda attiva, coi tre
+ritentativi per azienda; service account e disco locale restano ripieghi del
+solo tenant 1 (un'altra azienda senza OAuth fallisce e lo dice). Nuovo:
+`pnpm tenant ripristina` riporta gli **archivi** di un'azienda a un backup
+del suo Drive, prima in prova e poi davvero (i file non si ricaricano).
+**Attenzione al rollback:** la cifratura del refresh token è a senso unico,
+il codice precedente non lo rilegge e il Drive va ricollegato.
+
+La procedura completa R2 è in `docs/storage-r2.md`; la parte per azienda e
+l'ordine di rilascio sono in `docs/runbooks/multi-azienda.md`.
 
 ### Azione ancora necessaria in produzione
 
@@ -4778,8 +4998,9 @@ a vuoto e dice «57 saltati»).
     campo per campo in un pomeriggio. Chiuso oggi: la provenienza e la
     confidenza OCR ora si vedono nella vignetta «Dove l'ho letto».
 
-21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2
-    implementati su branch il 07/09, non su `main`.**
+21. **SaaS multi-azienda (06/09/2026): design approvato; WS1 e WS2 su
+    `main` dall'08/09/2026, WS3 e WS4 implementati su branch lo stesso
+    giorno.**
     Spec `docs/superpowers/specs/2026-09-06-saas-multi-azienda-design.md`,
     PRD §60. Da fissare fuori dal codice prima del go-live: prezzo mensile e
     annuale, budget Tars incluso, tolleranze di storage e Tars, prezzo degli
@@ -4921,6 +5142,77 @@ a vuoto e dice «57 saltati»).
     e PR è della direzione. Il gemello PDF del PRD
     (`PRD_infissi_ops_v4.pdf`) non è stato rigenerato in questa fusione.
 
+    **08/09/2026: WS1 e WS2 fusi in `main` (PR #3 e #5); WS3 codificato su
+    branch, PR da aprire.** Il branch `feature/ws3-file-integrazioni` nasce
+    da `main` dopo quelle due fusioni e porta i 13 task del piano
+    (`cea968e`…`3c9b2e3`, più la fusione di `origin/main` `212bf6f` e una
+    fix wave dopo la revisione finale): chiavi dello storage col prefisso dell'azienda
+    (legacy intatte) e cintura in lettura, ledger `tenant_storage` con
+    soglie 50/80/100 % che **avvisano e non bloccano**, backup per azienda
+    sul Drive dell'azienda con refresh token cifrato e albero filtrato,
+    ripristino degli archivi come comando provato (`pnpm tenant
+    ripristina`), `state` OAuth in `oauth_state`, webhook WhatsApp
+    instradato per numero, interruttore per (worker, azienda) e i 98 «non
+    trovato» dei router portati a `NOT_FOUND`. Dei punti aperti elencati
+    sopra, il WS3 chiude **(8)** e **(9)**, la parte di **(7)** su chiavi e
+    conteggio dei byte — le cancellazioni restano quelle di oggi, nessuna
+    cascata nuova per allegati mail, `fatture_xml/pdf` e anteprime — e la
+    parte di **(10)** che riguarda l'isolamento del guasto (lease e
+    dead-letter restano aperti). Restano al WS4 **(11)** (budget Tars per
+    azienda: oggi i tetti sono somme globali in `tars_costi`, un'azienda può
+    esaurirli per tutte), la quota che blocca, gli abbonamenti e l'export;
+    **(12)–(16)** restano per WS4–WS6. Chiuso qui il debito lasciato dal
+    WS2 (i 96/98 «non trovato» a 500). **Rollback non del tutto additivo:**
+    il refresh token del Drive è cifrato a senso unico, tornare al build
+    precedente impone di ricollegare il Drive di ogni azienda. **Una cosa si
+    vede anche a interruttore spento** (revisione finale, R18): il backoff
+    per (worker, azienda) gira con la sola Ruffino Group, quindi
+    un'integrazione rotta smette di riprovare a ogni giro e riparte dopo
+    15/30/60/120 minuti — è nel runbook e nel PRD, perché non venga scambiato
+    per un guasto nuovo. Le diciannove decisioni d'esecuzione (più due
+    pre-volo) sono nella spec §2-bis; PRD
+    §60.11 (v5.65); runbook `docs/runbooks/multi-azienda.md`, sezione «WS3
+    — file, backup, credenziali e guasti per tenant». `pnpm
+    check`/`test`/`build` verdi (suite intera: 3131 test, HEIC compresi),
+    test su Postgres vero per ledger, ricalcolo e ripristino; nulla
+    distribuito su Railway, nessuna verifica a schermo (il WS3 non tocca il
+    client).
+
+    **08/09/2026, sera: WS4 «abbonamenti» codificato su branch, PR da
+    aprire.** `feature/ws4-abbonamenti` nasce dal branch del WS3 (@
+    `a44fc37`) e porta i 9 task del piano
+    (`docs/superpowers/plans/2026-09-08-ws4-abbonamenti.md`,
+    `bb2f147`…`d335a68`): tabella `abbonamenti` nel control plane, prova
+    gratuita di 30 giorni alla creazione dell'azienda, omaggio e proroga,
+    avvisi 7/3/1, insoluto e sola lettura dopo 7 giorni, quota storage che
+    **blocca** i caricamenti dopo la tolleranza, budget Tars **per azienda**
+    contato in `tars_costi` e applicato dal governor con una politica
+    iniettata, notifiche a proprietari e direzione, query
+    `tenants.abbonamento`/`tenants.consumi`, avviso nella shell e scheda
+    «Abbonamento e consumi», comandi `pnpm tenant abbonamento`. Dei punti
+    aperti elencati sopra, il WS4 chiude **(11)** (i tetti Tars non sono più
+    solo globali: ogni azienda ha il suo, e i `TARS_*` restano come rete
+    della piattaforma) e la parte di **(7)** che restava sulla quota — che
+    ora blocca invece di limitarsi ad avvisare. Restano aperti **(12)–(16)**
+    e, del §60 madre, l'**export aziendale** del proprietario in sola
+    lettura (WS6). **Il provider di pagamento non è ancora scelto:** esiste
+    solo l'adattatore con l'implementazione «nessuno» — niente checkout,
+    niente portale, niente webhook, nessun pulsante di pagamento; un'azienda
+    si riapre a mano con omaggio o proroga. Prezzo del canone, budget Tars
+    incluso e prezzo degli extra restano da fissare fuori dal codice, come
+    sopra: nel codice sono `SAAS_BUDGET_TARS_EUR_MESE` (25) e
+    `SAAS_CAMBIO_EUR_USD` (1.08). Diciassette decisioni d'esecuzione nella
+    spec §2-bis; PRD §60.12 (v5.66); runbook `docs/runbooks/multi-azienda.md`,
+    sezione «WS4 — abbonamenti, quota che blocca, budget Tars per azienda».
+    `pnpm check`/`test`/`build` verdi, test su Postgres vero, interfaccia
+    verificata a 1440 e 390 col login demo; nulla distribuito su Railway.
+    **PR verso `main` ancora da aprire**, e da aprire dopo (o insieme a)
+    quella del WS3: finché la #7 non è fusa, la PR del WS4 contiene anche il
+    WS3. **Da sapere sul WS5:** spec e piano dell'onboarding self-service
+    esistono già su un ALTRO worktree (`gestionale-integrazioni-semplify-90a470`),
+    scritti da un'altra sessione, codice non iniziato; quel branch aveva
+    fuso il WS4 a metà (`873b6c6`) e dovrà rifonderlo aggiornato. Non
+    avviare il WS5 da qui senza coordinarsi con la direzione.
 22. **Pagina Tars riscritta come coda di decisioni (08/09/2026)**: su
     `main` (PRD §62). Le proposte si leggono come azioni — il testo lo
     prepara `client/src/lib/tarsDecisioniView.ts`, puro e con 22 test — e

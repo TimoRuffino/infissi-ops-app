@@ -150,7 +150,7 @@ describe("cost hardening — end to end nel runtime", () => {
         chiamateSottostanti += 1;
         return rispostaTesto("non dovrebbe accadere");
       }),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId, tenantId: 1 },
       { configurazione: configurazioneMinima, ledger }
     );
 
@@ -180,7 +180,7 @@ describe("cost hardening — end to end nel runtime", () => {
         chiamateSottostanti += 1;
         return rispostaTesto("mai");
       }),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId, tenantId: 1 },
       { configurazione: configurazioneMinima, ledger }
     );
     for (let i = 0; i < 4; i++) {
@@ -230,7 +230,7 @@ describe("cost hardening — end to end nel runtime", () => {
         // Consumo reale alto: dopo la 1ª chiamata il tetto per-run è pieno.
         uso: { input: 5_000, output: 1_200, cachedInput: 0, cacheWrite: 0 },
       })),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId, tenantId: 1 },
       { configurazione, ledger }
     );
 
@@ -273,7 +273,7 @@ describe("cost hardening — end to end nel runtime", () => {
     };
     const governato = avvolgiConGovernor(
       creaProviderFinto(() => rispostaTesto("ok")),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId, tenantId: 1 },
       { configurazione, ledger }
     );
     await eseguiRun({
@@ -362,7 +362,7 @@ describe("cost hardening — end to end nel runtime", () => {
               },
             };
       }),
-      { sedeId: contesto.sedeId, utenteId: contesto.utenteId },
+      { sedeId: contesto.sedeId, utenteId: contesto.utenteId, tenantId: 1 },
       { configurazione, ledger }
     );
     const esito = await eseguiRun({

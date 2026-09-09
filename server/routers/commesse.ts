@@ -9,6 +9,8 @@ import {
 import { getUtentiStore } from "./utenti";
 import {
   assertSedeScope,
+  oppureNotFound,
+  recordOppureNotFound,
   requireDirezione,
   requireDirezioneOAmministrazione,
   isAmministrazione,
@@ -963,8 +965,7 @@ export const commesseRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "commesse.update",
@@ -1072,9 +1073,7 @@ export const commesseRouter = router({
           [_store, storeTransizioniCommessa],
           async commit => {
             const indiceCorrente = commesse.findIndex(commessa => commessa.id === id);
-            if (indiceCorrente === -1) throw new Error("Commessa non trovata");
-            const precedente = commesse[indiceCorrente];
-            assertSedeScope(precedente, ctx.sedeId);
+            const precedente = recordOppureNotFound(commesse[indiceCorrente], ctx.sedeId);
             const { stato: statoRichiesto, ...patchNonState } = updates;
             if (
               statoRichiesto !== undefined &&
@@ -1154,8 +1153,7 @@ export const commesseRouter = router({
     .input(z.object({ id: z.number(), dataConsegna: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.id);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       commesse[idx] = {
         ...commesse[idx],
         dataConsegnaConfermata: input.dataConsegna,
@@ -1169,8 +1167,7 @@ export const commesseRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "commesse.delete",
@@ -1317,8 +1314,7 @@ export const commesseRouter = router({
       requireDirezioneOAmministrazione(ctx.user);
       const c = commesse.find((x) => x.id === input.commessaId);
       assertSedeScope(c, ctx.sedeId);
-      const co = (c!.costi ?? []).find((x: any) => x.id === input.costoId);
-      if (!co) throw new Error("Costo non trovato");
+      const co = oppureNotFound((c!.costi ?? []).find((x: any) => x.id === input.costoId));
       if (input.importo !== undefined) {
         // Una persona decide l'importo: da qui in poi nessuna rilettura della
         // conferma d'ordine lo tocca più (server/commesse/costoDaConferma.ts).
@@ -1343,7 +1339,7 @@ export const commesseRouter = router({
       assertSedeScope(c, ctx.sedeId);
       if (!Array.isArray(c!.costi)) c!.costi = [];
       const ci = c!.costi.findIndex((x: any) => x.id === input.costoId);
-      if (ci === -1) throw new Error("Costo non trovato");
+      oppureNotFound(ci === -1 ? undefined : c!.costi[ci]);
       c!.costi.splice(ci, 1);
       c!.updatedAt = new Date();
       _store.save();
@@ -1472,9 +1468,7 @@ export const commesseRouter = router({
   // emessa, e l'operatore che concorda il pagamento a rate col cliente.
 
   pattuito: protectedProcedure.input(z.number()).query(({ input, ctx }) => {
-    const c = commesse.find(x => x.id === input);
-    if (!c) throw new Error("Commessa non trovata");
-    assertSedeScope(c, ctx.sedeId);
+    const c = recordOppureNotFound(commesse.find(x => x.id === input), ctx.sedeId);
     const rate: RataCommessa[] = Array.isArray((c as any).pianoRate)
       ? (c as any).pianoRate
       : [];
@@ -1501,9 +1495,7 @@ export const commesseRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const c = commesse.find(x => x.id === input.commessaId);
-      if (!c) throw new Error("Commessa non trovata");
-      assertSedeScope(c, ctx.sedeId);
+      const c = recordOppureNotFound(commesse.find(x => x.id === input.commessaId), ctx.sedeId);
       assertPattuitoScrivibile(c);
       await authorizeCoreOperation({
         ctx,
@@ -1549,9 +1541,7 @@ export const commesseRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const c = commesse.find(x => x.id === input.commessaId);
-      if (!c) throw new Error("Commessa non trovata");
-      assertSedeScope(c, ctx.sedeId);
+      const c = recordOppureNotFound(commesse.find(x => x.id === input.commessaId), ctx.sedeId);
       assertPattuitoScrivibile(c);
       await authorizeCoreOperation({
         ctx,
@@ -1560,10 +1550,9 @@ export const commesseRouter = router({
         resourceType: "commessa",
         resource: { ...(c as any), sensitivity: "economic" },
       });
-      const rata = ((c as any).pianoRate ?? []).find(
+      const rata = oppureNotFound(((c as any).pianoRate ?? []).find(
         (r: RataCommessa) => r.id === input.rataId
-      );
-      if (!rata) throw new Error("Rata non trovata");
+      ));
       if (input.importo !== undefined) rata.importo = input.importo;
       if (input.scadenza !== undefined) rata.scadenza = input.scadenza;
       if (input.descrizione !== undefined) {
@@ -1584,9 +1573,7 @@ export const commesseRouter = router({
   removeRata: protectedProcedure
     .input(z.object({ commessaId: z.number(), rataId: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      const c = commesse.find(x => x.id === input.commessaId);
-      if (!c) throw new Error("Commessa non trovata");
-      assertSedeScope(c, ctx.sedeId);
+      const c = recordOppureNotFound(commesse.find(x => x.id === input.commessaId), ctx.sedeId);
       assertPattuitoScrivibile(c);
       await authorizeCoreOperation({
         ctx,
@@ -1597,7 +1584,7 @@ export const commesseRouter = router({
       });
       const rate: RataCommessa[] = (c as any).pianoRate ?? [];
       const idx = rate.findIndex(r => r.id === input.rataId);
-      if (idx === -1) throw new Error("Rata non trovata");
+      oppureNotFound(idx === -1 ? undefined : rate[idx]);
       rate.splice(idx, 1);
       rinumeraPiano(c);
       (c as any).pattuitoAggiornatoAt = new Date();
@@ -1618,8 +1605,7 @@ export const commesseRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       // Scrivere denaro richiede `pagamento.record` in ogni policyMode:
       // amministrazione/direzione dal ruolo, gli altri solo con un override
       // individuale con audit (slice 2, decisione 3).
@@ -1674,8 +1660,7 @@ export const commesseRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "commesse.updatePagamento",
@@ -1685,8 +1670,7 @@ export const commesseRouter = router({
         legacyAllowed: "capability",
       });
       const c = commesse[idx];
-      const p = (c.pagamenti ?? []).find((x: any) => x.id === input.pagamentoId);
-      if (!p) throw new Error("Acconto non trovato");
+      const p = oppureNotFound((c.pagamenti ?? []).find((x: any) => x.id === input.pagamentoId));
       if (p.origine === "fic") {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -1859,8 +1843,7 @@ export const commesseRouter = router({
     .input(z.object({ commessaId: z.number(), pagamentoId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "commesse.removePagamento",
@@ -1872,7 +1855,7 @@ export const commesseRouter = router({
       const c = commesse[idx];
       if (!Array.isArray(c.pagamenti)) c.pagamenti = [];
       const pi = c.pagamenti.findIndex((p: any) => p.id === input.pagamentoId);
-      if (pi === -1) throw new Error("Acconto non trovato");
+      oppureNotFound(pi === -1 ? undefined : c.pagamenti[pi]);
       if (c.pagamenti[pi].origine === "fic") {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -1901,8 +1884,7 @@ export const commesseRouter = router({
     }))
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       if (!Array.isArray(commesse[idx].prodotti)) commesse[idx].prodotti = [];
       const prodotto = {
         id: nextProdottoId(commesse[idx]),
@@ -1931,11 +1913,10 @@ export const commesseRouter = router({
     }))
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       const prodotti: any[] = commesse[idx].prodotti ?? [];
       const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
-      if (pIdx === -1) throw new Error("Prodotto non trovato");
+      oppureNotFound(pIdx === -1 ? undefined : prodotti[pIdx]);
       const { commessaId, prodottoId, ...updates } = input;
       prodotti[pIdx] = { ...prodotti[pIdx], ...updates };
       commesse[idx].updatedAt = new Date();
@@ -1947,11 +1928,10 @@ export const commesseRouter = router({
     .input(z.object({ commessaId: z.number(), prodottoId: z.number() }))
     .mutation(({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input.commessaId);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       const prodotti: any[] = commesse[idx].prodotti ?? [];
       const pIdx = prodotti.findIndex((p) => p.id === input.prodottoId);
-      if (pIdx === -1) throw new Error("Prodotto non trovato");
+      oppureNotFound(pIdx === -1 ? undefined : prodotti[pIdx]);
       prodotti.splice(pIdx, 1);
       commesse[idx].updatedAt = new Date();
       _store.save();
@@ -2036,8 +2016,7 @@ export const commesseRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       const caps = await capacitaEconomiche(ctx);
       // Archive is the safe, reversible path — open to anyone in the sede.
       if (commesse[idx].archivedAt) return sagomaDettaglio(commesse[idx], caps);
@@ -2054,8 +2033,7 @@ export const commesseRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
-      if (idx === -1) throw new Error("Commessa non trovata");
-      assertSedeScope(commesse[idx], ctx.sedeId);
+      recordOppureNotFound(commesse[idx], ctx.sedeId);
       const caps = await capacitaEconomiche(ctx);
       if (!commesse[idx].archivedAt) return sagomaDettaglio(commesse[idx], caps);
       commesse[idx] = {

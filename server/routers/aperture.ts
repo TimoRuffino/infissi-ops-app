@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getCommessaById } from "./commesse";
-import { requireOwnershipOrDirezione } from "../_core/permissions";
+import { oppureNotFound, requireOwnershipOrDirezione } from "../_core/permissions";
 
 const _apertureStore = persistedStore<any>("aperture", () => {});
 const aperture = _apertureStore.items;
@@ -51,9 +51,7 @@ export const apertureRouter = router({
       })
     )
     .mutation(({ input, ctx }) => {
-      if (!commessaInSede(input.commessaId, ctx.sedeId)) {
-        throw new Error("Commessa non trovata");
-      }
+      oppureNotFound(commessaInSede(input.commessaId, ctx.sedeId));
       const now = new Date();
       const apertura = {
         id: _apertureStore.prossimoId(),
@@ -88,10 +86,8 @@ export const apertureRouter = router({
     )
     .mutation(({ input, ctx }) => {
       const idx = aperture.findIndex((a) => a.id === input.id);
-      if (idx === -1) throw new Error("Apertura non trovata");
-      if (!commessaInSede(aperture[idx].commessaId, ctx.sedeId)) {
-        throw new Error("Apertura non trovata");
-      }
+      oppureNotFound(idx === -1 ? undefined : aperture[idx]);
+      oppureNotFound(commessaInSede(aperture[idx].commessaId, ctx.sedeId));
       const { id, ...updates } = input;
       aperture[idx] = { ...aperture[idx], ...updates, updatedAt: new Date() };
       _apertureStore.save();
@@ -102,9 +98,8 @@ export const apertureRouter = router({
     .input(z.number())
     .mutation(({ input, ctx }) => {
       const idx = aperture.findIndex((a) => a.id === input);
-      if (idx === -1) throw new Error("Apertura non trovata");
-      const commessa = commessaInSede(aperture[idx].commessaId, ctx.sedeId);
-      if (!commessa) throw new Error("Apertura non trovata");
+      oppureNotFound(idx === -1 ? undefined : aperture[idx]);
+      const commessa = oppureNotFound(commessaInSede(aperture[idx].commessaId, ctx.sedeId));
       // Ownership inherited from the parent commessa: only its owner or
       // a direzione user can delete child aperture.
       requireOwnershipOrDirezione(commessa, ctx.user);

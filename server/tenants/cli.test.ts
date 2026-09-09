@@ -1,6 +1,6 @@
 // server/tenants/cli.test.ts
 import { describe, expect, it } from "vitest";
-import { anteprima, opzioni } from "./cli";
+import { anteprima, opzioni, workerSospesi } from "./cli";
 
 describe("opzioni della CLI", () => {
   it("legge sottocomando, --chiave=valore e flag", () => {
@@ -27,5 +27,34 @@ describe("opzioni della CLI", () => {
     expect(testo).toContain('"slug": "acme"');
     expect(testo).not.toContain("scrypt$");
     expect(testo).toContain("<hash>");
+  });
+
+  // WS4 (Task 3): `imposta_abbonamento` non porta mai un `proprietario` nel
+  // payload, quindi non ha nulla da mascherare — smoke che l'anteprima non
+  // esplode e non introduce segreti su un tipo di comando nuovo.
+  it("l'anteprima di imposta_abbonamento non ha segreti da mascherare", () => {
+    const testo = anteprima({
+      tipo: "imposta_abbonamento",
+      tenantId: 2,
+      payload: { azione: "omaggio", slug: "acme", motivo: "pilota", scadenza: null },
+    });
+    expect(testo).toContain('"azione": "omaggio"');
+    expect(testo).toContain('"slug": "acme"');
+    expect(testo).not.toContain("passwordHash");
+    expect(testo).not.toContain("<hash>");
+  });
+});
+
+describe("workerSospesi", () => {
+  it("workerSospesi legge gli eventi: l'ultima sospensione non riarmata e non scaduta", () => {
+    const ev = (id: number, tipo: string, dettagli: any, minutiFa: number) =>
+      ({ id, tenantId: 2, tipo, attore: "boot", motivo: null, dettagli, createdAt: new Date(Date.now() - minutiFa * 60_000) }) as any;
+    const eventi = [
+      ev(1, "worker_sospeso", { etichetta: "backup", minuti: 15, errore: "x" }, 5),
+      ev(2, "worker_sospeso", { etichetta: "posta", minuti: 15, errore: "y" }, 30), // scaduta
+      ev(3, "worker_sospeso", { etichetta: "tars", minuti: 60, errore: "z" }, 10),
+      ev(4, "worker_riarmato", { etichetta: "tars" }, 2),
+    ];
+    expect(workerSospesi(eventi).map(w => w.etichetta)).toEqual(["backup"]);
   });
 });

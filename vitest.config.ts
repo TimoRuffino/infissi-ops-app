@@ -20,6 +20,12 @@ export default defineConfig({
       "server/**/*.test.ts",
       "server/**/*.spec.ts",
       "client/src/lib/**/*.test.ts",
+      // Stessa ragione un piano più in là: un componente può portarsi
+      // accanto il proprio modulo di testi o di calcolo puro (es.
+      // `components/abbonamento/testi.ts`, WS4 §8). L'ambiente resta `node`,
+      // quindi qui girano solo i test SENZA DOM: la logica pura, non il
+      // rendering.
+      "client/src/components/**/*.test.ts",
       // Le regole condivise fra server e client vivono in `shared/`: senza
       // questa riga i loro test esistono e non girano mai, che è peggio che
       // non averli — sembrano una rete e non lo sono.

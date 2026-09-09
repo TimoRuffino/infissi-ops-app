@@ -6,7 +6,7 @@
 // file: qui restiamo sul solo middleware di upload, come da piano.
 import type { NextFunction } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MESSAGGI } from "../tenants/costanti";
+import { MESSAGGI, QUOTA_STORAGE_PREDEFINITA_BYTES } from "../tenants/costanti";
 import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
 import type { TenantRecord } from "../tenants/tipi";
 import { contestoUploadCommessa } from "./commessaFileRoutes";
@@ -50,6 +50,7 @@ const tenant = (stato: "attivo" | "sospeso"): TenantRecord => ({
   motivoStato: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+  storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
 });
 
 afterEach(() => {

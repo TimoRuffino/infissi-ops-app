@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import * as comunicazioniModulo from "../comunicazioni/comunicazioni";
 import { modalitaTenantStretta, tenantCorrente } from "../tenants/contestoCorrente";
+import { QUOTA_STORAGE_PREDEFINITA_BYTES } from "../tenants/costanti";
 import type { TenantRecord } from "../tenants/tipi";
 import { registerAllegatoMailRoutes } from "./allegatoMailRoutes";
 
@@ -116,6 +117,7 @@ describe("GET /api/comunicazioni/:id/allegati/:indice", () => {
         motivoStato: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
       };
       sessione.corrente = { userId: 1, sedeId: 5, tenantId: 4, tenant: sospeso };
       const r = await chiedi("/api/comunicazioni/1/allegati/0");

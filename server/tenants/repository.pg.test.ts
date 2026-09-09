@@ -26,12 +26,12 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     // parallelo (senza, i DROP di qui cadrebbero in mezzo alle sue prove).
     riservata = await sql.reserve();
     await riservata`SELECT pg_advisory_lock(${LOCK_TENANT_PG})`;
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     resetTenantRepositoryForTesting();
   });
 
   afterAll(async () => {
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     if (riservata) {
       await riservata`SELECT pg_advisory_unlock(${LOCK_TENANT_PG})`;
       riservata.release();
@@ -117,7 +117,7 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
   });
 
   it("con creaSchema:false lo script non esegue DDL: si ferma se le tabelle mancano e non ricrea il trigger", async () => {
-    await sql`DROP TABLE IF EXISTS tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
     const soloLettura = createPostgresTenantRepository(sql, { creaSchema: false });
     await expect(soloLettura.caricaCache()).rejects.toThrow(/control plane del tenant assenti/);
     expect((await sql`SELECT to_regclass('tenants') AS t`)[0].t).toBeNull();
@@ -145,5 +145,135 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     resetTenantRepositoryForTesting();
     await getTenantRepository().ensureSchema();
     expect((await sql`SELECT to_regclass('tenant_sedi') AS t`)[0].t).not.toBeNull();
+  });
+
+  it("storage e oauth_state su Postgres: incremento atomico, soglia, quota, consumo unico, CHECK dei comandi nuovi", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    await repo.assicuraTenantPredefinito();
+    // Delta di segno misto in sequenza, non in Promise.all: con -5 la riga
+    // usa il ramo INSERT/UPDATE con GREATEST(delta, 0), quindi il risultato
+    // dipende da QUALE arriva per primo al DB (se -5 vince la corsa, la riga
+    // nasce a zero invece di sottrarre) — non è un bug, è il clamp voluto,
+    // ma rende il test non deterministico se lanciato in concorrenza.
+    // Eseguendoli uno alla volta il totale è prevedibile.
+    await repo.aggiornaStorage(1, 10, 1);
+    await repo.aggiornaStorage(1, 20, 1);
+    await repo.aggiornaStorage(1, -5, 0);
+    expect(await repo.storageDi(1)).toMatchObject({ bytes: 25, file: 2, quotaBytes: 100 * 1024 ** 3 });
+    // Concorrenza vera, ma solo delta positivi: qui il clamp non entra mai in
+    // gioco, quindi l'ordine di arrivo non conta e la somma finale deve
+    // tornare esatta — è la prova che l'incremento su Postgres è atomico
+    // (nessuna scrittura concorrente si perde per una race sul valore letto).
+    const primaDellaConcorrenza = await repo.storageDi(1);
+    await Promise.all([repo.aggiornaStorage(1, 10, 1), repo.aggiornaStorage(1, 20, 1), repo.aggiornaStorage(1, 5, 1)]);
+    const dopoLaConcorrenza = await repo.storageDi(1);
+    expect(dopoLaConcorrenza?.bytes).toBe((primaDellaConcorrenza?.bytes ?? 0) + 35);
+    expect(dopoLaConcorrenza?.file).toBe((primaDellaConcorrenza?.file ?? 0) + 3);
+    await repo.impostaSogliaAvvisata(1, 50);
+    expect((await repo.storageDi(1))?.sogliaAvvisata).toBe(50);
+    expect((await repo.impostaQuotaStorage(1, 1234)).storageQuotaBytes).toBe(1234);
+    expect((await repo.storageDi(1))?.quotaBytes).toBe(1234);
+    const state = await repo.emettiStateOAuth({ tipo: "gdrive", tenantId: 1, sedeId: null, utenteId: 1, payload: { a: 1 } });
+    expect((await repo.consumaStateOAuth(state, "gdrive"))?.payload).toEqual({ a: 1 });
+    expect(await repo.consumaStateOAuth(state, "gdrive")).toBeNull();
+    const c = await repo.accodaComando({ tipo: "ricalcola_storage", tenantId: 1, payload: { slug: "ruffino-group" }, richiestoDa: "test" });
+    expect(c.tipo).toBe("ricalcola_storage");
+  });
+
+  it("abbonamenti su Postgres: upsert intero con date e JSON, cache, soglia_100 dello storage, comando nuovo, schema idempotente", async () => {
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+    await repo.assicuraTenantPredefinito();
+    expect(repo.abbonamentoDi(1)).toBeNull();
+    const ora = new Date("2026-09-08T10:00:00Z");
+    // Tenant inesistente: niente riga in `tenants`, la FK di Postgres rifiuta
+    // l'INSERT (23503) e viene tradotta nello stesso messaggio della guardia in memoria.
+    await expect(
+      repo.salvaAbbonamento({
+        tenantId: 999999, tipo: "paid", periodicita: "monthly", stato: "active",
+        inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+        budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+        tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+        tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+        insolutoDal: null, provider: "nessuno", providerRef: null, omaggio: null,
+        createdAt: ora, updatedAt: ora,
+      })
+    ).rejects.toThrow(/tenant 999999 inesistente/);
+    const salvato = await repo.salvaAbbonamento({
+      tenantId: 1, tipo: "complimentary", periodicita: null, stato: "active",
+      inizioPeriodo: ora, finePeriodo: null, prossimoRinnovo: null, disdettaAFinePeriodo: false,
+      budgetTarsNanoMese: null, extraTarsNano: 0, extraTarsMese: null,
+      tolleranzaStorageGiorni: 7, tolleranzaTarsGiorni: 7,
+      tarsSogliaAvvisata: 0, tarsSogliaMese: null, tarsSoglia100Dal: null,
+      insolutoDal: null, provider: "nessuno", providerRef: { note: "seed" },
+      omaggio: { motivo: "proprietaria", attore: "boot", dataIso: ora.toISOString(), scadenzaIso: null },
+      createdAt: ora, updatedAt: ora,
+    });
+    expect(salvato.stato).toBe("active");
+    expect(salvato.omaggio?.motivo).toBe("proprietaria");
+    expect(salvato.inizioPeriodo.toISOString()).toBe(ora.toISOString());
+    expect(repo.abbonamentoDi(1)?.providerRef).toEqual({ note: "seed" });
+
+    // Upsert che cambia stato: stessa chiave primaria, nessuna riga in più.
+    const aggiornato = await repo.salvaAbbonamento({ ...salvato, stato: "suspended", insolutoDal: ora });
+    expect(repo.abbonamentoDi(1)?.stato).toBe("suspended");
+    expect(aggiornato.updatedAt.getTime()).toBeGreaterThanOrEqual(salvato.updatedAt.getTime());
+    expect(aggiornato.createdAt.toISOString()).toBe(salvato.createdAt.toISOString());
+    const righe = await sql`SELECT COUNT(*)::int AS n FROM abbonamenti`;
+    expect(righe[0].n).toBe(1);
+
+    // caricaCache() su un repository nuovo: la cache degli abbonamenti si
+    // ricostruisce da zero, come quella dei tenant.
+    resetTenantRepositoryForTesting();
+    const repo2 = getTenantRepository();
+    await repo2.caricaCache();
+    expect(repo2.abbonamentoDi(1)?.stato).toBe("suspended");
+    expect(repo2.abbonamenti().map(a => a.tenantId)).toEqual([1]);
+
+    // Soglia 100 dello storage: impostata PRIMA di ogni delta, su un tenant
+    // fresco — il tenant 1 in questo file ha già una riga `tenant_storage`
+    // dal test precedente. Qui la riga non esiste ancora: `impostaSoglia100Storage`
+    // la crea da sé (stesso ON CONFLICT di `impostaSogliaAvvisata`); un delta
+    // successivo non la tocca; si riarma a null.
+    const tenantStorage = await repo2.inserisci({ slug: "abbonamenti-soglia100", nome: "Soglia100 Srl" });
+    expect(await repo2.storageDi(tenantStorage.id)).toBeNull();
+    await repo2.impostaSoglia100Storage(tenantStorage.id, ora);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal?.toISOString()).toBe(ora.toISOString());
+    await repo2.aggiornaStorage(tenantStorage.id, 10, 1);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal?.toISOString()).toBe(ora.toISOString());
+    await repo2.impostaSoglia100Storage(tenantStorage.id, null);
+    expect((await repo2.storageDi(tenantStorage.id))?.soglia100Dal).toBeNull();
+
+    // Il CHECK di tenant_comandi accetta già il tipo nuovo.
+    const comando = await repo2.accodaComando({ tipo: "imposta_abbonamento", tenantId: 1, payload: { tipo: "paid" }, richiestoDa: "test" });
+    expect(comando.tipo).toBe("imposta_abbonamento");
+
+    // Idempotenza dello schema: un secondo ensureSchema (repository fresco,
+    // quindi non memoizzato) non fallisce — la guardia sul CHECK trova già
+    // `imposta_abbonamento` e salta l'ALTER.
+    resetTenantRepositoryForTesting();
+    const repo3 = getTenantRepository();
+    await expect(repo3.ensureSchema()).resolves.toBeUndefined();
+  });
+
+  it("lo schema del WS3 è idempotente anche sopra uno schema del WS2 (CHECK vecchio a terra)", async () => {
+    await sql`DROP TABLE IF EXISTS abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    await sql`CREATE TABLE tenants (id BIGSERIAL PRIMARY KEY, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
+      stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')), motivo_stato TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+    await sql`CREATE TABLE tenant_comandi (id BIGSERIAL PRIMARY KEY,
+      tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario')),
+      tenant_id BIGINT, payload JSONB NOT NULL, stato TEXT NOT NULL DEFAULT 'in_attesa', esito JSONB,
+      richiesto_da TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), eseguito_at TIMESTAMPTZ)`;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.assicuraTenantPredefinito();
+    const c = await repo.accodaComando({ tipo: "ripristina_archivi", tenantId: 1, payload: {}, richiestoDa: "test" });
+    expect(c.tipo).toBe("ripristina_archivi");
+    expect((await sql`SELECT storage_quota_bytes FROM tenants WHERE id = 1`)[0].storage_quota_bytes).toBe(String(100 * 1024 ** 3));
   });
 });

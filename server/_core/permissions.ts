@@ -72,6 +72,18 @@ export function assertSedeScope(
   }
 }
 
+/** Il record, o NOT_FOUND generico: chi non deve sapere se esiste non lo sa. */
+export function oppureNotFound<T>(record: T | null | undefined): T {
+  if (record == null) throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
+  return record;
+}
+
+/** Come `oppureNotFound`, più il confine di sede (`assertSedeScope`). */
+export function recordOppureNotFound<T extends SedeScopedRecord>(record: T, sedeId: number | null): NonNullable<T> {
+  assertSedeScope(record, sedeId);
+  return record as NonNullable<T>;
+}
+
 type TenantScopedRecord = { tenantId?: number | null } | null | undefined;
 
 /**

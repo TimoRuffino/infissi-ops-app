@@ -352,8 +352,12 @@ describe("aggiornaStatoFattura", () => {
     expect(esito.fattura.xmlSha256).toBe(sha256Hex(XML_FINTO));
     expect(esito.fattura.pdfStorageKey).toBe("fatture_pdf/127-2026.pdf-finto");
     expect(esito.fattura.documentoId).toBeNull();
+    // WS3 Task 11: `registraDocumentoFatturaCrm` non lancia più
+    // `Error("Commessa non trovata")` ma `oppureNotFound`/TRPCError NOT_FOUND
+    // col messaggio generico — chi legge `eiErrore` non deve sapere se il
+    // problema è che la commessa non esiste o è di un'altra sede.
     expect(esito.fattura.eiErrore).toBe(
-      "Documento non archiviato nel fascicolo: Commessa non trovata"
+      "Documento non archiviato nel fascicolo: Risorsa non trovata."
     );
     expect(filesScritti).toEqual([
       "fatture_xml/127-2026.xml",

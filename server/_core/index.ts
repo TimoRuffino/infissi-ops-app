@@ -171,7 +171,7 @@ async function startServer() {
   // `lock_timeout`: le tabelle assenti o occupate vengono saltate e
   // segnalate, e le prende il boot successivo. Il backfill delle righe già a
   // terra è più giù, dopo il `listen`.
-  const { applicaSchemaTabelleTenant, avviaBackfillTabelleTenant } = await import(
+  const { applicaSchemaTabelleTenant, avviaBackfillTabelleTenant, avviaRicalcoloStorageIniziale } = await import(
     "../tenants/boot"
   );
   await applicaSchemaTabelleTenant();
@@ -260,7 +260,7 @@ async function startServer() {
     express.raw({ type: "*/*", limit: "10mb" }),
     async (req, res) => {
       try {
-        const { mittenteWebhookWhatsApp, ingestisciWebhookWhatsApp } =
+        const { mittenteWebhookWhatsApp, ingestisciWebhookPerNumero } =
           await import("./rotteAnonime");
         const raw: Buffer = Buffer.isBuffer(req.body)
           ? req.body
@@ -282,8 +282,8 @@ async function startServer() {
         res.sendStatus(200);
         try {
           const payload = JSON.parse(raw.toString("utf8"));
-          const n = await ingestisciWebhookWhatsApp(mittente, payload);
-          if (n > 0) console.log(`[whatsapp] ${n} messaggi ricevuti`);
+          const { ricevuti } = await ingestisciWebhookPerNumero(payload);
+          if (ricevuti > 0) console.log(`[whatsapp] ${ricevuti} messaggi ricevuti`);
         } catch (e: any) {
           // Dopo il 200 l'errore si registra e basta: rilanciare non
           // cambierebbe la risposta, e Meta non deve riprovare.
@@ -346,6 +346,9 @@ async function startServer() {
   // ── Google Drive backup — OAuth callback ────────────────────────────────────
   // Anonymous by necessity (Google redirects the browser here), but it only
   // accepts one-shot states issued to direzione via backup.oauthStartUrl.
+  // Dal WS3 lo state sta in `oauth_state` e dice a quale azienda appartiene
+  // il collegamento: il tenant lo dichiara `handleOAuthCallback`, non la
+  // rotta, che di sessione non ne ha. Nel log non finisce mai lo `state`.
   app.get("/api/oauth/gdrive/callback", async (req, res) => {
     const { handleOAuthCallback } = await import("./driveBackup");
     const code = String(req.query.code ?? "");
@@ -430,12 +433,22 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
+  // WS4 (Task 3): import dinamico come gli altri di questo blocco.
+  const { avviaWorkerAbbonamenti } = await import("../abbonamenti/worker");
+
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     // Il backfill di `tenant_id` gira dopo il listen, a lotti, così il primo
     // deploy spento non tiene il server fuori dalla porta (Ruling R14);
     // `pnpm tenant verifica` dice se restano righe a NULL.
     void avviaBackfillTabelleTenant();
+    // Il ledger dello storage (WS3) si popola in sottofondo, una volta per
+    // azienda: dopo, lo tengono aggiornato put e delete.
+    void avviaRicalcoloStorageIniziale(tenantIds);
+    // Il worker degli abbonamenti parte QUI, dopo il listen (spec §4.1), mai
+    // dal boot: subito un giro, poi ogni 6 ore; a interruttore spento non fa
+    // nulla (se lo verifica da sé).
+    avviaWorkerAbbonamenti();
   });
 }
 

@@ -1,6 +1,9 @@
 // server/_core/storeGlobali.test.ts
-// Guardia STRUTTURALE (Task 5, spec §3.1): le sole sette famiglie dichiarate
-// `{ ambito: "globale" }` — nessuna di più, nessuna di meno. Sul modello di
+// Guardia STRUTTURALE (Task 5, spec §3.1): le sole quattro famiglie dichiarate
+// `{ ambito: "globale" }` — nessuna di più, nessuna di meno. Erano sette fino
+// al WS3: i tre store del backup (`backup_config`, `backup_log`,
+// `backup_oauth`) sono passati per azienda, perché ogni azienda fa il backup
+// sul PROPRIO Drive. Sul modello di
 // server/_core/idGlobali.test.ts e server/tenants/confine.test.ts: legge i
 // sorgenti e fallisce se qualcuno aggiunge o toglie una dichiarazione senza
 // aggiornare questa lista. L'elenco delle dichiarazioni viene da
@@ -14,9 +17,6 @@ import { describe, expect, it } from "vitest";
 import { dichiarazioniPersistedStore, sorgentiDegliStore } from "./sorgentiDiProva";
 
 const ATTESI = [
-  "backup_config",
-  "backup_log",
-  "backup_oauth",
   "platform_feature_flag_audit",
   "platform_feature_flags",
   "sedi",
@@ -24,7 +24,7 @@ const ATTESI = [
 ];
 
 describe("store globali", () => {
-  it("esattamente sette store dichiarano ambito globale (nomi)", () => {
+  it("esattamente quattro store dichiarano ambito globale (nomi)", () => {
     const { dichiarazioni } = dichiarazioniPersistedStore();
     const trovati = dichiarazioni.filter(d => d.ambito === "globale").map(d => d.nome);
     expect(trovati.sort()).toEqual(ATTESI);

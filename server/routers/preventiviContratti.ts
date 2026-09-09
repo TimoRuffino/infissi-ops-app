@@ -7,12 +7,14 @@ import { getCommessaById, getCommesseStore } from "./commesse";
 import { STATI_COMMESSA } from "../commesse/transizioni";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import {
+  oppureNotFound,
   requireDirezioneOAmministrazione,
   requireOwnershipOrDirezione,
 } from "../_core/permissions";
 import { Readable } from "stream";
 import {
   deleteFileQuiet,
+  ErroreQuotaStorage,
   getFile,
   openFileReadStream,
   putFile,
@@ -335,7 +337,7 @@ export const REQUIRED_DOC_TIPI_PER_STATO: Record<string, DocTipo[]> = {
 export function deleteDocumentiByCommessa(commessaId: number) {
   for (let i = documenti.length - 1; i >= 0; i--) {
     if (documenti[i].commessaId === commessaId) {
-      deleteFileQuiet(documenti[i].storageKey);
+      deleteFileQuiet(documenti[i].storageKey, documenti[i].size);
       documenti.splice(i, 1);
     }
   }
@@ -512,8 +514,7 @@ export async function archiviaAllegatoComunicazione(args: {
   if (Buffer.isBuffer(args.buffer)) {
     validaAllegatoFascicolo(args.buffer, args.mimeType);
   }
-  const commessa = commessaInSede(args.commessaId, args.sedeId);
-  if (!commessa) throw new Error("Commessa non trovata");
+  const commessa = oppureNotFound(commessaInSede(args.commessaId, args.sedeId));
 
   const sourceRef = comunicazioneSourceRef(
     args.sedeId,
@@ -559,6 +560,7 @@ export async function archiviaAllegatoComunicazione(args: {
         : nomeDocumentoDaTipo(args.nome, args.tipo, commessa.cliente, args.dataDocumento);
     const nome = dedupeName(nomeDalTipo, args.commessaId, existing?.id);
     const oldStorageKey = existing?.storageKey;
+    const oldSize = existing?.size ?? null;
     const documento: Documento = existing
       ? { ...existing }
       : {
@@ -599,7 +601,10 @@ export async function archiviaAllegatoComunicazione(args: {
       documento.storageKey = stored.storageKey;
       documento.checksum = stored.checksum;
       delete documento.dataBase64;
-    } catch {
+    } catch (e) {
+      // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+      // propaga al client, mai il ripiego inline.
+      if (e instanceof ErroreQuotaStorage) throw e;
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
 
@@ -607,7 +612,7 @@ export async function archiviaAllegatoComunicazione(args: {
     else documenti.push(documento);
     _documentiStore.save();
     if (oldStorageKey && oldStorageKey !== documento.storageKey) {
-      deleteFileQuiet(oldStorageKey);
+      deleteFileQuiet(oldStorageKey, oldSize);
     }
     return documento;
   });
@@ -628,8 +633,7 @@ export async function upsertDocumentoFic(args: {
   createdBy: number | null;
 }): Promise<Documento> {
   validaAllegatoFascicolo(args.pdf, "application/pdf");
-  const commessa = commessaInSede(args.commessaId, args.sedeId);
-  if (!commessa) throw new Error("Commessa non trovata");
+  const commessa = oppureNotFound(commessaInSede(args.commessaId, args.sedeId));
 
   const sourceRef = ficSourceRef(args.sedeId, args.ficId);
   const existing = findDocumentoFic(args.sedeId, args.ficId);
@@ -644,6 +648,7 @@ export async function upsertDocumentoFic(args: {
     existing?.id
   );
   const oldStorageKey = existing?.storageKey;
+  const oldSize = existing?.size ?? null;
   const doc: Documento = existing
     ? { ...existing }
     : {
@@ -681,7 +686,10 @@ export async function upsertDocumentoFic(args: {
     doc.storageKey = stored.storageKey;
     doc.checksum = stored.checksum;
     delete doc.dataBase64;
-  } catch {
+  } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     throw new StorageAllegatoTemporaneamenteNonDisponibile();
   }
 
@@ -689,7 +697,7 @@ export async function upsertDocumentoFic(args: {
   else documenti.push(doc);
   _documentiStore.save();
   if (oldStorageKey && oldStorageKey !== doc.storageKey) {
-    deleteFileQuiet(oldStorageKey);
+    deleteFileQuiet(oldStorageKey, oldSize);
   }
   return doc;
 }
@@ -719,8 +727,7 @@ export async function registraDocumentoFatturaCrm(args: {
   createdBy: number | null;
 }): Promise<Documento> {
   validaAllegatoFascicolo(args.pdf, "application/pdf");
-  const commessa = commessaInSede(args.commessaId, args.sedeId);
-  if (!commessa) throw new Error("Commessa non trovata");
+  const commessa = oppureNotFound(commessaInSede(args.commessaId, args.sedeId));
 
   const sourceRef = crmFatturaSourceRef(args.fatturaId);
   const existing =
@@ -736,6 +743,7 @@ export async function registraDocumentoFatturaCrm(args: {
     existing?.id
   );
   const oldStorageKey = existing?.storageKey;
+  const oldSize = existing?.size ?? null;
   const doc: Documento = existing
     ? { ...existing }
     : {
@@ -775,6 +783,9 @@ export async function registraDocumentoFatturaCrm(args: {
     doc.checksum = stored.checksum;
     delete doc.dataBase64;
   } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     if (args.pdf.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
@@ -794,7 +805,7 @@ export async function registraDocumentoFatturaCrm(args: {
   else documenti.push(doc);
   _documentiStore.save();
   if (oldStorageKey && oldStorageKey !== doc.storageKey) {
-    deleteFileQuiet(oldStorageKey);
+    deleteFileQuiet(oldStorageKey, oldSize);
   }
   return doc;
 }
@@ -821,7 +832,7 @@ export function deleteDocumentoFic(sedeId: number, ficId: number): void {
   if (idx === -1) return;
   const [doc] = documenti.splice(idx, 1);
   _documentiStore.save();
-  deleteFileQuiet(doc.storageKey);
+  deleteFileQuiet(doc.storageKey, doc.size);
 }
 
 /** Verifica idempotente usata dal sync FIC per riparare i fascicoli storici. */
@@ -952,12 +963,9 @@ export function spostaDocumentoDiCommessa(input: {
   sedeId: number | null;
   note?: string | null;
 }): { documento: Documento; da: number; a: number } {
-  const documento = documenti.find(d => d.id === input.documentoId);
-  if (!documento) throw new Error("Documento non trovato");
-  const origine = commessaInSede(documento.commessaId, input.sedeId);
-  if (!origine) throw new Error("Documento non trovato");
-  const destinazione: any = commessaInSede(input.commessaId, input.sedeId);
-  if (!destinazione) throw new Error("Commessa di destinazione non trovata");
+  const documento = oppureNotFound(documenti.find(d => d.id === input.documentoId));
+  oppureNotFound(commessaInSede(documento.commessaId, input.sedeId));
+  const destinazione: any = oppureNotFound(commessaInSede(input.commessaId, input.sedeId));
   if (destinazione.archivedAt) {
     throw new Error("La commessa di destinazione è archiviata: ripristinala prima.");
   }
@@ -1086,8 +1094,7 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
   createdBy: number | null;
   dataBase64Fallback?: string;
 }) {
-  const commessa = commessaInSede(input.commessaId, input.sedeId);
-  if (!commessa) throw new Error("Commessa non trovata");
+  const commessa = oppureNotFound(commessaInSede(input.commessaId, input.sedeId));
 
   validaUploadManualeFascicolo(input.buffer.length, input.mimeType);
   const baseNome =
@@ -1122,6 +1129,9 @@ export async function caricaDocumentoCommessaDaBuffer(input: {
     doc.storageKey = stored.storageKey;
     doc.checksum = stored.checksum;
   } catch (e) {
+    // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+    // propaga al client, mai il ripiego inline.
+    if (e instanceof ErroreQuotaStorage) throw e;
     if (input.buffer.length > COMMESSA_UPLOAD_INLINE_FALLBACK_MAX_BYTES) {
       throw new StorageAllegatoTemporaneamenteNonDisponibile();
     }
@@ -1214,9 +1224,7 @@ export const preventiviContrattiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      if (!commessaInSede(input.commessaId, ctx.sedeId)) {
-        throw new Error("Commessa non trovata");
-      }
+      oppureNotFound(commessaInSede(input.commessaId, ctx.sedeId));
       const buffer = decodificaBase64Upload(input.dataBase64);
       return caricaDocumentoCommessaDaBuffer({
         commessaId: input.commessaId,
@@ -1246,11 +1254,8 @@ export const preventiviContrattiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const doc = documenti.find(d => d.id === input.id);
-      if (!doc) throw new Error("Documento non trovato");
-      if (!commessaInSede(doc.commessaId, ctx.sedeId)) {
-        throw new Error("Documento non trovato");
-      }
+      const doc = oppureNotFound(documenti.find(d => d.id === input.id));
+      oppureNotFound(commessaInSede(doc.commessaId, ctx.sedeId));
       const tipoPrima = doc.tipo;
       if (input.nome !== undefined) doc.nome = input.nome.trim();
       if (input.tipo !== undefined) doc.tipo = input.tipo;
@@ -1274,13 +1279,12 @@ export const preventiviContrattiRouter = router({
 
   delete: protectedProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const idx = documenti.findIndex(d => d.id === input);
-    if (idx === -1) throw new Error("Documento non trovato");
+    oppureNotFound(idx === -1 ? undefined : documenti[idx]);
     // Allow delete when the user is the doc uploader OR owns the parent
     // commessa (createdBy/assegnatoA) OR is direzione. Try uploader first
     // — it's the most common legitimate case.
     const doc = documenti[idx];
-    const commessa = commessaInSede(doc.commessaId, ctx.sedeId);
-    if (!commessa) throw new Error("Documento non trovato");
+    const commessa = oppureNotFound(commessaInSede(doc.commessaId, ctx.sedeId));
     const uid = ctx.user?.id ?? null;
     if (uid != null && doc.createdBy === uid) {
       // owner of the upload
@@ -1289,8 +1293,9 @@ export const preventiviContrattiRouter = router({
     }
     documenti.splice(idx, 1);
     _documentiStore.save();
-    deleteFileQuiet(doc.storageKey);
+    deleteFileQuiet(doc.storageKey, doc.size);
     // Le pagine rese per le anteprime sono derivate: spariscono con il file.
+    // Nessuna dimensione registrata per queste chiavi: la scoprirà `head`.
     for (const chiave of doc.anteprime?.chiavi ?? []) deleteFileQuiet(chiave);
     // Costo e merce nati da questa conferma se ne vanno con lei.
     rimuoviCostoDelDocumento(doc.id, doc.commessaId);
@@ -1329,10 +1334,8 @@ export const preventiviContrattiRouter = router({
     .input(z.object({ documentoId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       requireDirezioneOAmministrazione(ctx.user);
-      const doc = documenti.find(d => d.id === input.documentoId);
-      if (!doc || !commessaInSede(doc.commessaId, ctx.sedeId)) {
-        throw new Error("Documento non trovato");
-      }
+      const doc = oppureNotFound(documenti.find(d => d.id === input.documentoId));
+      oppureNotFound(commessaInSede(doc.commessaId, ctx.sedeId));
       if (doc.tipo !== "conferma_ordine") {
         throw new Error("Il documento non è una conferma d'ordine");
       }

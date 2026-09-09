@@ -56,13 +56,13 @@ const FORMA_DEL_RECORD: Record<string, Forma> = {
   // — globali senza sede (FAMIGLIE_GLOBALI) —
   sedi: "nessuna", // il record È la sede
   utenti: "sediIds", // array, mai un sedeId singolare (persistedStore<any>)
-  backup_config: "nessuna",
-  backup_log: "nessuna",
-  backup_oauth: "nessuna",
   // — globali per sede (FAMIGLIE_GLOBALI_PER_SEDE) —
   platform_feature_flags: "sedeId",
   platform_feature_flag_audit: "sedeId",
   // — per tenant senza sedeId diretto (FAMIGLIE_SENZA_SEDE_DIRETTA) —
+  backup_config: "nessuna", // per azienda dal WS3: il backup non ha sede
+  backup_log: "nessuna",
+  backup_oauth: "nessuna",
   notifiche_read: "userId", // riga { id, userId, readIds } costruita in notifiche.ts (any)
   timeline_steps: "commessaId",
   preventivi_documenti: "commessaId",
@@ -132,11 +132,13 @@ describe("inventario delle famiglie", () => {
     expect(Object.keys(FORMA_DEL_RECORD).sort()).toEqual(NOMI);
   });
 
-  it("sono 51 il 07/09/2026: 7 globali (2 con sedeId) e 44 per tenant (5 senza sedeId)", () => {
+  it("sono 51 l'08/09/2026: 4 globali (2 con sedeId) e 47 per tenant (8 senza sedeId)", () => {
+    // I tre store del backup sono passati per azienda col WS3: fino a ieri
+    // le globali erano 7 e le famiglie per tenant senza sedeId 5.
     expect(NOMI).toHaveLength(51);
-    expect(NOMI.filter(n => globale(n))).toHaveLength(7);
+    expect(NOMI.filter(n => globale(n))).toHaveLength(4);
     expect(NOMI.filter(n => globale(n) && conSedeId(n))).toHaveLength(2);
-    expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(5);
+    expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(8);
   });
 });
 

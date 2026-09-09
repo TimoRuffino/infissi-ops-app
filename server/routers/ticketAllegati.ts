@@ -2,9 +2,14 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { getTicketById } from "./ticket";
-import { isDirezione } from "../_core/permissions";
+import { isDirezione, oppureNotFound } from "../_core/permissions";
 import { TRPCError } from "@trpc/server";
-import { deleteFileQuiet, getFile, putFile } from "../_core/fileStorage";
+import {
+  deleteFileQuiet,
+  ErroreQuotaStorage,
+  getFile,
+  putFile,
+} from "../_core/fileStorage";
 import { registerMigratableCollection } from "../_core/fileStorageMigrate";
 
 // Per-ticket file attachments. Same shape as preventiviContratti Documento but
@@ -72,7 +77,7 @@ function base64ByteLength(b64: string): number {
 export function deleteAllegatiByTicket(ticketId: number) {
   for (let i = allegati.length - 1; i >= 0; i--) {
     if (allegati[i].ticketId === ticketId) {
-      deleteFileQuiet(allegati[i].storageKey);
+      deleteFileQuiet(allegati[i].storageKey, allegati[i].size);
       allegati.splice(i, 1);
     }
   }
@@ -127,9 +132,7 @@ export const ticketAllegatiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      if (!ticketInSede(input.ticketId, ctx.sedeId)) {
-        throw new Error("Ticket non trovato");
-      }
+      oppureNotFound(ticketInSede(input.ticketId, ctx.sedeId));
       if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
         throw new Error(`Tipo di file non consentito: ${input.mimeType}`);
       }
@@ -163,6 +166,9 @@ export const ticketAllegatiRouter = router({
         a.storageKey = stored.storageKey;
         a.checksum = stored.checksum;
       } catch (e) {
+        // La quota che blocca (WS4 §6) non è un guasto dello storage: si
+        // propaga al client, mai il ripiego inline.
+        if (e instanceof ErroreQuotaStorage) throw e;
         console.warn(
           "[ticketAllegati] storage put fallito, fallback base64 inline:",
           e
@@ -179,10 +185,8 @@ export const ticketAllegatiRouter = router({
     .input(z.number())
     .mutation(({ input, ctx }) => {
       const idx = allegati.findIndex((a) => a.id === input);
-      if (idx === -1) throw new Error("Allegato non trovato");
-      if (!ticketInSede(allegati[idx].ticketId, ctx.sedeId)) {
-        throw new Error("Allegato non trovato");
-      }
+      oppureNotFound(idx === -1 ? undefined : allegati[idx]);
+      oppureNotFound(ticketInSede(allegati[idx].ticketId, ctx.sedeId));
       // Uploader or direzione only — non-uploaders shouldn't be able to
       // remove someone else's evidence.
       const uid = ctx.user?.id ?? null;
@@ -197,7 +201,7 @@ export const ticketAllegatiRouter = router({
       }
       const [removed] = allegati.splice(idx, 1);
       _store.save();
-      deleteFileQuiet(removed?.storageKey);
+      deleteFileQuiet(removed?.storageKey, removed?.size);
       return { success: true };
     }),
 });

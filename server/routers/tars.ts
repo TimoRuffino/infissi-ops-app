@@ -10,6 +10,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { procedureConInterruttore, router } from "../_core/trpc";
+import { oppureNotFound } from "../_core/permissions";
 import { assicuraTars, statoInterruttori } from "../platform/interruttori";
 import { costruisciBriefing } from "../tars/briefing";
 import { fascicoloCommessa } from "../tars/fascicoli";
@@ -354,14 +355,11 @@ export const tarsRouter = router({
       try {
         let contesto = await costruisciContesto(ctx);
         if (input?.conversazioneId != null) {
-          const persistito = await caricaContestoConversazione({
+          const persistito = oppureNotFound(await caricaContestoConversazione({
             conversazioneId: input.conversazioneId,
             sedeId: contesto.sedeId,
             utenteId: contesto.utenteId,
-          });
-          if (!persistito) {
-            throw new Error("NOT_FOUND: conversazione non trovata.");
-          }
+          }));
           contesto = applicaContestoConversazioneAlRun(contesto, persistito);
         }
         const strumenti = strumentiPerContesto(contesto);
@@ -410,6 +408,7 @@ export const tarsRouter = router({
           })(),
         };
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -423,13 +422,17 @@ export const tarsRouter = router({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-    try {
-      const contesto = await costruisciContesto(ctx);
-      return listaConversazioni(contesto.sedeId, contesto.utenteId, input);
-    } catch (errore) {
-      comeErrore(errore);
-    }
-  }),
+      try {
+        const contesto = await costruisciContesto(ctx);
+        return listaConversazioni(contesto.sedeId, contesto.utenteId, input);
+      } catch (errore) {
+        // Come negli altri 26 catch del file: un TRPCError è già la risposta
+        // giusta (NOT_FOUND, FORBIDDEN…) e `comeErrore` lo riscriverebbe in
+        // un 500.
+        if (errore instanceof TRPCError) throw errore;
+        comeErrore(errore);
+      }
+    }),
 
   rinominaConversazione: procedura
     .input(z.object({
@@ -439,19 +442,21 @@ export const tarsRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const contesto = await costruisciContesto(ctx);
-        const esito = await rinominaConversazione({
+        let esito = await rinominaConversazione({
           ...input,
           sedeId: contesto.sedeId,
           utenteId: contesto.utenteId,
         });
-        if (esito.stato === "non_trovato") {
-          throw new Error("NOT_FOUND: conversazione non trovata.");
-        }
+        // Riassegnato (non un `if` a parte): serve a restringere il tipo di
+        // `esito` per `.conversazione` sotto, cosa che una chiamata a
+        // `oppureNotFound` come istruzione a sé non farebbe.
+        esito = oppureNotFound(esito.stato === "non_trovato" ? null : esito);
         if (esito.stato === "archiviata") {
           throw new Error("CONVERSAZIONE_ARCHIVIATA");
         }
         return esito.conversazione;
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -464,19 +469,18 @@ export const tarsRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const contesto = await costruisciContesto(ctx);
-        const esito = await impostaConversazioneFissata({
+        let esito = await impostaConversazioneFissata({
           ...input,
           sedeId: contesto.sedeId,
           utenteId: contesto.utenteId,
         });
-        if (esito.stato === "non_trovato") {
-          throw new Error("NOT_FOUND: conversazione non trovata.");
-        }
+        esito = oppureNotFound(esito.stato === "non_trovato" ? null : esito);
         if (esito.stato === "archiviata") {
           throw new Error("CONVERSAZIONE_ARCHIVIATA");
         }
         return esito.conversazione;
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -489,19 +493,18 @@ export const tarsRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const contesto = await costruisciContesto(ctx);
-        const esito = await impostaConversazioneArchiviata({
+        let esito = await impostaConversazioneArchiviata({
           ...input,
           sedeId: contesto.sedeId,
           utenteId: contesto.utenteId,
         });
-        if (esito.stato === "non_trovato") {
-          throw new Error("NOT_FOUND: conversazione non trovata.");
-        }
+        esito = oppureNotFound(esito.stato === "non_trovato" ? null : esito);
         if (esito.stato === "archiviata") {
           throw new Error("CONVERSAZIONE_ARCHIVIATA");
         }
         return esito.conversazione;
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -518,11 +521,10 @@ export const tarsRouter = router({
           sedeId: contesto.sedeId,
           utenteId: contesto.utenteId,
         });
-        if (esito.stato === "non_trovato") {
-          throw new Error("NOT_FOUND: conversazione non trovata.");
-        }
+        oppureNotFound(esito.stato === "non_trovato" ? null : esito);
         return { eliminata: true, conversazioneId: input.conversazioneId };
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -532,16 +534,14 @@ export const tarsRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         const contesto = await costruisciContesto(ctx);
-        const conversazione = await conversazioneDiUtente(
+        oppureNotFound(await conversazioneDiUtente(
           input.conversazioneId,
           contesto.sedeId,
           contesto.utenteId
-        );
-        if (!conversazione) {
-          throw new Error("NOT_FOUND: conversazione non trovata.");
-        }
+        ));
         return turniDiConversazione(input.conversazioneId, contesto.sedeId);
       } catch (errore) {
+        if (errore instanceof TRPCError) throw errore;
         comeErrore(errore);
       }
     }),
@@ -1054,14 +1054,19 @@ export const tarsRouter = router({
       try {
         assicuraTars("tarsReadTools");
         const contesto = await costruisciContesto(ctx);
+        // Capability assente: NOT_FOUND come un record mancante, non FORBIDDEN
+        // (fail-closed, CLAUDE.md) — nessun "record" qui, solo il varco.
+        // Throw esplicito, non `oppureNotFound(null)`: quello è un helper
+        // che restringe un valore, e usarlo come lancio nudo su una
+        // costante `null` legge come un errore di scrittura (fix wave
+        // finale). Il messaggio è lo stesso.
         if (!contesto.capability.has("commessa.read")) {
-          throw new Error("NOT_FOUND: commessa non trovata.");
+          throw new TRPCError({ code: "NOT_FOUND", message: "Risorsa non trovata." });
         }
-        const fascicolo = await fascicoloCommessa({
+        const fascicolo = oppureNotFound(await fascicoloCommessa({
           sedeId: contesto.sedeId,
           commessaId: input.commessaId,
-        });
-        if (!fascicolo) throw new Error("NOT_FOUND: commessa non trovata.");
+        }));
         return fascicolo;
       } catch (errore) {
         if (errore instanceof TRPCError) throw errore;
@@ -1080,14 +1085,11 @@ export const tarsRouter = router({
       try {
         const contesto = await costruisciContesto(ctx);
         if (input.conversazioneId != null) {
-          const conversazione = await conversazioneDiUtente(
+          const conversazione = oppureNotFound(await conversazioneDiUtente(
             input.conversazioneId,
             contesto.sedeId,
             contesto.utenteId
-          );
-          if (!conversazione) {
-            throw new Error("NOT_FOUND: conversazione non trovata.");
-          }
+          ));
           if (conversazione.archiviataAt != null) {
             throw new Error(
               "CONVERSAZIONE_ARCHIVIATA: ripristinala prima di inviare."

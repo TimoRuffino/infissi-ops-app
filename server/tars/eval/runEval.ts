@@ -56,6 +56,7 @@ import { osservaDaReconcile } from "../proattivita/worker";
 import { avvolgiConGovernor, type ConfigurazioneBudget } from "../costi/governor";
 import { creaLedgerMemoriaPerTest } from "../costi/ledger";
 import { usdInNano } from "../costi/tariffe";
+import { TENANT_PREDEFINITO_ID } from "../../tenants/costanti";
 
 const SEDE = 90901;
 const ALTRA_SEDE = 90902;
@@ -755,7 +756,9 @@ function costruisciCasi(): Array<{
             testo: "mai",
             uso: { input: 10, output: 10, cachedInput: 0, cacheWrite: 0 },
           })),
-          { sedeId: SEDE, utenteId: DIREZIONE_ID },
+          // L'eval gira sull'azienda predefinita: nessun tetto per azienda in
+          // gioco, si prova il tetto di CLASSE.
+          { sedeId: SEDE, utenteId: DIREZIONE_ID, tenantId: TENANT_PREDEFINITO_ID },
           { configurazione, classe: "pattern_azienda", ledger }
         );
         let bloccata = false;

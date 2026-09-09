@@ -2,7 +2,7 @@
 // flag, capability, sede; approvazione = collegamento manuale + registro
 // aggiornato; rifiuto = solo registro; doppia decisione = CONFLICT.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../../_core/context";
 import {
   getComunicazione,
@@ -358,6 +358,16 @@ describe("tars.briefing — da rispondere", () => {
   const BASE = new Date(Date.now() - 86_400_000);
   /** i-esima comunicazione: più è alto l'indice, più è recente. */
   const quando = (i: number) => new Date(BASE.getTime() + i * 60_000);
+
+  // Il briefing guarda gli ultimi 7 giorni; le fixture sono ferme al 01/09/2026.
+  // Congeliamo l'orologio al 02/09 per farle cadere dentro la finestra.
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date("2026-09-02T09:00:00.000Z"), toFake: ["Date"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("si ferma a otto voci anche con più candidati", async () => {
     for (let i = 0; i < 11; i++) {

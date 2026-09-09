@@ -46,25 +46,65 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 
 - Applicare `sedeId` a ogni entità, query e mutation business.
 - Un record di un'altra sede deve produrre `NOT_FOUND`, mai informazioni utili
-  a enumerarne l'id.
+  a enumerarne l'id. Nei router si passa da
+  `recordOppureNotFound(record, ctx.sedeId)` — o da `oppureNotFound(record)`
+  quando la sede non c'entra: mai `throw new Error("… non trovato")`, che
+  diventa un 500 (guardia `server/routers/nonTrovato.confine.test.ts`).
 - Ogni punto d'ingresso fuori richiesta (worker, scheduler, callback di
   librerie, riconciliazioni del boot, rotte anonime, script) dichiara il
   tenant con `conTenant`, `conTenantDellaSede`, `perOgniTenantAttivo` o
   `trovaNeiTenant` (`server/tenants/giri.ts`): gli store per tenant senza
   contesto falliscono. `conTenantDellaSede` è fail-closed: a interruttore
-  acceso una sede sconosciuta lancia, non ripiega sul tenant 1.
+  acceso una sede sconosciuta lancia, non ripiega sul tenant 1. Ogni giro di
+  fondo (scheduler, poller, worker) passa da `perOgniTenantAttivo`, che porta
+  con sé l'interruttore per (worker, azienda): dopo 3 errori consecutivi
+  quell'azienda viene saltata 15→120 minuti e le altre continuano.
 - Una rotta Express anonima (webhook, feed pubblico, callback OAuth) ha un URL
   solo per tutta l'installazione: il proprietario si cerca con
   `trovaNeiTenant` e il lavoro gira nel suo contesto. Handler `async` sempre
   con `try/catch`: Express 4 non cattura la promise rifiutata e il processo
   cadrebbe (v. `server/_core/rotteAnonime.ts`).
-- `storeDi` solo in migrazione, verifica e Platform Admin, mai nei router né
-  negli strumenti di Tars. Store globali: solo i sette elencati nella spec
-  WS2 §3.1. Il backfill di `tenantId` non parte mai da uno script: gli script
-  chiamano `bootstrapAll()` senza `backfill` (scrivere è un'altra cosa —
-  `pattuiti:reset --apply` e `storage:migrate` scrivono). Uno script che
-  legge o scrive uno store per tenant dichiara su quale azienda lavora con
-  `--tenant=<id>` (default: 1): `pattuiti:reset` e `importa-clienti`.
+- I file nuovi nascono sotto `tenant/<id>/…`: `putFile` ricava l'azienda dal
+  contesto (mai un `tenantId` passato da fuori) e le chiavi nude sono legacy
+  del tenant 1, leggibili solo da lui. `deleteFileQuiet(chiave, byte)` vuole i
+  byte del record: senza, il ledger dello storage resta gonfio finché qualcuno
+  non ricalcola.
+- La tabella `abbonamenti` la scrive **solo** `server/tenants/repository.ts`,
+  come il resto del control plane (guardia
+  `server/tenants/confine.test.ts`), e ogni cambio di stato di un abbonamento
+  passa da `server/abbonamenti/servizio.ts`: mai un `salvaAbbonamento` sparso
+  nei router, negli strumenti di Tars o negli script. È il servizio che
+  registra l'evento e che accende o spegne la sola lettura del tenant.
+- `putFile` può **rifiutare** per quota (`ErroreQuotaStorage`,
+  `PRECONDITION_FAILED`): nei siti di upload quell'errore si **rilancia
+  sempre**, prima di qualunque ripiego. Il ripiego su `dataBase64` inline
+  esiste per lo storage non durevole, non per la quota: usarlo qui
+  aggirerebbe il blocco e il conto dei byte.
+- Il tetto Tars per azienda arriva al governor come **politica iniettata**
+  (`impostaPoliticaTarsAzienda`, registrata al boot da
+  `server/abbonamenti/quota.ts`): `server/tars/costi/` non importa gli
+  abbonamenti e non legge il control plane. Chi aggiunge un limite nuovo
+  passa da lì, non da una lettura diretta dentro il ledger.
+- Con `FLAG_MULTI_AZIENDA` spento **niente blocca**: nessun worker degli
+  abbonamenti, nessun rifiuto per quota, nessun tetto per azienda. Le sole
+  aggiunte visibili sono le tabelle e l'abbonamento omaggio del tenant 1.
+- Ogni flusso OAuth nuovo emette il suo `state` in `oauth_state`
+  (`emettiStateOAuth`/`consumaStateOAuth`, legati ad azienda, sede e utente):
+  mai una mappa in memoria, che un deploy azzera a metà collegamento.
+- `sostituisciStore` esiste solo per il ripristino degli archivi
+  (`server/tenants/ripristino.ts`): nessun altro percorso rimpiazza un
+  archivio intero fuori dal debounce.
+- `storeDi` solo in migrazione, verifica, ripristino e Platform Admin, mai nei
+  router né negli strumenti di Tars. Store globali: solo quattro — `sedi`,
+  `utenti`, `platform_feature_flags`, `platform_feature_flag_audit` (dal WS3 i
+  tre `backup_*` sono per azienda; guardia
+  `server/_core/storeGlobali.test.ts`). Il backfill di `tenantId` non parte
+  mai da uno script: gli script chiamano `bootstrapAll()` senza `backfill`
+  (scrivere è un'altra cosa — `pattuiti:reset --apply` e `storage:migrate`
+  scrivono). Uno script che legge o scrive uno store per tenant dichiara su
+  quale azienda lavora con `--tenant=<id>` (default: 1): `pattuiti:reset`,
+  `importa-clienti` e `migrate-documents-to-storage`. A interruttore spento
+  `--tenant=<n>` non fallisce: il resolver risolve comunque il tenant 1.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.
@@ -91,6 +131,9 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - I file migrati vivono dietro `storageKey` con checksum SHA-256.
 - Le letture devono mantenere il fallback `dataBase64` per i record legacy.
 - Il backup Drive deve leggere i byte dallo storage, non assumere base64 inline.
+- Oltre la quota dell'azienda e la sua tolleranza i caricamenti nuovi vengono
+  rifiutati: le leve sono `--quota-gb` e `--tolleranza-storage` di `pnpm
+  tenant abbonamento` (v. `docs/storage-r2.md` e il runbook multi-azienda).
 - Non eseguire la migrazione reale senza un backup Drive riuscito nelle ultime
   24 ore. Procedura completa: `docs/storage-r2.md`.
 

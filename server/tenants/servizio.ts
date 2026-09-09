@@ -7,7 +7,14 @@ import { interruttoreAttivo } from "../platform/interruttori";
 import { creaSedeInterna, getSediPersistedStore, getSediStore, sediDelTenant } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { RUOLO_PROPRIETARIO, TENANT_PREDEFINITO_ID } from "./costanti";
-import { schemaPayloadCrea, schemaPayloadProprietario, schemaPayloadStato } from "./comandi";
+import {
+  schemaPayloadAbbonamento,
+  schemaPayloadCrea,
+  schemaPayloadProprietario,
+  schemaPayloadRipristino,
+  schemaPayloadStato,
+  schemaPayloadStorage,
+} from "./comandi";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
@@ -17,6 +24,7 @@ import {
   slugValido,
 } from "./regole";
 import { getTenantRepository } from "./repository";
+import { ricalcolaStorage } from "./storage";
 import { attoreTesto, type Attore, type TenantComando, type TenantRecord } from "./tipi";
 
 export type CreaTenantInput = {
@@ -84,6 +92,23 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
     });
   }
   const tenantId = tenant.id;
+  // Prova gratuita di 30 giorni (WS4 spec §4), SEMPRE — anche per un tenant
+  // già esistente (comando `crea` idempotente per lo stesso slug), non solo
+  // per quello appena inserito qui sopra (Task 3 fix round 1, Ruling R8): un
+  // tenant non deve mai restare senza abbonamento. `creaProva` è idempotente
+  // (ritorna la riga esistente se c'è già), quindi se un giro precedente di
+  // `crea` fosse arrivato fin qui e avesse fallito PROPRIO su `creaProva`
+  // (es. un guasto del repository), rilanciare `crea` con lo stesso slug
+  // ripara l'abbonamento mancante senza duplicare nulla (né una seconda riga
+  // `tenants`, né una seconda sede o utente, che restano sotto la
+  // transazione qui sotto). Prima della transazione di sede/utente: se
+  // quella fallisse la prova resterebbe comunque, come l'evento `creato`
+  // sopra per un tenant nuovo. Import dinamico: `abbonamenti/servizio.ts`
+  // importa `sospendi`/`riattiva` da QUESTO file, e un import statico
+  // chiuderebbe il ciclo fra i due moduli (come `ripristina_archivi` più
+  // sotto).
+  const { creaProva } = await import("../abbonamenti/servizio");
+  await creaProva(tenantId, new Date(), attore);
   let sedeId: number | null = sediDelTenant(tenantId)[0]?.id ?? null;
   let utenteCreato = false;
   // Riferimenti a ciò che QUESTO giro spinge negli array vivi: se il commit
@@ -281,6 +306,107 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         if (comando.tipo === "assegna_proprietario") await assegnaProprietario(id, utente.id, attore);
         else await revocaProprietario(id, utente.id, attore);
         return { tenantId: id, utenteId: utente.id };
+      }
+      case "ricalcola_storage": {
+        const p = schemaPayloadStorage.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const stato = await ricalcolaStorage(id, attoreTesto(attore));
+        return { tenantId: id, bytes: stato.bytes, file: stato.file };
+      }
+      case "ripristina_archivi": {
+        const p = schemaPayloadRipristino.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        // Import dinamico: `ripristino.ts` importa `sospendi`/`riattiva` da
+        // qui, e un import statico chiuderebbe il ciclo fra i due moduli.
+        const { ripristinaArchivi } = await import("./ripristino");
+        const esito = await ripristinaArchivi({
+          tenantId: id,
+          backup: p.backup,
+          solo: p.solo ?? null,
+          scrivi: p.scrivi,
+          ancheTenant1: p.ancheTenant1,
+          attore,
+        });
+        return { tenantId: id, ...esito };
+      }
+      case "imposta_abbonamento": {
+        const p = schemaPayloadAbbonamento.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        const adesso = new Date();
+        // Import dinamico: stesso ciclo di `crea` più sopra fra
+        // `tenants/servizio.ts` e `abbonamenti/servizio.ts` (che importa
+        // `sospendi`/`riattiva` da qui). `costanti.ts` non lo richiederebbe
+        // (nessun percorso di ritorno verso questo file), ma lo importiamo
+        // allo stesso modo per restare a un solo stile in questo case.
+        const {
+          concediOmaggio,
+          prorogaProva,
+          impostaBudgetTars,
+          aggiungiExtraTars,
+          impostaTolleranze,
+          impostaDisdetta,
+        } = await import("../abbonamenti/servizio");
+        const { eurInNano } = await import("../abbonamenti/costanti");
+        const repoAbbonamenti = getTenantRepository();
+        switch (p.azione) {
+          case "omaggio":
+            await concediOmaggio(
+              id,
+              {
+                motivo: p.motivo,
+                // Fine giornata in Europe/Rome; l'ora legale (+01:00 in
+                // inverno) non si considera qui: per un comando manuale
+                // un'ora di scarto sulla scadenza non è un problema, ed è
+                // la stessa approssimazione che la CLI propone all'operatore.
+                scadenza: p.scadenza ? new Date(`${p.scadenza}T23:59:59+02:00`) : null,
+              },
+              attore,
+              adesso
+            );
+            break;
+          case "proroga":
+            await prorogaProva(id, p.giorni, p.motivo, attore, adesso);
+            break;
+          case "quota": {
+            // La quota vive su `tenants.storage_quota_bytes` (WS3), non
+            // sull'abbonamento: qui solo l'evento del registro, in GB come
+            // lo scrive un umano (`campo` è un'etichetta di lettura, non il
+            // nome della colonna — stesso criterio di `impostaTolleranze`).
+            const primaBytes = repoAbbonamenti.perId(id)?.storageQuotaBytes ?? null;
+            await repoAbbonamenti.impostaQuotaStorage(id, p.quotaGb * 1024 ** 3);
+            await repoAbbonamenti.registraEvento({
+              tenantId: id,
+              tipo: "abbonamento_modificato",
+              attore: attoreTesto(attore),
+              dettagli: {
+                campo: "quota_storage_gb",
+                prima: primaBytes != null ? primaBytes / 1024 ** 3 : null,
+                dopo: p.quotaGb,
+              },
+            });
+            break;
+          }
+          case "budget_tars":
+            await impostaBudgetTars(id, p.eur == null ? null : eurInNano(p.eur), attore);
+            break;
+          case "extra_tars":
+            await aggiungiExtraTars(id, eurInNano(p.eur), attore, adesso);
+            break;
+          case "tolleranze":
+            await impostaTolleranze(id, { storage: p.storage, tars: p.tars }, attore);
+            break;
+          case "disdetta":
+            await impostaDisdetta(id, p.disdetta, attore);
+            break;
+        }
+        const a = repoAbbonamenti.abbonamentoDi(id);
+        return {
+          tenantId: id,
+          azione: p.azione,
+          tipo: a?.tipo ?? null,
+          stato: a?.stato ?? null,
+          finePeriodo: a?.finePeriodo?.toISOString() ?? null,
+        };
       }
     }
   } catch (e) {

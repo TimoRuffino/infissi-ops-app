@@ -86,6 +86,7 @@ describe.skipIf(!conDatabase)(
           ledger.prenota({
             chiamataId: `pgtest-conc-${i}`,
             runId: `pgtest-run-${i}`,
+            tenantId: 1,
             sedeId: (i % 3) + 1, // sedi diverse: il tetto è globale
             utenteId: 1,
             conversazioneId: null,
@@ -116,6 +117,7 @@ describe.skipIf(!conDatabase)(
           ledger.prenota({
             chiamataId: "pgtest-idem",
             runId: "pgtest-run-idem",
+            tenantId: 1,
             sedeId: 1,
             utenteId: 1,
             conversazioneId: null,
@@ -138,6 +140,7 @@ describe.skipIf(!conDatabase)(
       const prenotato = usdInNano(0.03)!;
       const comune = {
         runId: "pgtest-run-stati",
+        tenantId: 1,
         sedeId: 1,
         utenteId: 1,
         conversazioneId: null,
@@ -210,6 +213,7 @@ describe.skipIf(!conDatabase)(
       await ledger.prenota({
         chiamataId: "pgtest-riep",
         runId: "pgtest-run-riep",
+        tenantId: 1,
         sedeId: 1,
         utenteId: 1,
         conversazioneId: null,

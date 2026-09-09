@@ -90,8 +90,8 @@ jobs:
       - name: Suite completa
         run: pnpm test
 
-      - name: Ledger costi su PostgreSQL reale (atomicità e concorrenza)
-        run: pnpm vitest run server/tars/costi/pgConcorrenza.test.ts
+      - name: Ledger costi su PostgreSQL reale (atomicità, concorrenza, budget per azienda)
+        run: pnpm vitest run server/tars/costi/pgConcorrenza.test.ts server/tars/costi/ledger.pg.test.ts --no-file-parallelism
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/tars_ci
 

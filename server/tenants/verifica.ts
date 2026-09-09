@@ -53,15 +53,15 @@ export function tenantDellaChiave(key: string): { tenantId: number; nome: string
  *    STESSA chiave contiene per costruzione righe di tenant diversi: non ha
  *    senso confrontarle con il tenant (di comodo) della chiave; `utenti`
  *    referenzia le sedi con `sediIds` (array), mai `sedeId`, quindi neppure
- *    sedeSconosciuta è calcolabile su di essa;
- *  - `backup_config`/`backup_log`/`backup_oauth` sono globali fino al WS3:
- *    niente `tenantId`, niente `sedeId`.
+ *    sedeSconosciuta è calcolabile su di essa.
+ * (I tre store del backup stavano qui fino al WS3: ora sono per azienda e
+ * vivono in FAMIGLIE_SENZA_SEDE_DIRETTA.)
  * Applicare i conteggi "grezzi" qui segnalerebbe un'anomalia su ogni riga a
  * ogni giro — rumore, non un bug. `idDoppi` resta comunque significativo
  * (un id ripetuto è un problema indipendentemente dall'ambito) e continua a
  * contarsi anche per queste famiglie.
  */
-const FAMIGLIE_GLOBALI = new Set<string>(["sedi", "utenti", "backup_config", "backup_log", "backup_oauth"]);
+const FAMIGLIE_GLOBALI = new Set<string>(["sedi", "utenti"]);
 
 /**
  * Famiglie `ambito: "globale"` che PERÒ portano un `sedeId` vero e proprio
@@ -87,7 +87,10 @@ const FAMIGLIE_GLOBALI_PER_SEDE = new Set<string>(["platform_feature_flags", "pl
  *  - `notifiche_read` è per `userId`, non per sede;
  *  - `timeline_steps`/`preventivi_documenti`/`aperture` sono per
  *    `commessaId` (`commessaInSede` risale alla sede DELLA commessa);
- *  - `ticket_allegati` è per `ticketId` (`ticketInSede`, stesso schema).
+ *  - `ticket_allegati` è per `ticketId` (`ticketInSede`, stesso schema);
+ *  - `backup_config`/`backup_log`/`backup_oauth` sono per azienda dal WS3
+ *    (§4.1) e non hanno sede affatto: il backup è dell'azienda intera, non
+ *    di una sua sede.
  * Un controllo "grezzo" su `sedeId` qui segnalerebbe TUTTI i record come
  * sede sconosciuta a ogni giro: non è un bug, è la forma del record. Chi
  * aggiunge una famiglia con questa stessa forma aggiorna questa lista;
@@ -99,6 +102,9 @@ const FAMIGLIE_SENZA_SEDE_DIRETTA = new Set<string>([
   "preventivi_documenti",
   "aperture",
   "ticket_allegati",
+  "backup_config",
+  "backup_log",
+  "backup_oauth",
 ]);
 
 type RecordGrezzo = { id?: unknown; tenantId?: unknown; sedeId?: unknown };

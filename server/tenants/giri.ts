@@ -49,16 +49,78 @@ export function tenantsAttivi(): number[] {
   return tutti.filter(t => t.stato === "attivo").map(t => t.id);
 }
 
-/** Un giro per tenant, ognuno nel suo contesto; un errore di un tenant non ferma gli altri. */
-export async function perOgniTenantAttivo(
-  etichetta: string,
-  fn: (tenantId: number) => Promise<void>
+// Interruttore per (worker, azienda) (WS3 spec §7): un'azienda che fallisce
+// di continuo non deve intasare i log né consumare tempo a ogni giro — dopo
+// ERRORI_PER_SOSPENDERE errori consecutivi la si salta per un'attesa
+// crescente, letta da ATTESE_SOSPENSIONE_MIN in base a quante volte è già
+// stata sospesa (l'ultima resta fissa, non si cresce all'infinito).
+export const ERRORI_PER_SOSPENDERE = 3;
+export const ATTESE_SOSPENSIONE_MIN = [15, 30, 60, 120] as const;
+
+export type StatoGiro = { erroriConsecutivi: number; sospesoFinoA: number; sospensioni: number };
+
+// Stato in memoria (una replica): non serve sopravvivere a un riavvio, deve
+// solo evitare che lo stesso worker martelli la stessa azienda rotta.
+const stati = new Map<string, StatoGiro>();
+const chiave = (etichetta: string, tenantId: number): string => `${etichetta}:${tenantId}`;
+
+/** Lo stato dell'interruttore per (etichetta, tenantId); {0,0,0} se mai visto. */
+export function statoGiro(etichetta: string, tenantId: number): StatoGiro {
+  return { ...(stati.get(chiave(etichetta, tenantId)) ?? { erroriConsecutivi: 0, sospesoFinoA: 0, sospensioni: 0 }) };
+}
+
+/** Solo per i test: azzera lo stato di tutti gli interruttori fra un caso e l'altro. */
+export function __azzeraStatiGiriPerTest(): void {
+  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY_STATI_GIRI");
+  stati.clear();
+}
+
+// Un worker non ha un utente: l'attore è sempre "boot". Mai lanciare da qui:
+// un evento perso non deve far sparire (o rifallire) il giro del worker.
+async function registra(
+  tenantId: number,
+  tipo: "worker_sospeso" | "worker_riarmato",
+  dettagli: Record<string, unknown>
 ): Promise<void> {
+  try {
+    await getTenantRepository().registraEvento({ tenantId, tipo, attore: "boot", dettagli });
+  } catch (errore) {
+    console.error(`[tenant] evento ${tipo} non registrato:`, errore instanceof Error ? errore.message : errore);
+  }
+}
+
+/**
+ * Un giro per tenant, ognuno nel suo contesto; un errore di un tenant non
+ * ferma gli altri. Interruttore per (worker, azienda) (WS3 spec §7): dopo
+ * ERRORI_PER_SOSPENDERE errori consecutivi l'azienda viene saltata per 15,
+ * 30, 60 e poi sempre 120 minuti; il primo giro riuscito riarma. Lo stato
+ * vive in memoria (una replica): gli eventi in `tenant_eventi` sono la
+ * traccia che `pnpm tenant elenco` legge.
+ */
+export async function perOgniTenantAttivo(etichetta: string, fn: (tenantId: number) => Promise<void>): Promise<void> {
   for (const tenantId of tenantsAttivi()) {
+    const k = chiave(etichetta, tenantId);
+    const s = stati.get(k) ?? { erroriConsecutivi: 0, sospesoFinoA: 0, sospensioni: 0 };
+    if (s.sospesoFinoA > Date.now()) continue;
     try {
       await conTenant(tenantId, () => fn(tenantId));
+      if (s.erroriConsecutivi > 0 || s.sospensioni > 0) {
+        stati.delete(k);
+        if (s.sospensioni > 0) await registra(tenantId, "worker_riarmato", { etichetta });
+      }
     } catch (errore) {
-      console.error(`[${etichetta}] tenant ${tenantId}:`, errore instanceof Error ? errore.message : errore);
+      const messaggio = errore instanceof Error ? errore.message : String(errore);
+      console.error(`[${etichetta}] tenant ${tenantId}:`, messaggio);
+      s.erroriConsecutivi++;
+      if (s.erroriConsecutivi >= ERRORI_PER_SOSPENDERE) {
+        const minuti = ATTESE_SOSPENSIONE_MIN[Math.min(s.sospensioni, ATTESE_SOSPENSIONE_MIN.length - 1)];
+        s.sospesoFinoA = Date.now() + minuti * 60_000;
+        s.sospensioni++;
+        s.erroriConsecutivi = 0;
+        console.error(`[${etichetta}] tenant ${tenantId} sospeso per ${minuti} min: ${messaggio}`);
+        await registra(tenantId, "worker_sospeso", { etichetta, minuti, errore: messaggio });
+      }
+      stati.set(k, s);
     }
   }
 }

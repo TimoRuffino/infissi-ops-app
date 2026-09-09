@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 import { useAuth } from "@/_core/hooks/useAuth";
+import AvvisoAzienda from "@/components/abbonamento/AvvisoAzienda";
 import BottomNav from "@/components/BottomNav";
 import CommandPalette from "@/components/CommandPalette";
 import NotificheDropdown from "@/components/NotificheDropdown";
@@ -221,6 +222,11 @@ export default function ModularControlLayout({
           )
         }
       >
+        {/* L'avviso dell'azienda sta DENTRO l'area di lavoro, sopra la
+            pagina: scorre con il contenuto invece di rubare una fascia fissa
+            in cima, e non entra nell'AnimatePresence — non deve rifare la
+            transizione a ogni cambio di route. */}
+        <AvvisoAzienda />
         <AnimatePresence mode="wait" initial={false}>
           <PageContainer key={location}>{children}</PageContainer>
         </AnimatePresence>

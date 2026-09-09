@@ -13,13 +13,26 @@
 // store, comandi in attesa e il ciclo ogni 30 s, questi sì condizionati
 // all'interruttore. In produzione un fallimento dello schema ferma l'avvio
 // (come policy ed eventi).
+import { impostaContabileStorage } from "../_core/fileStorage";
 import { kvSql } from "../_core/persistence";
 import { interruttoreAttivo } from "../platform/interruttori";
 import { getSediStore } from "../routers/sedi";
+// WS4 (Task 3): nessun ciclo a importare questo da qui — `boot.ts` non è fra
+// i moduli che `abbonamenti/servizio.ts` risale (a differenza di
+// `tenants/servizio.ts`, importato da lì per `sospendi`/`riattiva`: lì
+// l'import resta dinamico). Import statico qui, come gli altri di questo
+// file. Il worker degli abbonamenti (`abbonamenti/worker.ts`) NON si importa
+// più da questo modulo (Task 3 fix round 1, Ruling R7): parte SOLO dopo il
+// `listen`, in `_core/index.ts` — mai dal boot, che gira prima.
+import { assicuraAbbonamentoPredefinito } from "../abbonamenti/servizio";
+// Stesso ragionamento del commento qui sopra: `quota.ts` non risale a
+// `boot.ts`, import statico sicuro (WS4, Task 5).
+import { registraGanciQuota } from "../abbonamenti/quota";
 import { INTERVALLO_COMANDI_MS, TENANT_PREDEFINITO_ID } from "./costanti";
 import { righeTenantSedi } from "./regole";
 import { getTenantRepository } from "./repository";
 import { allineaTenantPredefinito, eseguiComandiInAttesa } from "./servizio";
+import { creaContabileStorage, ricalcolaStorageSeManca } from "./storage";
 import {
   applicaTenantIdAlleTabelle,
   backfillTenantIdSulleTabelle,
@@ -35,7 +48,8 @@ function riferisci(esito: { eseguiti: number; falliti: number }) {
 }
 
 /**
- * Control plane soltanto, PRIMA di `bootstrapAll`: schema, cache e
+ * Control plane soltanto, PRIMA di `bootstrapAll`: schema, cache, spazzata
+ * degli `state` OAuth scaduti e
  * `repo.assicuraTenantPredefinito()` — la riga `tenants` del tenant 1 — SEMPRE,
  * subito dopo `caricaCache()`, a prescindere dall'interruttore (Task 12 fix
  * round 1, Ruling R13): è control plane, additiva (`ON CONFLICT DO NOTHING`)
@@ -55,7 +69,26 @@ export async function preparaTenants(): Promise<number[]> {
   const repo = getTenantRepository();
   await repo.ensureSchema();
   await repo.caricaCache();
+  // Gli `state` OAuth scaduti (WS3 §5): due righe per collegamento, dieci
+  // minuti di vita, nessuno che le tolga. Sicurezza non ne dipende — la
+  // scadenza e il consumo unico sono in SQL — ma una tabella che cresce e
+  // non cala è debito: si spazza al boot, dove costa una DELETE sola.
+  // Un errore qui non deve fermare l'avvio: il control plane è già a posto.
+  try {
+    const rimossi = await repo.pulisciStateScaduti();
+    if (rimossi > 0) console.log(`[tenants] oauth_state: ${rimossi} state scaduti rimossi`);
+  } catch (errore) {
+    console.error("[tenants] pulizia oauth_state:", errore instanceof Error ? errore.message : errore);
+  }
   await repo.assicuraTenantPredefinito();
+  // Il contabile dei byte (WS3): fileStorage.ts non importa il control plane
+  // e lo riceve da qui, come persistence.ts riceve il resolver del tenant.
+  impostaContabileStorage(creaContabileStorage());
+  // La quota che blocca (WS4, spec §6) e il tetto Tars per azienda (§7):
+  // stesso pattern del contabile, ganci iniettati — senza questa chiamata
+  // `putFile` non blocca mai nulla e il budget governor non conosce alcun
+  // tetto d'azienda. Entrambi restano inerti a interruttore spento.
+  registraGanciQuota();
   if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
   return repo.tutti().map(t => t.id);
 }
@@ -65,8 +98,11 @@ export async function preparaTenants(): Promise<number[]> {
  * allineare il proprietario di ripiego, eseguire i comandi in attesa e
  * avviare il ciclo ogni 30 s — questi TRE restano condizionati
  * all'interruttore. Non tocca mai lo schema: quello è compito, una volta
- * sola, di `preparaTenants`, che ha già seminato la riga del tenant 1 anche
- * a interruttore spento (Ruling R13).
+ * sola, di `preparaTenants`, che ha già seminato la riga del tenant 1 anche a
+ * interruttore spento (Ruling R13). Il worker degli abbonamenti NON parte da
+ * qui (Task 3 fix round 1, Ruling R7): questa funzione gira PRIMA di
+ * `server.listen`, e il worker deve partire dopo — lo avvia `_core/index.ts`,
+ * nel callback del `listen`.
  */
 export async function completaTenants(): Promise<void> {
   const repo = getTenantRepository();
@@ -77,6 +113,16 @@ export async function completaTenants(): Promise<void> {
   // sedi sono sue e questa sincronizzazione le scrive davvero nello
   // specchio, non resta un no-op silenzioso.
   await repo.sincronizzaTenantSedi(righeTenantSedi(getSediStore()));
+  // L'omaggio del tenant 1 (WS4 spec §4) è control plane quanto la sua riga
+  // `tenants`: nasce SEMPRE, anche a interruttore spento (l'unica aggiunta
+  // visibile in quel caso, decisione 6 dell'08/09). Un errore qui non deve
+  // impedire l'avvio — come lo schema, ma qui non c'è nulla che debba
+  // fermare il boot per un'unica riga del control plane.
+  try {
+    await assicuraAbbonamentoPredefinito(new Date());
+  } catch (errore) {
+    console.error("[tenants] abbonamento del tenant 1:", errore instanceof Error ? errore.message : errore);
+  }
   if (!interruttoreAttivo("multiAzienda")) {
     const attesa = await repo.comandiInAttesa();
     console.log(
@@ -147,6 +193,22 @@ export async function avviaBackfillTabelleTenant(): Promise<void> {
     );
   } catch (errore) {
     console.error("[tenants] backfill tenant_id:", errore);
+  }
+}
+
+/**
+ * Il ledger dello storage (WS3, Task 4), dopo il `listen` come il backfill
+ * qui sopra: un'azienda alla volta, senza tenere giù l'avvio. Chi ha già una
+ * riga la salta (`ricalcolaStorageSeManca`); da lì in poi ci pensano put e
+ * delete. Ogni tenant ha già il proprio try/catch interno — questo strato in
+ * più è la stessa cautela di `avviaBackfillTabelleTenant`, per l'imprevisto
+ * in cui il giro stesso fallisca.
+ */
+export async function avviaRicalcoloStorageIniziale(tenantIds: number[]): Promise<void> {
+  try {
+    await ricalcolaStorageSeManca(tenantIds);
+  } catch (errore) {
+    console.error("[tenants] ricalcolo storage iniziale:", errore);
   }
 }
 

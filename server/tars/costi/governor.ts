@@ -18,6 +18,7 @@ import {
 import {
   ledgerCorrente,
   type ClasseCosto,
+  type EsitoPrenotazione,
   type LedgerCosti,
   type LimitiNano,
 } from "./ledger";
@@ -44,23 +45,75 @@ export const MESSAGGIO_BUDGET_RUN =
 export const MESSAGGIO_BUDGET_CLASSE =
   "Questa funzione di Tars ha esaurito il proprio budget dedicato (le altre funzioni non sono toccate). Nessuna operazione è stata eseguita.";
 
-export function messaggioPerLimite(
-  limite: "run" | "giorno" | "mese" | "classe"
-): string {
+/**
+ * Budget MENSILE dell'azienda esaurito (WS4, spec §7). È la copia letterale
+ * di `MESSAGGI_ABBONAMENTO.budgetTars`: il governor non importa
+ * `server/abbonamenti` (il dominio dell'abbonamento dipende da lui, non il
+ * contrario), quindi il testo vive in due posti e un test degli abbonamenti
+ * sorveglia che restino identici.
+ */
+export const MESSAGGIO_BUDGET_AZIENDA =
+  "Tars ha esaurito il budget mensile dell'azienda; le funzioni che non costano restano disponibili, il budget si rinnova il primo del mese.";
+
+export type LimiteBudget = "run" | "giorno" | "mese" | "classe" | "azienda";
+
+export function messaggioPerLimite(limite: LimiteBudget): string {
   if (limite === "run") return MESSAGGIO_BUDGET_RUN;
   if (limite === "classe") return MESSAGGIO_BUDGET_CLASSE;
+  if (limite === "azienda") return MESSAGGIO_BUDGET_AZIENDA;
   return MESSAGGIO_BUDGET;
 }
 
 /** Errore del governor: l'orchestratore lo degrada come gli altri. */
 export class ErroreBudget extends ErroreProvider {
   constructor(
-    public readonly limite: "run" | "giorno" | "mese" | "classe",
+    public readonly limite: LimiteBudget,
     public readonly consumoNano: number
   ) {
-    super(MESSAGGIO_BUDGET, "configurazione", false);
+    // Il budget dell'AZIENDA non è «il limite configurato della
+    // piattaforma»: chi lo incontra deve leggere di che budget si tratta.
+    super(
+      limite === "azienda" ? MESSAGGIO_BUDGET_AZIENDA : MESSAGGIO_BUDGET,
+      "configurazione",
+      false
+    );
     this.name = "ErroreBudget";
   }
+}
+
+/**
+ * Il tetto per azienda (WS4, spec §7) arriva dal control plane, iniettato al
+ * boot da `server/abbonamenti/quota.ts` come il contabile dello storage: il
+ * governor non sa cosa sia un abbonamento, chiede un numero e lo applica.
+ *
+ * - `limite` dice quanto può spendere l'azienda questo mese (`null` = nessun
+ *   tetto: tenant 1, interruttore spento, piano senza budget) e se il tetto è
+ *   già BLOCCANTE (dopo la tolleranza dal primo 100 %) o serve solo a contare
+ *   le soglie;
+ * - `dopoPrenotazione` riceve il consumo del mese dell'azienda DOPO questa
+ *   chiamata e registra soglie, blocchi e sblocchi. Non viene mai atteso: un
+ *   avviso non deve rallentare né far fallire una risposta.
+ */
+export type PoliticaTarsAzienda = {
+  limite(
+    tenantId: number,
+    adesso: Date
+  ): Promise<{ limiteNano: number | null; bloccante: boolean }>;
+  dopoPrenotazione(
+    tenantId: number,
+    aziendaMeseNano: number,
+    adesso: Date,
+    esito: { rifiutata: boolean }
+  ): Promise<void>;
+};
+
+let politicaAzienda: PoliticaTarsAzienda | null = null;
+
+/** Registrata al boot (`registraGanciQuota`); `null` la toglie (test). */
+export function impostaPoliticaTarsAzienda(
+  politica: PoliticaTarsAzienda | null
+): void {
+  politicaAzienda = politica;
 }
 
 /**
@@ -282,7 +335,50 @@ export function stimaCostoNano(
 export type ContestoCosto = {
   sedeId: number;
   utenteId: number;
+  /**
+   * L'azienda che paga (WS4, spec §7). Lo risolve `creaProviderPerRun`
+   * (`tenantCorrente() ?? tenantIdDellaSede(sedeId)`): qui è un dato, come la
+   * sede.
+   */
+  tenantId: number;
 };
+
+/**
+ * Avviso alle soglie del budget d'azienda: FUORI dal percorso della risposta
+ * (`void` + catch), perché un avviso non è la risposta e un control plane
+ * lento o guasto non deve ritardare né rompere una chiamata già prenotata.
+ *
+ * Si chiama solo per gli esiti che riguardano l'azienda: un rifiuto dei tetti
+ * globali `TARS_*` non è un fatto suo (non ha consumato nulla) e non deve
+ * comparire nella sua cronologia.
+ */
+function avvisaPoliticaAzienda(
+  politica: PoliticaTarsAzienda | null,
+  tenantId: number,
+  prenotazione: EsitoPrenotazione,
+  stimaNano: number,
+  adesso: Date
+): void {
+  if (!politica) return;
+  if (prenotazione.esito === "rifiutata" && prenotazione.limite !== "azienda") {
+    return;
+  }
+  const consumo = prenotazione.consumo?.aziendaMeseNano;
+  // Prenotazione già a terra ritrovata prima delle somme: nessun numero
+  // attendibile da riferire, e niente di nuovo da contare.
+  if (consumo == null) return;
+  // Il consumo del mese DOPO questa chiamata: la stima entra solo se la
+  // prenotazione è passata (una `gia_presente` era già contata).
+  const aziendaMeseNano =
+    consumo + (prenotazione.esito === "prenotata" ? stimaNano : 0);
+  void politica
+    .dopoPrenotazione(tenantId, aziendaMeseNano, adesso, {
+      rifiutata: prenotazione.esito === "rifiutata",
+    })
+    .catch(errore =>
+      console.error("[tars] soglie del budget d'azienda:", errore)
+    );
+}
 
 /**
  * Un uso è plausibile solo se i numeri sono finiti, non negativi, e
@@ -398,19 +494,47 @@ export function avvolgiConGovernor(
         tariffa,
         opzioni.configurazione.margineStima
       );
+
+      // Tetto MENSILE dell'azienda (WS4, spec §7). Si legge a ogni chiamata
+      // perché budget, extra e tolleranza cambiano senza riavvio; la politica
+      // risponde dalla cache del control plane, non da un giro di database.
+      // Un guasto qui NON blocca: si resta ai tetti globali `TARS_*`, che
+      // sono la rete della piattaforma.
+      const politica = politicaAzienda;
+      const tettoAzienda = politica
+        ? await politica.limite(contesto.tenantId, adesso).catch(errore => {
+            console.error("[tars] tetto del budget d'azienda:", errore);
+            return null;
+          })
+        : null;
+
       const prenotazione = await ledger.prenota({
         chiamataId,
         runId: identita.runId,
+        tenantId: contesto.tenantId,
         sedeId: contesto.sedeId,
         utenteId: contesto.utenteId,
         conversazioneId: identita.conversazioneId ?? null,
         modello: richiesta.modello,
         classe,
         limiteClasseNano: limiteClasse.limiteNano,
+        // Prima della tolleranza il tetto d'azienda conta e avvisa, non
+        // blocca (spec §7): il numero arriva al ledger solo se è bloccante.
+        limiteAziendaMeseNano: tettoAzienda?.bloccante
+          ? tettoAzienda.limiteNano
+          : null,
         costoPrenotatoNano: stima,
         limiti: opzioni.configurazione.limiti,
         adesso,
       });
+
+      avvisaPoliticaAzienda(
+        politica,
+        contesto.tenantId,
+        prenotazione,
+        stima,
+        adesso
+      );
 
       if (prenotazione.esito === "rifiutata") {
         throw new ErroreBudget(
@@ -421,7 +545,9 @@ export function avvolgiConGovernor(
               ? prenotazione.consumo.giornoNano
               : prenotazione.limite === "classe"
                 ? prenotazione.consumo.classeGiornoNano ?? 0
-                : prenotazione.consumo.meseNano
+                : prenotazione.limite === "azienda"
+                  ? prenotazione.consumo.aziendaMeseNano ?? 0
+                  : prenotazione.consumo.meseNano
         );
       }
       if (prenotazione.esito === "gia_presente") {

@@ -17,8 +17,18 @@ describe("confine del tenant", () => {
     expect(colpevoli).toEqual([]);
   });
 
-  it("INSERT INTO tenant* compare solo nel repository", () => {
-    const scrittori = PRODUZIONE.filter(f => /INSERT INTO tenant/.test(testo(f))).map(relativo);
+  // WS3: `tenant_storage` inizia comunque per "tenant" (già coperta), ma
+  // `oauth_state` no — va nominata a parte perché la guardia resti vera anche
+  // per lei (control plane del tenant, spec WS3 §5). WS4: stessa ragione per
+  // `abbonamenti`.
+  //
+  // Fix wave finale: la guardia guardava solo l'INSERT, e un `UPDATE
+  // abbonamenti` o un `DELETE FROM abbonamenti` scritto fuori dal repository
+  // sarebbe passato — proprio la scrittura che il confine vuole vietare (uno
+  // stato d'abbonamento cambiato senza passare da `abbonamenti/servizio.ts`).
+  it("INSERT/UPDATE/DELETE su tenant* e oauth_state/abbonamenti compaiono solo nel repository", () => {
+    const scrittura = /(INSERT INTO|UPDATE|DELETE FROM)\s+(tenant|oauth_state|abbonamenti)/;
+    const scrittori = PRODUZIONE.filter(f => scrittura.test(testo(f))).map(relativo);
     expect(scrittori).toEqual([join("server", "tenants", "repository.ts")]);
   });
 

@@ -3,7 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { deleteAllegatiByTicket } from "./ticketAllegati";
 import { getCommessaById } from "./commesse";
-import { assertSedeScope, isDirezione } from "../_core/permissions";
+import { isDirezione, recordOppureNotFound } from "../_core/permissions";
 import { publishAssignmentEvent } from "../events/publish";
 import { requireAssignableUser } from "../authz/assignments";
 import { authorizeCoreOperation } from "../authz/enforcement";
@@ -181,8 +181,7 @@ export const ticketRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
-      if (idx === -1) throw new Error("Ticket non trovato");
-      assertSedeScope(tickets[idx], ctx.sedeId);
+      recordOppureNotFound(tickets[idx], ctx.sedeId);
       const policyResource = {
         ...tickets[idx],
         createdBy: tickets[idx].apertoBy ?? null,
@@ -236,8 +235,7 @@ export const ticketRouter = router({
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input);
-      if (idx === -1) throw new Error("Ticket non trovato");
-      assertSedeScope(tickets[idx], ctx.sedeId);
+      recordOppureNotFound(tickets[idx], ctx.sedeId);
       // La decisione legacy resta autore/direzione/proprietario commessa;
       // in enforce la cancellazione richiede la capability dedicata.
       const uid = ctx.user?.id ?? null;
@@ -279,8 +277,7 @@ export const ticketRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
-      if (idx === -1) throw new Error("Ticket non trovato");
-      assertSedeScope(tickets[idx], ctx.sedeId);
+      recordOppureNotFound(tickets[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "ticket.updateState",
@@ -306,8 +303,7 @@ export const ticketRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
-      if (idx === -1) throw new Error("Ticket non trovato");
-      assertSedeScope(tickets[idx], ctx.sedeId);
+      recordOppureNotFound(tickets[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "ticket.rollbackState",
@@ -340,8 +336,7 @@ export const ticketRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const idx = tickets.findIndex((t) => t.id === input.id);
-      if (idx === -1) throw new Error("Ticket non trovato");
-      assertSedeScope(tickets[idx], ctx.sedeId);
+      recordOppureNotFound(tickets[idx], ctx.sedeId);
       await authorizeCoreOperation({
         ctx,
         endpoint: "ticket.remind",

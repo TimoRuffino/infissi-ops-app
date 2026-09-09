@@ -15,6 +15,8 @@
 //   6. ledger AUTOREVOLE disponibile (PostgreSQL)
 
 import { tarsAttivo } from "../../platform/interruttori";
+import { tenantIdDellaSede } from "../../tenants/contesto";
+import { tenantCorrente } from "../../tenants/contestoCorrente";
 import { creaProviderRealeGrezzo } from "../openai/adapter";
 import { creaProviderFinto, type PassoCopione } from "../openai/fake";
 import type { TarsProvider } from "../provider";
@@ -95,7 +97,15 @@ export function creaProviderPerRun(input: {
   }
   return avvolgiConGovernor(
     creaProviderRealeGrezzo(),
-    { sedeId: input.sedeId, utenteId: input.utenteId },
+    {
+      sedeId: input.sedeId,
+      utenteId: input.utenteId,
+      // L'azienda che paga (WS4, spec §7): il tenant della richiesta o del
+      // giro di worker quando c'è (`conTenant`), altrimenti quello della
+      // sede. I sei chiamanti non cambiano: continuano a passare sede e
+      // utente, e il tenant si risolve qui, in un posto solo.
+      tenantId: tenantCorrente() ?? tenantIdDellaSede(input.sedeId),
+    },
     { configurazione: config.configurazione, classe: input.classe }
   );
 }

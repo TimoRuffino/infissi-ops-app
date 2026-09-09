@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { oppureNotFound } from "../_core/permissions";
 
 // ── Import external Google calendars into the CRM calendar (read-only) ────────
 //
@@ -414,7 +415,7 @@ export const externalCalendarsRouter = router({
       const idx = sources.findIndex(
         (s) => s.id === input.id && s.sedeId === ctx.sedeId
       );
-      if (idx === -1) throw new Error("Calendario non trovato");
+      oppureNotFound(idx === -1 ? undefined : sources[idx]);
       const { id, ...up } = input;
       sources[idx] = { ...sources[idx], ...up };
       _store.save();
@@ -427,7 +428,7 @@ export const externalCalendarsRouter = router({
       const idx = sources.findIndex(
         (s) => s.id === input && s.sedeId === ctx.sedeId
       );
-      if (idx === -1) throw new Error("Calendario non trovato");
+      oppureNotFound(idx === -1 ? undefined : sources[idx]);
       cache.delete(sources[idx].id);
       sources.splice(idx, 1);
       _store.save();

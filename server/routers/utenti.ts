@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
 import { hashPassword, isHashed } from "../_core/password";
-import { assertTenantScope, isDirezione } from "../_core/permissions";
+import { assertTenantScope, isDirezione, oppureNotFound } from "../_core/permissions";
 import type { TrpcContext } from "../_core/context";
 import { effectiveCapabilitySet } from "../authz/enforcement";
 import { interruttoreAttivo } from "../platform/interruttori";
@@ -332,9 +332,11 @@ export const utentiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const multi = interruttoreAttivo("multiAzienda");
       const idx = utenti.findIndex(u => u.id === input.id);
-      const before = idx === -1 ? null : utenti[idx];
+      // Esistenza prima del confine di tenant (assertTenantScope, sotto):
+      // sull'assenza lanciano lo stesso NOT_FOUND generico, l'ordine non
+      // cambia l'esito.
+      const before = oppureNotFound(idx === -1 ? null : utenti[idx]);
       if (multi) assertTenantScope(before, ctx.tenantId);
-      if (!before) throw new Error("Utente non trovato");
       const tenantId = presidioDi(before).tenantId;
       const { id, ...updates } = input;
       // Never persist an empty sedi list — fall back to the tenant's first sede.
@@ -380,9 +382,8 @@ export const utentiRouter = router({
   delete: adminProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
     const multi = interruttoreAttivo("multiAzienda");
     const idx = utenti.findIndex(u => u.id === input);
-    const before = idx === -1 ? null : utenti[idx];
+    const before = oppureNotFound(idx === -1 ? null : utenti[idx]);
     if (multi) assertTenantScope(before, ctx.tenantId);
-    if (!before) throw new Error("Utente non trovato");
     // Idem update: senza l'interruttore la guardia dell'ultimo proprietario
     // non si applica, solo quella dell'ultima direzione.
     const motivo = motivoRifiutoPresidio(presidioDi(before), null, utenti.map(presidioDi), {

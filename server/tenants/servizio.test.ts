@@ -1,15 +1,25 @@
 // server/tenants/servizio.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __impostaDriverPerTest, type StorageDriver } from "../_core/fileStorage";
 import { hashPassword } from "../_core/password";
 import * as persistenceModulo from "../_core/persistence";
-import { storeDi, tenantsNoti } from "../_core/persistence";
+import { __registraTenantNotoPerTest, storeDi, tenantsNoti } from "../_core/persistence";
 // Side-effect only: registra la famiglia "clienti" (persistedStore) così i
 // test di questo file possono verificare `istanziaStoresPerTenant` su uno
 // store per-tenant vero, senza importare l'intero appRouter.
 import "../routers/clienti";
+// Il test di `ricalcola_storage` (Task 4) legge anche "preventivi_documenti"
+// e "ticket_allegati": qui l'intero albero, più semplice che elencare i
+// singoli router che li registrano.
+import "../routers";
 import { getSediStore } from "../routers/sedi";
 import { getUtentiStore } from "../routers/utenti";
+// WS4 (Task 3): solo per leggere `eurInNano` nelle asserzioni sul comando
+// `imposta_abbonamento` — nessuna logica di dominio importata qui, resta in
+// `./servizio` via `await import` (v. il commento nel sorgente).
+import { eurInNano } from "../abbonamenti/costanti";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "./repository";
+import { __impostaDriveRipristinoPerTest } from "./ripristino";
 import {
   allineaTenantPredefinito,
   assegnaProprietario,
@@ -37,6 +47,7 @@ afterEach(() => {
   utenti.splice(nU);
   delete process.env.FLAG_MULTI_AZIENDA;
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 const inputAcme = () => ({
@@ -58,8 +69,19 @@ describe("crea", () => {
     expect(utente.sediIds).toEqual([esito.sedeId]);
     expect(utente.tenantId).toBe(esito.tenant.id);
     const eventi = await getTenantRepository().eventi(esito.tenant.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato", "proprietario_assegnato"]);
+    // `abbonamento_creato` (WS4, Task 3): la prova di 30 giorni nasce subito
+    // dopo l'evento `creato`, prima ancora che sede e proprietario esistano.
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato", "proprietario_assegnato"]);
     expect(eventi[0].attore).toBe("script:tenant@test");
+  });
+
+  it("semina la prova di 30 giorni per il nuovo tenant (WS4, interruttore acceso)", async () => {
+    const ora = new Date("2026-09-08T09:00:00Z");
+    vi.useFakeTimers({ now: ora, toFake: ["Date"] });
+    const esito = await crea(inputAcme(), script);
+    const abbonamento = getTenantRepository().abbonamentoDi(esito.tenant.id);
+    expect(abbonamento).toMatchObject({ tenantId: esito.tenant.id, tipo: "paid", stato: "trialing" });
+    expect(abbonamento?.finePeriodo?.toISOString()).toBe(new Date(ora.getTime() + 30 * 86_400_000).toISOString());
   });
 
   it("è idempotente per slug e rifiuta slug non validi ed email di altre aziende", async () => {
@@ -74,8 +96,13 @@ describe("crea", () => {
     expect(getTenantRepository().perSlug("altra")).toBeNull();
   });
 
-  it("tenant esistente senza sedi: completa sede e proprietario, senza un secondo evento creato (Important 4)", async () => {
+  it("tenant esistente senza sedi: completa sede, proprietario e la prova mancante, senza un secondo evento creato (Important 4; Task 3 fix round 1, Ruling R8)", async () => {
     const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: in un repo appena azzerato il primo tenant
+    // creato prenderebbe proprio l'id 1 (il tenant "intoccabile"), come già
+    // annotato più sotto in questo file per `ripristina_archivi` e
+    // `imposta_abbonamento`.
+    await repo.assicuraTenantPredefinito();
     const preesistente = await repo.inserisci({ slug: "acme", nome: "Acme Infissi" });
     const esito = await crea(inputAcme(), script);
     expect(esito.creatoOra).toBe(false);
@@ -86,7 +113,12 @@ describe("crea", () => {
     expect(utente.tenantId).toBe(preesistente.id);
     const eventi = await repo.eventi(preesistente.id);
     // Nessun evento "creato": la riga tenant non è nata in questa chiamata.
-    expect(eventi.map(e => e.tipo)).toEqual(["proprietario_assegnato"]);
+    // "abbonamento_creato" invece sì: il tenant esisteva già ma senza una
+    // prova (mai passato da `crea` prima d'ora, inserito qui a mano) — `crea`
+    // la semina comunque, non solo per un tenant nuovo (R8: nessun tenant
+    // deve restare senza abbonamento).
+    expect(eventi.map(e => e.tipo)).toEqual(["abbonamento_creato", "proprietario_assegnato"]);
+    expect(repo.abbonamentoDi(preesistente.id)?.stato).toBe("trialing");
   });
 
   it("un commit fallito ripristina sedi e utenti spinti in questo giro; l'evento creato resta (Important 4)", async () => {
@@ -106,7 +138,9 @@ describe("crea", () => {
     expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
     expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
     const eventi = await getTenantRepository().eventi(tenant!.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
+    // La prova (WS4) nasce PRIMA della transazione di sede/utente: resta,
+    // come l'evento `creato`, anche se il commit fallisce dopo.
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato"]);
   });
 
   it("se istanziaStoresPerTenant fallisce, la sede e l'utente creati in questo giro vengono tolti e il tenant resta", async () => {
@@ -119,7 +153,7 @@ describe("crea", () => {
     expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
     expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
     const eventi = await getTenantRepository().eventi(tenant!.id);
-    expect(eventi.map(e => e.tipo)).toEqual(["creato"]);
+    expect(eventi.map(e => e.tipo)).toEqual(["creato", "abbonamento_creato"]);
   });
 });
 
@@ -236,5 +270,257 @@ describe("eseguiComandiInAttesa", () => {
     expect((comandoInvalido?.esito as any)?.errore.length).toBeGreaterThan(0);
     expect((await repo.comando(valido.id))?.stato).toBe("eseguito");
     expect(getTenantRepository().perSlug("acme")).not.toBeNull();
+  });
+
+  it("ricalcola_storage: ricalcola il ledger del tenant indicato e il comando risulta eseguito", async () => {
+    __registraTenantNotoPerTest(2);
+    storeDi<any>(2, "preventivi_documenti").length = 0;
+    storeDi<any>(2, "ticket_allegati").length = 0;
+    const file = new Map<string, Buffer>([["tenant/2/anteprime/9/9-bbbbbbbb.jpg", Buffer.alloc(11)]]);
+    const driver: StorageDriver = {
+      name: "local",
+      async put() {}, async get() { return null; }, async openRead() { return null; }, async delete() {},
+      async head(k) { const b = file.get(k); return b ? { bytes: b.length } : null; },
+    };
+    __impostaDriverPerTest(driver);
+    try {
+      storeDi<any>(2, "preventivi_documenti").push({
+        id: 9,
+        tenantId: 2,
+        sedeId: 20,
+        commessaId: 1,
+        nome: "a.pdf",
+        size: 200,
+        storageKey: "tenant/2/preventivi_documenti/9/9-aaaaaaaa.pdf",
+        anteprime: { chiavi: ["tenant/2/anteprime/9/9-bbbbbbbb.jpg"] },
+      });
+      const repo = getTenantRepository();
+      const comando = await repo.accodaComando({
+        tipo: "ricalcola_storage",
+        tenantId: 2,
+        payload: { slug: "acme" },
+        richiestoDa: "script:tenant@test",
+      });
+      const esito = await eseguiComandiInAttesa();
+      expect(esito).toEqual({ eseguiti: 1, falliti: 0 });
+      const eseguito = await repo.comando(comando.id);
+      expect(eseguito?.stato).toBe("eseguito");
+      expect(eseguito?.esito).toEqual({ tenantId: 2, bytes: 211, file: 2 });
+    } finally {
+      __impostaDriverPerTest(null);
+      storeDi<any>(2, "preventivi_documenti").length = 0;
+      storeDi<any>(2, "ticket_allegati").length = 0;
+    }
+  });
+
+  it("ripristina_archivi: il server esegue il ripristino dell'azienda e mette l'esito nel comando (Task 8)", async () => {
+    __registraTenantNotoPerTest(2);
+    const repo = getTenantRepository();
+    // Id 2 esplicito: il tenant 1 è Ruffino Group e il ripristino lo rifiuta
+    // senza `ancheTenant1` (in un repo appena azzerato il primo inserito
+    // prenderebbe proprio l'id 1).
+    const acme = await repo.inserisci({ id: 2, slug: "acme", nome: "Acme" });
+    sedi.push({ id: 97720, tenantId: acme.id, nome: "Acme HQ", attiva: true } as any);
+    storeDi<any>(acme.id, "clienti").length = 0;
+    storeDi<any>(acme.id, "clienti").push({ id: 1, tenantId: acme.id, sedeId: 97720 });
+    // Nessun Drive nei test: il comando non riceve un `DriveRipristino`, lo
+    // prende da qui (l'unica iniezione, sotto NODE_ENV=test).
+    __impostaDriveRipristinoPerTest({
+      async cartellaBackup() { return { id: "idcartella", nome: "Backup CRM 2026-09-07" }; },
+      async dumpDisponibili() {
+        return [{ nome: "clienti", scarica: async () => [{ id: 9, tenantId: acme.id, sedeId: 97720 }] }];
+      },
+    });
+    try {
+      const comando = await repo.accodaComando({
+        tipo: "ripristina_archivi",
+        tenantId: acme.id,
+        payload: { slug: "acme", backup: "2026-09-07", solo: ["clienti"], scrivi: true },
+        richiestoDa: "script:tenant@test",
+      });
+      expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+      const eseguito = await repo.comando(comando.id);
+      expect(eseguito?.stato).toBe("eseguito");
+      expect(eseguito?.esito).toMatchObject({
+        tenantId: acme.id,
+        dryRun: false,
+        backup: { id: "idcartella", nome: "Backup CRM 2026-09-07" },
+        store: [{ nome: "clienti", prima: 1, dopo: 1, sostituito: true }],
+      });
+      expect(storeDi(acme.id, "clienti")).toEqual([{ id: 9, tenantId: acme.id, sedeId: 97720 }]);
+      expect(repo.perId(acme.id)?.stato).toBe("attivo");
+      expect((await repo.eventi(acme.id)).map(e => e.tipo)).toEqual(["sospeso", "riattivato", "archivi_ripristinati"]);
+    } finally {
+      __impostaDriveRipristinoPerTest(null);
+      storeDi<any>(acme.id, "clienti").length = 0;
+    }
+  });
+
+  it("imposta_abbonamento: omaggio porta a complimentary/active; budget_tars e quota aggiornano i campi (Task 3)", async () => {
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: in un repo appena azzerato il primo tenant
+    // creato prenderebbe proprio l'id 1 (il tenant "intoccabile"), come già
+    // annotato per `ripristina_archivi` più sopra.
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const omaggio = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "omaggio", slug: "acme", motivo: "pilota", scadenza: null },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(omaggio.id))?.esito).toMatchObject({
+      tenantId: tenant.id,
+      azione: "omaggio",
+      stato: "active",
+      tipo: "complimentary",
+    });
+    expect(repo.abbonamentoDi(tenant.id)?.omaggio?.motivo).toBe("pilota");
+
+    const budget = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "budget_tars", slug: "acme", eur: 40 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(budget.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.budgetTarsNanoMese).toBe(eurInNano(40));
+
+    const quota = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "quota", slug: "acme", quotaGb: 200 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(quota.id))?.stato).toBe("eseguito");
+    expect(repo.perId(tenant.id)?.storageQuotaBytes).toBe(200 * 1024 ** 3);
+    const eventoQuota = (await repo.eventi(tenant.id)).findLast(e => e.tipo === "abbonamento_modificato");
+    expect(eventoQuota?.dettagli).toMatchObject({ campo: "quota_storage_gb", dopo: 200 });
+  });
+
+  it("imposta_abbonamento su uno slug inesistente fallisce senza bloccare i comandi successivi", async () => {
+    const repo = getTenantRepository();
+    const comando = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: null,
+      payload: { azione: "quota", slug: "non-esiste", quotaGb: 10 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 1 });
+    expect((await repo.comando(comando.id))?.esito).toMatchObject({ errore: expect.stringMatching(/non-esiste/) });
+  });
+
+  it("imposta_abbonamento: proroga, extra_tars, tolleranze, disdetta e budget_tars con eur null (Task 3 fix round 1, copertura comandi)", async () => {
+    const T0 = new Date("2026-09-08T09:00:00Z");
+    vi.useFakeTimers({ now: T0, toFake: ["Date"] });
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: `proroga` e `disdetta` rifiutano il tenant 1
+    // (`nonIlTenant1`), e in un repo appena azzerato il primo tenant creato
+    // prenderebbe proprio quell'id, come già annotato più sopra in questo
+    // file.
+    await repo.assicuraTenantPredefinito();
+    const { tenant } = await crea(inputAcme(), script);
+
+    const proroga = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "proroga", slug: "acme", motivo: "cortesia", giorni: 10 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(proroga.id))?.stato).toBe("eseguito");
+    // La prova nasce con `finePeriodo` a T0+30gg (creaProva): è ancora nel
+    // futuro rispetto a T0, quindi "il più tardi fra fine e adesso" è la
+    // fine, e la proroga di 10 giorni si somma a quella (non a T0).
+    expect(repo.abbonamentoDi(tenant.id)?.finePeriodo?.toISOString()).toBe(
+      new Date(T0.getTime() + 40 * 86_400_000).toISOString()
+    );
+
+    const extraTars = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "extra_tars", slug: "acme", eur: 5 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(extraTars.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.extraTarsNano).toBe(eurInNano(5));
+
+    const tolleranze = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "tolleranze", slug: "acme", storage: 3, tars: 9 },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(tolleranze.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)).toMatchObject({ tolleranzaStorageGiorni: 3, tolleranzaTarsGiorni: 9 });
+
+    const disdetta = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "disdetta", slug: "acme", disdetta: true },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(disdetta.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.disdettaAFinePeriodo).toBe(true);
+
+    const budgetNullo = await repo.accodaComando({
+      tipo: "imposta_abbonamento",
+      tenantId: tenant.id,
+      payload: { azione: "budget_tars", slug: "acme", eur: null },
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(budgetNullo.id))?.stato).toBe("eseguito");
+    expect(repo.abbonamentoDi(tenant.id)?.budgetTarsNanoMese).toBeNull();
+  });
+
+  it("creaProva fallita una volta: il comando crea finisce in errore col tenant senza abbonamento; lo stesso slug riparato al rilancio (Task 3 fix round 1, Ruling R8)", async () => {
+    const repo = getTenantRepository();
+    // Semina il tenant 1 PRIMA: come già annotato più sopra in questo file,
+    // altrimenti "acme" prenderebbe proprio quell'id in un repo azzerato.
+    await repo.assicuraTenantPredefinito();
+    vi.spyOn(repo, "salvaAbbonamento").mockRejectedValueOnce(new Error("guasto"));
+
+    const primo = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: inputAcme(),
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 0, falliti: 1 });
+    expect((await repo.comando(primo.id))?.stato).toBe("errore");
+    const tenant = repo.perSlug("acme");
+    // La riga tenant resta (nasce PRIMA di `creaProva`): solo l'abbonamento
+    // manca, perché `salvaAbbonamento` è fallito proprio lì dentro.
+    expect(tenant).not.toBeNull();
+    expect(repo.abbonamentoDi(tenant!.id)).toBeNull();
+    expect((await repo.eventi(tenant!.id)).map(e => e.tipo)).toEqual(["creato", "comando_fallito"]);
+    // Il fallimento è avvenuto PRIMA della transazione di sede/utente: questo
+    // primo giro non ne ha creata nessuna.
+    expect(sedi.some(s => s.tenantId === tenant!.id)).toBe(false);
+    expect(utenti.some((u: any) => u.tenantId === tenant!.id)).toBe(false);
+
+    // Rilancio dello stesso comando (stesso slug): `crea` è idempotente per
+    // slug, `creaProva` non è più fallita (la mock era "once") e ripara
+    // l'abbonamento mancante senza duplicare né la riga tenant né sede/utente.
+    const secondo = await repo.accodaComando({
+      tipo: "crea",
+      tenantId: null,
+      payload: inputAcme(),
+      richiestoDa: "script:tenant@test",
+    });
+    expect(await eseguiComandiInAttesa()).toEqual({ eseguiti: 1, falliti: 0 });
+    expect((await repo.comando(secondo.id))?.stato).toBe("eseguito");
+    expect(repo.perSlug("acme")?.id).toBe(tenant!.id);
+    expect(repo.abbonamentoDi(tenant!.id)?.stato).toBe("trialing");
+    expect(sedi.filter(s => s.tenantId === tenant!.id).length).toBe(1);
+    expect(utenti.filter((u: any) => u.tenantId === tenant!.id).length).toBe(1);
   });
 });

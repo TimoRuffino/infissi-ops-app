@@ -1,6 +1,6 @@
 // server/tenants/express.test.ts
 import { describe, expect, it } from "vitest";
-import { MESSAGGI } from "./costanti";
+import { MESSAGGI, QUOTA_STORAGE_PREDEFINITA_BYTES } from "./costanti";
 import { tenantCorrente } from "./contestoCorrente";
 import { conTenantDelContesto, rifiutaTenant } from "./express";
 import type { TenantRecord } from "./tipi";
@@ -28,6 +28,7 @@ const tenant = (stato: "attivo" | "sospeso"): TenantRecord => ({
   motivoStato: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+  storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
 });
 
 describe("rifiutaTenant", () => {
