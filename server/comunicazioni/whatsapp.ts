@@ -407,6 +407,58 @@ export function verifyTokenValido(token: string): boolean {
 // alla WABA e ci facciamo dare i numeri: la configurazione si compila da
 // sola, senza copiare id a mano.
 
+/**
+ * Gli errori di Meta in una frase che dice cosa fare.
+ *
+ * Il caso che conta di più: chi ha «già WhatsApp Business» spesso ha già
+ * provato anche un'altra piattaforma, e il suo numero è ancora registrato
+ * là. La coesistenza copre chi arriva dall'app del telefono, non chi è già
+ * sull'API altrove — e Meta lo dice in un inglese che non suggerisce
+ * nemmeno il rimedio, che è staccare il numero DALL'ALTRA parte, prima.
+ *
+ * Quel che non riconosciamo passa così com'è, ma dentro una frase: il testo
+ * originale è l'unico appiglio per l'assistenza, e cancellarlo sarebbe
+ * peggio che mostrarlo.
+ */
+export function traduciErroreMeta(grezzo: string): string {
+  const t = (grezzo ?? "").trim();
+
+  if (/already (registered|exists|in use)|already .*(WABA|Business Account)|trying to register is already/i.test(t)) {
+    return (
+      "Questo numero risulta già collegato all'API di WhatsApp su un'altra " +
+      "piattaforma. Vai dove è collegato adesso e stacca il numero da lì: " +
+      "finché resta registrato altrove, Meta non lo lascia collegare qui."
+    );
+  }
+
+  if (/not associated with a WhatsApp Business app|no WhatsApp Business app account|not a business account/i.test(t)) {
+    return (
+      "Questo numero non risulta sull'app WhatsApp Business del telefono. " +
+      "Il collegamento col QR parte da lì: se il numero è sull'app WhatsApp " +
+      "normale, va prima spostato su WhatsApp Business."
+    );
+  }
+
+  if (/two-step|2-step|PIN/i.test(t)) {
+    return (
+      "Il numero ha la verifica in due passaggi attiva e il PIN non è stato " +
+      "accettato. Disattiva temporaneamente la verifica in due passaggi " +
+      "dall'app WhatsApp Business (Impostazioni → Account) e riprova."
+    );
+  }
+
+  if (/rate limit|too many|throttl/i.test(t)) {
+    return (
+      "Meta ha rifiutato il tentativo per troppe richieste ravvicinate. " +
+      "Aspetta qualche minuto e riprova: non serve rifare niente."
+    );
+  }
+
+  return t
+    ? `WhatsApp ha rifiutato il collegamento. Meta dice: «${t}».`
+    : "WhatsApp ha rifiutato il collegamento senza spiegare il motivo. Riprova fra qualche minuto.";
+}
+
 /** code → business access token (di sistema, non scade). */
 async function scambiaCode(code: string, sedeId: number): Promise<string> {
   const app = appEffettiva(sedeId);
@@ -424,9 +476,7 @@ async function scambiaCode(code: string, sedeId: number): Promise<string> {
   const res = await fetch(`${GRAPH}/oauth/access_token?${params}`);
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || !body?.access_token) {
-    throw new Error(
-      `Scambio del codice fallito: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
   return body.access_token as string;
 }
@@ -439,9 +489,7 @@ async function sottoscriviApp(wabaId: string, token: string): Promise<void> {
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || body?.success === false) {
-    throw new Error(
-      `Sottoscrizione della WABA fallita: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
 }
 
@@ -454,9 +502,7 @@ async function numeriDellaWaba(
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(
-      `Lettura dei numeri fallita: ${body?.error?.message ?? res.status}`
-    );
+    throw new Error(traduciErroreMeta(body?.error?.message ?? String(res.status)));
   }
   return body?.data ?? [];
 }

@@ -75,6 +75,24 @@ describe("adattatore whatsapp", () => {
     expect(p?.causa).not.toMatch(/expired/);
   });
 
+  it("numero gia' collegato altrove: il rimedio dice di staccarlo dall'altra parte", async () => {
+    seminaNumero({
+      ultimoErrore:
+        "Sincronizzazione storico fallita: Phone number is already registered on WhatsApp Business API",
+    });
+    const p = await whatsapp.verifica(ctx);
+    expect(p?.causa).toMatch(/altra piattaforma/i);
+    expect(p?.causa).toMatch(/stacca/i);
+    expect(p?.causa).not.toMatch(/already registered/i);
+  });
+
+  it("un errore che non conosciamo non diventa una frase vuota", async () => {
+    seminaNumero({ ultimoErrore: "Graph boom 999" });
+    const p = await whatsapp.verifica(ctx);
+    expect(p?.causa).toContain("Graph boom 999");
+    expect(p?.rimedio).not.toBe("");
+  });
+
   it("nessun errore registrato: nessun problema", async () => {
     seminaNumero();
     expect(await whatsapp.verifica(ctx)).toBeNull();

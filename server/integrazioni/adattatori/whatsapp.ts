@@ -3,7 +3,11 @@
 // era da un click già prima del WS5; davanti c'era «apriti un account
 // sviluppatore Meta», e quello è caduto col ripiego di piattaforma.
 
-import { appPubblica, configWhatsApp } from "../../comunicazioni/whatsapp";
+import {
+  appPubblica,
+  configWhatsApp,
+  traduciErroreMeta,
+} from "../../comunicazioni/whatsapp";
 import type { Adattatore, Avvio, Problema, Stato } from "../contratto";
 
 function numeroDellaSede(sedeId: number | null) {
@@ -42,10 +46,19 @@ export const whatsapp: Adattatore = {
         azione: "ricollega",
       };
     }
+    // Ogni altro guasto passa dal traduttore, che conosce il caso più
+    // probabile fra i clienti veri: chi ha già WhatsApp Business spesso ha
+    // già provato un'altra piattaforma, e il numero è ancora registrato là.
+    const causa = traduciErroreMeta(
+      mia.ultimoErrore.replace(/^Sincronizzazione storico fallita:\s*/i, "")
+    );
+    const altrove = /altra piattaforma/i.test(causa);
     return {
-      causa: "WhatsApp ha segnalato un problema su questo numero.",
-      rimedio: "Riprova fra qualche minuto; se resta, ricollega il numero.",
-      azione: "riprova",
+      causa,
+      rimedio: altrove
+        ? "Quando il numero è libero, torna qui e rifai «Collega col QR»."
+        : "Riprova fra qualche minuto; se resta, ricollega il numero.",
+      azione: altrove ? "assistenza" : "riprova",
     };
   },
 
