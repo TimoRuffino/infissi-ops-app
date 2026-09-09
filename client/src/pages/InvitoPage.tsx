@@ -84,7 +84,10 @@ export default function InvitoPage() {
     onSuccess: () => {
       // `auth.me` ora risponde con l'utente: la shell si monta da sola.
       utils.auth.me.invalidate();
-      setLocation("/");
+      // Il proprietario appena entrato atterra sul percorso di attivazione
+      // (WS5 §5): è il momento in cui collegare le integrazioni ha un senso,
+      // e ogni passo si può saltare. Dalla home non ci sarebbe arrivato.
+      setLocation("/integrazioni?attivazione=1");
     },
   });
 

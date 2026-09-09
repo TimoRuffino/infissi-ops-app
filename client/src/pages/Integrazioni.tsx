@@ -61,6 +61,12 @@ import TarsAgentCard from "@/components/tars/TarsAgentCard";
 import { SchedaIntegrazione } from "@/integrazioni/SchedaIntegrazione";
 import { useIntegrazioni } from "@/integrazioni/useIntegrazioni";
 import { PercorsoAttivazione } from "@/integrazioni/PercorsoAttivazione";
+import {
+  ancoraDi,
+  etichettaDi,
+  sezioneDi,
+  ETICHETTE,
+} from "@/integrazioni/etichette";
 import TariffeLimitiPanel from "@/components/computo/TariffeLimitiPanel";
 import FatturazioneConfigPanel from "@/components/fattura/FatturazioneConfigPanel";
 
@@ -180,14 +186,105 @@ export default function Integrazioni() {
   // La cornice unica (WS5): lo stato lo conosce il server, e ogni scheda lo
   // racconta con le stesse parole. `stato()` non chiama nessun fornitore,
   // quindi questo elenco non costa una chiamata esterna per pannello.
-  const { stati, avvia } = useIntegrazioni();
+  const { stati, collega: avviaCollegamento, verifica } = useIntegrazioni();
   const statoDi = (chiave: string) => stati.find(s => s.chiave === chiave);
   // Modalità attivazione: la stessa pagina, ordinata. Nessuna rotta nuova.
-  const attivazione =
-    new URLSearchParams(window.location.search).get("attivazione") === "1";
+  // `useSearch` e non `window.location.search`: dentro wouter la query è
+  // stato del router, e leggerla dal browser significa non riaccorgersene
+  // quando cambia senza ricaricare.
+  const attivazione = new URLSearchParams(ricerca).get("attivazione") === "1";
+  // Il percorso guidato serve finché non è completo: il richiamo in testa
+  // esiste perché `?attivazione=1` era altrimenti irraggiungibile da dentro
+  // il prodotto (I7).
+  const passi = trpc.integrazioni.attivazione.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+  const percorsoDaFinire = (passi.data ?? []).some(p => p.esito === "da_fare");
+
+  /** Porta il pannello di quell'integrazione sotto gli occhi, senza saltelli. */
+  const portaA = (chiave: string) => {
+    const nodo = document.getElementById(ancoraDi(chiave));
+    if (!nodo) return;
+    const ridotto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    nodo.scrollIntoView({ block: "start", behavior: ridotto ? "auto" : "smooth" });
+    // Il modulo della posta e il QR di WhatsApp vivono dentro pannelli che
+    // possono essere chiusi: aprirli è parte dell'arrivo.
+    nodo.querySelectorAll("details").forEach(d => {
+      if (d.dataset.diagnostica !== "1") d.open = true;
+    });
+  };
+
+  // Il percorso guidato manda qui con `?scheda=<chiave>` quando il
+  // collegamento vive dentro un pannello (la posta, il QR di WhatsApp) o
+  // quando c'è un'azienda da scegliere: si arriva sul pannello, non in cima
+  // a una pagina lunga.
+  useEffect(() => {
+    if (!schedaChiesta || !ETICHETTE[schedaChiesta]) return;
+    // Appena montata la pagina è ancora corta: i pannelli non hanno preso la
+    // loro altezza e lo scorrimento arriverebbe a metà strada.
+    const timer = window.setTimeout(() => portaA(schedaChiesta), 400);
+    return () => window.clearTimeout(timer);
+  }, [schedaChiesta]);
+
   const collega = async (chiave: string) => {
-    const esito = await avvia.mutateAsync({ chiave: chiave as never });
-    if (esito.tipo === "url") window.location.href = esito.url;
+    const esito = await avviaCollegamento(chiave);
+    // `url` porta via dalla pagina da solo. Popup e modulo vivono dentro il
+    // pannello: prima li si raggiunge, poi si preme il pulsante che è lì.
+    if (esito && (esito.tipo === "modulo" || esito.tipo === "popup")) {
+      portaA(chiave);
+    }
+  };
+
+  // L'esito della prova viva, per chiave: `undefined` non provato, `null` a
+  // posto, altrimenti il guasto. Vive qui perché è di questa visita, non del
+  // server.
+  const [prove, setProve] = useState<Record<string, unknown>>({});
+  const [inProva, setInProva] = useState<string | null>(null);
+  const prova = async (chiave: string) => {
+    setInProva(chiave);
+    try {
+      const esito = await verifica.mutateAsync({ chiave: chiave as never });
+      setProve(p => ({ ...p, [chiave]: esito }));
+      if (!esito) toast.success("Il collegamento risponde.");
+    } catch {
+      // Il messaggio l'ha già mostrato l'hook: qui resta solo da non lasciare
+      // il pulsante a girare.
+    } finally {
+      setInProva(null);
+    }
+  };
+
+  const azione = (chiave: string, a: string) => {
+    if (a === "ricollega") void collega(chiave);
+    else if (a === "riprova") void prova(chiave);
+    else if (a === "scegli") portaA(chiave);
+  };
+
+  /**
+   * La striscia di un'integrazione col suo pannello sotto. Non è un
+   * componente: definirne uno qui dentro lo farebbe rimontare a ogni render,
+   * e i pannelli perderebbero il loro stato a ogni tasto premuto.
+   */
+  const striscia = (chiave: string, pannello: ReactNode) => {
+    const stato = statoDi(chiave);
+    const { titolo, descrizione } = etichettaDi(chiave);
+    if (!stato) return <div id={ancoraDi(chiave)}>{pannello}</div>;
+    return (
+      <div id={ancoraDi(chiave)} className="min-w-0">
+        <SchedaIntegrazione
+          stato={stato}
+          titolo={titolo}
+          descrizione={descrizione}
+          onCollega={chiave === "agente" ? undefined : () => void collega(chiave)}
+          onAzione={a => azione(chiave, a)}
+          onProva={() => void prova(chiave)}
+          provaInCorso={inProva === chiave}
+          esitoProva={prove[chiave] as never}
+        >
+          {pannello}
+        </SchedaIntegrazione>
+      </div>
+    );
   };
   // Kill switch «limiti»: la UI nasconde la sezione, il server decide.
   const interruttori = trpc.platform.interruttori.useQuery(undefined, {
@@ -229,10 +326,37 @@ export default function Integrazioni() {
         }
       />
 
+      {percorsoDaFinire && (
+        <div
+          role="status"
+          className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-text-1">
+              Completa l&apos;attivazione
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-text-3">
+              Alcune integrazioni non sono ancora collegate. Il percorso le
+              mette in fila e si può saltare qualunque passo: il CRM funziona
+              lo stesso.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11 shrink-0"
+            onClick={() => vaiA("/integrazioni?attivazione=1")}
+          >
+            Riprendi il percorso
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+      )}
+
       {vedeAbbonamento && (
         <SezioneHub
-          titolo="Abbonamento e consumi"
-          descrizione="Il piano dell'azienda, la sua scadenza e quanto è stato consumato di spazio e di budget Tars. Proroghe e capacità aggiuntiva passano da chi gestisce la piattaforma."
+          titolo={sezioneDi("abbonamento").titolo}
+          descrizione={sezioneDi("abbonamento").descrizione}
         >
           <AbbonamentoCard />
         </SezioneHub>
@@ -240,58 +364,20 @@ export default function Integrazioni() {
 
       {canManage && (
         <SezioneHub
-          titolo="Canali"
-          descrizione="Posta e WhatsApp entrano nel CRM in sola lettura e diventano cronologia del cliente. Le credenziali si scrivono una volta e non si rileggono."
+          titolo={sezioneDi("canali").titolo}
+          descrizione={sezioneDi("canali").descrizione}
         >
-          {statoDi("email") ? (
-            <SchedaIntegrazione
-              stato={statoDi("email")!}
-              titolo="Posta"
-              descrizione="Le caselle IMAP della sede: i messaggi entrano in sola lettura e diventano cronologia del cliente."
-              onCollega={() => void collega("email")}
-              onAzione={a => {
-                if (a === "ricollega") void collega("email");
-              }}
-            >
-              <CaselleEmailCard />
-            </SchedaIntegrazione>
-          ) : (
-            <CaselleEmailCard />
-          )}
-          {statoDi("whatsapp") ? (
-            <SchedaIntegrazione
-              stato={statoDi("whatsapp")!}
-              titolo="WhatsApp"
-              descrizione="Il numero dell'azienda, con contatti e conversazioni."
-            >
-              <WhatsAppCard />
-            </SchedaIntegrazione>
-          ) : (
-            <WhatsAppCard />
-          )}
+          {striscia("email", <CaselleEmailCard />)}
+          {striscia("whatsapp", <WhatsAppCard />)}
         </SezioneHub>
       )}
 
       {canManage && (
         <SezioneHub
-          titolo="Contabilità"
-          descrizione="Fatture in Cloud allinea documenti, pagamenti e anagrafica della sede. Le operazioni che scrivono si simulano prima e dichiarano cosa cambia."
+          titolo={sezioneDi("contabilita").titolo}
+          descrizione={sezioneDi("contabilita").descrizione}
         >
-          {statoDi("fic") ? (
-            <SchedaIntegrazione
-              stato={statoDi("fic")!}
-              titolo="Fatture in Cloud"
-              descrizione="Allinea documenti, pagamenti e anagrafica della sede."
-              onCollega={() => void collega("fic")}
-              onAzione={a => {
-                if (a === "ricollega") void collega("fic");
-              }}
-            >
-              <FattureInCloudCard />
-            </SchedaIntegrazione>
-          ) : (
-            <FattureInCloudCard />
-          )}
+          {striscia("fic", <FattureInCloudCard />)}
           {fatturazioneAttiva && <FatturazioneConfigPanel />}
           <ImportaClientiCard />
           <ResetPattuitiCard />
@@ -300,16 +386,16 @@ export default function Integrazioni() {
 
       {canManage && limitiAttivi && (
         <SezioneHub
-          titolo="Limiti di spesa"
-          descrizione="Massimali, prodotti DEI, accessori, opere, coefficienti e detrazioni del computo limiti in vigore, con la data di validità. Sola lettura in questa fase."
+          titolo={sezioneDi("limiti").titolo}
+          descrizione={sezioneDi("limiti").descrizione}
         >
           <TariffeLimitiPanel />
         </SezioneHub>
       )}
 
       <SezioneHub
-        titolo="Calendari"
-        descrizione="Due direzioni distinte e indipendenti: i calendari Google si leggono dentro il CRM, e gli appuntamenti del CRM si pubblicano come feed iCal."
+        titolo={sezioneDi("calendari").titolo}
+        descrizione={sezioneDi("calendari").descrizione}
       >
         <GoogleCalendarImport />
         <GoogleCalendarSync />
@@ -317,50 +403,26 @@ export default function Integrazioni() {
 
       {canManage && (
         <SezioneHub
-          titolo="Backup e storage"
-          descrizione="Il salvataggio notturno dell'installazione. Finché Drive non è collegato il backup viene comunque eseguito, ma resta sul disco del server."
+          titolo={sezioneDi("backup").titolo}
+          descrizione={sezioneDi("backup").descrizione}
         >
-          {statoDi("backup") ? (
-            <SchedaIntegrazione
-              stato={statoDi("backup")!}
-              titolo="Backup su Google Drive"
-              descrizione="Il salvataggio notturno della tua azienda."
-              onCollega={() => void collega("backup")}
-              onAzione={a => {
-                if (a === "ricollega") void collega("backup");
-              }}
-            >
-              <BackupDrive />
-            </SchedaIntegrazione>
-          ) : (
-            <BackupDrive />
-          )}
+          {striscia("backup", <BackupDrive />)}
         </SezioneHub>
       )}
 
       <SezioneHub
-        titolo="Agente"
-        descrizione="Diagnostica tecnica di Tars: interruttori, provider e budget. Le proposte restano inerti finché una persona non le approva."
+        titolo={sezioneDi("agente").titolo}
+        descrizione={sezioneDi("agente").descrizione}
       >
         {/* La card è gated al suo interno su interruttori e ruolo: qui non si
             aggiunge un secondo controllo. */}
-        {statoDi("agente") ? (
-            <SchedaIntegrazione
-              stato={statoDi("agente")!}
-              titolo="Agente"
-              descrizione="Incluso nell'abbonamento: non c'è niente da collegare."
-            >
-              <TarsAgentCard direzione={canManage} />
-            </SchedaIntegrazione>
-          ) : (
-            <TarsAgentCard direzione={canManage} />
-          )}
+        {striscia("agente", <TarsAgentCard direzione={canManage} />)}
       </SezioneHub>
 
       {canManage && (
         <SezioneHub
-          titolo="Gestione direzione"
-          descrizione="Scorciatoie verso le superfici raggiungibili dalla direzione. Ogni destinazione applica la propria guardia e il proprio router."
+          titolo={sezioneDi("direzione").titolo}
+          descrizione={sezioneDi("direzione").descrizione}
         >
           <DataSurface
             density="compact"

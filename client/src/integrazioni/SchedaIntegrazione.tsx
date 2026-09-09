@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Circle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  Stethoscope,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { quandoBreve } from "@/lib/tarsDecisioniView";
 
 type Problema = {
   causa: string;
@@ -38,6 +45,9 @@ export function SchedaIntegrazione({
   descrizione,
   onCollega,
   onAzione,
+  onProva,
+  provaInCorso = false,
+  esitoProva,
   children,
 }: {
   stato: StatoIntegrazione;
@@ -45,15 +55,27 @@ export function SchedaIntegrazione({
   descrizione: string;
   onCollega?: () => void;
   onAzione?: (azione: string) => void;
+  /** La prova viva: chiama il fornitore per davvero (`verifica()`). */
+  onProva?: () => void;
+  provaInCorso?: boolean;
+  /** `undefined` non ancora provato · `null` provato e a posto · altrimenti il guasto. */
+  esitoProva?: Problema | null;
   children?: ReactNode;
 }) {
-  const problema = stato.problema;
+  // Il guasto trovato dalla prova viva vale più di quello che il server sapeva
+  // prima: è l'unico che sa la verità il giorno dopo una revoca.
+  const problema = esitoProva ?? stato.problema;
   const Icona = problema ? AlertTriangle : stato.collegato ? CheckCircle2 : Circle;
   const coloreIcona = problema
     ? "text-warning"
     : stato.collegato
       ? "text-success"
       : "text-text-3";
+  // Spec §6: senza il callback della piattaforma il collegamento non si
+  // offre. Invitare a collegare e poi fallire a metà giro è peggio che
+  // dire subito che il guasto non è del cliente.
+  const assistenza = problema?.azione === "assistenza";
+  const quando = quandoBreve(stato.verificatoIl);
 
   return (
     <div className="min-w-0 space-y-2">
@@ -74,25 +96,60 @@ export function SchedaIntegrazione({
                 "non ancora collegato"
               )}
             </span>
+            <span className="text-xs text-text-3">
+              {stato.ambito === "azienda" ? "per l'azienda" : "per la sede"}
+              {quando ? ` · verificato il ${quando}` : ""}
+            </span>
           </p>
           <p className="mt-0.5 text-xs leading-5 text-text-3">{descrizione}</p>
         </div>
-        {!stato.collegato && onCollega && (
-          <Button size="sm" className="shrink-0" onClick={onCollega}>
-            Collega
-          </Button>
-        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {onProva && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11"
+              disabled={provaInCorso}
+              onClick={onProva}
+              title="Chiede al fornitore se il collegamento vale ancora: è l'unica prova che sa dire la verità dopo una revoca"
+            >
+              {provaInCorso ? (
+                <Loader2
+                  className="size-3.5 motion-safe:animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Stethoscope className="size-3.5" aria-hidden="true" />
+              )}
+              Prova il collegamento
+            </Button>
+          )}
+          {!stato.collegato && onCollega && !assistenza && (
+            <Button size="sm" className="min-h-11" onClick={onCollega}>
+              Collega
+            </Button>
+          )}
+        </div>
       </div>
+
+      {esitoProva === null && !stato.problema && (
+        <p
+          role="status"
+          className="px-1 text-xs text-success"
+        >
+          Il fornitore risponde: il collegamento è valido.
+        </p>
+      )}
 
       {problema && (
         <div className="min-w-0 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3">
           <p className="text-sm font-semibold text-text-1">{problema.causa}</p>
           <p className="mt-1 text-sm text-text-2">{problema.rimedio}</p>
-          {problema.azione && onAzione && (
+          {problema.azione && problema.azione !== "assistenza" && onAzione && (
             <Button
               size="sm"
               variant="outline"
-              className="mt-2"
+              className="mt-2 min-h-11"
               onClick={() => onAzione(problema.azione!)}
             >
               {ETICHETTA_AZIONE[problema.azione]}
