@@ -82,6 +82,28 @@ async function accodaEdEsegui(
  */
 const passwordInutilizzabile = () => hashPassword(randomBytes(32).toString("base64url"));
 
+/** L'invito come esce verso il browser: il `link` c'è solo quando serve (R9). */
+type EsitoInvitoPubblico = {
+  invito: Awaited<ReturnType<typeof invitaProprietario>>["invito"];
+  inviato: boolean;
+  motivo?: string;
+  link?: string;
+};
+
+/**
+ * R9 (revisione finale del branch): un link d'invito vale la presa
+ * dell'account del proprietario di un'altra azienda. Se la posta è partita
+ * il token è già nella casella giusta e una seconda copia nel browser
+ * dell'amministratore sarebbe solo un'altra copia da rubare (cronologia,
+ * screenshot, appunti); se la posta NON è partita quel link è l'unica copia
+ * che esiste e va consegnato a mano, quindi esce. La regola vale sia per
+ * `invita` sia per l'invito che `crea` manda da sé.
+ */
+function esitoPubblico(esito: Awaited<ReturnType<typeof invitaProprietario>>): EsitoInvitoPubblico {
+  const { link, ...resto } = esito;
+  return esito.inviato ? resto : { ...resto, link };
+}
+
 export const piattaformaRouter = router({
   /** L'elenco di tutte le aziende: abbonamento, spazio, Tars, worker sospesi, ultimo backup e proprietari (spec §5.1). */
   aziende: piattaformaProcedure.query(() => elencoAziende(new Date())),
@@ -158,7 +180,7 @@ export const piattaformaRouter = router({
         adesso: new Date(),
         baseUrl: baseUrlDa(ctx.req),
       });
-      return { comando, omaggio, invito };
+      return { comando, omaggio, invito: esitoPubblico(invito) };
     }),
 
   /**
@@ -307,20 +329,28 @@ export const piattaformaRouter = router({
    * restare a terra. Se manca `email` e l'azienda ha più proprietari,
    * `invitaProprietario` rifiuta con `proprietarioAmbiguo`: qui diventa
    * `BAD_REQUEST` invece di propagare un `Error` generico.
+   *
+   * Sensibile (R9): emettere un invito significa aprire la porta di un'altra
+   * azienda a chi riceve il link, quindi chiede `passwordConferma` come le
+   * altre azioni sensibili (spec §3.2) — la conferma viene PRIMA di emettere
+   * qualunque token.
    */
   invita: piattaformaProcedure
-    .input(z.object({ slug: slugInput, email: z.string().trim().email().optional() }))
+    .input(conPassword({ slug: slugInput, email: z.string().trim().email().optional() }))
     .mutation(async ({ input, ctx }) => {
       assicuraScrivibile();
+      confermaPassword(ctx.user as any, input.passwordConferma);
       const t = tenantDaSlug(input.slug);
       try {
-        return await invitaProprietario({
-          tenantId: t.id,
-          email: input.email,
-          attore: { tipo: "piattaforma", email: ctx.amministratore.email },
-          adesso: new Date(),
-          baseUrl: baseUrlDa(ctx.req),
-        });
+        return esitoPubblico(
+          await invitaProprietario({
+            tenantId: t.id,
+            email: input.email,
+            attore: { tipo: "piattaforma", email: ctx.amministratore.email },
+            adesso: new Date(),
+            baseUrl: baseUrlDa(ctx.req),
+          })
+        );
       } catch (e) {
         throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : String(e) });
       }

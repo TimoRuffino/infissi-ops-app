@@ -259,8 +259,17 @@ workstream — nessuno blocca il rilascio):
   verdi); il pannello con chiave `conferma:<email>`; la pagina d'invito con
   chiave `invito:<hash del token>` (§6.3).
 - Sono sensibili: `crea`, `sospendi`, `riattiva`, `proprietario`,
-  `abbonamento` (tutte le azioni), `ripristina` con `scrivi: true`. Non lo sono:
-  `ricalcolaStorage`, `ripristina` in prova, `invita`, `annullaInvito`.
+  `abbonamento` (tutte le azioni), `ripristina` con `scrivi: true` e — dalla
+  revisione finale del branch, ruling **R9** — anche `invita`: un link
+  d'invito vale la presa dell'account del proprietario di un'altra azienda,
+  quindi chi lo emette conferma di essere ancora lui. Non lo sono:
+  `ricalcolaStorage`, `ripristina` in prova, `annullaInvito` (annullare toglie
+  potere, non ne dà).
+- Sempre per R9, il `link` esce verso il browser **solo** quando la posta non
+  è partita (`inviato === false`), in `invita` e nell'invito che `crea` manda
+  da sé: se la posta è partita il token è già nella casella del proprietario e
+  una seconda copia nella pagina dell'amministratore sarebbe soltanto un'altra
+  copia da rubare.
 
 ### 3.3 Interruttore spento
 
@@ -409,7 +418,8 @@ Mutation (input → tipo di comando):
   (`randomBytes(32)` in base64url: nessuno può entrare prima dell'invito). Dopo
   l'esito `eseguito` con `creatoOra: true`: se `omaggio` è dato accoda ed esegue
   `imposta_abbonamento { azione: "omaggio", slug, motivo, scadenza }`; poi manda
-  l'invito (§6) e risponde `{ comando, invito: { link, inviato, motivo? } }`.
+  l'invito (§6) e risponde `{ comando, invito: { invito, inviato, motivo?, baseUrl, link? } }`
+  (stessa regola R9 sul `link`).
   Se il tenant esisteva già (`creatoOra: false`) non manda inviti e lo dice.
 - `sospendi({ slug, motivo, ancheTenant1?, passwordConferma })` → `sospendi`;
   per il tenant 1 senza `ancheTenant1` rifiuta con lo stesso messaggio dello
@@ -423,9 +433,12 @@ Mutation (input → tipo di comando):
 - `ricalcolaStorage({ slug })` → `ricalcola_storage` (in coda).
 - `ripristina({ slug, backup, solo?, scrivi, ancheTenant1?, passwordConferma? })` →
   `ripristina_archivi` (in coda); `passwordConferma` obbligatoria se `scrivi`.
-- `invita({ slug, email? })` → non è un comando (§6.4): chiama il servizio degli
-  inviti per il proprietario dell'azienda (se `email` manca e i proprietari sono
-  più d'uno, rifiuta e chiede quale); risponde `{ invito: TenantInvito, link, inviato, motivo? }`.
+- `invita({ slug, email?, passwordConferma })` → non è un comando (§6.4): chiama
+  il servizio degli inviti per il proprietario dell'azienda (se `email` manca e i
+  proprietari sono più d'uno, rifiuta e chiede quale); risponde
+  `{ invito: TenantInvito, inviato, motivo?, baseUrl, link? }` — il `link` c'è
+  solo con `inviato === false` (R9), la `baseUrl` dice da quale indirizzo è
+  composto (I5).
 - `annullaInvito({ id })` → `repo.annullaInvito(id)` + evento `invito_annullato`.
 
 ### 5.3 Cosa il router NON fa

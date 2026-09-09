@@ -168,6 +168,9 @@ describe("piattaformaRouter", () => {
     expect(esito.comando.richiestoDa).toBe(`piattaforma:${admin.email}`);
     expect(esito.comando.payload).not.toHaveProperty(["proprietario", "passwordHash"]); // tolto alla chiusura
     expect(esito.invito).toMatchObject({ inviato: true });
+    // R9: la posta è partita, il token è già nella casella del proprietario:
+    // una seconda copia nel browser sarebbe solo una presa in più da rubare.
+    expect(esito.invito).not.toHaveProperty("link");
     const repo = getTenantRepository();
     expect(repo.abbonamentoDi(repo.perSlug("gamma")!.id)).toMatchObject({ tipo: "complimentary", stato: "active" });
     const gina = conTenant(repo.perSlug("gamma")!.id, () =>
@@ -271,11 +274,41 @@ describe("piattaformaRouter", () => {
 
   it("invita e annullaInvito", async () => {
     __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
-    const i = await caller.invita({ slug: "acme" });
+    const i = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
     expect(i.inviato).toBe(false);
     expect(i.link).toContain("/invito/");
     const annullato = await caller.annullaInvito({ id: i.invito.id });
     expect(annullato?.annullatoIl).not.toBeNull();
+  });
+
+  // R9: un link d'invito è la presa dell'account del proprietario di
+  // un'altra azienda. Chi lo emette conferma di essere ancora lui, e il
+  // link non torna al browser se la posta lo ha già consegnato.
+  it("invita senza conferma valida: schema rifiuta il campo mancante, password sbagliata → UNAUTHORIZED e nessun invito emesso", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em_r9" }));
+    const repo = getTenantRepository();
+    const tenantId = repo.perSlug("acme")!.id;
+
+    await expect(caller.invita({ slug: "acme" } as any)).rejects.toThrow();
+    await expect(
+      caller.invita({ slug: "acme", passwordConferma: "sbagliata-ma-lunga" })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED", message: MESSAGGI_PIATTAFORMA.passwordNonCorretta });
+
+    expect(await repo.invitiDi(tenantId)).toEqual([]);
+    const eventi = await repo.eventi(tenantId);
+    expect(eventi.some(e => e.tipo === "invito_inviato")).toBe(false);
+  });
+
+  it("invita con posta che invia: nessun link nella risposta; con posta che fallisce: il link c'è", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em_r9_ok" }));
+    const inviato = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
+    expect(inviato.inviato).toBe(true);
+    expect(inviato.link).toBeUndefined();
+    expect(inviato).not.toHaveProperty("link");
+
+    __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const aMano = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
+    expect(aMano.link).toContain("/invito/");
   });
 
   it("ripristina con scrivi: true e password corretta → comando in coda tipo ripristina_archivi", async () => {
@@ -355,7 +388,7 @@ describe("piattaformaRouter", () => {
 
   it("annullaInvito registra evento invito_annullato con attore piattaforma e invitoId nei dettagli", async () => {
     __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
-    const i = await caller.invita({ slug: "acme" });
+    const i = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
     const invitoId = i.invito.id;
     const repo = getTenantRepository();
     const tenantId = repo.perSlug("acme")!.id;

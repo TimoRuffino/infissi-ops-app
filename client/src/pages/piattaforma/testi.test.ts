@@ -150,6 +150,17 @@ describe("esitoCreazione", () => {
     });
   });
 
+  it("R9: se la posta è partita il server non manda il link e qui non c'è niente da copiare", () => {
+    // Il campo arriva assente, non `null`: `esitoPubblico` (server/piattaforma/router.ts)
+    // lo toglie proprio dalla risposta quando `inviato === true`.
+    const esito = esitoCreazione({
+      stato: "eseguito",
+      invito: { inviato: true, email: "anna@esempio.it" },
+    });
+    expect(esito.link).toBeUndefined();
+    expect(esito.descrizione).toBe("Invito inviato a anna@esempio.it.");
+  });
+
   it("azienda già esistente: la nota prende il posto della frase sull'invito", () => {
     expect(
       esitoCreazione({

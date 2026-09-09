@@ -2,14 +2,17 @@
 // l'azienda e i link con cui ci si entra la prima volta.
 //
 // Due nature diverse nella stessa sezione, e si vedono:
-// - assegnare o revocare il ruolo è un COMANDO (`tenant_comandi`), sensibile,
-//   e passa da `ConfermaPassword`;
-// - invitare e annullare un invito NON sono comandi (spec §6.4): il link è un
-//   segreto a tempo, non una riga di coda, e non chiede la password.
+// - assegnare o revocare il ruolo è un COMANDO (`tenant_comandi`);
+// - invitare NON è un comando (spec §6.4): il link è un segreto a tempo, non
+//   una riga di coda.
+// Entrambe però sono sensibili e passano da `ConfermaPassword` (R9: un link
+// d'invito vale la presa dell'account del proprietario di un'altra azienda).
+// Annullare un invito no: toglie potere, non ne dà.
 //
 // Il link dell'invito, quando la posta non è configurata, è l'unica copia che
 // esiste: resta in pagina finché non lo si chiude, mai dentro un toast che
-// sparisce da solo.
+// sparisce da solo. Se invece la posta è partita il server non lo manda
+// nemmeno (R9), e qui non c'è niente da copiare.
 import type { inferRouterOutputs } from "@trpc/server";
 import { AlertCircle, Check, Copy, Mail, UserMinus, UserPlus, X } from "lucide-react";
 import { useState } from "react";
@@ -31,6 +34,32 @@ import {
   statoInvito,
   testoEsitoInvito,
 } from "./testi";
+
+/**
+ * I tre dialoghi della sezione. Tutti e tre chiedono la password (R9):
+ * assegnare o revocare il ruolo cambia chi comanda dentro l'azienda,
+ * invitare consegna a qualcuno la chiave per entrarci.
+ */
+const TITOLO_DIALOGO = {
+  assegna: "Assegna il proprietario",
+  revoca: "Revoca il proprietario",
+  invita: "Invia l'invito",
+} as const;
+
+const DESCRIZIONE_DIALOGO = {
+  assegna:
+    "L'utente deve già esistere dentro l'azienda: qui riceve in più il ruolo di proprietario.",
+  revoca:
+    "L'utente resta nell'azienda con gli altri suoi ruoli: perde solo il ruolo di proprietario. L'ultimo proprietario non si può revocare.",
+  invita:
+    "Il proprietario riceve un link con cui sceglie la sua password ed entra. Il link vale sette giorni e annulla ogni invito precedente.",
+} as const;
+
+const ETICHETTA_DIALOGO = {
+  assegna: "Assegna",
+  revoca: "Revoca",
+  invita: "Invia invito",
+} as const;
 
 type RouterOutputs = inferRouterOutputs<AppRouter>;
 type Scheda = RouterOutputs["piattaforma"]["azienda"];
@@ -56,10 +85,11 @@ export default function SezioneProprietari({
   aggiorna: () => void;
 }) {
   // `null` = nessun dialogo; `{ azione: "assegna" }` = email da scrivere;
-  // `{ azione: "revoca", email }` = il proprietario di quella riga.
-  const [dialogo, setDialogo] = useState<{ azione: "assegna" | "revoca"; email: string } | null>(
-    null
-  );
+  // `{ azione: "revoca" | "invita", email }` = il proprietario di quella riga.
+  const [dialogo, setDialogo] = useState<{
+    azione: "assegna" | "revoca" | "invita";
+    email: string;
+  } | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const [esitoInvito, setEsitoInvito] = useState<EsitoInvito | null>(null);
   const [copiato, setCopiato] = useState(false);
@@ -77,11 +107,15 @@ export default function SezioneProprietari({
     onSuccess: esito => {
       setEsitoInvito(esito);
       setCopiato(false);
+      setDialogo(null);
+      setErrore(null);
       aggiorna();
       if (esito.inviato) toast.success(testoEsitoInvito({ inviato: true, email: esito.invito.email }));
       else toast.warning("Posta non configurata: copia il link qui sotto e consegnalo a mano.");
     },
-    onError: e => toast.error(e.message),
+    // L'errore resta nel dialogo, sotto il campo della password: è lì che
+    // l'amministratore sta guardando quando sbaglia a digitarla.
+    onError: e => setErrore(e.message),
   });
 
   const annulla = trpc.piattaforma.annullaInvito.useMutation({
@@ -98,6 +132,7 @@ export default function SezioneProprietari({
       setDialogo(null);
       setErrore(null);
       ruolo.reset();
+      invita.reset();
     }
   }
 
@@ -148,7 +183,10 @@ export default function SezioneProprietari({
                     className="min-h-9"
                     disabled={solaLettura || invita.isPending}
                     title={titoloSolaLettura}
-                    onClick={() => invita.mutate({ slug, email: p.email })}
+                    onClick={() => {
+                      setErrore(null);
+                      setDialogo({ azione: "invita", email: p.email });
+                    }}
                   >
                     <Mail className="size-3.5" aria-hidden="true" />
                     Invia invito
@@ -210,7 +248,7 @@ export default function SezioneProprietari({
               <X className="size-4" aria-hidden="true" />
             </Button>
           </div>
-          {esitoInvito.inviato ? null : (
+          {esitoInvito.link ? (
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Input
                 readOnly
@@ -223,7 +261,7 @@ export default function SezioneProprietari({
                 type="button"
                 variant="outline"
                 className="min-h-11 shrink-0"
-                onClick={() => void copiaLink(esitoInvito.link)}
+                onClick={() => void copiaLink(esitoInvito.link!)}
               >
                 {copiato ? (
                   <Check className="size-4" aria-hidden="true" />
@@ -233,7 +271,7 @@ export default function SezioneProprietari({
                 {copiato ? "Copiato" : "Copia"}
               </Button>
             </div>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -287,28 +325,22 @@ export default function SezioneProprietari({
       <ConfermaPassword
         open={dialogo != null}
         onOpenChange={chiudi}
-        titolo={
-          dialogo?.azione === "revoca" ? "Revoca il proprietario" : "Assegna il proprietario"
-        }
-        descrizione={
-          dialogo?.azione === "revoca"
-            ? "L'utente resta nell'azienda con gli altri suoi ruoli: perde solo il ruolo di proprietario. L'ultimo proprietario non si può revocare."
-            : "L'utente deve già esistere dentro l'azienda: qui riceve in più il ruolo di proprietario."
-        }
-        etichettaConferma={dialogo?.azione === "revoca" ? "Revoca" : "Assegna"}
+        titolo={TITOLO_DIALOGO[dialogo?.azione ?? "assegna"]}
+        descrizione={DESCRIZIONE_DIALOGO[dialogo?.azione ?? "assegna"]}
+        etichettaConferma={ETICHETTA_DIALOGO[dialogo?.azione ?? "assegna"]}
         distruttiva={dialogo?.azione === "revoca"}
-        pending={ruolo.isPending}
+        pending={dialogo?.azione === "invita" ? invita.isPending : ruolo.isPending}
         errore={errore}
         disabilitato={!emailValida}
         onConferma={password => {
           if (!dialogo || !emailValida) return;
           setErrore(null);
-          ruolo.mutate({
-            slug,
-            email: dialogo.email.trim(),
-            azione: dialogo.azione,
-            passwordConferma: password,
-          });
+          const email = dialogo.email.trim();
+          if (dialogo.azione === "invita") {
+            invita.mutate({ slug, email, passwordConferma: password });
+            return;
+          }
+          ruolo.mutate({ slug, email, azione: dialogo.azione, passwordConferma: password });
         }}
       >
         <div className="min-w-0 space-y-1.5">
@@ -317,7 +349,7 @@ export default function SezioneProprietari({
             id="proprietario-email"
             type="email"
             value={dialogo?.email ?? ""}
-            readOnly={dialogo?.azione === "revoca"}
+            readOnly={dialogo?.azione !== "assegna"}
             onChange={event =>
               setDialogo(precedente =>
                 precedente ? { ...precedente, email: event.target.value } : precedente

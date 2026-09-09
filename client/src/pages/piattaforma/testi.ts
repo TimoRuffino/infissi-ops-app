@@ -165,7 +165,9 @@ export function esitoCreazione(dati: {
       titolo: "Azienda creata",
       descrizione: testoEsitoInvito(dati.invito),
       mostraScheda: true,
-      link: !dati.invito.inviato && dati.invito.link ? dati.invito.link : undefined,
+      // Dopo R9 il server manda il `link` SOLO quando la posta non è
+      // partita: qui basta guardare se c'è, senza dedurlo da `inviato`.
+      link: dati.invito.link ?? undefined,
     };
   }
   return { titolo: "Azienda creata", descrizione: "", mostraScheda: true };
