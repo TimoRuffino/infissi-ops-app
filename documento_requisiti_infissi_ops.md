@@ -5219,7 +5219,7 @@ token manuale). `GOOGLE_OAUTH_REDIRECT_URI`
 (`https://app.wyndoor.com/api/oauth/gdrive/callback`) e la terna
 `WHATSAPP_APP_ID`/`WHATSAPP_CONFIG_ID`/`WHATSAPP_APP_SECRET` (l'app Meta
 «Wyndoor», App ID 1822157438962458, già Live con Business Verification,
-Tech Provider e App Review approvata il 21/08/2026) non sono ancora
+Tech Provider e App Review approvata il 21/08/2026 (stato letto dalla direzione nella console Meta il 09/09/2026: screenshot di dashboard, Analisi dell'app e Verifica)) non sono ancora
 impostate: finché mancano, i rispettivi adattatori dichiarano il guasto come
 `Problema` con `azione: "assistenza"` e non offrono «Collega», invece di
 fallire a metà giro. `WHATSAPP_VERIFY_TOKEN` di piattaforma è accettata

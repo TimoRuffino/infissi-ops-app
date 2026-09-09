@@ -388,7 +388,7 @@ export default function WhatsAppCard() {
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {chiaveOk
-                ? "Collega il numero inquadrando il QR con l'app WhatsApp Business del telefono: il numero resta dov'e', con le sue chat."
+                ? "Collega il numero inquadrando il QR con l'app WhatsApp Business del telefono: il numero resta dov'è, con le sue chat."
                 : "Configura prima MAIL_ENCRYPTION_KEY sul server: senza chiave il token di accesso non può essere salvato."}
             </p>
           </div>
