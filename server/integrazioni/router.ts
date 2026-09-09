@@ -10,7 +10,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import type { Adattatore, Chiave, Ctx } from "./contratto";
 import { passiAttivazione, segnaSaltata } from "./attivazione";
-import { verificaConCache } from "./cache";
+import { invalidaVerifica, verificaConCache } from "./cache";
 import { REGISTRO, adattatoreDi } from "./registro";
 
 const chiaveSchema = z.enum([
@@ -41,6 +41,11 @@ export function risolvi(ctx: Ctx, chiave: Chiave): Adattatore {
   return a;
 }
 
+/** La sede su cui l'adattatore lavora: `null` per quelli ad ambito azienda. */
+function sedeDi(a: Adattatore, ctx: Ctx): number | null {
+  return a.ambito === "sede" ? ctx.sedeId : null;
+}
+
 export const integrazioniRouter = router({
   /** Sola lettura: nessuna chiamata esterna, regge il caricamento pagina. */
   elenco: protectedProcedure.query(async ({ ctx }) => {
@@ -54,8 +59,9 @@ export const integrazioniRouter = router({
     .input(z.object({ chiave: chiaveSchema }))
     .mutation(({ ctx, input }) => {
       const a = risolvi(ctx, input.chiave);
-      const sede = a.ambito === "sede" ? ctx.sedeId : null;
-      return verificaConCache(input.chiave, sede, () => a.verifica(ctx));
+      return verificaConCache(ctx.tenantId, input.chiave, sedeDi(a, ctx), () =>
+        a.verifica(ctx)
+      );
     }),
 
   avvia: protectedProcedure
@@ -68,6 +74,9 @@ export const integrazioniRouter = router({
           message: "Questa integrazione non si collega.",
         });
       }
+      // L'esito di prima non vale più: chi ricollega ha appena cambiato la
+      // verità che la cache stava conservando.
+      invalidaVerifica(ctx.tenantId, input.chiave, sedeDi(a, ctx));
       return a.avvia(ctx, input.opzioni);
     }),
 
@@ -82,6 +91,7 @@ export const integrazioniRouter = router({
         });
       }
       await a.completa(ctx, input.esito);
+      invalidaVerifica(ctx.tenantId, input.chiave, sedeDi(a, ctx));
       return { ok: true as const };
     }),
 
@@ -96,6 +106,7 @@ export const integrazioniRouter = router({
         });
       }
       await a.scollega(ctx);
+      invalidaVerifica(ctx.tenantId, input.chiave, sedeDi(a, ctx));
       return { ok: true as const };
     }),
 
