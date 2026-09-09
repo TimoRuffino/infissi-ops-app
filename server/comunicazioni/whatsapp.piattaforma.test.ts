@@ -1,6 +1,12 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, afterEach } from "vitest";
 import { appRouter } from "../routers";
 import type { TrpcContext } from "../_core/context";
+import { istanziaStoresPerTenant } from "../_core/persistence";
+import {
+  getTenantRepository,
+  resetTenantRepositoryForTesting,
+} from "../tenants/repository";
+import type { TenantRecord } from "../tenants/tipi";
 import {
   appEffettiva,
   appPubblica,
@@ -148,5 +154,81 @@ describe("verify token del webhook", () => {
     process.env.WHATSAPP_VERIFY_TOKEN = "   ";
     expect(verifyTokenValido("")).toBe(false);
     expect(verifyTokenValido("   ")).toBe(false);
+  });
+});
+
+// Direzione, 09/09/2026: «le aziende non dovrebbero vedere né modificare
+// queste cose». Webhook, verify token, credenziali proprie e percorso a mano
+// sono dell'app Meta della piattaforma: al cliente resta «Collega col QR».
+describe("la configurazione dell'app è della piattaforma, non delle aziende clienti", () => {
+  // Un'azienda cliente vera, con i suoi store: il middleware tRPC entra nel
+  // tenant della sessione (`conTenant`), e senza store istanziati la
+  // lettura dell'app fallirebbe per un'altra ragione.
+  let t2: TenantRecord;
+  beforeAll(async () => {
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.inserisci({ id: 1, slug: "ruffino-group", nome: "Ruffino Group" });
+    t2 = await repo.inserisci({ slug: "acme-whatsapp", nome: "Acme Infissi" });
+    await istanziaStoresPerTenant(t2.id);
+  });
+
+  function ctxAzienda(tenantId: number, sedeId: number): TrpcContext {
+    return { ...ctxDirezione(sedeId), tenantId };
+  }
+
+  it("`app` dice a chi gestisce la piattaforma che può vederla, col verify token", async () => {
+    process.env.WHATSAPP_VERIFY_TOKEN = "verify-di-piattaforma";
+    const caller = appRouter.createCaller(ctxAzienda(1, 1));
+    const app = await caller.mail.whatsapp.app();
+    expect(app.piattaforma).toBe(true);
+    expect(app.verifyToken).toBeTruthy();
+  });
+
+  it("a un'azienda cliente `app` risponde senza verify token e senza il diritto di vedere", async () => {
+    process.env.WHATSAPP_VERIFY_TOKEN = "verify-di-piattaforma";
+    const caller = appRouter.createCaller(ctxAzienda(t2.id, 7));
+    const app = await caller.mail.whatsapp.app();
+    expect(app.piattaforma).toBe(false);
+    expect(app.verifyToken).toBeNull();
+    expect(JSON.stringify(app)).not.toContain("verify-di-piattaforma");
+    // Il QR resta suo: l'app di piattaforma è pronta anche per lei.
+    expect(app.pronta).toBe(true);
+  });
+
+  it("senza tenant nella sessione la porta è chiusa", async () => {
+    const caller = appRouter.createCaller({ ...ctxDirezione(1), tenantId: null });
+    const app = await caller.mail.whatsapp.app();
+    expect(app.piattaforma).toBe(false);
+    expect(app.verifyToken).toBeNull();
+  });
+
+  it("un'azienda cliente non scrive le credenziali proprie dell'app", async () => {
+    const caller = appRouter.createCaller(ctxAzienda(t2.id, 7));
+    await expect(
+      caller.mail.whatsapp.setApp({ appId: "app-del-cliente" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(getAppWhatsApp(7).appId).not.toBe("app-del-cliente");
+  });
+
+  it("un'azienda cliente non apre il percorso a mano: il numero si collega col QR", async () => {
+    const caller = appRouter.createCaller(ctxAzienda(t2.id, 7));
+    const prima = configWhatsApp.length;
+    await expect(
+      caller.mail.whatsapp.create({
+        nome: "Numero a mano",
+        verifyToken: "verify-del-cliente",
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(configWhatsApp.length).toBe(prima);
+  });
+
+  it("chi gestisce la piattaforma continua a scrivere le credenziali proprie", async () => {
+    const caller = appRouter.createCaller(ctxAzienda(1, 8));
+    const esito = await caller.mail.whatsapp.setApp({ appId: "app-della-sede-8" });
+    expect(esito.propri.appId).toBe("app-della-sede-8");
+    const a = getAppWhatsApp(8);
+    a.appId = "";
+    saveAppWhatsApp();
   });
 });

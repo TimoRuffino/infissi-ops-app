@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { assertSedeScope, requireDirezione } from "../_core/permissions";
 import { secretBoxConfigured } from "../_core/secretBox";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import {
   caselle,
   casellaPubblica,
@@ -73,6 +74,29 @@ import {
   StorageAllegatoTemporaneamenteNonDisponibile,
 } from "./preventiviContratti";
 import { leggiAllegatoRaw } from "../comunicazioni/allegati";
+
+/**
+ * La configurazione dell'app Meta di WhatsApp — URL del webhook, verify
+ * token, credenziali proprie, percorso a mano — è della piattaforma: la
+ * scrive Wyndoor una volta sola su developers.facebook.com. Un'azienda
+ * cliente non deve vederla né toccarla (direzione, 09/09/2026): a lei resta
+ * «Collega col QR». Vale l'azienda della sessione, non la persona: a
+ * interruttore spento è sempre il tenant 1, a interruttore acceso solo chi
+ * è della piattaforma; un tenant assente chiude la porta.
+ */
+function gestisceLAppWhatsApp(ctx: { tenantId: number | null }): boolean {
+  return ctx.tenantId === TENANT_PREDEFINITO_ID;
+}
+
+function requireAppWhatsAppDiPiattaforma(ctx: { tenantId: number | null }) {
+  if (!gestisceLAppWhatsApp(ctx)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "L'app WhatsApp è configurata dalla piattaforma: qui si collega il numero col QR.",
+    });
+  }
+}
 
 function trovaCasella(id: number, sedeId: number | null): Casella {
   const c = caselle.find(x => x.id === id);
@@ -495,7 +519,15 @@ export const mailRouter = router({
     // quella sede.
     app: protectedProcedure.query(({ ctx }) => {
       requireDirezione(ctx.user);
-      return appPubblica(ctx.sedeId);
+      const piattaforma = gestisceLAppWhatsApp(ctx);
+      const pubblica = appPubblica(ctx.sedeId);
+      return {
+        ...pubblica,
+        // Il client nasconde webhook, token, credenziali e diagnostica a chi
+        // non gestisce l'app; il verify token non parte nemmeno.
+        piattaforma,
+        verifyToken: piattaforma ? pubblica.verifyToken : null,
+      };
     }),
 
     setApp: protectedProcedure
@@ -508,6 +540,7 @@ export const mailRouter = router({
       )
       .mutation(({ input, ctx }) => {
         requireDirezione(ctx.user);
+        requireAppWhatsAppDiPiattaforma(ctx);
         const a = getAppWhatsApp(ctx.sedeId);
         if (input.appSecret) {
           assertChiaveCifratura();
@@ -646,6 +679,8 @@ export const mailRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         requireDirezione(ctx.user);
+        // Il percorso a mano è della piattaforma: il cliente collega col QR.
+        requireAppWhatsAppDiPiattaforma(ctx);
         const phoneNumberId = input.phoneNumberId?.trim() ?? "";
         if (
           phoneNumberId &&
