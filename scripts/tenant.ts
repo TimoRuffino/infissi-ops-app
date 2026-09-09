@@ -16,6 +16,9 @@
 //        --quota-gb=<n> | --budget-tars-eur=<n|nessuno> | --extra-tars-eur=<n> |
 //        --tolleranza-storage=<gg> e/o --tolleranza-tars=<gg> | --disdetta|--annulla-disdetta
 //        (il tenant 1 rifiuta omaggio/proroga/disdetta: è la proprietaria della piattaforma)
+//   pnpm tenant modifica --slug=acme [--nome=…] [--nuovo-slug=…] [--piva=…] [--cf=…] \
+//        [--sede-legale=…] [--email-amministrativa=…] [--pec=…] [--sdi=…] [--note=…] [--scrivi] [--attendi]
+//        (almeno un campo oltre --slug; il tenant 1 rifiuta --nuovo-slug: è l'ancora di ogni URL)
 //   pnpm tenant verifica [--json]
 //
 // Password del proprietario: TENANT_PROPRIETARIO_PASSWORD nell'env o prompt
@@ -64,13 +67,14 @@ import {
   richiestoDa,
   schemaPayloadAbbonamento,
   schemaPayloadCrea,
+  schemaPayloadModificaTenant,
   schemaPayloadProprietario,
   schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
   type PayloadAbbonamento,
 } from "../server/tenants/comandi";
-import { TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
+import { MESSAGGI, TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
 import {
   createPostgresTenantRepository,
   type TenantRepository,
@@ -88,13 +92,16 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | abbonamento | verifica [--json] " +
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | abbonamento | modifica | verifica [--json] " +
   "(vedi docs/runbooks/multi-azienda.md). " +
   "ripristina --slug=<slug> --backup=<AAAA-MM-GG|folderId> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]. " +
   "abbonamento --slug=<slug> UNA azione: --omaggio [--scadenza=AAAA-MM-GG] --motivo=… | --proroga=<giorni> --motivo=… | " +
   "--quota-gb=<n> | --budget-tars-eur=<n|nessuno> | --extra-tars-eur=<n> | " +
   "--tolleranza-storage=<gg> e/o --tolleranza-tars=<gg> | --disdetta|--annulla-disdetta, poi [--scrivi] [--attendi] " +
   "(il tenant 1 rifiuta omaggio/proroga/disdetta: quota, budget e tolleranze restano ammessi). " +
+  "modifica --slug=<slug> [--nome=…] [--nuovo-slug=…] [--piva=…] [--cf=…] [--sede-legale=…] " +
+  "[--email-amministrativa=…] [--pec=…] [--sdi=…] [--note=…], poi [--scrivi] [--attendi] " +
+  "(almeno un campo oltre --slug; il tenant 1 rifiuta --nuovo-slug). " +
   "Automazione: `pnpm --silent tenant verifica --json` oppure `npx tsx scripts/tenant.ts verifica --json` " +
   "(un `pnpm tenant verifica --json` semplice non è JSON valido su stdout: pnpm ci scrive intorno il banner " +
   "e, con anomalie, il trailer ELIFECYCLE). L'exit è 1 con anomalie in ogni forma: gestirlo sotto `set -e`.";
@@ -418,6 +425,46 @@ async function main(): Promise<number> {
     tipo = "imposta_abbonamento";
     tenantId = t.id;
     payload = schemaPayloadAbbonamento.parse(payloadAzione);
+  } else if (sotto === "modifica") {
+    const slug = obbligatoria("slug");
+    const t = repo.perSlug(slug);
+    if (!t) throw new Error(`Tenant ${slug} inesistente`);
+    // Stesso criterio di `abbonamento` più sopra: fermarsi qui evita di
+    // accodare un comando che il servizio scarterebbe comunque con un
+    // evento `comando_fallito` (il tenant 1 è l'ancora di ogni URL e
+    // comando script già in uso, mai un caso di conferma con un flag in più).
+    if (valori["nuovo-slug"] != null && valori["nuovo-slug"] !== t.slug && t.id === TENANT_PREDEFINITO_ID) {
+      throw new Error(MESSAGGI.tenant1SlugIntoccabile);
+    }
+
+    // Solo i flag davvero passati finiscono nell'oggetto: un flag assente
+    // deve lasciare il campo (fatturazione compresa) come sta, mai un
+    // `undefined` esplicito (`servizio.ts#modificaTenant` lo pretende per il
+    // merge di `fatturazione`).
+    const fatturazione: Record<string, string> = {};
+    if (valori.piva != null) fatturazione.partitaIva = valori.piva;
+    if (valori.cf != null) fatturazione.codiceFiscale = valori.cf;
+    if (valori["sede-legale"] != null) fatturazione.indirizzoLegale = valori["sede-legale"];
+    if (valori["email-amministrativa"] != null) fatturazione.emailAmministrativa = valori["email-amministrativa"];
+    if (valori.pec != null) fatturazione.pec = valori.pec;
+    if (valori.sdi != null) fatturazione.codiceSdi = valori.sdi;
+
+    const payloadModifica: Record<string, unknown> = { slug };
+    if (valori.nome != null) payloadModifica.nome = valori.nome;
+    if (valori["nuovo-slug"] != null) payloadModifica.nuovoSlug = valori["nuovo-slug"];
+    if (valori.note != null) payloadModifica.note = valori.note;
+    if (Object.keys(fatturazione).length > 0) payloadModifica.fatturazione = fatturazione;
+
+    if (Object.keys(payloadModifica).length === 1) {
+      throw new Error(
+        "Nessun campo da modificare: aggiungi almeno un flag " +
+          "(--nome, --nuovo-slug, --piva, --cf, --sede-legale, --email-amministrativa, --pec, --sdi, --note)."
+      );
+    }
+
+    tipo = "modifica_tenant";
+    tenantId = t.id;
+    payload = schemaPayloadModificaTenant.parse(payloadModifica);
   } else {
     console.error(USO);
     return 2;

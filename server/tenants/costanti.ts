@@ -44,4 +44,13 @@ export const MESSAGGI = {
   // utente di un'altra azienda lo porterebbe dentro Ruffino Group. Finché il
   // multi-azienda è spento, quelle sessioni non si aprono.
   multiAziendaSpento: "Accesso non disponibile: il multi-azienda della piattaforma è spento.",
+  // «Modifica azienda» (piano 09/09/2026, Task 2): il tenant 1 è l'ancora di
+  // ogni URL, comando script e riferimento già in uso — stesso principio di
+  // MESSAGGI_ABBONAMENTO.tenant1Intoccabile (server/abbonamenti/costanti.ts).
+  tenant1SlugIntoccabile: "Il tenant 1 è la proprietaria della piattaforma: lo slug non cambia.",
+  // Stesso concetto di MESSAGGI_PIATTAFORMA.proprietarioAmbiguo
+  // (server/piattaforma/inviti.ts, per l'invito): qui per chi modifica un
+  // proprietario esistente. Non si importa da lì: il verso della dipendenza
+  // va da piattaforma verso tenants, mai il contrario.
+  proprietarioAmbiguo: "L'azienda ha più proprietari: indica utenteId.",
 } as const;

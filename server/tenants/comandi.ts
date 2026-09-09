@@ -105,6 +105,59 @@ export const schemaPayloadAbbonamento = z.discriminatedUnion("azione", [
 ]);
 export type PayloadAbbonamento = z.infer<typeof schemaPayloadAbbonamento>;
 
+// `modifica_tenant` («Modifica azienda», piano 09/09/2026, Task 2): `slug`
+// individua l'azienda (mai un `tenantId`, guardia confine.test.ts); ogni
+// altro campo è facoltativo — solo quelli presenti cambiano
+// (`servizio.ts#modificaTenant` confronta col record attuale). `fatturazione`
+// è `.partial()`: un campo assente non tocca quello già salvato, un campo
+// `null` esplicito lo azzera. Nessuna validazione fiscale oltre forma e
+// lunghezza (spec: P.IVA 11 cifre, codice fiscale 11-16 caratteri, SDI 7
+// caratteri, email valide). `sede`, quando presente, sostituisce nome e
+// città insieme (non è un patch parziale): l'`id` la lega a UNA sede, che il
+// servizio verifica appartenga al tenant.
+export const schemaPayloadModificaTenant = z.object({
+  slug,
+  nome: testo(120).optional(),
+  nuovoSlug: slug.optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+  fatturazione: z
+    .object({
+      partitaIva: z.string().regex(/^\d{11}$/).nullable(),
+      codiceFiscale: z.string().trim().min(11).max(16).nullable(),
+      indirizzoLegale: z.string().trim().max(200).nullable(),
+      emailAmministrativa: z.string().trim().email().nullable(),
+      pec: z.string().trim().email().nullable(),
+      codiceSdi: z.string().trim().length(7).nullable(),
+    })
+    .partial()
+    .optional(),
+  sede: z
+    .object({
+      id: z.number().int().positive(),
+      nome: testo(120),
+      citta: z.string().trim().max(80).nullable(),
+    })
+    .optional(),
+});
+export type PayloadModificaTenant = z.infer<typeof schemaPayloadModificaTenant>;
+
+// `modifica_proprietario` (Task 2): `utenteId` è facoltativo — se manca e
+// l'azienda ha un solo proprietario, `servizio.ts#modificaProprietario` lo
+// risolve da sé; con più di un proprietario (o nessuno) rifiuta
+// (`MESSAGGI.proprietarioAmbiguo`). A differenza di `fatturazione`, qui non
+// è un patch: nome/cognome/email sono lo stato pieno che sostituisce quello
+// attuale (stesso motivo di `sede` sopra), `telefono` assente equivale a
+// nessun telefono (come in `schemaPayloadCrea.proprietario`, mai "non toccare").
+export const schemaPayloadModificaProprietario = z.object({
+  slug,
+  utenteId: z.number().int().positive().optional(),
+  nome: testo(80),
+  cognome: testo(80),
+  email: z.string().trim().email(),
+  telefono: z.string().trim().max(40).nullable().optional(),
+});
+export type PayloadModificaProprietario = z.infer<typeof schemaPayloadModificaProprietario>;
+
 export function richiestoDa(): string {
   return `script:tenant@${hostname()}`;
 }
