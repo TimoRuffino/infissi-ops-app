@@ -484,6 +484,25 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     `Tot. Imponibile ${imponibile}`,
   ];
 
+  it("anche la copia che non vince porta i suoi articoli: senza, nessun confronto è possibile", async () => {
+    const commessa = await inOrdine("Articoli Sempre");
+    const primo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("ARTICOLI SEMPRE", "1690001", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1690001(1).pdf" }
+    );
+    const secondo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("ARTICOLI SEMPRE", "1690001", "16/06/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1690001(1) (2).pdf" }
+    );
+    for (const doc of [primo, secondo]) {
+      const letti = getDocumentoRecordById(doc.id)?.letturaCosto?.articoliLetti ?? [];
+      expect(letti.length).toBeGreaterThan(0);
+      expect(letti.join(" ")).toContain("PORST-C013");
+    }
+  });
+
   it("stesso ordine, stessa data, importi diversi: è discordanza, e vince il più alto", async () => {
     // Il caso COM-2026-092: quattro copie entrate nello stesso giro d'archivio,
     // importi diversi, nessuna prova di quale sia la revisione. Prima il CRM

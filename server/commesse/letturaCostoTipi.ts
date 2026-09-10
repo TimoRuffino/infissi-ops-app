@@ -99,6 +99,14 @@ export type LetturaCostoDocumento = {
   duplicatoDi?: number | null;
   /** Gli imponibili discordi visti su questo ordine, il maggiore per primo. */
   discordi?: number[];
+  /**
+   * I nomi degli articoli letti nel documento, anche quando non ha prodotto
+   * costo né merce. Servono a distinguere una conferma PARZIALE (merce
+   * diversa sullo stesso ordine) da una revisione, e senza di essi quel
+   * confronto è impossibile: fino al 10/09/2026 le copie che non vincevano
+   * non li avevano mai estratti.
+   */
+  articoliLetti?: string[];
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */
   riscontro?: { ok: boolean; prove: string[] } | null;
   /**

@@ -709,6 +709,14 @@ export async function registraCostoDaConferma(input: {
     riscontro: [],
   };
 
+  // Gli articoli si leggono SEMPRE, anche se questo documento non produrrà né
+  // costo né merce: sono la prova che distingue una conferma parziale da una
+  // revisione, e buttarla via è ciò che ha reso il problema invisibile.
+  // Costa una scansione del testo già in memoria.
+  const articoliLetti = estraiRigheMerce(parser.pagine)
+    .map(r => r.nome)
+    .slice(0, 40);
+
   const memoriaBase = {
     fonteTesto,
     imponibile,
@@ -719,6 +727,7 @@ export async function registraCostoDaConferma(input: {
     riferimenti,
     sezioni,
     evidenze,
+    articoliLetti,
   };
 
   // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
