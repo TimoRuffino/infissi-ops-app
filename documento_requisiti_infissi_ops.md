@@ -5669,8 +5669,18 @@ store di dominio, quindi il contesto tenant non serve. (2) A differenza di
 `inviaPosta`, che non lancia mai, `inviaFeedback` **lancia**: c'è una
 persona che aspetta, e una segnalazione persa in silenzio è peggio di
 nessun bottone. Senza `RESEND_API_KEY` il dialogo dice che il canale non è
-attivo e mostra l'indirizzo, invece di fingere l'invio. Limite: cinque
-segnalazioni all'ora per persona.
+attivo e mostra l'indirizzo, invece di fingere l'invio.
+
+**Nessun tetto al numero di segnalazioni** (decisione della direzione,
+10/09/2026): l'implementazione ne aveva uno di cinque all'ora per persona,
+rimosso. Un'azienda che trova cinque cose rotte in una mattinata deve
+poterle dire tutte e cinque, e la sesta pure; un tetto qui protegge poco —
+ogni invio è un gesto a mano, si scrive il testo e si preme Invia, non c'è
+nessun automatismo che possa ripetersi da solo — mentre il rifiuto che
+produrrebbe chiude in faccia proprio il canale che serve nel momento
+peggiore. Restano gli unici due limiti che riguardano la singola
+segnalazione, non il loro numero: 10–4000 caratteri di testo e 2 MB di
+immagine.
 
 **Verificato:** `pnpm check`/`test`/`build` verdi, 33 test nuovi
 (`server/piattaforma/feedback.test.ts`,

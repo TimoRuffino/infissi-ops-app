@@ -35,8 +35,6 @@ export const MESSAGGI_FEEDBACK = {
     "Il canale di supporto non è attivo su questa installazione: scrivi direttamente a supporto@wyndoor.com.",
   nonRiuscito:
     "Non siamo riusciti a inviare la segnalazione: riprova fra qualche minuto o scrivi a supporto@wyndoor.com.",
-  troppiInvii:
-    "Hai già inviato diverse segnalazioni: riprova fra un'ora. Per un'urgenza scrivi a supporto@wyndoor.com.",
   immagineTroppoGrande:
     "L'immagine è troppo grande: il limite è 2 MB. Ritaglia lo schermo o togli l'allegato.",
   immagineNonValida: "Si possono allegare solo immagini PNG, JPEG o WebP.",

@@ -11,7 +11,6 @@
 // `tenants.mio`.
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { creaLimiteTentativi } from "../_core/limiteTentativi";
 import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { router, sessionProcedure } from "../_core/trpc";
 import { getSedeById } from "../routers/sedi";
@@ -22,20 +21,13 @@ import { MESSAGGI_FEEDBACK } from "./costanti";
 import { IMMAGINE_MAX_BYTE, TIPI_FEEDBACK, inviaFeedback } from "./feedback";
 import { baseUrlDa } from "./inviti";
 
-// Cinque all'ora per persona: abbastanza per raccontare tre bug di fila in
-// una mattinata storta, non abbastanza perché una pagina impazzita riempia
-// la casella di supporto.
-const limiteFeedback = creaLimiteTentativi({
-  finestraMs: 60 * 60 * 1000,
-  massimo: 5,
-  messaggio: MESSAGGI_FEEDBACK.troppiInvii,
-});
-
-/** Solo per i test: azzera il limitatore delle segnalazioni. */
-export function __azzeraLimiteFeedbackPerTest(): void {
-  if (process.env.NODE_ENV !== "test") throw new Error("TEST_ONLY");
-  limiteFeedback.__azzeraTutto();
-}
+// NESSUN tetto al numero di segnalazioni (decisione della direzione del
+// 10/09/2026): un'azienda che trova cinque cose rotte in un'ora deve poterle
+// dire tutte e cinque, e la sesta pure. Un tetto qui non protegge granché —
+// ogni invio è un gesto a mano, si scrive il testo e si preme Invia, non
+// c'è nessun automatismo che possa ripetersi da solo — mentre il rifiuto
+// che avrebbe prodotto chiude in faccia proprio il canale che serve nel
+// momento peggiore.
 
 // La base64 di 2 MB sta in ~2,8 MB di caratteri: il tetto sulla stringa
 // ferma il messaggio enorme prima che zod lo copi, il conto dei byte veri lo
@@ -63,12 +55,6 @@ export const feedbackRouter = router({
     .mutation(async ({ input, ctx }) => {
       const utente = ctx.user;
       if (!utente) throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
-
-      const chiave = `feedback:${utente.id}`;
-      limiteFeedback.verifica(chiave);
-      // Ogni invio consuma un colpo: qui non esiste un «tentativo riuscito»
-      // che azzera il contatore.
-      limiteFeedback.fallito(chiave);
 
       const email = (utente as { email?: string | null }).email?.trim();
       if (!email) {
