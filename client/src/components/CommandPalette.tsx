@@ -3,6 +3,7 @@
 // La ricerca resta deterministica e sede-scoped. Tars compare come passaggio
 // esplicito che compila una bozza; nessuna procedura del modello parte mentre
 // l'utente digita o seleziona la voce.
+import { useFeedback } from "@/components/feedback/FeedbackProvider";
 import {
   CommandDialog,
   CommandGroup,
@@ -32,6 +33,7 @@ import {
   Clock,
   Contact,
   Loader2,
+  MessageSquareWarning,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -162,6 +164,14 @@ export default function CommandPalette({
     }
     onOpenChange(false);
     setLocation(targetPath);
+  };
+
+  // La palette apre il modulo delle segnalazioni invece di portarci a una
+  // pagina: il dialogo vive nella cornice (FeedbackProvider).
+  const apriFeedback = useFeedback();
+  const segnala = (tipo: "bug" | "consiglio"): void => {
+    onOpenChange(false);
+    apriFeedback(tipo);
   };
 
   const retrySearch = () => {
@@ -374,6 +384,24 @@ export default function CommandPalette({
             </CommandGroup>
           </>
         ) : null}
+
+        <CommandSeparator />
+        <CommandGroup heading="Supporto Wyndoor">
+          <CommandItem
+            value="feedback-bug segnala problema errore bug"
+            onSelect={() => segnala("bug")}
+          >
+            <MessageSquareWarning className="text-text-3" aria-hidden="true" />
+            <span>Segnala un problema</span>
+          </CommandItem>
+          <CommandItem
+            value="feedback-consiglio suggerimento idea consiglio migliorare"
+            onSelect={() => segnala("consiglio")}
+          >
+            <MessageSquareWarning className="text-text-3" aria-hidden="true" />
+            <span>Manda un consiglio</span>
+          </CommandItem>
+        </CommandGroup>
 
         {!query ? (
           <div className="border-t border-border-soft px-3 py-2 text-[11px] text-text-3">

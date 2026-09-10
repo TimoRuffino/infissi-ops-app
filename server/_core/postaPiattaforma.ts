@@ -7,11 +7,31 @@
 // mostrare il link a mano.
 import { MESSAGGI_PIATTAFORMA, VARIABILE_POSTA_RISPOSTA } from "../piattaforma/costanti";
 
+/**
+ * Un file spedito DENTRO la mail (Resend `attachments`), non messo nello
+ * storage dell'azienda: lo screenshot di una segnalazione vive nella casella
+ * di chi la riceve e da nessun'altra parte — niente quota, niente ledger,
+ * niente da cancellare quando il tenant se ne va.
+ */
+export type AllegatoPosta = {
+  nome: string;
+  /** Solo i byte in base64: mai il prefisso `data:…;base64,`. */
+  contenutoBase64: string;
+  tipo?: string;
+};
+
 export type MessaggioPosta = {
   a: string;
   oggetto: string;
   testo: string;
   html?: string;
+  /**
+   * L'indirizzo a cui rispondere per QUESTO messaggio, quando non è quello
+   * di piattaforma: una segnalazione la scrive una persona, e supporto deve
+   * poterle rispondere con «Rispondi» senza copiare l'indirizzo dal corpo.
+   */
+  rispostaA?: string;
+  allegati?: AllegatoPosta[];
 };
 
 export type EsitoPosta =
@@ -56,7 +76,7 @@ async function inviaConResend(m: MessaggioPosta): Promise<EsitoPosta> {
     return { inviato: false, motivo: MESSAGGI_PIATTAFORMA.postaNonConfigurata };
   }
 
-  const risposta = contattoPiattaforma();
+  const risposta = m.rispostaA?.trim() || contattoPiattaforma();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -76,6 +96,15 @@ async function inviaConResend(m: MessaggioPosta): Promise<EsitoPosta> {
         subject: m.oggetto,
         text: m.testo,
         html: m.html,
+        ...(m.allegati?.length
+          ? {
+              attachments: m.allegati.map(a => ({
+                filename: a.nome,
+                content: a.contenutoBase64,
+                ...(a.tipo ? { content_type: a.tipo } : {}),
+              })),
+            }
+          : {}),
       }),
     });
     if (!r.ok) {

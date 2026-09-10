@@ -56,6 +56,7 @@ import { MESSAGGI } from "./tenants/costanti";
 import { STATI_INACCESSIBILI, presidioDi } from "./tenants/regole";
 import { getTenantRepository } from "./tenants/repository";
 import { tenantsRouter } from "./tenants/router";
+import { feedbackRouter } from "./piattaforma/feedbackRouter";
 import { invitiRouter } from "./piattaforma/invitiRouter";
 import { iscrizioneRouter } from "./piattaforma/iscrizioneRouter";
 import { piattaformaRouter } from "./piattaforma/router";
@@ -188,6 +189,7 @@ export const appRouter = router({
   inviti: invitiRouter,
   iscrizione: iscrizioneRouter,
   piattaforma: piattaformaRouter,
+  feedback: feedbackRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
   ficCosti: ficCostiRouter,

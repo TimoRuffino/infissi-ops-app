@@ -12,4 +12,4 @@ aptPkgs = [
 ]
 
 [start]
-cmd = "node dist/index.js"
+cmd = "pnpm start"

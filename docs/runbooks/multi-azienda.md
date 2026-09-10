@@ -1628,8 +1628,9 @@ proprietario iniziali. Decisione della direzione, 09/09/2026 (sera); spec
 | `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <no-reply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
 | `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. Se manca, al boot compare `[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta`; il pannello mostra comunque, sotto il link da copiare, la riga «Link su &lt;base&gt;» con l'indirizzo davvero usato. |
 | `POSTA_PIATTAFORMA_RISPOSTA` | *(nessuno)* | Indirizzo `Reply-To:` delle email della piattaforma, e il contatto stampato nel loro piede. Il mittente è un `no-reply`: senza questa variabile una risposta all'invito non arriva a nessuno, e la mail infatti non promette nessun contatto — il piede resta «Wyndoor · Gestionale commesse infissi» e basta. Non serve che sia sul dominio del mittente: Resend verifica il `From:`, non il `Reply-To:`. |
+| `POSTA_FEEDBACK` | `supporto@wyndoor.com` | Dove arrivano le segnalazioni e i consigli scritti dalle aziende dal menu profilo o dalla palette ⌘K (PRD §60.16). Il `Reply-To:` di quelle mail non è `POSTA_PIATTAFORMA_RISPOSTA` ma l'indirizzo di chi ha scritto, così supporto risponde con «Rispondi». Senza `RESEND_API_KEY` il dialogo non finge l'invio: dice che il canale non è attivo e mostra l'indirizzo da copiare. |
 
-Nessuna delle cinque tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
+Nessuna di queste tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
 dall'identità, come detto sopra.
 
 ### Produzione, in ordine (WS6)

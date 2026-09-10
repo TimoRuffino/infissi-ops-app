@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useFeedback } from "@/components/feedback/FeedbackProvider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -12,7 +13,15 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { avatarSrcSetForName, avatarUrlForName } from "@/lib/avatars";
 import { getRuoli } from "@/lib/roles";
 import { trpc } from "@/lib/trpc";
-import { Building2, ChevronDown, LogOut, Moon, Settings, Sun } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  LogOut,
+  MessageSquareWarning,
+  Moon,
+  Settings,
+  Sun,
+} from "lucide-react";
 import { useLocation } from "wouter";
 
 function initials(name: string | null | undefined): string {
@@ -32,6 +41,7 @@ function roleLabel(role: string): string {
 export default function UserMenu() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const apriFeedback = useFeedback();
   const [, setLocation] = useLocation();
   // La voce «Piattaforma» esiste solo per chi amministra Wyndoor (spec WS6
   // §8): la capacità non è un ruolo e non si deduce dal profilo — la calcola
@@ -98,6 +108,12 @@ export default function UserMenu() {
         <DropdownMenuItem onClick={() => setLocation("/integrazioni")}>
           <Settings className="h-4 w-4" aria-hidden="true" />
           Impostazioni
+        </DropdownMenuItem>
+        {/* Il canale verso chi sviluppa il gestionale: una voce nel menu, non
+            un riquadro fisso sullo schermo. */}
+        <DropdownMenuItem onClick={() => apriFeedback("bug")}>
+          <MessageSquareWarning className="h-4 w-4" aria-hidden="true" />
+          Segnala un problema
         </DropdownMenuItem>
         {mio.data?.piattaforma ? (
           <DropdownMenuItem onClick={() => setLocation("/piattaforma")}>

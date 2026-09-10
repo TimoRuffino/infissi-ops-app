@@ -27,6 +27,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { serveWellKnown } from "./wellKnown";
 import { bootstrapAll } from "./persistence";
+import { ambienteStaging } from "./ambiente";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -88,6 +89,16 @@ async function startServer() {
       );
     }
   });
+
+  // Dati dimostrativi: solo in staging, solo su store vuoti. Un seme che
+  // fallisce a metà non deve fermare il boot: staging vivo senza dati demo
+  // batte staging morto — e il log dice perché.
+  try {
+    const { eseguiSemeDemo } = await import("../staging/semeDemo");
+    await eseguiSemeDemo();
+  } catch (e) {
+    console.error("[staging] seme demo fallito:", (e as Error)?.message);
+  }
 
   // Action cases use dedicated relational tables. In production schema
   // failures must stop startup instead of silently degrading to memory.
@@ -184,21 +195,12 @@ async function startServer() {
   const { avviaSondaLoop } = await import("./osservabilita");
   avviaSondaLoop();
 
-  // Nightly backup to Google Drive (00:00 Europe/Rome).
-  const { startBackupScheduler } = await import("./driveBackup");
-  startBackupScheduler();
-
-  // Fatture in Cloud → clienti sync (every 6h when enabled).
-  const { startFicScheduler } = await import("../routers/fattureInCloud");
-  startFicScheduler();
-
-  // Sonda degli stati SdI delle fatture emesse (ogni 15 minuti).
-  const { startSondaFattureWorker } = await import("../fatture/sonda");
-  startSondaFattureWorker();
-
-  // Ingestione posta IMAP (ogni 5 minuti, solo per le caselle attive).
-  const { avviaPollerMail } = await import("../comunicazioni/imap");
-  avviaPollerMail();
+  // Giri che parlano con servizi esterni (Drive, FiC/SdI, IMAP): in staging
+  // non partono. Ogni NUOVO giro che parla con un servizio esterno nasce in
+  // giriEsterni.ts e il suo nome entra nella guardia di giriEsterni.test.ts:
+  // avviarlo qui direttamente riaprirebbe il buco in staging.
+  const { avviaGiriEsterni } = await import("./giriEsterni");
+  await avviaGiriEsterni();
 
   const app = express();
   const server = createServer(app);
@@ -223,8 +225,14 @@ async function startServer() {
         "max-age=15552000; includeSubDomains"
       );
     }
+    // Staging non va indicizzato: il contenuto è dimostrativo.
+    if (ambienteStaging()) res.setHeader("X-Robots-Tag", "noindex, nofollow");
     next();
   });
+
+  // Accesso di prova: esiste solo in staging con token impostato.
+  const { montaRottaStaging } = await import("../staging/rotta");
+  montaRottaStaging(app);
 
   // ── Webhook WhatsApp (Meta) ─────────────────────────────────────────────
   // Montato PRIMA di express.json: la firma HMAC di Meta si verifica sui
@@ -432,7 +440,12 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  // Su Railway la porta è un contratto con l'healthcheck: se è occupata il
+  // processo esce e il restart policy riprova. La scansione resta solo in
+  // sviluppo locale, dove più server convivono sulla stessa macchina.
+  const inProduzione =
+    process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+  const port = inProduzione ? preferredPort : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
