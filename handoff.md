@@ -3,10 +3,47 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 09/09/2026<br>
+**Aggiornato:** 10/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 10/09/2026 — «Ciclo di vita dell'azienda»: su branch
+> (`claude/company-lifecycle-e52127`), PR in arrivo.** I punti 1–4 della
+> nota della direzione «Aziende: nascita, vita, uscita» (piano
+> `docs/superpowers/plans/2026-09-10-ciclo-di-vita-azienda.md`, PRD §60.14,
+> runbook multi-azienda → «Ciclo di vita dell'azienda»). **Stati:**
+> `StatoTenant` passa a cinque valori (`in_attesa`, `attivo`, `sospeso`,
+> `archiviato`, `cancellato`); `in_prova`/`scaduto` NON esistono sul tenant
+> — sono già stati dell'abbonamento. I tre stati nuovi chiudono la porta
+> del tutto (login e sessioni rifiutati con un messaggio unico generico;
+> il sospeso resta sola lettura); transizioni validate nel servizio, mai
+> sul tenant 1; comandi `archivia`/`cancella` (pannello: pulsanti con
+> conferma password; CLI: `stato --archivia|--cancella`). **Cancellazione
+> differita:** `cancella` scrive `cancellato_il`; il giro del ciclo di
+> vita (ogni 6 ore, dopo il `listen`) accoda `svuota_tenant` a 30 giorni —
+> file, righe relazionali, archivi `kv_store`, utenti e sedi via; la riga
+> `tenants` resta lapide con slug liberato (`cancellata-<id>`) e
+> `svuotato_il`, da lì «Riattiva» rifiuta per sempre. `pnpm tenant svuota
+> --slug=… --davvero [--forza]` per la prova in staging. **Iscrizione
+> pubblica** `/prova` (fuori shell): dietro `FLAG_ISCRIZIONE_PUBBLICA`
+> (nuovo, spento di default in produzione) + multi-azienda + posta
+> configurata; accoda lo stesso comando `crea` con
+> `statoIniziale: "in_attesa"`, invito SOLO per email, risposta sempre
+> generica, 5/ora per IP + honeypot; l'azienda si attiva accettando
+> l'invito, chi non lo fa entro 14 giorni viene cancellato dal giro.
+> **Inviti:** disattivare/eliminare un utente annulla i suoi inviti validi
+> (prima un link in giro RIATTIVAVA un utente disattivato — chiuso anche in
+> `accettaInvito`); reinvio non prima di 10 minuti (annullare l'invito
+> pendente riapre subito); MFA post-password FUORI SCOPE (nessuna
+> infrastruttura, decisione alla direzione). **Percorso di attivazione come
+> dati:** eventi `prima_commessa`, `prima_fattura`, `primo_utente_aggiunto`
+> (+ `invito_accettato` già esistente); elenco pannello con «attivazione
+> n/4», scheda con la sezione dedicata e il conto alla rovescia della
+> ritenzione. **Verificato:** `pnpm check` pulito, suite completa verde
+> (374 file), i 14 file `*.pg.test.ts` su Postgres vero (75 test, docker
+> `perf-pg-test` via colima), `pnpm build` riuscito. Punto 5 della nota
+> (asimmetrie del tenant 1) e punti 6–22 NON toccati.
 
 > **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
 > aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono

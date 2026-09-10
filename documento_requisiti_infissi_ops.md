@@ -5292,6 +5292,77 @@ debito dichiarato su un file di WS3, fuori da questo workstream.
 `WHATSAPP_*` su Railway, verificare un giro OAuth e un Embedded Signup reali
 con l'azienda pilota, poi la decisione della direzione sul merge in `main`.
 
+### 60.14 Ciclo di vita dell'azienda — nascita, vita, uscita (10/09/2026)
+
+> **Stato:** implementato su branch (`claude/company-lifecycle-e52127`) il
+> 10/09/2026, dal piano
+> `docs/superpowers/plans/2026-09-10-ciclo-di-vita-azienda.md` (punti 1–4
+> della nota della direzione «Aziende: nascita, vita, uscita»).
+
+**Stati del tenant.** `StatoTenant` passa da due a cinque valori:
+`in_attesa | attivo | sospeso | archiviato | cancellato`. Il tenant resta il
+**cancello operativo**; `in_prova` e `scaduto` NON esistono qui perché sono
+già stati dell'abbonamento (`trialing`, `suspended`). Semantica:
+`in_attesa` = nata dal modulo pubblico, invito mai accettato (nessun login,
+nessun worker); `sospeso` = sola lettura come dal WS1; `archiviato` = porta
+chiusa reversibile, dati intatti; `cancellato` = porta chiusa +
+`cancellato_il`, 30 giorni di ritenzione, poi svuotamento differito
+(`svuotato_il` è la lapide: da lì «Riattiva» rifiuta per sempre). Le
+transizioni sono validate dal servizio (`motivoRifiutoTransizione`,
+`server/tenants/regole.ts`); `archivia`/`cancella` mai sul tenant 1. La
+guardia `motivoRifiutoTenant` chiude ANCHE le letture per i tre stati nuovi
+(il sospeso resta sola lettura) e `auth.login` rifiuta con un messaggio
+unico generico. I worker restano esclusi da `tenantsAttivi()` (solo
+`attivo`).
+
+**Comandi ed eventi nuovi.** Comandi `archivia`, `cancella` (slug + motivo,
+come `sospendi`) e `svuota_tenant` (accodato dal giro del ciclo di vita a
+ritenzione compiuta, o dalla CLI `pnpm tenant svuota --slug=… --davvero
+[--forza]`). Eventi `attivato`, `archiviato`, `cancellato`, `svuotato` (coi
+conteggi), più le pietre miliari di §sotto. Lo svuotamento
+(`server/tenants/svuotamento.ts`) cancella: i file dello storage (stessa
+camminata del ricalcolo, `perOgniFileDelTenant`), le righe delle tabelle per
+sede, gli archivi `kv_store` del tenant (`rimuoviStoresDelTenant`), utenti e
+sedi dagli store globali, inviti/oauth_state/tenant_storage/specchio; la
+riga `tenants` resta come lapide con slug liberato (`cancellata-<id>`) e PII
+azzerata. Restano eventi, comandi e abbonamento (storia). Al boot i tenant
+svuotati non istanziano più store.
+
+**Giro del ciclo di vita** (`server/tenants/cicloDiVita.ts`, dopo il
+`listen`, ogni 6 ore): le `in_attesa` più vecchie di 14 giorni ricevono un
+comando `cancella` («prova mai attivata»); le `cancellato` oltre i 30 giorni
+un `svuota_tenant`. Tutto passa dalla coda dei comandi: tracciato,
+ritentabile, visibile nel pannello.
+
+**Iscrizione pubblica «Prova gratuita»** (`/prova`, router tRPC
+`iscrizione`): dietro il flag nuovo `FLAG_ISCRIZIONE_PUBBLICA` (spento di
+default in produzione), il multi-azienda E la posta configurata — il link
+d'invito viaggia SOLO per email (che è anche la verifica dell'indirizzo).
+Accoda lo STESSO comando `crea` con `statoIniziale: "in_attesa"`; l'azienda
+diventa `attivo` quando l'invito viene accettato (`attivaDaInvito`). Rate
+limit per indirizzo (5/ora), honeypot, risposta sempre identica («controlla
+la casella»): un'email già in uso non si distingue da fuori. Quando arriverà
+Stripe cambierà solo chi innesca questo flusso.
+
+**Inviti, i tre buchi (nota, punto 4).** Disattivare o eliminare un utente
+annulla i suoi inviti validi (prima un link in giro RIATTIVAVA da solo un
+utente disattivato: `accettaInvito` ora rifiuta anche l'utente spento);
+reinvio per lo stesso utente non prima di 10 minuti
+(`ATTESA_REINVIO_INVITO_MS`; annullare l'invito pendente riapre subito la
+strada). La **seconda autenticazione dopo la password resta fuori scope**:
+nel prodotto non esiste infrastruttura MFA — debito registrato, decisione
+alla direzione.
+
+**Percorso di attivazione come dati (punto 3).** Tre pietre miliari in
+`tenant_eventi` — `prima_commessa`, `prima_fattura`,
+`primo_utente_aggiunto` (`server/tenants/pietreMiliari.ts`: idempotenti,
+mai un errore che propaga, una query di esistenza per boot) — più
+`invito_accettato` che esisteva già. Il pannello le mostra nella scheda
+(sezione «Percorso di attivazione») e nell'elenco («attivazione n/4» sotto
+lo stato, col dettaglio di cosa manca); la scheda mostra anche il conto
+alla rovescia della ritenzione e le azioni Archivia/Cancella/Riattiva con
+conferma password.
+
 ---
 
 ## 61. Dal contratto verificato alla bozza automatica (decisione 07/09/2026)
