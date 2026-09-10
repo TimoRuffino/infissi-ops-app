@@ -170,6 +170,12 @@ export default function ModularControlLayout({
     setLocation(path);
   };
 
+  // Un'azione della navigazione che non porta da nessuna parte (il modulo
+  // delle segnalazioni) deve comunque chiudere il cassetto del telefono.
+  const chiudiCassetto = () => {
+    if (navigationOpen) changeNavigationOpen(false);
+  };
+
   const changeCommandOpen = (open: boolean) => {
     if (open && document.activeElement instanceof HTMLElement) {
       commandReturnFocus.current = document.activeElement;
@@ -195,6 +201,7 @@ export default function ModularControlLayout({
         currentPath={location}
         collapsed={navigationCollapsed}
         onNavigate={navigate}
+        onAzione={chiudiCassetto}
         onCollapsedChange={setNavigationCollapsed}
       />
     </div>
@@ -243,6 +250,7 @@ export default function ModularControlLayout({
         onOpenChange={changeNavigationOpen}
         currentPath={location}
         onNavigate={navigate}
+        onAzione={chiudiCassetto}
       />
 
       {isMobile ? (
