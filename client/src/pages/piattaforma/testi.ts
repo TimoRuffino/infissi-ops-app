@@ -113,18 +113,76 @@ export function riassuntoBackup(
 /**
  * L'esito dell'invito al proprietario (spec §6.1): la posta è andata, oppure
  * il link va consegnato a mano. Il fallimento della posta non è un errore
- * del flusso — l'azienda è nata lo stesso — quindi il testo dice cosa fare,
- * non cosa è andato storto.
+ * del flusso — l'azienda è nata lo stesso — quindi il testo dice prima cosa
+ * fare e poi, quando c'è, perché.
+ *
+ * La posta fallisce in due modi che si risolvono in due posti diversi:
+ * manca `RESEND_API_KEY` (si mette su Railway) oppure Resend ha rifiutato —
+ * 422 per un mittente su un dominio non verificato, un timeout, la rete.
+ * Fino al 10/09/2026 il pannello mostrava sempre il primo testo anche nel
+ * secondo caso: `motivo` arrivava dal server (`esitoPubblico`,
+ * server/piattaforma/router.ts) e veniva buttato via, e chi guardava
+ * andava a cercare una chiave che c'era già.
  */
 export function testoEsitoInvito(esito: {
   inviato: boolean;
   email?: string | null;
   link?: string | null;
+  motivo?: string | null;
 }): string {
-  if (!esito.inviato) return TESTO_POSTA_NON_CONFIGURATA;
-  return esito.email
-    ? `Invito inviato a ${esito.email}.`
-    : "Invito inviato al proprietario.";
+  if (esito.inviato) {
+    return esito.email
+      ? `Invito inviato a ${esito.email}.`
+      : "Invito inviato al proprietario.";
+  }
+  const motivo = esito.motivo?.trim();
+  // Senza motivo, o quando il motivo È la chiave mancante, resta il testo
+  // del server: dice già da sé cosa fare.
+  if (!motivo || motivo === TESTO_POSTA_NON_CONFIGURATA) {
+    return TESTO_POSTA_NON_CONFIGURATA;
+  }
+  return `La posta non è partita (${motivo}): copia il link e consegnalo a mano.`;
+}
+
+// ── Pagina pubblica /invito ────────────────────────────────────────────
+
+/** Una regola della password: cosa chiede e se è già soddisfatta. */
+export type RegolaPassword = { testo: string; soddisfatta: boolean };
+
+/**
+ * Le due regole della password d'invito, nell'ordine in cui si compilano.
+ * Vivono qui e non dentro `InvitoPage.tsx` perché una regola dentro un
+ * componente non si prova: la suite gira senza DOM.
+ *
+ * La seconda regola è falsa finché la conferma è vuota: `"" === ""` sarebbe
+ * vero, e a campi vuoti chi guarda vedrebbe una spunta verde per qualcosa
+ * che non ha ancora fatto.
+ */
+export function regolePassword(password: string, conferma: string): RegolaPassword[] {
+  return [
+    {
+      testo: `Almeno ${PASSWORD_MINIMA} caratteri`,
+      soddisfatta: password.length >= PASSWORD_MINIMA,
+    },
+    {
+      testo: "Le due password coincidono",
+      soddisfatta: conferma.length > 0 && password === conferma,
+    },
+  ];
+}
+
+/**
+ * Il messaggio da mostrare al momento dell'invio, o `null` se si può
+ * mandare. Le due condizioni si fermano qui e non arrivano al server: una
+ * password corta o due password diverse non sono un tentativo sbagliato, e
+ * non devono consumare uno dei cinque del limitatore (spec §6.2).
+ */
+export function erroreInvioPassword(password: string, conferma: string): string | null {
+  if (password.length < PASSWORD_MINIMA) {
+    return `La password deve avere almeno ${PASSWORD_MINIMA} caratteri.`;
+  }
+  if (password !== conferma) return "Le due password non coincidono.";
+  return null;
 }
 
 /** «Scade il GG/MM/AAAA»: la vita del link d'invito, in chiaro. */
@@ -153,6 +211,7 @@ export function esitoCreazione(dati: {
     email?: string | null;
     link?: string | null;
     baseUrl?: string | null;
+    motivo?: string | null;
   } | null;
 }): {
   titolo: string;
