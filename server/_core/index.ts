@@ -223,6 +223,10 @@ async function startServer() {
     next();
   });
 
+  // Accesso di prova: esiste solo in staging con token impostato.
+  const { montaRottaStaging } = await import("../staging/rotta");
+  montaRottaStaging(app);
+
   // ── Webhook WhatsApp (Meta) ─────────────────────────────────────────────
   // Montato PRIMA di express.json: la firma HMAC di Meta si verifica sui
   // byte grezzi del corpo, e un parser JSON li avrebbe già consumati e
