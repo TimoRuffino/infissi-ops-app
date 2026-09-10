@@ -1488,7 +1488,8 @@ anche:
    precedente ancora valido: non ne restano mai due attivi.
 2. **Consegna.** Con `RESEND_API_KEY` impostata, l'email parte da
    `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <no-reply@wyndoor.com>`),
-   oggetto «Il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
+   con `Reply-To:` da `POSTA_PIATTAFORMA_RISPOSTA` se impostata, oggetto
+   «Attiva il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
    solo l'esito («Invito inviato a …»): il link **non torna nemmeno al
    browser** — il token è già nella casella giusta, e una seconda copia nella
    pagina dell'amministratore sarebbe soltanto un'altra copia da rubare.
@@ -1626,8 +1627,9 @@ proprietario iniziali. Decisione della direzione, 09/09/2026 (sera); spec
 | `RESEND_API_KEY` | *(nessuno)* | Chiave del provider Resend per la posta transazionale della piattaforma. Senza, `inviaPosta` torna sempre `{ inviato: false }` e il pannello mostra il link da copiare: nessun invito si perde, nessuno riceve un'email. |
 | `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <no-reply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
 | `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. Se manca, al boot compare `[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta`; il pannello mostra comunque, sotto il link da copiare, la riga «Link su &lt;base&gt;» con l'indirizzo davvero usato. |
+| `POSTA_PIATTAFORMA_RISPOSTA` | *(nessuno)* | Indirizzo `Reply-To:` delle email della piattaforma, e il contatto stampato nel loro piede. Il mittente è un `no-reply`: senza questa variabile una risposta all'invito non arriva a nessuno, e la mail infatti non promette nessun contatto — il piede resta «Wyndoor · Gestionale commesse infissi» e basta. Non serve che sia sul dominio del mittente: Resend verifica il `From:`, non il `Reply-To:`. |
 
-Nessuna delle quattro tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
+Nessuna delle cinque tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
 dall'identità, come detto sopra.
 
 ### Produzione, in ordine (WS6)
@@ -1700,9 +1702,19 @@ roll-forward.
   fallite sullo stesso token. Un invito valido azzera il contatore
   dell'indirizzo: chi ricarica la propria pagina non lo consuma.
 - «Posta della piattaforma non configurata: copia il link e consegnalo a
-  mano.» — `RESEND_API_KEY` assente, oppure Resend ha rifiutato o non ha
-  risposto entro 10 s. Il link resta valido: si copia e si consegna
-  altrimenti. Non blocca né la creazione dell'azienda né l'invito.
+  mano.» — `RESEND_API_KEY` assente. Il link resta valido: si copia e si
+  consegna altrimenti. Non blocca né la creazione dell'azienda né l'invito.
+- «La posta non è partita (`<motivo>`): copia il link e consegnalo a mano.»
+  — la chiave c'è ma Resend ha rifiutato (`Resend ha risposto 422`, tipico di
+  un mittente su un dominio non verificato) o non ha risposto entro 10 s
+  (`Resend non ha risposto entro 10 s`), o la rete è caduta. **I due casi si
+  risolvono in due posti diversi** — il primo su Railway, il secondo sul
+  dominio del mittente in Resend — e fino al 10/09/2026 il pannello mostrava
+  sempre il primo testo anche quando era il secondo, mandando a cercare una
+  chiave che c'era già. Il riquadro dell'esito è ambra con un triangolo
+  quando la posta non è partita, verde con una busta quando è partita: la
+  differenza si vede da lontano, perché è l'unica cosa che conta (se la posta
+  non è partita, quel link è l'unica copia che esiste).
 - «L'azienda ha più proprietari: indica l'email di chi invitare.»
   (`BAD_REQUEST`) — dal pannello **non si vede**: la sezione «Proprietari e
   inviti» manda sempre l'email della riga su cui si è premuto «Invia invito»,

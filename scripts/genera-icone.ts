@@ -24,11 +24,11 @@ const TRACCIATO =
   "A4 4 0 0 1 85.321 78.938 L53.321 90.138 A4 4 0 0 1 48 86.362 " +
   "L48 13.638 A4 4 0 0 1 53.321 9.862 Z";
 
-function sorgente(lato: number): Buffer {
+function sorgente(lato: number, fondo: string | null = FONDO): Buffer {
   const { scala, offsetX, offsetY } = inquadraturaIcona(lato);
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${lato}" height="${lato}">` +
-      `<rect width="${lato}" height="${lato}" fill="${FONDO}"/>` +
+      (fondo ? `<rect width="${lato}" height="${lato}" fill="${fondo}"/>` : "") +
       `<g transform="translate(${offsetX} ${offsetY}) scale(${scala})">` +
       `<rect x="12" y="16" width="27" height="68" rx="4" fill="${ANTA_FISSA}"/>` +
       `<path fill="${ANTA_APERTA}" d="${TRACCIATO}"/>` +
@@ -37,13 +37,19 @@ function sorgente(lato: number): Buffer {
 }
 
 const ICONE = [
-  { nome: "apple-touch-icon.png", lato: 180 },
-  { nome: "icon-192.png", lato: 192 },
+  { nome: "apple-touch-icon.png", lato: 180, fondo: FONDO },
+  { nome: "icon-192.png", lato: 192, fondo: FONDO },
+  // Il marchio delle mail (server/_core/bustaEmail.ts): SENZA fondo. Le
+  // altre due nascono su fondo pieno perché iOS ignora la trasparenza; una
+  // mail no — e in tema scuro un fondo `#fffdfd` diventa un francobollo
+  // bianco appiccicato sopra la carta scura. 128 px per un `<img>` da 40:
+  // regge anche uno schermo a 3×.
+  { nome: "marchio-email.png", lato: 128, fondo: null },
 ];
 
-for (const { nome, lato } of ICONE) {
+for (const { nome, lato, fondo } of ICONE) {
   const percorso = join("client", "public", nome);
-  const png = await sharp(sorgente(lato)).png({ compressionLevel: 9 }).toBuffer();
+  const png = await sharp(sorgente(lato, fondo)).png({ compressionLevel: 9 }).toBuffer();
   writeFileSync(percorso, png);
-  console.log(`${percorso} — ${lato}×${lato}, ${png.length} byte`);
+  console.log(`${percorso} — ${lato}×${lato}${fondo ? "" : ", trasparente"}, ${png.length} byte`);
 }

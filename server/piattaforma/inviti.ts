@@ -16,7 +16,7 @@
 // lo stesso messaggio (invitoNonValido), senza distinguere il motivo — non
 // è un indizio da dare a chi prova un token a caso.
 import { hashPassword } from "../_core/password";
-import { inviaPosta } from "../_core/postaPiattaforma";
+import { contattoPiattaforma, inviaPosta } from "../_core/postaPiattaforma";
 import { getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
 import { ATTESA_REINVIO_INVITO_MS, RUOLO_PROPRIETARIO, TTL_INVITO_MS } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
@@ -119,8 +119,18 @@ export async function invitaProprietario(input: {
     ...testoInvito({
       nome: utente.nome,
       azienda: tenant.nome,
+      // Il suo nome utente: nella mail va detto, non lasciato indovinare.
+      email: utente.email,
       link,
       giorni: Math.round(TTL_INVITO_MS / 86_400_000),
+      // La data vera dell'invito appena emesso, non un «fra 7 giorni»
+      // ricalcolato a mente da chi legge il quinto giorno.
+      scadeIl: invito.scadeIl,
+      // La stessa base del link: il marchio della busta nasce da lì, così
+      // una mail nata su un'anteprima non va a pescare l'immagine in
+      // produzione (e viceversa).
+      baseUrl: input.baseUrl,
+      contatto: contattoPiattaforma(),
     }),
   });
   await repo.registraEvento({

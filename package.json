@@ -15,6 +15,7 @@
     "eval:tars": "tsx server/tars/eval/runEval.ts",
     "ui:contrast": "tsx scripts/check-ui-contrast.ts",
     "icone": "tsx scripts/genera-icone.ts",
+    "posta:anteprima": "tsx scripts/anteprima-email.ts",
     "storage:check": "tsx scripts/check-storage.ts",
     "storage:probe-write": "tsx scripts/probe-storage-write.ts",
     "storage:dry-run": "tsx scripts/migrate-documents-to-storage.ts",

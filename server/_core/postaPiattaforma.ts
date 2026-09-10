@@ -5,7 +5,7 @@
 // creata). Provider Resend via `fetch` semplice: nessun SDK, un solo
 // endpoint, non lancia mai — chi chiama riceve sempre un esito e decide se
 // mostrare il link a mano.
-import { MESSAGGI_PIATTAFORMA } from "../piattaforma/costanti";
+import { MESSAGGI_PIATTAFORMA, VARIABILE_POSTA_RISPOSTA } from "../piattaforma/costanti";
 
 export type MessaggioPosta = {
   a: string;
@@ -32,6 +32,21 @@ export function postaConfigurata(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
+/**
+ * L'indirizzo a cui il destinatario può rispondere (`POSTA_PIATTAFORMA_RISPOSTA`),
+ * o `undefined` se non è impostato.
+ *
+ * Il mittente è un `no-reply`: chi riceve un invito e ha un dubbio risponde
+ * alla mail — è la cosa che si fa — e senza `reply_to` quella risposta cade
+ * nel vuoto senza che nessuno se ne accorga. Quando c'è, lo stesso indirizzo
+ * compare anche nel piede della mail (`testoInvito`), così si vede prima di
+ * premere «Rispondi». Quando non c'è, la mail non promette niente: meglio
+ * nessun contatto di un contatto morto.
+ */
+export function contattoPiattaforma(): string | undefined {
+  return process.env[VARIABILE_POSTA_RISPOSTA]?.trim() || undefined;
+}
+
 /** Solo il dominio del destinatario: mai l'indirizzo intero nei log. */
 const dominio = (a: string): string => a.split("@")[1] ?? "?";
 
@@ -41,6 +56,7 @@ async function inviaConResend(m: MessaggioPosta): Promise<EsitoPosta> {
     return { inviato: false, motivo: MESSAGGI_PIATTAFORMA.postaNonConfigurata };
   }
 
+  const risposta = contattoPiattaforma();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -56,6 +72,7 @@ async function inviaConResend(m: MessaggioPosta): Promise<EsitoPosta> {
           process.env.POSTA_PIATTAFORMA_MITTENTE?.trim() ||
           MITTENTE_PREDEFINITO,
         to: [m.a],
+        ...(risposta ? { reply_to: [risposta] } : {}),
         subject: m.oggetto,
         text: m.testo,
         html: m.html,

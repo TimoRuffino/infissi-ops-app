@@ -45,6 +45,55 @@
 > `perf-pg-test` via colima), `pnpm build` riuscito. Punto 5 della nota
 > (asimmetrie del tenant 1) e punti 6–22 NON toccati.
 
+> **Novità 10/09/2026 — la mail d'invito alle aziende nuove: su branch.**
+> L'invito partiva come cinque `<p>` — nessun `<html>`, nessuna codifica
+> dichiarata, nessun contenitore, il link come testo di sé stesso: fuori da
+> Gmail non era una mail di prodotto (Outlook desktop, che rende con il
+> motore di Word, la mostrava in Times New Roman a tutta larghezza), ed è la
+> **prima** cosa che un'azienda cliente vede di Wyndoor. Ora la forma vive in
+> `server/_core/bustaEmail.ts` (`componiEmail`, pura, condivisa con le mail
+> di piattaforma che verranno): documento HTML `lang="it"` con codifica e
+> `color-scheme`, tabelle, larghezza **fluida con tetto a 600 px** (il 600
+> fisso solo dentro una tabella condizionale `[if mso]`: altrimenti su un
+> telefono la mail esce di lato), bottone bulletproof con variante VML,
+> marchio da `<base>/marchio-email.png` — PNG **trasparente** nuovo, generato
+> da `pnpm icone` accanto alle icone iOS che invece nascono su fondo pieno —
+> con `alt=""` perché la parola «Wyndoor» gli sta accanto come testo vivo,
+> preheader nascosto, tema scuro con la palette Modular Control. HTML e testo
+> semplice nascono dalla **stessa struttura**: due funzioni separate
+> divergono al primo ritocco. Le parole restano in
+> `server/piattaforma/testi.ts`, che ora non ha un solo tag: oggetto «Attiva
+> il tuo accesso a Wyndoor per `<Azienda>`», scheda con azienda, **indirizzo
+> con cui entra** (è il suo nome utente, prima non veniva detto) e scadenza
+> come **data per esteso** («fino al 17 settembre 2026»), non «fra 7 giorni»,
+> che è vero solo il giorno in cui la mail parte. `POSTA_PIATTAFORMA_RISPOSTA`
+> (nuova, facoltativa) diventa il `Reply-To:` e il contatto nel piede: senza,
+> la mail non promette nessun contatto. **Pannello:** `testoEsitoInvito`
+> riceveva già `motivo` dal server e lo buttava via — un rifiuto di Resend
+> (422 su un dominio non verificato, un timeout) si leggeva come «Posta della
+> piattaforma non configurata» e mandava a cercare su Railway una chiave che
+> c'era già; ora i due casi si distinguono e il riquadro è ambra con un
+> triangolo o verde con una busta, invece di due grigi identici. **Pagina
+> `/invito`:** saluto per nome (`nome` arrivava e non si mostrava), la stessa
+> scheda della mail, e le due regole della password che si accendono mentre
+> si scrive (`regolePassword`/`erroreInvioPassword` in
+> `client/src/pages/piattaforma/testi.ts`, puri: la suite gira senza DOM).
+> **Verifica:** `pnpm posta:anteprima` (`--base`, `--contatto`,
+> `--tema=scuro`) scrive la mail su file — controllata a 1440 e 390, chiara e
+> scura; il giro completo (creazione azienda → link → `/invito` → password →
+> `/integrazioni?attivazione=1`) provato dal vivo su un server locale con
+> `FLAG_MULTI_AZIENDA` acceso, console pulita, nessuno scroll orizzontale.
+> `pnpm check` pulito, `pnpm test` 356 file passati + 15 saltati (3918 test
+> passati + 88 saltati), `pnpm build` riuscito. PRD §60.13 addendum
+> (v5.90); runbook `docs/runbooks/multi-azienda.md` («Variabili d'ambiente
+> (WS6)» e gli errori del pannello). **Non fatto fuori dal codice:**
+> `POSTA_PIATTAFORMA_RISPOSTA` non è impostata su Railway — finché non lo è,
+> le mail partono senza `Reply-To:` e senza contatto nel piede, esattamente
+> come oggi. **Nota:** l'indirizzo scelto è `info@wyndoor.it`, che è un TLD
+> diverso dal dominio dell'app (`wyndoor.com`): come `Reply-To:` funziona
+> comunque (Resend verifica il `From:`), ma se la casella su `.it` non esiste
+> le risposte cadono. Branch `claude/company-invite-ui-ux-4cbfa8`.
+
 > **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
 > aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono
 > ora ragione sociale, slug e note; i dati di fatturazione (P.IVA, codice

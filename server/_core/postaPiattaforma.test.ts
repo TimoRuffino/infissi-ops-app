@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __impostaPostaPerTest,
+  contattoPiattaforma,
   inviaPosta,
   postaConfigurata,
 } from "./postaPiattaforma";
@@ -18,6 +19,7 @@ afterEach(() => {
   global.fetch = realFetch;
   delete process.env.RESEND_API_KEY;
   delete process.env.POSTA_PIATTAFORMA_MITTENTE;
+  delete process.env.POSTA_PIATTAFORMA_RISPOSTA;
   __impostaPostaPerTest(null);
   vi.restoreAllMocks();
 });
@@ -75,5 +77,56 @@ describe("inviaPosta", () => {
     expect(loggato).not.toContain("segreto");
     expect(loggato).not.toContain("mario@acme.test");
     expect(loggato).toContain("acme.test");
+  });
+});
+
+// ── Indirizzo di risposta (invito, 10/09/2026) ──────────────────────────
+// Il mittente è un `no-reply`: chi riceve l'invito e ha un dubbio risponde
+// alla mail, perché è la cosa che si fa. Senza `reply_to` quella risposta
+// non arriva a nessuno e nessuno se ne accorge.
+
+describe("contattoPiattaforma", () => {
+  it("senza variabile non c'è contatto: meglio niente di un indirizzo morto", () => {
+    expect(contattoPiattaforma()).toBeUndefined();
+  });
+
+  it("una variabile di soli spazi vale come assente", () => {
+    process.env.POSTA_PIATTAFORMA_RISPOSTA = "   ";
+    expect(contattoPiattaforma()).toBeUndefined();
+  });
+
+  it("torna l'indirizzo ripulito", () => {
+    process.env.POSTA_PIATTAFORMA_RISPOSTA = "  info@wyndoor.it ";
+    expect(contattoPiattaforma()).toBe("info@wyndoor.it");
+  });
+});
+
+describe("inviaPosta — risposta", () => {
+  it("con il contatto impostato la POST porta reply_to", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    process.env.POSTA_PIATTAFORMA_RISPOSTA = "info@wyndoor.it";
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ id: "em_2" }), { status: 200 })
+    );
+    global.fetch = fetchMock as any;
+
+    await inviaPosta(messaggio);
+
+    const [, init] = fetchMock.mock.calls[0] as any;
+    expect(JSON.parse(init.body).reply_to).toEqual(["info@wyndoor.it"]);
+  });
+
+  it("senza contatto la POST non porta un reply_to vuoto", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ id: "em_3" }), { status: 200 })
+    );
+    global.fetch = fetchMock as any;
+
+    await inviaPosta(messaggio);
+
+    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).not.toHaveProperty(
+      "reply_to"
+    );
   });
 });

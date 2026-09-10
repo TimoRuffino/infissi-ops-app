@@ -41,6 +41,8 @@ type Esito = {
     email?: string | null;
     link?: string | null;
     baseUrl?: string | null;
+    /** Perché la posta non è partita: senza, il dialogo direbbe sempre «non configurata». */
+    motivo?: string | null;
   } | null;
 };
 
@@ -125,6 +127,7 @@ export default function NuovaAziendaDialog({
               email: risultato.invito.invito.email,
               link: risultato.invito.link,
               baseUrl: risultato.invito.baseUrl,
+              motivo: risultato.invito.motivo,
             }
           : null,
       });

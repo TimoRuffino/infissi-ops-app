@@ -76,6 +76,29 @@
         "FLAG_CONTRATTO_ESTRAZIONE": "on"
       },
       "port": 5198
+    },
+    {
+      "name": "Invito demo (porta 5197)",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": [
+        "node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs",
+        "server/_core/index.ts"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "PORT": "5197",
+        "BOOTSTRAP_ADMIN_EMAIL": "demo@ruffinoflow.it",
+        "BOOTSTRAP_ADMIN_PASSWORD": "DemoPromo2026!Flow",
+        "BOOTSTRAP_ADMIN_NAME": "Marco",
+        "BOOTSTRAP_ADMIN_SURNAME": "Demo",
+        "OPENAI_API_KEY": "sk-promo-capture-placeholder-never-called",
+        "FLAG_MULTI_AZIENDA": "on",
+        "PLATFORM_ADMIN_EMAILS": "demo@ruffinoflow.it",
+        "APP_BASE_URL": "http://localhost:5197",
+        "POSTA_PIATTAFORMA_RISPOSTA": "info@wyndoor.it"
+      },
+      "port": 5197
     }
   ]
 }

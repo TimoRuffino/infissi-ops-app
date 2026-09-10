@@ -14,7 +14,17 @@
 // sparisce da solo. Se invece la posta è partita il server non lo manda
 // nemmeno (R9), e qui non c'è niente da copiare.
 import type { inferRouterOutputs } from "@trpc/server";
-import { AlertCircle, Check, Copy, Mail, UserMinus, UserPlus, X } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  Copy,
+  Mail,
+  MailCheck,
+  UserMinus,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -110,8 +120,13 @@ export default function SezioneProprietari({
       setDialogo(null);
       setErrore(null);
       aggiorna();
-      if (esito.inviato) toast.success(testoEsitoInvito({ inviato: true, email: esito.invito.email }));
-      else toast.warning("Posta non configurata: copia il link qui sotto e consegnalo a mano.");
+      const parole = testoEsitoInvito({
+        inviato: esito.inviato,
+        email: esito.invito.email,
+        motivo: esito.motivo,
+      });
+      if (esito.inviato) toast.success(parole);
+      else toast.warning(parole);
     },
     // L'errore resta nel dialogo, sotto il campo della password: è lì che
     // l'amministratore sta guardando quando sbaglia a digitarla.
@@ -230,13 +245,34 @@ export default function SezioneProprietari({
       </div>
 
       {esitoInvito ? (
-        <div className="min-w-0 space-y-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3">
+        <div
+          className={
+            "min-w-0 space-y-2 rounded-[var(--radius-control)] border p-3 " +
+            (esitoInvito.inviato
+              ? "border-success/40 bg-success-soft"
+              : "border-warning/40 bg-warning-soft")
+          }
+        >
           <div className="flex min-w-0 items-start justify-between gap-2">
-            <p className="min-w-0 text-sm leading-5 text-text-2">
-              {testoEsitoInvito({
-                inviato: esitoInvito.inviato,
-                email: esitoInvito.invito.email,
-              })}
+            <p className="flex min-w-0 items-start gap-2 text-sm leading-5 text-text-1">
+              {esitoInvito.inviato ? (
+                <MailCheck
+                  className="mt-0.5 size-4 shrink-0 text-success"
+                  aria-hidden="true"
+                />
+              ) : (
+                <AlertTriangle
+                  className="mt-0.5 size-4 shrink-0 text-warning"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="min-w-0">
+                {testoEsitoInvito({
+                  inviato: esitoInvito.inviato,
+                  email: esitoInvito.invito.email,
+                  motivo: esitoInvito.motivo,
+                })}
+              </span>
             </p>
             <Button
               type="button"
