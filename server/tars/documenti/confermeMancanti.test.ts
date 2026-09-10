@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  allegatoDaConferma,
   confermeOrdineMancanti,
   nomeDaConferma,
   type DipendenzeConfermeMancanti,
@@ -241,5 +242,67 @@ describe("nomeDaConferma", () => {
     // Alias manda «Sollecito_Ordin_…»: contiene «ordin» e finiva in coda.
     expect(nomeDaConferma("Sollecito_Ordin_1685983(1).pdf", "application/pdf")).toBeNull();
     expect(nomeDaConferma("SOLLECITO PAGAMENTO ordine 4471.pdf", "application/pdf")).toBeNull();
+  });
+});
+
+describe("allegatoDaConferma", () => {
+  it("un mittente noto apre la porta a un nome che non dice niente", () => {
+    const primed = "R237_2026WU367846_20052026165105.pdf";
+    // Senza mittente il nome non basta, ed è il caso di oggi: 312 mail, zero voci.
+    expect(allegatoDaConferma({ nome: primed, mimeType: "application/pdf" })).toBeNull();
+    expect(
+      allegatoDaConferma({ nome: primed, mimeType: "application/pdf", mittente: "amministrazione@primed.it" })
+    ).toBe("mittente");
+    // I 59 allegati Alias che si chiamano letteralmente «allegato».
+    expect(
+      allegatoDaConferma({ nome: "allegato", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com" })
+    ).toBe("mittente");
+    // Il nome vero delle conferme Pail, che dal nome non si riconosce.
+    expect(
+      allegatoDaConferma({ nome: "conf.26_29488 aggiornata.pdf", mimeType: "application/pdf", mittente: "ordini@pailporte.com" })
+    ).toBe("mittente");
+    // E il portale.
+    expect(
+      allegatoDaConferma({ nome: "Esportazione.pdf", mimeType: "application/pdf", mittente: "noreply@antenore.biz" })
+    ).toBe("mittente");
+  });
+
+  it("il nome che dichiara la conferma vince: si sa già che cos'è", () => {
+    expect(
+      allegatoDaConferma({
+        nome: "Ordini_di_Vendi_1684077(1).pdf",
+        mimeType: "application/pdf",
+        mittente: "v.gregori@aliasblindate.com",
+      })
+    ).toBe("ordine");
+  });
+
+  it("un nome escluso resta escluso anche da un fornitore noto", () => {
+    // Primed manda anche i DDT, Alias i solleciti: il mittente non li promuove.
+    expect(
+      allegatoDaConferma({ nome: "R237_DDT_11_5_2026_9782.pdf", mimeType: "application/pdf", mittente: "amministrazione@primed.it" })
+    ).toBeNull();
+    expect(
+      allegatoDaConferma({ nome: "Sollecito_Ordin_1685983(1).pdf", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com" })
+    ).toBeNull();
+    expect(
+      allegatoDaConferma({ nome: "ACCORDO COMMERCIALE 2026 listino.pdf", mimeType: "application/pdf", mittente: "vendite@oskura.it" })
+    ).toBeNull();
+  });
+
+  it("un'immagine di firma non diventa una conferma", () => {
+    // image001.png sono 118 allegati solo da Oskura.
+    expect(
+      allegatoDaConferma({ nome: "image001.png", mimeType: "image/png", mittente: "vendite@oskura.it" })
+    ).toBeNull();
+  });
+
+  it("un mittente sconosciuto non apre niente", () => {
+    expect(
+      allegatoDaConferma({ nome: "IMG_9888.jpeg", mimeType: "image/jpeg", mittente: "mario@gmail.com" })
+    ).toBeNull();
+    expect(
+      allegatoDaConferma({ nome: "documento.pdf", mimeType: "application/pdf", mittente: "mario@gmail.com" })
+    ).toBeNull();
   });
 });

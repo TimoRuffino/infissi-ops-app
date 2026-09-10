@@ -19,6 +19,7 @@
 // il nostro codice nella mail, ma nel PDF riporta il cliente o il cantiere,
 // e quel riscontro vale per le mail che non sono collegate a niente.
 
+import { fornitoreNoto } from "@shared/fornitori";
 import type { Comunicazione } from "../../comunicazioni/comunicazioni";
 import { STATI_COMMESSA } from "../../commesse/transizioni";
 import type {
@@ -82,6 +83,44 @@ export function nomeDaConferma(
   if (NOME_CONFERMA.test(nome)) return "conferma";
   if (NOME_ORDINE.test(nome)) return "ordine";
   return null;
+}
+
+export type EsitoAllegatoConferma = "conferma" | "ordine" | "mittente" | null;
+
+/**
+ * Il file è un candidato conferma d'ordine. Tre modi di esserlo, in ordine:
+ * il nome lo dichiara («conferma», «CO_4471»), il nome dice almeno
+ * «ordine», oppure — dal 10/09/2026 — **il mittente è un fornitore noto** e
+ * allora il nome smette di essere un filtro: a decidere è il testo del
+ * documento, che l'archivio legge comunque nel giro dopo.
+ *
+ * Il perché: Primed manda 312 mail e allega
+ * `R237_2026WU367846_20052026165105.pdf`; zero voci in archivio in un anno,
+ * e con esse zero costi fornitore e zero merce attesa. Lo stesso vale per i
+ * 59 allegati Alias chiamati letteralmente «allegato» e per «conf.26_29488
+ * aggiornata.pdf», il nome vero delle conferme Pail.
+ *
+ * I nomi ESCLUSI restano esclusi anche per un mittente noto: una fattura, un
+ * DDT, un listino o un sollecito di Primed non diventano una conferma perché
+ * arrivano da Primed. E il formato conta sempre: l'`image001.png` della firma
+ * in calce non è un documento.
+ */
+export function allegatoDaConferma(input: {
+  nome: string;
+  mimeType: string | null | undefined;
+  mittente?: string | null;
+  mittenteNome?: string | null;
+}): EsitoAllegatoConferma {
+  const daNome = nomeDaConferma(input.nome, input.mimeType);
+  if (daNome) return daNome;
+  // `nomeDaConferma` ha già detto no: qui si guarda se il no veniva da un
+  // divieto (nome escluso, formato) oppure solo da un nome che tace.
+  if (NOME_ESCLUSO.test(input.nome)) return null;
+  if (input.mimeType && !MIME_AMMESSI.test(input.mimeType)) return null;
+  const noto =
+    fornitoreNoto(input.mittenteNome ?? null, input.mittente ?? null) ??
+    fornitoreNoto(input.mittente ?? null);
+  return noto ? "mittente" : null;
 }
 
 export type RiscontroTestoCandidato =
