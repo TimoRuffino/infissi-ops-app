@@ -308,7 +308,13 @@ In `server/commesse/costoDaConferma.ts`, importa `revisionePerData` e sostituisc
       // Il costo non si abbassa mai da solo; se questa copia è la più alta e
       // il costo lo ha scritto la regola, sale.
       if (correggibile && alto > costoOriginale!.importo) {
-        aggiornaImportoCosto(commessa, costoOriginale!.id, alto);
+        aggiornaImportoCosto(
+          commessa,
+          costoOriginale!,
+          alto,
+          `Alzato a ${euro(alto)} da «${raw.nome}»: conferme discordi sullo stesso ordine, e senza prova di quale sia la revisione resta il più alto.`,
+          { fornitore, data: dataDocumento, numeroOrdine }
+        );
       }
       ritira(commessa, documento);
       const motivo = `Conferme discordi sull'ordine ${duplicato.riferimento}: «${originale.nome}» dice ${euro(
@@ -350,7 +356,7 @@ Expected: PASS, compresi i test già presenti — in particolare «la stessa con
 - [ ] **Step 5: Verifica che nient'altro cambi**
 
 Run: `pnpm check && pnpm test server/commesse server/fornitori server/routers`
-Expected: PASS. `aggiornaImportoCosto` è già importato nel file (lo usa la rilettura); se non lo fosse, importalo da `../_core/margine` come gli altri.
+Expected: PASS. `aggiornaImportoCosto` è già importato (riga 90) e la sua firma è `(commessa, costo, importo, nota, extra?)` — vuole **l'oggetto** costo, non l'id.
 
 - [ ] **Step 6: Commit**
 
