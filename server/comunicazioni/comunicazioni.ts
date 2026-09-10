@@ -16,7 +16,7 @@
 import { kvSql, persistedStore } from "../_core/persistence";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
-import { SORGENTE_MITTENTE_FORNITORE } from "@shared/fornitori";
+import { riconoscitoreDiSede } from "../fornitori/riconoscimento";
 import { normalizzaTelefono } from "@shared/telefono";
 import {
   categoriaEsclusa,
@@ -1686,7 +1686,12 @@ export async function listComunicazioniConAllegatiCandidati(input: {
   // Un fornitore noto scrive: il nome del file non conta più (10/09/2026).
   // Primed allega `R237_…pdf` e non entrava mai. Il pre-filtro pesca, il
   // giudizio fine (`allegatoDaConferma`) scarta.
-  const mittenteFornitore = new RegExp(SORGENTE_MITTENTE_FORNITORE, "i");
+  // I fornitori di QUESTA sede: la query è già per sede, e il pattern deve
+  // esserlo altrettanto. Una sorgente sola per il ramo in memoria e per quello
+  // in SQL: due copie divergerebbero e la mail entrerebbe da una porta e non
+  // dall'altra.
+  const sorgenteMittenti = riconoscitoreDiSede(input.sedeId).sorgenteMittenti();
+  const mittenteFornitore = new RegExp(sorgenteMittenti, "i");
   // La porta del mittente si apre SOLO ai documenti: `mimeAmmesso` ammette
   // anche le immagini (servono ad altri consumatori) e senza questo vincolo
   // le 118 `image001.png` della firma in calce di Oskura entrerebbero a ogni
@@ -1729,7 +1734,7 @@ export async function listComunicazioniConAllegatiCandidati(input: {
           AND (
             (a->>'nome') ~* '(conf|ord|acknowledg|bestat|(^|[^a-z])c\\.?o\\.?[^a-z0-9]?[0-9]|(^|[^a-z])o\\.?c\\.?[^a-z0-9]?[0-9])'
             OR (
-              c.mittente ~* ${SORGENTE_MITTENTE_FORNITORE}
+              c.mittente ~* ${sorgenteMittenti}
               AND (a->>'mimeType') ~* '^application/(pdf|vnd\\.openxmlformats|msword|octet-stream)|^text/plain'
             )
           )
