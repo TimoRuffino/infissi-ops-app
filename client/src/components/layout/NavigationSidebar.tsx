@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
+  MessageSquareWarning,
+} from "lucide-react";
 
 import { useAuth } from "@/_core/hooks/useAuth";
 import { WyndoorLockup } from "@/components/brand/WyndoorLockup";
+import { useFeedback } from "@/components/feedback/FeedbackProvider";
 import { WyndoorMark } from "@/components/brand/WyndoorMark";
 import SedeSwitcher from "@/components/SedeSwitcher";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +36,12 @@ export type NavigationSidebarProps = {
   collapsed: boolean;
   onNavigate: (path: string) => void;
   onCollapsedChange: (collapsed: boolean) => void;
+  /**
+   * Da chiamare dopo un'azione che NON è una navigazione: sul telefono il
+   * cassetto «Altro» deve chiudersi da solo, altrimenti il dialogo si apre
+   * sopra un pannello che resta lì dietro.
+   */
+  onAzione?: () => void;
 };
 
 type NavigationSection = {
@@ -92,6 +104,7 @@ export default function NavigationSidebar({
   collapsed,
   onNavigate,
   onCollapsedChange,
+  onAzione,
 }: NavigationSidebarProps) {
   const { user } = useAuth();
   const { capabilities, flags } = useOperationalContext();
@@ -296,6 +309,15 @@ export default function NavigationSidebar({
           collapsed && "px-2"
         )}
       >
+        {/* Il canale verso chi sviluppa il gestionale, dove si guarda quando
+            qualcosa non torna: in fondo alla navigazione. Sul telefono è
+            l'unico punto raggiungibile dal menu in basso («Altro»), perché
+            lì la palette ⌘K non c'è e il menu profilo sta in cima. */}
+        <SegnalaProblema
+          collapsed={collapsed}
+          onFatto={onAzione}
+        />
+
         {collapsed ? (
           <CollapsedTooltip
             label={`${userName ?? "Utente"} · ${roleSummary(user)}`}
@@ -335,6 +357,48 @@ export default function NavigationSidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+/**
+ * «Segnala un problema»: apre il modulo del supporto (FeedbackDialog, che
+ * vive nella cornice) invece di portare a una pagina. Da rastremata resta
+ * la sola icona con il tooltip, come le voci di navigazione.
+ */
+function SegnalaProblema({
+  collapsed,
+  onFatto,
+}: {
+  collapsed: boolean;
+  onFatto?: () => void;
+}) {
+  const apriFeedback = useFeedback();
+  const apri = () => {
+    onFatto?.();
+    apriFeedback("bug");
+  };
+
+  const bottone = (
+    <button
+      type="button"
+      onClick={apri}
+      aria-label={collapsed ? "Segnala un problema" : undefined}
+      className={cn(
+        "mb-2 flex min-h-10 w-full min-w-0 items-center gap-3 rounded-[var(--radius-control)] px-2.5 text-left text-sm text-text-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-[var(--focus-width)] focus-visible:ring-sidebar-ring",
+        collapsed && "justify-center px-0"
+      )}
+    >
+      <MessageSquareWarning className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+      {!collapsed ? (
+        <span className="min-w-0 flex-1 truncate">Segnala un problema</span>
+      ) : null}
+    </button>
+  );
+
+  return collapsed ? (
+    <CollapsedTooltip label="Segnala un problema">{bottone}</CollapsedTooltip>
+  ) : (
+    bottone
   );
 }
 
