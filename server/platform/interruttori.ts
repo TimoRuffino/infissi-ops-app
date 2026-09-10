@@ -68,7 +68,12 @@ export type Interruttore =
   // il modulo su /prova che accoda `crea` con statoIniziale in_attesa.
   // Richiede anche multiAzienda acceso e la posta configurata: il link
   // d'invito viaggia SOLO per email.
-  | "iscrizionePubblica";
+  | "iscrizionePubblica"
+  // Fornitori per azienda (10/09/2026): l'anagrafica diventa la fonte del
+  // riconoscimento. Spento = il riconoscimento passa dal seed della Ruffino
+  // Group e si comporta esattamente come prima. Spec:
+  // docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md §8.
+  | "fornitoriAzienda";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -95,6 +100,7 @@ const VARIABILE: Record<Interruttore, string> = {
   anteprimeEvidenze: "FLAG_ANTEPRIME_EVIDENZE",
   multiAzienda: "FLAG_MULTI_AZIENDA",
   iscrizionePubblica: "FLAG_ISCRIZIONE_PUBBLICA",
+  fornitoriAzienda: "FLAG_FORNITORI_AZIENDA",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -124,6 +130,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   anteprimeEvidenze: "Le anteprime delle evidenze («Dove l'ho letto»)",
   multiAzienda: "Il multi-azienda (tenant sopra le sedi)",
   iscrizionePubblica: "L'iscrizione pubblica «Prova gratuita»",
+  fornitoriAzienda: "I fornitori per azienda",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
