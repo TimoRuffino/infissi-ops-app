@@ -52,18 +52,22 @@ zero.
 ## 2. Il difetto misurato
 
 `shared/fornitori.ts` è una **costante compilata** con i 25 fornitori della
-Ruffino Group — Alias, Pail, Oskura, Primed, Fivizzanese… — e la leggono dieci
-moduli:
+Ruffino Group — Alias, Pail, Oskura, Primed, Fivizzanese… — e la leggono
+**cinque** moduli, con undici punti di chiamata in tutto:
 
-| Modulo | Che cosa ne fa |
-|---|---|
-| `server/fornitori/archivio.ts` | riconosce il fornitore di una mail, indicizza l'archivio |
-| `server/commesse/costoDaConferma.ts` | normalizza il fornitore che finisce sul costo |
-| `server/_core/costiRicorrenti.ts` | riconosce i costi che tornano |
-| `server/comunicazioni/comunicazioni.ts` | il pre-filtro della posta (PR #17) |
-| `server/tars/documenti/confermeMancanti.ts` | «il mittente è un fornitore noto» (PR #17) |
-| `client/src/pages/Magazzino.tsx` | il menu dei fornitori nei filtri |
-| + `proposte.ts`, `commesse.ts`, `analisiDocumenti.ts` | lettura del nome |
+| Modulo | Punti | Che cosa ne fa |
+|---|---|---|
+| `server/fornitori/archivio.ts` | 5 | riconosce il fornitore di una mail, indicizza l'archivio, cerca le sue comunicazioni |
+| `client/src/pages/Magazzino.tsx` | 4 | il menu dei fornitori nei filtri e nell'editor delle consegne |
+| `server/comunicazioni/comunicazioni.ts` | 2 | il pre-filtro della posta, memoria e SQL (PR #17) |
+| `server/commesse/costoDaConferma.ts` | 2 | normalizza il fornitore che finisce sul costo |
+| `server/tars/documenti/confermeMancanti.ts` | 2 | «il mittente è un fornitore noto» (PR #17) |
+
+Verificato, non stimato. `server/_core/costiRicorrenti.ts` ha un
+`normalizzaFornitore` **suo**, locale e senza rapporto con questo, e
+`proposte.ts` / `commesse.ts` / `analisiDocumenti.ts` importano da
+`server/routers/fornitori.ts`, che è l'altro modulo con lo stesso nome: non
+sono consumatori e non vanno toccati.
 
 Conseguenza in produzione **oggi**: l'azienda 2 («hvuv», creata il 09/09 e
 viva) eredita i fornitori della Ruffino e non può avere i suoi. E l'anagrafica
@@ -165,9 +169,26 @@ al primo boot dopo il rilascio, e mai più letti da nessun percorso di dominio.
 Idempotente per nome: un fornitore già presente non si duplica e non si
 sovrascrive.
 
-Il seed **non** parte da uno script (CLAUDE.md: gli script chiamano
-`bootstrapAll()` senza `backfill`): è un backfill dichiarato nello store, come
-gli altri.
+**Il seed NON può essere un backfill automatico**, ed è un fatto verificato in
+produzione, non una preferenza. Il pattern di casa per seminare uno store
+(`server/routers/sedi.ts`) è `if (firstBoot && items.length === 0)`, e
+`firstBoot` è vero **solo quando la riga in `kv_store` non esiste ancora**. La
+riga `fornitori` in produzione **esiste già** — cinque byte, un array vuoto —
+quindi `firstBoot` è falso e quel seed non partirebbe mai. E toglierne la
+guardia sarebbe peggio: il commento in `persistence.ts` avverte esattamente di
+questo, «altrimenti lo stato vuoto voluto da un utente viene calpestato a ogni
+avvio a freddo». Con la pagina di §4.4 quello stato vuoto diventa possibile:
+chi cancella i 25 se li ritroverebbe al riavvio.
+
+Quindi il seed è **un'importazione una tantum, chiesta da una persona**: sulla
+pagina Fornitori, a elenco vuoto e solo per il tenant 1, un bottone «Importa i
+25 fornitori conosciuti». Idempotente per nome, registrata come ogni altra
+mutazione, e visibile a chi la fa. Nessuna magia all'avvio, nessuno stato che
+si ripristina da solo.
+
+Finché l'interruttore `fornitoriAzienda` è spento il tenant 1 non ne ha
+comunque bisogno: il riconoscimento passa dal ripiego di §8 e si comporta
+esattamente come oggi.
 
 Per ogni altra azienda l'anagrafica nasce **vuota**, ed è corretto: l'archivio
 conferme non riconoscerà nessun mittente finché non ci sono fornitori. È anche
@@ -400,8 +421,10 @@ Tre, tutti fail-closed e spenti in partenza, in `server/platform/interruttori.ts
 1. Due aziende, due elenchi: una conferma Alias arrivata all'azienda 2, che non
    ha Alias in anagrafica, non entra in archivio; la stessa arrivata al tenant 1
    entra.
-2. Seed: al primo boot il tenant 1 si ritrova 25 fornitori con le chiavi giuste
-   e Antenore come portale di Wnd; un secondo boot non ne crea 50.
+2. Seed: premuto «Importa i 25 fornitori conosciuti» il tenant 1 si ritrova 25
+   fornitori con le chiavi giuste e Antenore come portale di Wnd; premuto due
+   volte non ne crea 50; su un tenant diverso dal 1 il bottone non esiste e la
+   procedura rifiuta.
 3. Correzione → profilo: corretto il numero d'ordine su un esempio Pail
    (`conf.26_29488 aggiornata.pdf`, che dal nome non si riconosce), il profilo
    nasce con l'ancora sull'etichetta, non col valore `29488` dentro.
