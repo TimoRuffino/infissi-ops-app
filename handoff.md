@@ -48,6 +48,127 @@
 > Finché non succede, staging esiste come codice, non come ambiente
 > raggiungibile — nessun documento lo presenta come attivo.
 
+> **Novità 10/09/2026 — L'archivio è uno solo: la commessa chiusa non è più
+> in un vicolo cieco (PRD §22).** Segnalazione della direzione: «la commessa
+> De Petris risulta archiviata ma non la vedo nell'archivio e non riesco a
+> ripristinarla». Causa: «archiviata» esisteva in due forme scollegate — il
+> soft-archive `archivedAt` (l'unico che `/archivio` leggeva e l'unico che
+> `commesse.restore` sapeva togliere) e lo stato terminale `archiviata` della
+> macchina (che il Board toglie dalle colonne e su cui «Avanza» non c'è più).
+> Chi arrivava in fondo al percorso spariva dal Board, non compariva in
+> archivio e non aveva nessun pulsante per tornare indietro: restava solo la
+> riga in `/commesse` col badge «Archiviata». In produzione erano **15**
+> commesse (COM-2026-003, -015, -016, -017, -051, -052 De Petris, -078, -079,
+> -102, -109, -114, -129, -139, -357, -378). **Che cosa cambia:** lo scope
+> `only` di `commesse.list` diventa l'archivio vero (`archivedAt` **oppure**
+> `stato = "archiviata"`); `commesse.restore` esce da entrambe le forme — il
+> flag si azzera com'era, la commessa chiusa torna a `interventi_regolazioni`
+> passando da `eseguiTransizioneCommessa` (transizione a registro,
+> `dataChiusura` azzerata dal cleanup all'indietro, Undo disponibile,
+> capability `commessa.change_state` a guardia: riaprire un lavoro chiuso non è
+> il flag reversibile che chiunque può premere), e con entrambe le forme un
+> solo click le toglie tutte e due in un commit unico. Scheda commessa: banner
+> «Commessa chiusa» accanto a «Commessa archiviata», «Ripristina» in entrambi i
+> casi, badge dell'header al solo soft-archive (per la chiusa lo dice già il
+> chip dello stato). Archivio: la data dichiara la forma («Archiviata: …» o
+> «Chiusa: …») e il dialog dice cosa succede. **Che cosa NON cambia:** lo scope
+> `exclude` resta il complemento del solo soft-archive — ricerca, scheda
+> cliente, post-vendita, Tars e la lista commesse devono continuare a vedere i
+> lavori chiusi; a nascondere lo stato terminale sono i consumatori che devono
+> (Board, Dashboard, Planning, Magazzino, Fornitori, Pagamenti), come già
+> facevano. Nessuna migrazione dati: le 15 commesse sono raggiungibili dal
+> deploy in poi. Sei test nuovi in `server/routers/commesse.test.ts`;
+> `pnpm check`/`test` (360 file/15 saltati, 3958 test/90 saltati)/`build`
+> verdi; verifica dal vivo a 1440x900 e 390x844 sul giro completo (chiusa dal
+> board → archivio → ripristina → torna sul board), console pulita e nessuno
+> scroll orizzontale.
+
+> **Novità 10/09/2026 — «Ciclo di vita dell'azienda»: su branch
+> (`claude/company-lifecycle-e52127`), PR in arrivo.** I punti 1–4 della
+> nota della direzione «Aziende: nascita, vita, uscita» (piano
+> `docs/superpowers/plans/2026-09-10-ciclo-di-vita-azienda.md`, PRD §60.14,
+> runbook multi-azienda → «Ciclo di vita dell'azienda»). **Stati:**
+> `StatoTenant` passa a cinque valori (`in_attesa`, `attivo`, `sospeso`,
+> `archiviato`, `cancellato`); `in_prova`/`scaduto` NON esistono sul tenant
+> — sono già stati dell'abbonamento. I tre stati nuovi chiudono la porta
+> del tutto (login e sessioni rifiutati con un messaggio unico generico;
+> il sospeso resta sola lettura); transizioni validate nel servizio, mai
+> sul tenant 1; comandi `archivia`/`cancella` (pannello: pulsanti con
+> conferma password; CLI: `stato --archivia|--cancella`). **Cancellazione
+> differita:** `cancella` scrive `cancellato_il`; il giro del ciclo di
+> vita (ogni 6 ore, dopo il `listen`) accoda `svuota_tenant` a 30 giorni —
+> file, righe relazionali, archivi `kv_store`, utenti e sedi via; la riga
+> `tenants` resta lapide con slug liberato (`cancellata-<id>`) e
+> `svuotato_il`, da lì «Riattiva» rifiuta per sempre. `pnpm tenant svuota
+> --slug=… --davvero [--forza]` per la prova in staging. **Iscrizione
+> pubblica** `/prova` (fuori shell): dietro `FLAG_ISCRIZIONE_PUBBLICA`
+> (nuovo, spento di default in produzione) + multi-azienda + posta
+> configurata; accoda lo stesso comando `crea` con
+> `statoIniziale: "in_attesa"`, invito SOLO per email, risposta sempre
+> generica, 5/ora per IP + honeypot; l'azienda si attiva accettando
+> l'invito, chi non lo fa entro 14 giorni viene cancellato dal giro.
+> **Inviti:** disattivare/eliminare un utente annulla i suoi inviti validi
+> (prima un link in giro RIATTIVAVA un utente disattivato — chiuso anche in
+> `accettaInvito`); reinvio non prima di 10 minuti (annullare l'invito
+> pendente riapre subito); MFA post-password FUORI SCOPE (nessuna
+> infrastruttura, decisione alla direzione). **Percorso di attivazione come
+> dati:** eventi `prima_commessa`, `prima_fattura`, `primo_utente_aggiunto`
+> (+ `invito_accettato` già esistente); elenco pannello con «attivazione
+> n/4», scheda con la sezione dedicata e il conto alla rovescia della
+> ritenzione. **Verificato:** `pnpm check` pulito, suite completa verde
+> (374 file), i 14 file `*.pg.test.ts` su Postgres vero (75 test, docker
+> `perf-pg-test` via colima), `pnpm build` riuscito. Punto 5 della nota
+> (asimmetrie del tenant 1) e punti 6–22 NON toccati.
+
+> **Novità 10/09/2026 — la mail d'invito alle aziende nuove: su branch.**
+> L'invito partiva come cinque `<p>` — nessun `<html>`, nessuna codifica
+> dichiarata, nessun contenitore, il link come testo di sé stesso: fuori da
+> Gmail non era una mail di prodotto (Outlook desktop, che rende con il
+> motore di Word, la mostrava in Times New Roman a tutta larghezza), ed è la
+> **prima** cosa che un'azienda cliente vede di Wyndoor. Ora la forma vive in
+> `server/_core/bustaEmail.ts` (`componiEmail`, pura, condivisa con le mail
+> di piattaforma che verranno): documento HTML `lang="it"` con codifica e
+> `color-scheme`, tabelle, larghezza **fluida con tetto a 600 px** (il 600
+> fisso solo dentro una tabella condizionale `[if mso]`: altrimenti su un
+> telefono la mail esce di lato), bottone bulletproof con variante VML,
+> marchio da `<base>/marchio-email.png` — PNG **trasparente** nuovo, generato
+> da `pnpm icone` accanto alle icone iOS che invece nascono su fondo pieno —
+> con `alt=""` perché la parola «Wyndoor» gli sta accanto come testo vivo,
+> preheader nascosto, tema scuro con la palette Modular Control. HTML e testo
+> semplice nascono dalla **stessa struttura**: due funzioni separate
+> divergono al primo ritocco. Le parole restano in
+> `server/piattaforma/testi.ts`, che ora non ha un solo tag: oggetto «Attiva
+> il tuo accesso a Wyndoor per `<Azienda>`», scheda con azienda, **indirizzo
+> con cui entra** (è il suo nome utente, prima non veniva detto) e scadenza
+> come **data per esteso** («fino al 17 settembre 2026»), non «fra 7 giorni»,
+> che è vero solo il giorno in cui la mail parte. `POSTA_PIATTAFORMA_RISPOSTA`
+> (nuova, facoltativa) diventa il `Reply-To:` e il contatto nel piede: senza,
+> la mail non promette nessun contatto. **Pannello:** `testoEsitoInvito`
+> riceveva già `motivo` dal server e lo buttava via — un rifiuto di Resend
+> (422 su un dominio non verificato, un timeout) si leggeva come «Posta della
+> piattaforma non configurata» e mandava a cercare su Railway una chiave che
+> c'era già; ora i due casi si distinguono e il riquadro è ambra con un
+> triangolo o verde con una busta, invece di due grigi identici. **Pagina
+> `/invito`:** saluto per nome (`nome` arrivava e non si mostrava), la stessa
+> scheda della mail, e le due regole della password che si accendono mentre
+> si scrive (`regolePassword`/`erroreInvioPassword` in
+> `client/src/pages/piattaforma/testi.ts`, puri: la suite gira senza DOM).
+> **Verifica:** `pnpm posta:anteprima` (`--base`, `--contatto`,
+> `--tema=scuro`) scrive la mail su file — controllata a 1440 e 390, chiara e
+> scura; il giro completo (creazione azienda → link → `/invito` → password →
+> `/integrazioni?attivazione=1`) provato dal vivo su un server locale con
+> `FLAG_MULTI_AZIENDA` acceso, console pulita, nessuno scroll orizzontale.
+> `pnpm check` pulito, `pnpm test` 356 file passati + 15 saltati (3918 test
+> passati + 88 saltati), `pnpm build` riuscito. PRD §60.13 addendum
+> (v5.90); runbook `docs/runbooks/multi-azienda.md` («Variabili d'ambiente
+> (WS6)» e gli errori del pannello). **Non fatto fuori dal codice:**
+> `POSTA_PIATTAFORMA_RISPOSTA` non è impostata su Railway — finché non lo è,
+> le mail partono senza `Reply-To:` e senza contatto nel piede, esattamente
+> come oggi. **Nota:** l'indirizzo scelto è `info@wyndoor.it`, che è un TLD
+> diverso dal dominio dell'app (`wyndoor.com`): come `Reply-To:` funziona
+> comunque (Resend verifica il `From:`), ma se la casella su `.it` non esiste
+> le risposte cadono. Branch `claude/company-invite-ui-ux-4cbfa8`.
+
 > **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
 > aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono
 > ora ragione sociale, slug e note; i dati di fatturazione (P.IVA, codice

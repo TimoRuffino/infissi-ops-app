@@ -63,7 +63,12 @@ export type Interruttore =
   // Multi-azienda, WS1 (06/09/2026): tenant sopra le sedi. Spento = il CRM
   // di oggi (tenant 1 implicito, nessuna guardia). Spec:
   // docs/superpowers/specs/2026-09-06-ws1-fondazione-tenant-design.md §8.
-  | "multiAzienda";
+  | "multiAzienda"
+  // Iscrizione pubblica «Prova gratuita» (ciclo di vita, 10/09/2026, D7):
+  // il modulo su /prova che accoda `crea` con statoIniziale in_attesa.
+  // Richiede anche multiAzienda acceso e la posta configurata: il link
+  // d'invito viaggia SOLO per email.
+  | "iscrizionePubblica";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -89,6 +94,7 @@ const VARIABILE: Record<Interruttore, string> = {
   contrattoEstrazione: "FLAG_CONTRATTO_ESTRAZIONE",
   anteprimeEvidenze: "FLAG_ANTEPRIME_EVIDENZE",
   multiAzienda: "FLAG_MULTI_AZIENDA",
+  iscrizionePubblica: "FLAG_ISCRIZIONE_PUBBLICA",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -117,6 +123,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   contrattoEstrazione: "La lettura automatica del contratto PDF (proposta con evidenze)",
   anteprimeEvidenze: "Le anteprime delle evidenze («Dove l'ho letto»)",
   multiAzienda: "Il multi-azienda (tenant sopra le sedi)",
+  iscrizionePubblica: "L'iscrizione pubblica «Prova gratuita»",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
@@ -160,6 +167,7 @@ export function tarsAttivo(
     | "contrattoEstrazione"
     | "anteprimeEvidenze"
     | "multiAzienda"
+    | "iscrizionePubblica"
   >
 ): boolean {
   if (!interruttoreAttivo("tars")) return false;
@@ -180,6 +188,7 @@ export function assicuraTars(
     | "contrattoEstrazione"
     | "anteprimeEvidenze"
     | "multiAzienda"
+    | "iscrizionePubblica"
   >
 ): void {
   assicuraInterruttore("tars");

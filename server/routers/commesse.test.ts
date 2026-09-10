@@ -29,6 +29,7 @@ vi.mock("../_core/persistence", async importOriginal => {
 import type { TrpcContext } from "../_core/context";
 import { conTransazioneStoreAtomica } from "../_core/persistence";
 import { appRouter } from "../routers";
+import { storeTransizioniCommessa } from "../commesse/transizioni";
 import {
   STATI_COMMESSA,
   applicaPattuitoDaFic,
@@ -598,5 +599,90 @@ describe("margine: imponibile anche per le commesse salvate prima del campo", ()
     // Nessun costo registrato: il margine resta dichiarato incompleto, ma il
     // ricavo NON è più «manca il totale pattuito».
     expect(margine.datiIncompleti).toBe(true);
+  });
+});
+
+// Archivio unico (10/09/2026): «archiviata» esiste in due forme — lo stato
+// terminale della macchina e il soft-archive `archivedAt`. Il board toglie
+// entrambe dalle colonne, quindi entrambe devono comparire in archivio ed
+// essere ripristinabili: prima di questa suite una commessa portata a stato
+// «archiviata» finiva in un vicolo cieco (fuori dal board, fuori
+// dall'archivio, senza percorso di ritorno) — 15 casi in produzione.
+describe("archivio: le due forme di «archiviata»", () => {
+  it("una commessa a stato archiviata compare nell'archivio come una soft-archiviata", async () => {
+    const caller = direzione();
+    const perStato = await caller.commesse.create({ cliente: "Chiusa dal board" });
+    await portaAllo(caller, perStato.id, STATI_COMMESSA.length - 1);
+    const perFlag = await caller.commesse.create({ cliente: "Archiviata a mano" });
+    await caller.commesse.archive(perFlag.id);
+
+    const archivio = await caller.commesse.list({ archived: "only" });
+    expect(archivio.map(c => c.id)).toEqual(
+      expect.arrayContaining([perStato.id, perFlag.id])
+    );
+  });
+
+  it("ripristina una commessa a stato archiviata riportandola a interventi/regolazioni", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "De Petris" });
+    await portaAllo(caller, commessa.id, STATI_COMMESSA.length - 1);
+    expect((getCommessaById(commessa.id) as any).dataChiusura).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/
+    );
+
+    const ripristinata = await caller.commesse.restore(commessa.id);
+    expect(ripristinata.stato).toBe("interventi_regolazioni");
+    expect(ripristinata.dataChiusura).toBeNull();
+    // Il ritorno passa dalla macchina a stati: resta a registro.
+    const registro = storeTransizioniCommessa.items.filter(
+      r => r.commessaId === commessa.id
+    );
+    expect(registro.at(-1)).toMatchObject({
+      prima: expect.objectContaining({ stato: "archiviata" }),
+      dopo: expect.objectContaining({ stato: "interventi_regolazioni" }),
+    });
+  });
+
+  it("il soft-archive continua a ripristinarsi senza toccare lo stato", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Solo flag" });
+    await portaAllo(caller, commessa.id, 3);
+    await caller.commesse.archive(commessa.id);
+
+    const ripristinata = await caller.commesse.restore(commessa.id);
+    expect(ripristinata.archivedAt).toBeNull();
+    expect(ripristinata.stato).toBe(STATI_COMMESSA[3]);
+  });
+
+  it("con entrambe le forme un solo ripristino le toglie tutte e due", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Doppia" });
+    await portaAllo(caller, commessa.id, STATI_COMMESSA.length - 1);
+    await caller.commesse.archive(commessa.id);
+
+    const ripristinata = await caller.commesse.restore(commessa.id);
+    expect(ripristinata.archivedAt).toBeNull();
+    expect(ripristinata.stato).toBe("interventi_regolazioni");
+  });
+
+  it("una commessa attiva non si «ripristina»: resta com'è", async () => {
+    const caller = direzione();
+    const commessa = await caller.commesse.create({ cliente: "Viva" });
+    await portaAllo(caller, commessa.id, 2);
+
+    const esito = await caller.commesse.restore(commessa.id);
+    expect(esito.stato).toBe(STATI_COMMESSA[2]);
+    expect(esito.archivedAt ?? null).toBeNull();
+  });
+
+  it("il ripristino di un'altra sede non esiste", async () => {
+    const locale = direzione(SEDE);
+    const remoto = direzione(ALTRA_SEDE);
+    const commessa = await locale.commesse.create({ cliente: "Sede A chiusa" });
+    await portaAllo(locale, commessa.id, STATI_COMMESSA.length - 1);
+
+    await expect(remoto.commesse.restore(commessa.id)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });

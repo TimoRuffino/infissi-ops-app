@@ -17,15 +17,18 @@ import {
   schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
+  schemaPayloadSvuota,
 } from "./comandi";
 import { conTenant } from "./contestoCorrente";
 import {
   contaPresidi,
   motivoRifiutoPresidio,
+  motivoRifiutoTransizione,
   presidioDi,
   righeTenantSedi,
   ruoliDi,
   slugValido,
+  type AzioneCicloDiVita,
 } from "./regole";
 import { getTenantRepository } from "./repository";
 import { ricalcolaStorage } from "./storage";
@@ -42,6 +45,8 @@ export type CreaTenantInput = {
     telefono?: string | null;
     passwordHash: string;
   };
+  /** D7: `in_attesa` per l'iscrizione pubblica (attiva all'accettazione dell'invito); assente = `attivo`. */
+  statoIniziale?: "attivo" | "in_attesa";
 };
 
 export type EsitoCrea = {
@@ -119,7 +124,7 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
   }
   let creatoOra = false;
   if (!tenant) {
-    tenant = await repo.inserisci({ slug: input.slug, nome: input.nome });
+    tenant = await repo.inserisci({ slug: input.slug, nome: input.nome, stato: input.statoIniziale });
     creatoOra = true;
     // Subito dopo l'inserimento: la riga in `tenants` è già un fatto, a
     // prescindere da come va la transazione di sede/utente qui sotto.
@@ -127,7 +132,7 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
       tenantId: tenant.id,
       tipo: "creato",
       attore: attoreTesto(attore),
-      dettagli: { slug: input.slug, nome: input.nome },
+      dettagli: { slug: input.slug, nome: input.nome, stato: tenant.stato },
     });
   }
   const tenantId = tenant.id;
@@ -222,8 +227,14 @@ export async function crea(input: CreaTenantInput, attore: Attore): Promise<Esit
   return { tenant, sedeId: sedeId!, utenteId: utente.id, creatoOra };
 }
 
+/** Ciclo di vita (piano 10/09/2026, D3): la transizione si valida PRIMA di scrivere. */
+function assicuraTransizione(azione: AzioneCicloDiVita, tenant: TenantRecord): void {
+  const motivo = motivoRifiutoTransizione(azione, tenant);
+  if (motivo) throw new Error(motivo);
+}
+
 export async function sospendi(tenantId: number, motivo: string, attore: Attore): Promise<TenantRecord> {
-  tenantEsistente(tenantId);
+  assicuraTransizione("sospendi", tenantEsistente(tenantId));
   const repo = getTenantRepository();
   const tenant = await repo.aggiornaStato(tenantId, "sospeso", motivo);
   await repo.registraEvento({ tenantId, tipo: "sospeso", attore: attoreTesto(attore), motivo });
@@ -231,10 +242,68 @@ export async function sospendi(tenantId: number, motivo: string, attore: Attore)
 }
 
 export async function riattiva(tenantId: number, motivo: string, attore: Attore): Promise<TenantRecord> {
-  tenantEsistente(tenantId);
+  const prima = tenantEsistente(tenantId);
+  assicuraTransizione("riattiva", prima);
   const repo = getTenantRepository();
-  const tenant = await repo.aggiornaStato(tenantId, "attivo", motivo);
+  // Riattivare un `cancellato` (entro la ritenzione) azzera il marcatempo:
+  // il conto dei 30 giorni riparte da un'eventuale nuova cancellazione.
+  const tenant = await repo.aggiornaStato(
+    tenantId,
+    "attivo",
+    motivo,
+    prima.stato === "cancellato" ? { cancellatoIl: null } : undefined
+  );
   await repo.registraEvento({ tenantId, tipo: "riattivato", attore: attoreTesto(attore), motivo });
+  return tenant;
+}
+
+/**
+ * L'unica uscita da `in_attesa` verso `attivo` (D2, D7): l'accettazione
+ * dell'invito. Idempotente su un tenant già attivo (o in qualunque altro
+ * stato): non tocca nulla — l'invito è comunque consumato, chi era già
+ * `attivo` resta com'è, un `sospeso`/`archiviato` non si riapre da qui.
+ */
+export async function attivaDaInvito(
+  tenantId: number,
+  dettagli: { invitoId: number; utenteId: number }
+): Promise<void> {
+  const repo = getTenantRepository();
+  const tenant = repo.perId(tenantId);
+  if (!tenant || tenant.stato !== "in_attesa") return;
+  await repo.aggiornaStato(tenantId, "attivo", "invito accettato");
+  await repo.registraEvento({
+    tenantId,
+    tipo: "attivato",
+    attore: attoreTesto({ tipo: "utente", id: dettagli.utenteId }),
+    dettagli,
+  });
+}
+
+/**
+ * Uscita ordinata reversibile (D2): porta chiusa (login e sessioni rifiutati,
+ * worker esclusi), dati intatti. Mai il tenant 1.
+ */
+export async function archivia(tenantId: number, motivo: string, attore: Attore): Promise<TenantRecord> {
+  if (tenantId === TENANT_PREDEFINITO_ID) throw new Error(MESSAGGI.tenant1NonSiChiude);
+  assicuraTransizione("archivia", tenantEsistente(tenantId));
+  const repo = getTenantRepository();
+  const tenant = await repo.aggiornaStato(tenantId, "archiviato", motivo);
+  await repo.registraEvento({ tenantId, tipo: "archiviato", attore: attoreTesto(attore), motivo });
+  return tenant;
+}
+
+/**
+ * Cancellazione con ritenzione (D2, D5): `cancellatoIl = adesso`, porta
+ * chiusa; i dati restano finché il giro del ciclo di vita non accoda
+ * `svuota_tenant` a fine ritenzione. `riattiva` disfa tutto finché lo
+ * svuotamento non è avvenuto. Mai il tenant 1.
+ */
+export async function cancella(tenantId: number, motivo: string, attore: Attore, adesso = new Date()): Promise<TenantRecord> {
+  if (tenantId === TENANT_PREDEFINITO_ID) throw new Error(MESSAGGI.tenant1NonSiChiude);
+  assicuraTransizione("cancella", tenantEsistente(tenantId));
+  const repo = getTenantRepository();
+  const tenant = await repo.aggiornaStato(tenantId, "cancellato", motivo, { cancellatoIl: adesso });
+  await repo.registraEvento({ tenantId, tipo: "cancellato", attore: attoreTesto(attore), motivo });
   return tenant;
 }
 
@@ -463,6 +532,9 @@ export async function allineaTenantPredefinito(): Promise<void> {
   const repo = getTenantRepository();
   const utenti = getUtentiStore();
   for (const tenant of repo.tutti()) {
+    // Una lapide (svuotata) non ha più utenti: nessun proprietario da
+    // cercare, nessun avviso da ripetere a ogni boot.
+    if (tenant.svuotatoIl) continue;
     if (contaPresidi(utenti.map(presidioDi), tenant.id).proprietari > 0) continue;
     const candidato = utenti
       .filter((u: any) => {
@@ -511,11 +583,24 @@ async function eseguiComando(comando: TenantComando): Promise<Record<string, unk
         return { tenantId: e.tenant.id, sedeId: e.sedeId, utenteId: e.utenteId, creatoOra: e.creatoOra };
       }
       case "sospendi":
-      case "riattiva": {
+      case "riattiva":
+      case "archivia":
+      case "cancella": {
         const p = schemaPayloadStato.parse(comando.payload);
         const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
-        const t = comando.tipo === "sospendi" ? await sospendi(id, p.motivo, attore) : await riattiva(id, p.motivo, attore);
+        const azioni = { sospendi, riattiva, archivia, cancella } as const;
+        const t = await azioni[comando.tipo](id, p.motivo, attore);
         return { tenantId: t.id, stato: t.stato };
+      }
+      case "svuota_tenant": {
+        const p = schemaPayloadSvuota.parse(comando.payload);
+        const id = comando.tenantId ?? tenantDaSlug(p.slug).id;
+        // Import dinamico come `ripristino.ts`: lo svuotamento risale agli
+        // store globali e allo storage, non deve entrare nel grafo statico
+        // di questo modulo.
+        const { svuotaTenant } = await import("./svuotamento");
+        const esito = await svuotaTenant({ tenantId: id, forza: p.forza ?? false, attore });
+        return { tenantId: id, ...esito };
       }
       case "assegna_proprietario":
       case "revoca_proprietario": {

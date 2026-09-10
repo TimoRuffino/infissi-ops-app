@@ -98,50 +98,68 @@ async function righeOVuoto(query: Promise<any>): Promise<any[]> {
 }
 
 /**
+ * Tutte le chiavi di storage riferite dai record dell'azienda, una per
+ * chiamata di `usa`: `bytes` è la dimensione registrata sul record quando
+ * c'è, `null` quando va chiesta allo storage. È la camminata condivisa fra
+ * il ricalcolo del ledger (qui sotto) e lo svuotamento del ciclo di vita
+ * (`svuotamento.ts`): chi aggiunge una fonte di file la aggiunge QUI, così
+ * il conteggio e la cancellazione non possono divergere. Va chiamata dentro
+ * `conTenant`: i Proxy e le tabelle per sede rispondono per quell'azienda.
+ * `COALESCE(tenant_id, 1)`: le righe di Ruffino Group precedenti al
+ * backfill del WS2 hanno ancora NULL.
+ */
+export async function perOgniFileDelTenant(
+  tenantId: number,
+  usa: (chiave: string, bytes: number | null) => Promise<void> | void
+): Promise<void> {
+  for (const d of storeDi<any>(tenantId, "preventivi_documenti")) {
+    if (d?.storageKey) await usa(d.storageKey, Number(d.size) || 0);
+    for (const chiave of d?.anteprime?.chiavi ?? []) await usa(chiave, null);
+  }
+  for (const a of storeDi<any>(tenantId, "ticket_allegati")) {
+    if (a?.storageKey) await usa(a.storageKey, Number(a.size) || 0);
+  }
+  if (kvSql) {
+    const comunicazioni = await righeOVuoto(
+      kvSql`SELECT allegati FROM comunicazioni WHERE COALESCE(tenant_id, 1) = ${tenantId}`
+    );
+    for (const r of comunicazioni) {
+      for (const al of (r.allegati as any[]) ?? []) if (al?.storageKey) await usa(al.storageKey, Number(al.size) || 0);
+    }
+    const fatture = await righeOVuoto(
+      kvSql`SELECT pdf_storage_key, xml_storage_key FROM fatture WHERE COALESCE(tenant_id, 1) = ${tenantId}`
+    );
+    for (const r of fatture) {
+      if (r.pdf_storage_key) await usa(r.pdf_storage_key, null);
+      if (r.xml_storage_key) await usa(r.xml_storage_key, null);
+    }
+  }
+}
+
+/**
  * La fonte di verità del ledger: rilegge i record con `storageKey` dell'azienda.
  * Le dimensioni registrate sui record valgono per documenti, allegati ticket
  * e allegati mail; anteprime e fatture non le hanno e si chiedono allo
- * storage (`head`). Gira dentro `conTenant`: i Proxy e le tabelle per sede
- * rispondono per quell'azienda. `COALESCE(tenant_id, 1)`: le righe di
- * Ruffino Group precedenti al backfill del WS2 hanno ancora NULL.
+ * storage (`head`).
  */
 export async function ricalcolaStorage(tenantId: number, attore = "sistema"): Promise<StatoStorage> {
   return conTenant(tenantId, async () => {
     let bytes = 0;
     let file = 0;
     const conta = (n: number) => { bytes += Math.max(0, n); file++; };
-    // Un `head` a vuoto significa che il file non c'è più nello storage (o
-    // che il driver non sa rispondere): non si conta né fra i byte né fra i
-    // file (fix wave finale). Prima entrava come «file da 0 byte» e gonfiava
-    // il conteggio con anteprime cancellate. Nessun log: un'anteprima assente
-    // non è un guasto, ed è la cosa più comune che ci sia qui dentro.
-    const misura = async (chiave: string) => {
+    await perOgniFileDelTenant(tenantId, async (chiave, dimensione) => {
+      if (dimensione != null) {
+        conta(dimensione);
+        return;
+      }
+      // Un `head` a vuoto significa che il file non c'è più nello storage (o
+      // che il driver non sa rispondere): non si conta né fra i byte né fra i
+      // file (fix wave finale). Prima entrava come «file da 0 byte» e gonfiava
+      // il conteggio con anteprime cancellate. Nessun log: un'anteprima assente
+      // non è un guasto, ed è la cosa più comune che ci sia qui dentro.
       const info = await statFile(chiave);
       if (info) conta(info.bytes);
-    };
-
-    for (const d of storeDi<any>(tenantId, "preventivi_documenti")) {
-      if (d?.storageKey) conta(Number(d.size) || 0);
-      for (const chiave of d?.anteprime?.chiavi ?? []) await misura(chiave);
-    }
-    for (const a of storeDi<any>(tenantId, "ticket_allegati")) {
-      if (a?.storageKey) conta(Number(a.size) || 0);
-    }
-    if (kvSql) {
-      const comunicazioni = await righeOVuoto(
-        kvSql`SELECT allegati FROM comunicazioni WHERE COALESCE(tenant_id, 1) = ${tenantId}`
-      );
-      for (const r of comunicazioni) {
-        for (const al of (r.allegati as any[]) ?? []) if (al?.storageKey) conta(Number(al.size) || 0);
-      }
-      const fatture = await righeOVuoto(
-        kvSql`SELECT pdf_storage_key, xml_storage_key FROM fatture WHERE COALESCE(tenant_id, 1) = ${tenantId}`
-      );
-      for (const r of fatture) {
-        if (r.pdf_storage_key) await misura(r.pdf_storage_key);
-        if (r.xml_storage_key) await misura(r.xml_storage_key);
-      }
-    }
+    });
     const repo = getTenantRepository();
     const stato = await repo.impostaStorage(tenantId, { bytes, file });
     await repo.registraEvento({ tenantId, tipo: "storage_ricalcolato", attore, dettagli: { bytes, file } });

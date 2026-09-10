@@ -22,8 +22,13 @@ import DataSurface from "@/components/patterns/DataSurface";
 import PageHeader from "@/components/patterns/PageHeader";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
-// Badge stato: unica fonte lib/stato (statoChipClass). Qui `stato` è
-// quello ORIGINALE preservato: il soft-archive è ortogonale allo stato.
+// Badge stato: unica fonte lib/stato (statoChipClass).
+//
+// In archivio finiscono le due forme di «archiviata» (10/09/2026): il
+// soft-archive `archivedAt`, ortogonale allo stato e reversibile senza
+// toccarlo, e lo stato terminale «archiviata», che il board toglie comunque
+// dalle colonne. Il ripristino le distingue: la prima torna com'era, la
+// seconda riapre la commessa a «Interventi / Regolazioni».
 
 export default function Archivio() {
   const [, setLocation] = useLocation();
@@ -31,6 +36,8 @@ export default function Archivio() {
   const [restoreTarget, setRestoreTarget] = useState<{
     id: number;
     label: string;
+    /** Chiusa dal board (stato «archiviata»): il ripristino la riapre. */
+    chiusa: boolean;
   } | null>(null);
 
   const list = trpc.commesse.list.useQuery({ archived: "only" });
@@ -42,6 +49,9 @@ export default function Archivio() {
       setRestoreTarget(null);
       toast.success("Commessa ripristinata");
     },
+    // Riaprire una commessa chiusa chiede `commessa.change_state`: se
+    // manca, l'errore va detto invece di lasciare il dialog appeso.
+    onError: e => toast.error(e.message ?? "Ripristino non riuscito"),
   });
   const restoreCliente = trpc.clienti.restore.useMutation({
     onSuccess: () => {
@@ -70,7 +80,7 @@ export default function Archivio() {
       <PageHeader
         eyebrow="Commesse"
         title="Archivio"
-        description="Le commesse archiviate restano complete di dati, file e stato. Puoi ripristinarle senza alterare il loro avanzamento."
+        description="Commesse archiviate a mano e commesse chiuse dal board: restano complete di dati, file e storico, e da qui si ripristinano."
         metadata={<span>{list.data?.length ?? 0} commesse archiviate</span>}
       />
 
@@ -202,13 +212,18 @@ export default function Archivio() {
                           {new Date(c.dataApertura).toLocaleDateString("it-IT")}
                         </span>
                       )}
-                      {c.archivedAt && (
-                        <span className="flex items-center gap-1">
-                          <Archive className="h-3 w-3" />
-                          Archiviata:{" "}
-                          {new Date(c.archivedAt).toLocaleDateString("it-IT")}
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <Archive className="h-3 w-3" />
+                        {c.archivedAt
+                          ? `Archiviata: ${new Date(
+                              c.archivedAt
+                            ).toLocaleDateString("it-IT")}`
+                          : c.dataChiusura
+                            ? `Chiusa: ${new Date(
+                                `${c.dataChiusura}T12:00:00`
+                              ).toLocaleDateString("it-IT")}`
+                            : "Chiusa dal board"}
+                      </span>
                       {c.assegnatoA && (
                         <span className="flex items-center gap-1">
                           <User className="h-3 w-3" />
@@ -225,7 +240,11 @@ export default function Archivio() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        setRestoreTarget({ id: c.id, label: c.codice })
+                        setRestoreTarget({
+                          id: c.id,
+                          label: c.codice,
+                          chiusa: c.stato === "archiviata",
+                        })
                       }
                       disabled={restore.isPending}
                     >
@@ -252,9 +271,10 @@ export default function Archivio() {
       {filtered.length > 0 && (
         <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          Archiviare una commessa la nasconde da liste, board e planning senza
-          perdere dati. Il ripristino la riporta attiva con lo stato di
-          avanzamento invariato.
+          Qui stanno sia le commesse archiviate a mano sia quelle chiuse dal
+          board: in entrambi i casi restano fuori da liste, board e planning
+          senza perdere dati. Il ripristino riporta le prime allo stato che
+          avevano e riapre le seconde a «Interventi / Regolazioni».
         </p>
       )}
 
@@ -263,7 +283,11 @@ export default function Archivio() {
         open={!!restoreTarget}
         onOpenChange={open => !open && setRestoreTarget(null)}
         title="Ripristinare la commessa?"
-        description={`La commessa "${restoreTarget?.label}" tornerà attiva e ricomparirà in liste, board e planning con stato e dati invariati.`}
+        description={
+          restoreTarget?.chiusa
+            ? `La commessa "${restoreTarget.label}" è chiusa: verrà riaperta a «Interventi / Regolazioni» e tornerà sul board. La data di chiusura viene azzerata; il passaggio resta a registro.`
+            : `La commessa "${restoreTarget?.label}" tornerà attiva e ricomparirà in liste, board e planning con stato e dati invariati.`
+        }
         destructive={false}
         confirmLabel="Ripristina"
         onConfirm={() => {

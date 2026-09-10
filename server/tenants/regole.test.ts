@@ -4,6 +4,7 @@ import {
   contaPresidi,
   motivoRifiutoPresidio,
   motivoRifiutoTenant,
+  motivoRifiutoTransizione,
   presidioDi,
   proprietarioAggiunto,
   proprietarioTolto,
@@ -58,6 +59,37 @@ describe("motivoRifiutoTenant", () => {
   });
   it("tenant nullo nel contesto (test a mano) senza record: nessun rifiuto, come nel WS1", () => {
     expect(motivoRifiutoTenant({ tenantId: 1, tenant: null, sedeId: 1 }, { scrittura: true })).toBeNull();
+  });
+  it("in_attesa/archiviato/cancellato: porta chiusa anche in lettura, nessuna esenzione", () => {
+    for (const stato of ["in_attesa", "archiviato", "cancellato"] as const) {
+      const chiuso = { ...attivo, stato } as TenantRecord;
+      expect(motivoRifiutoTenant({ tenantId: 2, tenant: chiuso, sedeId: 5 }, { scrittura: false })?.messaggio).toBe(
+        MESSAGGI.aziendaNonAccessibile
+      );
+      expect(
+        motivoRifiutoTenant({ tenantId: 2, tenant: chiuso, sedeId: 5 }, { scrittura: true, esente: true })?.messaggio
+      ).toBe(MESSAGGI.aziendaNonAccessibile);
+    }
+  });
+});
+
+describe("motivoRifiutoTransizione (ciclo di vita, 10/09/2026)", () => {
+  const con = (stato: TenantRecord["stato"], svuotatoIl: Date | null = null) => ({ stato, svuotatoIl });
+  it("archivia parte solo da attivo o sospeso; cancella da tutto tranne cancellato", () => {
+    expect(motivoRifiutoTransizione("archivia", con("attivo"))).toBeNull();
+    expect(motivoRifiutoTransizione("archivia", con("sospeso"))).toBeNull();
+    expect(motivoRifiutoTransizione("archivia", con("in_attesa"))).toMatch(/Transizione non ammessa/);
+    expect(motivoRifiutoTransizione("archivia", con("cancellato"))).toMatch(/Transizione non ammessa/);
+    expect(motivoRifiutoTransizione("cancella", con("in_attesa"))).toBeNull();
+    expect(motivoRifiutoTransizione("cancella", con("archiviato"))).toBeNull();
+    expect(motivoRifiutoTransizione("cancella", con("cancellato"))).toMatch(/Transizione non ammessa/);
+  });
+  it("riattiva copre sospeso, archiviato e cancellato — ma mai una lapide svuotata, mai in_attesa", () => {
+    expect(motivoRifiutoTransizione("riattiva", con("sospeso"))).toBeNull();
+    expect(motivoRifiutoTransizione("riattiva", con("archiviato"))).toBeNull();
+    expect(motivoRifiutoTransizione("riattiva", con("cancellato"))).toBeNull();
+    expect(motivoRifiutoTransizione("riattiva", con("cancellato", new Date()))).toBe(MESSAGGI.aziendaSvuotata);
+    expect(motivoRifiutoTransizione("riattiva", con("in_attesa"))).toMatch(/Transizione non ammessa/);
   });
 });
 

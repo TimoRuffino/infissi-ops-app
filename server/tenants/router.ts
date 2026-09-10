@@ -53,6 +53,8 @@ function tenantPredefinitoSintetico(): TenantRecord {
       pec: null,
       codiceSdi: null,
     },
+    cancellatoIl: null,
+    svuotatoIl: null,
     note: null,
   };
 }

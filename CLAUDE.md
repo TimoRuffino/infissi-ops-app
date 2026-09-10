@@ -94,6 +94,16 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - `sostituisciStore` esiste solo per il ripristino degli archivi
   (`server/tenants/ripristino.ts`): nessun altro percorso rimpiazza un
   archivio intero fuori dal debounce.
+- Ciclo di vita del tenant (10/09/2026, PRD §60.14): gli stati sono
+  `in_attesa|attivo|sospeso|archiviato|cancellato` e cambiano SOLO nel
+  servizio (`server/tenants/servizio.ts`, transizioni validate da
+  `motivoRifiutoTransizione`); mai `aggiornaStato` sparso. `in_prova` e
+  `scaduto` NON si aggiungono al tenant: vivono sull'abbonamento. Lo
+  svuotamento dei dati passa SOLO dal comando `svuota_tenant`
+  (`server/tenants/svuotamento.ts`), mai dal tenant 1, mai prima della
+  ritenzione salvo `--forza` da CLI; `rimuoviStoresDelTenant` è suo.
+  L'iscrizione pubblica è fail-closed tre volte (flag dedicato,
+  multi-azienda, posta) e il link d'invito esce SOLO per email.
 - `storeDi` solo in migrazione, verifica, ripristino e Platform Admin, mai nei
   router né negli strumenti di Tars. Store globali: solo quattro — `sedi`,
   `utenti`, `platform_feature_flags`, `platform_feature_flag_audit` (dal WS3 i

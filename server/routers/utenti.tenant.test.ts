@@ -157,3 +157,43 @@ describe("isolamento del control plane", () => {
     expect((creato as any).tenantId).toBe(1);
   });
 });
+
+// Ciclo di vita (piano 10/09/2026, D8): un invito pendente muore con
+// l'utente — senza, il link riapriva da solo un account disattivato.
+describe("inviti e disattivazione", () => {
+  const emetti = (utenteId: number, email: string) =>
+    getTenantRepository().emettiInvito({
+      tenantId: 1,
+      utenteId,
+      email,
+      tipo: "proprietario",
+      creatoDa: "piattaforma:test@wyndoor.com",
+      adesso: new Date(),
+    });
+
+  it("disattivare un utente annulla il suo invito valido e registra l'evento", async () => {
+    const { invito } = await emetti(COMMERCIALE_T1, "c1@ws1.test");
+    await come(DIREZIONE_T1, ["direzione"]).utenti.update({ id: COMMERCIALE_T1, attivo: false });
+    const repo = getTenantRepository();
+    const aggiornato = (await repo.invitiDi(1)).find(i => i.id === invito.id)!;
+    expect(aggiornato.annullatoIl).not.toBeNull();
+    const eventi = await repo.eventi(1);
+    expect(eventi.at(-1)).toMatchObject({
+      tipo: "invito_annullato",
+      attore: `utente:${DIREZIONE_T1}`,
+      dettagli: { invitoId: invito.id, perDisattivazione: true },
+    });
+  });
+
+  it("eliminare un utente annulla il suo invito; ridisattivare chi è già spento non duplica eventi", async () => {
+    const repo = getTenantRepository();
+    const { invito } = await emetti(COMMERCIALE_T1, "c1@ws1.test");
+    await come(DIREZIONE_T1, ["direzione"]).utenti.delete(COMMERCIALE_T1);
+    expect((await repo.invitiDi(1)).find(i => i.id === invito.id)!.annullatoIl).not.toBeNull();
+    // Un update che lascia attivo=false su chi è già disattivato non riannulla nulla.
+    await come(DIREZIONE_T1, ["direzione"]).utenti.update({ id: PROPRIETARIO_T1, telefono: "0187" });
+    const eventi = await repo.eventi(1);
+    const annullamenti = eventi.filter(e => e.tipo === "invito_annullato");
+    expect(annullamenti).toHaveLength(1);
+  });
+});

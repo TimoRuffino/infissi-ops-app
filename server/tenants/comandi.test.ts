@@ -9,6 +9,7 @@ import {
   schemaPayloadModificaTenant,
   schemaPayloadProprietario,
   schemaPayloadStato,
+  schemaPayloadSvuota,
 } from "./comandi";
 
 describe("schemi dei comandi", () => {
@@ -282,5 +283,25 @@ describe("schemaPayloadModificaProprietario", () => {
         telefono: [] as unknown as string,
       })
     ).toThrow();
+  });
+});
+
+describe("ciclo di vita (piano 10/09/2026)", () => {
+  it("schemaPayloadCrea: statoIniziale accetta solo attivo e in_attesa, ed è facoltativo", () => {
+    const base = {
+      slug: "acme",
+      nome: "Acme",
+      sede: { nome: "Acme" },
+      proprietario: { nome: "M", cognome: "R", email: "m@r.it", passwordHash: hashPassword("Password-lunga-12") },
+    };
+    expect(schemaPayloadCrea.parse(base).statoIniziale).toBeUndefined();
+    expect(schemaPayloadCrea.parse({ ...base, statoIniziale: "in_attesa" }).statoIniziale).toBe("in_attesa");
+    expect(() => schemaPayloadCrea.parse({ ...base, statoIniziale: "sospeso" })).toThrow();
+  });
+
+  it("schemaPayloadSvuota: slug obbligatorio, forza facoltativa", () => {
+    expect(schemaPayloadSvuota.parse({ slug: "acme" })).toEqual({ slug: "acme" });
+    expect(schemaPayloadSvuota.parse({ slug: "acme", forza: true }).forza).toBe(true);
+    expect(() => schemaPayloadSvuota.parse({ forza: true })).toThrow();
   });
 });

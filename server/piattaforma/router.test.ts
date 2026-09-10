@@ -576,7 +576,15 @@ describe("piattaformaRouter", () => {
     expect(inviato).not.toHaveProperty("link");
     expect(inviato.baseUrl).toBe("http://app.test"); // I5: senza APP_BASE_URL, l'host della richiesta
 
+    // Ciclo di vita, D8: entro 10 minuti un reinvio viene rifiutato...
+    await expect(caller.invita({ slug: "acme", passwordConferma: PASSWORD })).rejects.toThrow(
+      MESSAGGI_PIATTAFORMA.invitoAppenaInviato
+    );
+    // ...ma annullare l'invito pendente riapre subito la strada (è ciò che
+    // farebbe l'amministratore per rispedire senza aspettare).
     __impostaPostaPerTest(async () => ({ inviato: false, motivo: "non configurata" }));
+    const invitoPendente = (inviato as { invito: { id: number } }).invito;
+    await caller.annullaInvito({ id: invitoPendente.id });
     const aMano = await caller.invita({ slug: "acme", passwordConferma: PASSWORD });
     expect(aMano.link).toContain("/invito/");
     expect(aMano.baseUrl).toBe("http://app.test");
