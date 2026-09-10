@@ -596,3 +596,80 @@ describe.skipIf(!conDatabase)("repository tenant su Postgres", () => {
     await expect(getTenantRepository().ensureSchema()).resolves.toBeUndefined();
   });
 });
+
+// Ciclo di vita (piano 10/09/2026): marcatempo su `tenants` e lapide del
+// control plane su Postgres vero. Stesso lock consultivo del blocco sopra:
+// il suo afterAll ha già droppato le tabelle e rilasciato il lock, qui si
+// riparte da zero.
+describe.skipIf(!conDatabase)("ciclo di vita su Postgres", () => {
+  const sql = kvSql!;
+  let riservata: Awaited<ReturnType<typeof sql.reserve>> | null = null;
+
+  beforeAll(async () => {
+    riservata = await sql.reserve();
+    await riservata`SELECT pg_advisory_lock(${LOCK_TENANT_PG})`;
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    resetTenantRepositoryForTesting();
+    const repo = getTenantRepository();
+    await repo.ensureSchema();
+    await repo.caricaCache();
+  });
+
+  afterAll(async () => {
+    await sql`DROP TABLE IF EXISTS tenant_inviti, abbonamenti, tenant_storage, oauth_state, tenant_sedi, tenant_comandi, tenant_eventi, tenants CASCADE`;
+    if (riservata) {
+      await riservata`SELECT pg_advisory_unlock(${LOCK_TENANT_PG})`;
+      riservata.release();
+    }
+  });
+
+  it("aggiornaStato scrive e azzera cancellato_il; svuotato_il non si tocca senza valore", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "cdv-marcatempo", nome: "Marcatempo" });
+    const quando = new Date();
+    const cancellato = await repo.aggiornaStato(t.id, "cancellato", "uscita", { cancellatoIl: quando });
+    expect(cancellato.cancellatoIl?.getTime()).toBe(quando.getTime());
+    expect(cancellato.svuotatoIl).toBeNull();
+    // Un aggiornaStato senza marcatempo non tocca la colonna.
+    const ancora = await repo.aggiornaStato(t.id, "cancellato", "sempre uscita");
+    expect(ancora.cancellatoIl?.getTime()).toBe(quando.getTime());
+    const riattivato = await repo.aggiornaStato(t.id, "attivo", "ci ripensa", { cancellatoIl: null });
+    expect(riattivato.cancellatoIl).toBeNull();
+    // Il CHECK ricreato accetta i cinque stati.
+    for (const stato of ["in_attesa", "archiviato", "sospeso", "attivo"] as const) {
+      await expect(repo.aggiornaStato(t.id, stato, "giro")).resolves.toMatchObject({ stato });
+    }
+  });
+
+  it("svuotaControlPlane: lapide, slug liberato, righe per tenant sparite", async () => {
+    const repo = getTenantRepository();
+    const t = await repo.inserisci({ slug: "cdv-lapide", nome: "Lapide" });
+    await repo.aggiornaTenant(t.id, { fatturazione: { partitaIva: "01234567890" }, note: "riservata" });
+    await repo.sincronizzaTenantSedi([{ sedeId: 987654, tenantId: t.id }]);
+    await repo.emettiInvito({
+      tenantId: t.id,
+      utenteId: 1,
+      email: "lapide@test.it",
+      tipo: "proprietario",
+      creatoDa: "test",
+      adesso: new Date(),
+    });
+    await repo.aggiornaStorage(t.id, 100, 1);
+    await repo.aggiornaStato(t.id, "cancellato", "uscita", { cancellatoIl: new Date() });
+    const esito = await repo.svuotaControlPlane(t.id, new Date());
+    expect(esito).toMatchObject({ slug: `cancellata-${t.id}`, sedi: 1, inviti: 1 });
+    const lapide = repo.perId(t.id)!;
+    expect(lapide.svuotatoIl).not.toBeNull();
+    expect(lapide.fatturazione.partitaIva).toBeNull();
+    expect(lapide.note).toBeNull();
+    expect((await sql`SELECT COUNT(*)::int AS n FROM tenant_sedi WHERE tenant_id = ${t.id}`)[0].n).toBe(0);
+    expect((await sql`SELECT COUNT(*)::int AS n FROM tenant_inviti WHERE tenant_id = ${t.id}`)[0].n).toBe(0);
+    expect((await sql`SELECT COUNT(*)::int AS n FROM tenant_storage WHERE tenant_id = ${t.id}`)[0].n).toBe(0);
+    // Lo slug è di nuovo libero.
+    await expect(repo.inserisci({ slug: "cdv-lapide", nome: "Lapide 2" })).resolves.toMatchObject({
+      slug: "cdv-lapide",
+    });
+    // Il tenant 1 non si svuota mai.
+    await expect(repo.svuotaControlPlane(1, new Date())).rejects.toThrow(/tenant 1/);
+  });
+});

@@ -60,6 +60,9 @@ export type AziendaRiga = {
   stato: StatoTenant;
   motivoStato: string | null;
   createdAt: Date;
+  /** Ciclo di vita (10/09/2026): il conto alla rovescia dello svuotamento parte da qui. */
+  cancellatoIl: Date | null;
+  svuotatoIl: Date | null;
   abbonamento: {
     tipo: TipoAbbonamento;
     stato: StatoAbbonamento;
@@ -105,6 +108,20 @@ export type AziendaRiga = {
    * mai questo campo — che `SchedaAzienda` eredita invariato da qui sotto.
    */
   invitoInSospeso: { email: string; scadeIl: Date } | null;
+  /**
+   * Il percorso di attivazione come date (ciclo di vita, D9): quando
+   * l'azienda ha accettato l'invito e toccato le tre pietre miliari. `null`
+   * = non ancora. Una query per l'elenco intero (v. `percorsiAttivazione`),
+   * dentro la regola di costo.
+   */
+  percorso: PercorsoAttivazione;
+};
+
+export type PercorsoAttivazione = {
+  invitoAccettato: Date | null;
+  primaCommessa: Date | null;
+  primaFattura: Date | null;
+  primoUtenteAggiunto: Date | null;
 };
 
 /** L'abbonamento completo dell'azienda, in unità umane (euro, giorni) per la scheda di dettaglio. */
@@ -267,6 +284,43 @@ async function consumiTars(adesso: Date): Promise<Map<number, number> | null> {
   }
 }
 
+/**
+ * I percorsi di attivazione di TUTTE le aziende in una query (D9): gli
+ * eventi `invito_accettato` + pietre miliari, da sempre (`new Date(0)`),
+ * ridotti alla PRIMA occorrenza per (azienda, tappa). La tabella eventi è
+ * piccola e l'elenco si carica ogni 15 s: quando le aziende saranno decine
+ * si aggiunge un indice su `tipo` o una tabella materializzata.
+ */
+async function percorsiAttivazione(repo: TenantRepository): Promise<Map<number, PercorsoAttivazione>> {
+  const eventi = await repo.eventiRecenti({
+    tipi: ["invito_accettato", "prima_commessa", "prima_fattura", "primo_utente_aggiunto"],
+    da: new Date(0),
+  });
+  const percorsi = new Map<number, PercorsoAttivazione>();
+  const campo: Record<string, keyof PercorsoAttivazione> = {
+    invito_accettato: "invitoAccettato",
+    prima_commessa: "primaCommessa",
+    prima_fattura: "primaFattura",
+    primo_utente_aggiunto: "primoUtenteAggiunto",
+  };
+  for (const e of eventi) {
+    const percorso =
+      percorsi.get(e.tenantId) ??
+      ({ invitoAccettato: null, primaCommessa: null, primaFattura: null, primoUtenteAggiunto: null } as PercorsoAttivazione);
+    const chiave = campo[e.tipo];
+    if (chiave && !percorso[chiave]) percorso[chiave] = e.createdAt;
+    percorsi.set(e.tenantId, percorso);
+  }
+  return percorsi;
+}
+
+const PERCORSO_VUOTO: PercorsoAttivazione = {
+  invitoAccettato: null,
+  primaCommessa: null,
+  primaFattura: null,
+  primoUtenteAggiunto: null,
+};
+
 async function rigaAzienda(
   repo: TenantRepository,
   t: TenantRecord,
@@ -276,6 +330,7 @@ async function rigaAzienda(
     workerSospesi: Array<{ etichetta: string; finoA: Date; errore: string }>;
     comandiInAttesa: number;
     consumoNano: number | null;
+    percorso: PercorsoAttivazione;
     adesso: Date;
   }
 ): Promise<AziendaRiga> {
@@ -311,6 +366,8 @@ async function rigaAzienda(
     stato: t.stato,
     motivoStato: t.motivoStato,
     createdAt: t.createdAt,
+    cancellatoIl: t.cancellatoIl,
+    svuotatoIl: t.svuotatoIl,
     abbonamento: abbonamentoNarrow(d.abbonamento),
     storage: calcolaStorage(d.storage, d.abbonamento, d.adesso),
     tars: calcolaTars(d.abbonamento, d.consumoNano, d.adesso),
@@ -319,25 +376,28 @@ async function rigaAzienda(
     ultimoBackup,
     proprietari,
     invitoInSospeso,
+    percorso: d.percorso,
   };
 }
 
 /**
  * L'elenco di tutte le aziende (spec §5.1). Regola di costo VINCOLANTE: al
- * più cinque giri di query in tutto — `storageTutti`, `eventiRecenti`,
- * `comandiInAttesa`, `consumoAziendeMese`, e `invitiDi` solo per le aziende
- * senza un proprietario attivo (di solito zero). Mai `storageDi`, `eventi`
- * (singolare) o `comandiDi` dentro il ciclo per azienda: userebbero un giro
- * a testa invece di uno per l'elenco intero (~147 ms ciascuno).
+ * più sei giri di query in tutto — `storageTutti`, `eventiRecenti` (worker),
+ * `comandiInAttesa`, `consumoAziendeMese`, `percorsiAttivazione` (D9), e
+ * `invitiDi` solo per le aziende senza un proprietario attivo (di solito
+ * zero). Mai `storageDi`, `eventi` (singolare) o `comandiDi` dentro il
+ * ciclo per azienda: userebbero un giro a testa invece di uno per l'elenco
+ * intero (~147 ms ciascuno).
  */
 export async function elencoAziende(adesso: Date): Promise<AziendaRiga[]> {
   const repo = getTenantRepository();
   const tenants = repo.tutti();
-  const [storage, eventiWorker, inAttesa, consumi] = await Promise.all([
+  const [storage, eventiWorker, inAttesa, consumi, percorsi] = await Promise.all([
     repo.storageTutti(),
     repo.eventiRecenti({ tipi: ["worker_sospeso", "worker_riarmato"], da: new Date(adesso.getTime() - 24 * 3600_000) }),
     repo.comandiInAttesa(),
     consumiTars(adesso),
+    percorsiAttivazione(repo),
   ]);
   const storagePer = new Map(storage.map(s => [s.tenantId, s]));
   return Promise.all(
@@ -351,6 +411,7 @@ export async function elencoAziende(adesso: Date): Promise<AziendaRiga[]> {
         ),
         comandiInAttesa: inAttesa.filter(c => c.tenantId === t.id).length,
         consumoNano: consumi?.get(t.id) ?? (consumi ? 0 : null),
+        percorso: percorsi.get(t.id) ?? PERCORSO_VUOTO,
         adesso,
       })
     )

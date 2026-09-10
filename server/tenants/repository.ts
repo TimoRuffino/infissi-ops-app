@@ -39,7 +39,33 @@ export type TenantRepository = {
   perId(id: number): TenantRecord | null;
   perSlug(slug: string): TenantRecord | null;
   inserisci(input: { slug: string; nome: string; stato?: StatoTenant; id?: number }): Promise<TenantRecord>;
-  aggiornaStato(id: number, stato: StatoTenant, motivo: string | null): Promise<TenantRecord>;
+  /**
+   * Cambia lo stato dell'azienda. `marcatempo` (ciclo di vita, piano
+   * 10/09/2026): `cancellatoIl` si imposta entrando in `cancellato` e si
+   * azzera con `null` alla riattivazione; `svuotatoIl` lo scrive solo
+   * `svuota_tenant` e non si azzera mai. Una chiave assente non tocca la
+   * colonna. Chi decide QUANDO è il servizio (`servizio.ts`), qui solo
+   * persistenza.
+   */
+  aggiornaStato(
+    id: number,
+    stato: StatoTenant,
+    motivo: string | null,
+    marcatempo?: { cancellatoIl?: Date | null; svuotatoIl?: Date }
+  ): Promise<TenantRecord>;
+  /**
+   * La parte control plane dello svuotamento (ciclo di vita, D5 — chiamata
+   * SOLO da `svuotamento.ts`, che ha già passato le guardie): la riga
+   * `tenants` diventa una lapide — `svuotato_il = adesso`, slug liberato in
+   * `cancellata-<id>`, fatturazione e note azzerate (PII) — e spariscono le
+   * righe per tenant di `tenant_sedi`, `oauth_state`, `tenant_inviti` e
+   * `tenant_storage`. Restano `tenant_eventi` (append-only), `tenant_comandi`
+   * e `abbonamenti` (storia). Mai il tenant 1.
+   */
+  svuotaControlPlane(
+    tenantId: number,
+    adesso: Date
+  ): Promise<{ slug: string; sedi: number; inviti: number; oauthState: number }>;
   /**
    * Aggiornamento parziale dei dati dell'azienda («Modifica azienda», piano
    * 09/09/2026, Task 1): SOLO i campi presenti in `campi` cambiano.
@@ -73,6 +99,8 @@ export type TenantRepository = {
    * spalle. Senza `ultimi` il comportamento è quello di sempre (tutti).
    */
   eventi(tenantId: number, opzioni?: { ultimi?: number }): Promise<TenantEvento[]>;
+  /** C'è già almeno un evento di questo tipo per l'azienda? (pietre miliari, D9: una query di esistenza, mai la cronologia intera). */
+  esisteEvento(tenantId: number, tipo: TipoEvento): Promise<boolean>;
   /**
    * Tutte le aziende in una query sola, filtrati per tipo e finestra di
    * tempo: il pannello piattaforma (WS6) legge così i worker sospesi di
@@ -311,17 +339,45 @@ function createMemoryTenantRepository(): TenantRepository {
         storageQuotaBytes: QUOTA_STORAGE_PREDEFINITA_BYTES,
         fatturazione: clone(FATTURAZIONE_VUOTA),
         note: null,
+        cancellatoIl: null,
+        svuotatoIl: null,
       };
       tenants.push(t);
       return clone(t);
     },
-    async aggiornaStato(id, stato, motivo) {
+    async aggiornaStato(id, stato, motivo, marcatempo) {
       const t = tenants.find(x => x.id === id);
       if (!t) throw new Error(`tenant ${id} inesistente`);
       t.stato = stato;
       t.motivoStato = motivo;
+      if (marcatempo && "cancellatoIl" in marcatempo) t.cancellatoIl = marcatempo.cancellatoIl ?? null;
+      if (marcatempo?.svuotatoIl) t.svuotatoIl = marcatempo.svuotatoIl;
       t.updatedAt = new Date();
       return clone(t);
+    },
+    async svuotaControlPlane(tenantId, adesso) {
+      if (tenantId === TENANT_PREDEFINITO_ID) throw new Error("il tenant 1 non si svuota");
+      const t = tenants.find(x => x.id === tenantId);
+      if (!t) throw new Error(`tenant ${tenantId} inesistente`);
+      t.slug = `cancellata-${tenantId}`;
+      t.fatturazione = clone(FATTURAZIONE_VUOTA);
+      t.note = null;
+      t.svuotatoIl = adesso;
+      t.updatedAt = new Date();
+      let sediTolte = 0;
+      for (const [sedeId, tid] of [...sedi.entries()]) {
+        if (tid === tenantId) { sedi.delete(sedeId); sediTolte++; }
+      }
+      let invitiTolti = 0;
+      for (let i = inviti.length - 1; i >= 0; i--) {
+        if (inviti[i].tenantId === tenantId) { inviti.splice(i, 1); invitiTolti++; }
+      }
+      let statesTolti = 0;
+      for (const [chiave, s] of [...states.entries()]) {
+        if (s.tenantId === tenantId) { states.delete(chiave); statesTolti++; }
+      }
+      storage.delete(tenantId);
+      return { slug: t.slug, sedi: sediTolte, inviti: invitiTolti, oauthState: statesTolti };
     },
     async aggiornaTenant(id, campi) {
       const t = tenants.find(x => x.id === id);
@@ -358,6 +414,9 @@ function createMemoryTenantRepository(): TenantRepository {
     async eventiRecenti(input) {
       const tipi = new Set(input.tipi);
       return eventi.filter(e => tipi.has(e.tipo) && e.createdAt.getTime() >= input.da.getTime()).map(clone);
+    },
+    async esisteEvento(tenantId, tipo) {
+      return eventi.some(e => e.tenantId === tenantId && e.tipo === tipo);
     },
     async accodaComando(input) {
       const c: TenantComando = {
@@ -597,6 +656,8 @@ export function createPostgresTenantRepository(
       codiceSdi: r.codice_sdi ?? null,
     },
     note: r.note ?? null,
+    cancellatoIl: r.cancellato_il ? new Date(r.cancellato_il) : null,
+    svuotatoIl: r.svuotato_il ? new Date(r.svuotato_il) : null,
   });
   const rigaEvento = (r: any): TenantEvento => ({
     id: Number(r.id),
@@ -703,7 +764,7 @@ export function createPostgresTenantRepository(
           id BIGSERIAL PRIMARY KEY,
           slug TEXT NOT NULL UNIQUE,
           nome TEXT NOT NULL,
-          stato TEXT NOT NULL CHECK (stato IN ('attivo','sospeso')),
+          stato TEXT NOT NULL CHECK (stato IN ('in_attesa','attivo','sospeso','archiviato','cancellato')),
           motivo_stato TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -721,6 +782,23 @@ export function createPostgresTenantRepository(
           ADD COLUMN IF NOT EXISTS pec TEXT,
           ADD COLUMN IF NOT EXISTS codice_sdi TEXT,
           ADD COLUMN IF NOT EXISTS note TEXT`;
+        // Ciclo di vita (piano 10/09/2026, D4): marcatempo della cancellazione
+        // (la ritenzione si conta da qui) e dello svuotamento (la lapide).
+        await tx`ALTER TABLE tenants
+          ADD COLUMN IF NOT EXISTS cancellato_il TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS svuotato_il TIMESTAMPTZ`;
+        // Il CHECK di `tenants.stato` è nato nel WS1 con due valori: come per
+        // `tenant_comandi_tipo_check` più sotto, si ricrea SOLO se non
+        // conosce ancora l'ultimo stato del ciclo di vita.
+        const [vincoloStato] = await tx<{ definizione: string }[]>`
+          SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
+           WHERE conname = 'tenants_stato_check'
+             AND conrelid = 'tenants'::regclass`;
+        if (!vincoloStato?.definizione?.includes("cancellato")) {
+          await tx`ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_stato_check`;
+          await tx`ALTER TABLE tenants ADD CONSTRAINT tenants_stato_check
+            CHECK (stato IN ('in_attesa','attivo','sospeso','archiviato','cancellato'))`;
+        }
         await tx`CREATE TABLE IF NOT EXISTS tenant_eventi (
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id),
@@ -742,7 +820,7 @@ export function createPostgresTenantRepository(
           FOR EACH ROW EXECUTE FUNCTION tenant_eventi_solo_insert()`;
         await tx`CREATE TABLE IF NOT EXISTS tenant_comandi (
           id BIGSERIAL PRIMARY KEY,
-          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario')),
+          tipo TEXT NOT NULL CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario','archivia','cancella','svuota_tenant')),
           tenant_id BIGINT,
           payload JSONB NOT NULL,
           stato TEXT NOT NULL DEFAULT 'in_attesa' CHECK (stato IN ('in_attesa','eseguito','errore')),
@@ -855,20 +933,20 @@ export function createPostgresTenantRepository(
         // cinque valori e `CREATE TABLE IF NOT EXISTS` non lo tocca su una
         // tabella già a terra. Postgres chiama il vincolo <tabella>_<colonna>_check.
         //
-        // Si rifà SOLO se serve (fix wave finale, esteso dal WS4 e dal piano
-        // «Modifica azienda»): `DROP` + `ADD CONSTRAINT` prende un lock
-        // ACCESS EXCLUSIVE su `tenant_comandi` e rivalida tutte le righe — a
-        // ogni boot, anche quando il vincolo è già quello giusto. Si guarda
-        // prima com'è fatto: se nomina già `modifica_proprietario` (l'ultimo
-        // dei dieci tipi) non si tocca niente.
+        // Si rifà SOLO se serve (fix wave finale, esteso dal WS4, dal piano
+        // «Modifica azienda» e dal ciclo di vita): `DROP` + `ADD CONSTRAINT`
+        // prende un lock ACCESS EXCLUSIVE su `tenant_comandi` e rivalida
+        // tutte le righe — a ogni boot, anche quando il vincolo è già quello
+        // giusto. Si guarda prima com'è fatto: se nomina già `svuota_tenant`
+        // (l'ultimo dei tredici tipi) non si tocca niente.
         const [vincoloTipo] = await tx<{ definizione: string }[]>`
           SELECT pg_get_constraintdef(oid) AS definizione FROM pg_constraint
            WHERE conname = 'tenant_comandi_tipo_check'
              AND conrelid = 'tenant_comandi'::regclass`;
-        if (!vincoloTipo?.definizione?.includes("modifica_proprietario")) {
+        if (!vincoloTipo?.definizione?.includes("svuota_tenant")) {
           await tx`ALTER TABLE tenant_comandi DROP CONSTRAINT IF EXISTS tenant_comandi_tipo_check`;
           await tx`ALTER TABLE tenant_comandi ADD CONSTRAINT tenant_comandi_tipo_check
-            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario'))`;
+            CHECK (tipo IN ('crea','sospendi','riattiva','assegna_proprietario','revoca_proprietario','ricalcola_storage','ripristina_archivi','imposta_abbonamento','modifica_tenant','modifica_proprietario','archivia','cancella','svuota_tenant'))`;
         }
       })
       .then(() => undefined);
@@ -925,12 +1003,48 @@ export function createPostgresTenantRepository(
       if (input.id != null) await allineaSequenza();
       return memorizza(rigaTenant(rows[0]));
     },
-    async aggiornaStato(id, stato, motivo) {
+    async aggiornaStato(id, stato, motivo, marcatempo) {
       await ensureSchema();
-      const rows = await sql`UPDATE tenants SET stato = ${stato}, motivo_stato = ${motivo}, updated_at = NOW()
+      // `cancellato_il` cambia solo se la chiave è presente (anche con
+      // `null`, che azzera); `svuotato_il` solo con un valore — è la lapide,
+      // non si toglie mai.
+      const toccaCancellatoIl = marcatempo != null && "cancellatoIl" in marcatempo;
+      const rows = await sql`UPDATE tenants SET stato = ${stato}, motivo_stato = ${motivo},
+          cancellato_il = ${toccaCancellatoIl ? (marcatempo!.cancellatoIl ?? null) : sql`cancellato_il`},
+          svuotato_il = ${marcatempo?.svuotatoIl ? marcatempo.svuotatoIl : sql`svuotato_il`},
+          updated_at = NOW()
         WHERE id = ${id} RETURNING *`;
       if (!rows.length) throw new Error(`tenant ${id} inesistente`);
       return memorizza(rigaTenant(rows[0]));
+    },
+    async svuotaControlPlane(tenantId, adesso) {
+      if (tenantId === TENANT_PREDEFINITO_ID) throw new Error("il tenant 1 non si svuota");
+      await ensureSchema();
+      const slug = `cancellata-${tenantId}`;
+      // Una transazione sola: la lapide e le cancellazioni per tenant vanno
+      // insieme — un ritentativo dopo un errore a metà rifarebbe tutto
+      // (DELETE idempotenti, UPDATE idempotente).
+      const { riga, sedi, inviti, oauthState } = await sql.begin(async tx => {
+        const rows = await tx`UPDATE tenants SET
+            slug = ${slug},
+            partita_iva = NULL, codice_fiscale = NULL, indirizzo_legale = NULL,
+            email_amministrativa = NULL, pec = NULL, codice_sdi = NULL, note = NULL,
+            svuotato_il = ${adesso}, updated_at = NOW()
+          WHERE id = ${tenantId} RETURNING *`;
+        if (!rows.length) throw new Error(`tenant ${tenantId} inesistente`);
+        const sediEsito = await tx`DELETE FROM tenant_sedi WHERE tenant_id = ${tenantId}`;
+        const invitiEsito = await tx`DELETE FROM tenant_inviti WHERE tenant_id = ${tenantId}`;
+        const stateEsito = await tx`DELETE FROM oauth_state WHERE tenant_id = ${tenantId}`;
+        await tx`DELETE FROM tenant_storage WHERE tenant_id = ${tenantId}`;
+        return {
+          riga: rows[0],
+          sedi: sediEsito.count ?? 0,
+          inviti: invitiEsito.count ?? 0,
+          oauthState: stateEsito.count ?? 0,
+        };
+      });
+      memorizza(rigaTenant(riga));
+      return { slug, sedi, inviti, oauthState };
     },
     async aggiornaTenant(id, campi) {
       await ensureSchema();
@@ -998,6 +1112,11 @@ export function createPostgresTenantRepository(
       await ensureSchema();
       const rows = await sql`SELECT * FROM tenant_eventi WHERE tipo = ANY(${input.tipi}) AND created_at >= ${input.da} ORDER BY id`;
       return rows.map(rigaEvento);
+    },
+    async esisteEvento(tenantId, tipo) {
+      await ensureSchema();
+      const rows = await sql`SELECT 1 FROM tenant_eventi WHERE tenant_id = ${tenantId} AND tipo = ${tipo} LIMIT 1`;
+      return rows.length > 0;
     },
     async accodaComando(input) {
       await ensureSchema();

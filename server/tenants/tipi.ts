@@ -1,4 +1,16 @@
-export type StatoTenant = "attivo" | "sospeso";
+// Ciclo di vita dell'azienda (piano 10/09/2026, D1-D2): il tenant è il
+// cancello OPERATIVO, l'abbonamento la verità di fatturazione — `in_prova` e
+// `scaduto` non esistono qui perché vivono già su `StatoAbbonamento`
+// (`trialing`, `suspended`).
+// - `in_attesa`: nata dal modulo pubblico, invito mai accettato. Nessun
+//   login, nessun worker; diventa `attivo` all'accettazione dell'invito.
+// - `attivo` / `sospeso`: come dal WS1 (sospeso = sola lettura).
+// - `archiviato`: uscita ordinata reversibile — login e sessioni rifiutati,
+//   worker esclusi, dati intatti.
+// - `cancellato`: come archiviato + `cancellatoIl`; dopo 30 giorni di
+//   ritenzione il giro del ciclo di vita accoda `svuota_tenant`. Riattivabile
+//   finché `svuotatoIl` è NULL, mai dopo.
+export type StatoTenant = "in_attesa" | "attivo" | "sospeso" | "archiviato" | "cancellato";
 
 /**
  * Dati di fatturazione dell'azienda («Modifica azienda», piano 09/09/2026,
@@ -25,6 +37,10 @@ export type TenantRecord = {
   storageQuotaBytes: number;
   fatturazione: DatiFatturazione;
   note: string | null;
+  /** Da quando l'azienda è `cancellato`: la ritenzione di 30 giorni si conta da qui. NULL fuori da quello stato. */
+  cancellatoIl: Date | null;
+  /** Quando `svuota_tenant` ha rimosso i dati: da qui in poi la riga è una lapide e `riattiva` rifiuta. */
+  svuotatoIl: Date | null;
 };
 
 export type Attore =
@@ -81,7 +97,22 @@ export type TipoEvento =
   // `{ da, a }`.
   | "tenant_modificato"
   | "proprietario_modificato"
-  | "slug_cambiato";
+  | "slug_cambiato"
+  // Ciclo di vita (piano 10/09/2026): `attivato` quando un tenant `in_attesa`
+  // accetta l'invito (dettagli `{ invitoId, utenteId }`); `archiviato` e
+  // `cancellato` dai comandi omonimi (il motivo nella colonna `motivo`);
+  // `svuotato` a fine ritenzione, con i conteggi
+  // `{ file, righeTabelle, store, utenti, sedi, slugPrima }`.
+  | "attivato"
+  | "archiviato"
+  | "cancellato"
+  | "svuotato"
+  // Pietre miliari del percorso di attivazione (D9): registrate una volta
+  // sola per azienda da `segnaPietraMiliare`, dettagli `{ id }` del record
+  // che le ha innescate.
+  | "prima_commessa"
+  | "prima_fattura"
+  | "primo_utente_aggiunto";
 
 export type TenantEvento = {
   id: number;
@@ -104,7 +135,13 @@ export type TipoComando =
   | "imposta_abbonamento"
   // «Modifica azienda» (piano 09/09/2026, Task 2 li esegue in `eseguiComando`).
   | "modifica_tenant"
-  | "modifica_proprietario";
+  | "modifica_proprietario"
+  // Ciclo di vita (piano 10/09/2026, D3-D5): `archivia`/`cancella` come
+  // `sospendi` (slug + motivo); `svuota_tenant` lo accoda il giro del ciclo
+  // di vita a fine ritenzione (o la CLI con `--forza`).
+  | "archivia"
+  | "cancella"
+  | "svuota_tenant";
 
 export type StatoComando = "in_attesa" | "eseguito" | "errore";
 

@@ -17,7 +17,8 @@ import {
   ruoliDi,
   tenantDelContesto,
 } from "../tenants/regole";
-import { getTenantRepository } from "../tenants/repository";
+import { segnaPietraMiliare } from "../tenants/pietreMiliari";
+import { getTenantRepository, invitoValido } from "../tenants/repository";
 import { attoreTesto } from "../tenants/tipi";
 // Import ciclico innocuo: sedi.ts importa getUtentiStore, qui usiamo le sue
 // funzioni solo dentro gli handler (come già fa sedi.ts con noi).
@@ -71,6 +72,30 @@ async function assertPuoNominareProprietari(ctx: TrpcContext, multi: boolean): P
 
 function attoreDi(ctx: TrpcContext): string {
   return attoreTesto({ tipo: "utente", id: Number(ctx.user?.id) });
+}
+
+/**
+ * Ciclo di vita (piano 10/09/2026, D8): disattivare o eliminare un utente
+ * annulla i suoi inviti ancora validi — senza, un link rimasto in giro
+ * riapriva l'account (accettaInvito faceva `attivo = true`). Best effort sui
+ * singoli inviti già consumati (annullaInvito torna null), un evento per
+ * ognuno annullato davvero.
+ */
+async function annullaInvitiDellUtente(tenantId: number, utenteId: number, attore: string): Promise<void> {
+  const repo = getTenantRepository();
+  const adesso = new Date();
+  for (const invito of await repo.invitiDi(tenantId)) {
+    if (invito.utenteId !== utenteId || !invitoValido(invito, adesso)) continue;
+    const annullato = await repo.annullaInvito(invito.id);
+    if (annullato) {
+      await repo.registraEvento({
+        tenantId,
+        tipo: "invito_annullato",
+        attore,
+        dettagli: { invitoId: invito.id, utenteId, perDisattivazione: true },
+      });
+    }
+  }
 }
 
 // A new database gets one bootstrap administrator, never a list of staff with
@@ -316,6 +341,10 @@ export const utentiRouter = router({
           dettagli: { utenteId: utente.id },
         });
       }
+      // Percorso di attivazione (ciclo di vita, D9): il primo utente creato
+      // DA questo router è il primo oltre il proprietario (che nasce dal
+      // comando `crea`, non da qui).
+      await segnaPietraMiliare(tenantId, "primo_utente_aggiunto", { id: utente.id });
       return publicUtente(utente);
     }),
 
@@ -380,6 +409,9 @@ export const utentiRouter = router({
           dettagli: { utenteId: before.id },
         });
       }
+      if (multi && updates.attivo === false && before.attivo !== false) {
+        await annullaInvitiDellUtente(tenantId, before.id, attoreDi(ctx));
+      }
       return publicUtente(utenti[idx]);
     }),
 
@@ -403,6 +435,9 @@ export const utentiRouter = router({
         attore: attoreDi(ctx),
         dettagli: { utenteId: before.id, cancellato: true },
       });
+    }
+    if (multi) {
+      await annullaInvitiDellUtente(presidioDi(before).tenantId, before.id, attoreDi(ctx));
     }
     return { success: true };
   }),

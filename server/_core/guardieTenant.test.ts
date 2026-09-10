@@ -94,6 +94,40 @@ describe("sola lettura del tenant sospeso", () => {
   });
 });
 
+describe("porta chiusa del ciclo di vita (piano 10/09/2026)", () => {
+  it("un tenant archiviato non legge e non scrive; nemmeno sedi.switch è esente", async () => {
+    const archiviato = await getTenantRepository().aggiornaStato(acme.id, "archiviato", "prova");
+    const caller = appRouter.createCaller(
+      contestoDiProva({ utenteId: 97417, sedeId: SEDE, sediIds: [SEDE], tenantId: acme.id, tenant: archiviato })
+    );
+    await expect(caller.clienti.list({})).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI.aziendaNonAccessibile,
+    });
+    await expect(caller.clienti.create({ nome: "Mario", cognome: "Chiuso" })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI.aziendaNonAccessibile,
+    });
+    await expect(caller.sedi.switch({ sedeId: SEDE })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: MESSAGGI.aziendaNonAccessibile,
+    });
+  });
+
+  it("in_attesa e cancellato chiudono allo stesso modo; il sospeso resta sola lettura", async () => {
+    const repo = getTenantRepository();
+    for (const stato of ["in_attesa", "cancellato"] as const) {
+      const tenant = await repo.aggiornaStato(acme.id, stato, "prova");
+      const caller = appRouter.createCaller(
+        contestoDiProva({ utenteId: 97418, sedeId: SEDE, tenantId: acme.id, tenant })
+      );
+      await expect(caller.clienti.list({})).rejects.toMatchObject({
+        message: MESSAGGI.aziendaNonAccessibile,
+      });
+    }
+  });
+});
+
 describe("sede attiva obbligatoria", () => {
   it("con un tenant reale e sedeId null la procedura protetta rifiuta", async () => {
     const t1 = getTenantRepository().perId(1)!;
@@ -160,6 +194,30 @@ describe("login", () => {
       await expect(
         callerAnonimo().auth.login({ email: "porta@ruffino.test", password: PASSWORD })
       ).resolves.toMatchObject({ id: 97415, email: "porta@ruffino.test" });
+    } finally {
+      pulisci();
+    }
+  });
+
+  // Ciclo di vita, D10: un'azienda in_attesa/archiviata/cancellata non apre
+  // sessioni; la sospesa sì (sola lettura). Il messaggio è unico e generico.
+  it("login rifiutato per i tre stati chiusi, permesso per il sospeso", async () => {
+    const pulisci = seminaUtenti();
+    const repo = getTenantRepository();
+    try {
+      for (const stato of ["in_attesa", "archiviato", "cancellato"] as const) {
+        await repo.aggiornaStato(acme.id, stato, "prova");
+        await expect(
+          callerAnonimo().auth.login({ email: "porta@acme.test", password: PASSWORD })
+        ).rejects.toMatchObject({
+          code: "PRECONDITION_FAILED",
+          message: MESSAGGI.aziendaNonAccessibile,
+        });
+      }
+      await repo.aggiornaStato(acme.id, "sospeso", "prova");
+      await expect(
+        callerAnonimo().auth.login({ email: "porta@acme.test", password: PASSWORD })
+      ).resolves.toMatchObject({ id: 97414 });
     } finally {
       pulisci();
     }

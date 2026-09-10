@@ -99,7 +99,11 @@ export async function preparaTenants(): Promise<number[]> {
   // tetto d'azienda. Entrambi restano inerti a interruttore spento.
   registraGanciQuota();
   if (!interruttoreAttivo("multiAzienda")) return [TENANT_PREDEFINITO_ID];
-  return repo.tutti().map(t => t.id);
+  // Un tenant svuotato (ciclo di vita, D5) è una lapide: istanziare i suoi
+  // store ricreerebbe righe vuote in `kv_store` appena qualcosa salvasse.
+  // Un `cancellato` non ancora svuotato invece si carica: serve alla
+  // riattivazione entro la ritenzione e alla camminata dello svuotamento.
+  return repo.tutti().filter(t => !t.svuotatoIl).map(t => t.id);
 }
 
 /**

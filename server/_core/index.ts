@@ -440,6 +440,8 @@ async function startServer() {
 
   // WS4 (Task 3): import dinamico come gli altri di questo blocco.
   const { avviaWorkerAbbonamenti } = await import("../abbonamenti/worker");
+  // Ciclo di vita (piano 10/09/2026): stesso pattern del worker qui sopra.
+  const { avviaWorkerCicloDiVita } = await import("../tenants/cicloDiVita");
   // WS6 (I5): un avviso solo se APP_BASE_URL manca — i link d'invito
   // nascerebbero dall'Host della richiesta.
   const { avvisaBaseUrlMancante } = await import("../piattaforma/inviti");
@@ -457,6 +459,10 @@ async function startServer() {
     // dal boot: subito un giro, poi ogni 6 ore; a interruttore spento non fa
     // nulla (se lo verifica da sé).
     avviaWorkerAbbonamenti();
+    // Il giro del ciclo di vita (D6): accoda `cancella` per le prove mai
+    // attivate e `svuota_tenant` a ritenzione compiuta; li esegue il giro
+    // dei 30 s dei comandi. A interruttore spento non parte.
+    avviaWorkerCicloDiVita();
     // Senza APP_BASE_URL i link d'invito del pannello piattaforma useranno
     // l'host della richiesta: una riga sola, qui, dove si guardano gli altri
     // avvisi di avvio.

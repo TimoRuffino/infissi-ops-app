@@ -23,7 +23,10 @@ import { getTenantRepository, resetTenantRepositoryForTesting } from "./reposito
 import { __impostaDriveRipristinoPerTest } from "./ripristino";
 import {
   allineaTenantPredefinito,
+  archivia,
   assegnaProprietario,
+  attivaDaInvito,
+  cancella,
   crea,
   eseguiComandiInAttesa,
   eseguiComandoSubito,
@@ -1074,5 +1077,88 @@ describe("eseguiComandoSubito", () => {
       richiestoDa: "piattaforma:t@r.it",
     });
     await expect(eseguiComandoSubito(c.id)).rejects.toThrow(/FLAG_MULTI_AZIENDA/);
+  });
+});
+
+// ── Ciclo di vita (piano 10/09/2026) ────────────────────────────────────────
+describe("ciclo di vita: stati e transizioni", () => {
+  it("crea con statoIniziale in_attesa: il tenant nasce chiuso e l'evento lo dice", async () => {
+    const esito = await crea({ ...inputAcme(), statoIniziale: "in_attesa" }, script);
+    expect(esito.tenant.stato).toBe("in_attesa");
+    const eventi = await getTenantRepository().eventi(esito.tenant.id);
+    expect(eventi[0]).toMatchObject({ tipo: "creato", dettagli: { stato: "in_attesa" } });
+  });
+
+  it("attivaDaInvito: in_attesa diventa attivo con l'evento; su un attivo è un no-op", async () => {
+    const { tenant, utenteId } = await crea({ ...inputAcme(), statoIniziale: "in_attesa" }, script);
+    await attivaDaInvito(tenant.id, { invitoId: 7, utenteId });
+    const repo = getTenantRepository();
+    expect(repo.perId(tenant.id)!.stato).toBe("attivo");
+    const eventi = await repo.eventi(tenant.id);
+    expect(eventi.at(-1)).toMatchObject({ tipo: "attivato", dettagli: { invitoId: 7, utenteId } });
+    const prima = eventi.length;
+    await attivaDaInvito(tenant.id, { invitoId: 7, utenteId });
+    expect((await repo.eventi(tenant.id)).length).toBe(prima);
+  });
+
+  it("archivia: porta chiusa reversibile; sospendi da archiviato rifiuta; riattiva riapre", async () => {
+    await getTenantRepository().assicuraTenantPredefinito(); // acme non deve prendere l'id 1
+    const { tenant } = await crea(inputAcme(), script);
+    const archiviato = await archivia(tenant.id, "cliente in pausa", script);
+    expect(archiviato.stato).toBe("archiviato");
+    await expect(sospendi(tenant.id, "prova", script)).rejects.toThrow(/Transizione non ammessa/);
+    await expect(archivia(tenant.id, "di nuovo", script)).rejects.toThrow(/Transizione non ammessa/);
+    const riaperto = await riattiva(tenant.id, "torna operativa", script);
+    expect(riaperto.stato).toBe("attivo");
+    const tipi = (await getTenantRepository().eventi(tenant.id)).map(e => e.tipo);
+    expect(tipi).toContain("archiviato");
+    expect(tipi.at(-1)).toBe("riattivato");
+  });
+
+  it("cancella: marcatempo della ritenzione; riattiva lo azzera", async () => {
+    await getTenantRepository().assicuraTenantPredefinito(); // acme non deve prendere l'id 1
+    const { tenant } = await crea(inputAcme(), script);
+    const quando = new Date("2026-09-10T10:00:00Z");
+    const cancellato = await cancella(tenant.id, "disdetta a fine mese", script, quando);
+    expect(cancellato.stato).toBe("cancellato");
+    expect(cancellato.cancellatoIl).toEqual(quando);
+    const riaperto = await riattiva(tenant.id, "ci ha ripensato", script);
+    expect(riaperto.stato).toBe("attivo");
+    expect(riaperto.cancellatoIl).toBeNull();
+  });
+
+  it("riattiva rifiuta un cancellato già svuotato; il tenant 1 non si chiude", async () => {
+    await getTenantRepository().assicuraTenantPredefinito(); // acme non deve prendere l'id 1
+    const { tenant } = await crea(inputAcme(), script);
+    const repo = getTenantRepository();
+    await cancella(tenant.id, "uscita definitiva", script);
+    await repo.aggiornaStato(tenant.id, "cancellato", "svuotata", { svuotatoIl: new Date() });
+    await expect(riattiva(tenant.id, "troppo tardi", script)).rejects.toThrow(MESSAGGI.aziendaSvuotata);
+    await expect(archivia(TENANT_PREDEFINITO_ID, "mai", script)).rejects.toThrow(MESSAGGI.tenant1NonSiChiude);
+    await expect(cancella(TENANT_PREDEFINITO_ID, "mai", script)).rejects.toThrow(MESSAGGI.tenant1NonSiChiude);
+  });
+
+  it("i comandi archivia e cancella passano dalla coda come sospendi", async () => {
+    await getTenantRepository().assicuraTenantPredefinito(); // acme non deve prendere l'id 1
+    const { tenant } = await crea(inputAcme(), script);
+    const repo = getTenantRepository();
+    await repo.accodaComando({
+      tipo: "archivia",
+      tenantId: null,
+      payload: { slug: "acme", motivo: "pausa concordata" },
+      richiestoDa: "script:tenant@test",
+    });
+    await eseguiComandiInAttesa();
+    expect(repo.perId(tenant.id)!.stato).toBe("archiviato");
+    await repo.accodaComando({
+      tipo: "cancella",
+      tenantId: tenant.id,
+      payload: { slug: "acme", motivo: "uscita ordinata" },
+      richiestoDa: "script:tenant@test",
+    });
+    await eseguiComandiInAttesa();
+    const dopo = repo.perId(tenant.id)!;
+    expect(dopo.stato).toBe("cancellato");
+    expect(dopo.cancellatoIl).not.toBeNull();
   });
 });

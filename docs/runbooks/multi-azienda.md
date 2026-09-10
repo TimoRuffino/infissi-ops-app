@@ -1488,7 +1488,8 @@ anche:
    precedente ancora valido: non ne restano mai due attivi.
 2. **Consegna.** Con `RESEND_API_KEY` impostata, l'email parte da
    `POSTA_PIATTAFORMA_MITTENTE` (default `Wyndoor <no-reply@wyndoor.com>`),
-   oggetto «Il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
+   con `Reply-To:` da `POSTA_PIATTAFORMA_RISPOSTA` se impostata, oggetto
+   «Attiva il tuo accesso a Wyndoor per `<Azienda>`», e il pannello mostra
    solo l'esito («Invito inviato a …»): il link **non torna nemmeno al
    browser** — il token è già nella casella giusta, e una seconda copia nella
    pagina dell'amministratore sarebbe soltanto un'altra copia da rubare.
@@ -1626,8 +1627,9 @@ proprietario iniziali. Decisione della direzione, 09/09/2026 (sera); spec
 | `RESEND_API_KEY` | *(nessuno)* | Chiave del provider Resend per la posta transazionale della piattaforma. Senza, `inviaPosta` torna sempre `{ inviato: false }` e il pannello mostra il link da copiare: nessun invito si perde, nessuno riceve un'email. |
 | `POSTA_PIATTAFORMA_MITTENTE` | `Wyndoor <no-reply@wyndoor.com>` | Intestazione `From:` delle email della piattaforma (oggi solo l'invito). |
 | `APP_BASE_URL` | ripiego `req.protocol`+`req.get("host")` | Base del link d'invito (`<APP_BASE_URL>/invito/<token>`, senza barra finale). In produzione va impostata esplicitamente — stesso ripiego di `fattureInCloud.ts` per il redirect OAuth, pensato per lo sviluppo locale, non per un dominio pubblico. Se manca, al boot compare `[piattaforma] APP_BASE_URL non impostata: i link d'invito useranno l'host della richiesta`; il pannello mostra comunque, sotto il link da copiare, la riga «Link su &lt;base&gt;» con l'indirizzo davvero usato. |
+| `POSTA_PIATTAFORMA_RISPOSTA` | *(nessuno)* | Indirizzo `Reply-To:` delle email della piattaforma, e il contatto stampato nel loro piede. Il mittente è un `no-reply`: senza questa variabile una risposta all'invito non arriva a nessuno, e la mail infatti non promette nessun contatto — il piede resta «Wyndoor · Gestionale commesse infissi» e basta. Non serve che sia sul dominio del mittente: Resend verifica il `From:`, non il `Reply-To:`. |
 
-Nessuna delle quattro tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
+Nessuna delle cinque tocca `FLAG_MULTI_AZIENDA`: il pannello resta gated
 dall'identità, come detto sopra.
 
 ### Produzione, in ordine (WS6)
@@ -1700,9 +1702,19 @@ roll-forward.
   fallite sullo stesso token. Un invito valido azzera il contatore
   dell'indirizzo: chi ricarica la propria pagina non lo consuma.
 - «Posta della piattaforma non configurata: copia il link e consegnalo a
-  mano.» — `RESEND_API_KEY` assente, oppure Resend ha rifiutato o non ha
-  risposto entro 10 s. Il link resta valido: si copia e si consegna
-  altrimenti. Non blocca né la creazione dell'azienda né l'invito.
+  mano.» — `RESEND_API_KEY` assente. Il link resta valido: si copia e si
+  consegna altrimenti. Non blocca né la creazione dell'azienda né l'invito.
+- «La posta non è partita (`<motivo>`): copia il link e consegnalo a mano.»
+  — la chiave c'è ma Resend ha rifiutato (`Resend ha risposto 422`, tipico di
+  un mittente su un dominio non verificato) o non ha risposto entro 10 s
+  (`Resend non ha risposto entro 10 s`), o la rete è caduta. **I due casi si
+  risolvono in due posti diversi** — il primo su Railway, il secondo sul
+  dominio del mittente in Resend — e fino al 10/09/2026 il pannello mostrava
+  sempre il primo testo anche quando era il secondo, mandando a cercare una
+  chiave che c'era già. Il riquadro dell'esito è ambra con un triangolo
+  quando la posta non è partita, verde con una busta quando è partita: la
+  differenza si vede da lontano, perché è l'unica cosa che conta (se la posta
+  non è partita, quel link è l'unica copia che esiste).
 - «L'azienda ha più proprietari: indica l'email di chi invitare.»
   (`BAD_REQUEST`) — dal pannello **non si vede**: la sezione «Proprietari e
   inviti» manda sempre l'email della riga su cui si è premuto «Invia invito»,
@@ -1731,6 +1743,73 @@ roll-forward.
 - (solo operatore) «Tabelle del control plane del tenant assenti (…,
   `tenant_inviti`)…» — il server non ha ancora fatto boot con questa
   versione: deploy prima, pannello poi (v. sopra, ora sono otto).
+
+## Ciclo di vita dell'azienda — nascita, vita, uscita (10/09/2026)
+
+Piano: `docs/superpowers/plans/2026-09-10-ciclo-di-vita-azienda.md`; PRD
+§60.14. Moduli: `server/tenants/{cicloDiVita,svuotamento,pietreMiliari}.ts`,
+`server/piattaforma/{iscrizione,iscrizioneRouter}.ts`, pagina `/prova`.
+
+### Gli stati, in una riga ciascuno
+
+| stato | login | worker | come ci si arriva | come se ne esce |
+|---|---|---|---|---|
+| `in_attesa` | no | no | iscrizione pubblica (`crea` con `statoIniziale`) | invito accettato → `attivo`; 14 giorni → comando `cancella` |
+| `attivo` | sì | sì | creazione, riattivazione, invito accettato | `sospendi` / `archivia` / `cancella` |
+| `sospeso` | sì (sola lettura) | no | comando, o abbonamento (`abbonamento:`) | `riattiva` / `archivia` / `cancella` |
+| `archiviato` | no | no | comando `archivia` (mai il tenant 1) | `riattiva` / `cancella` |
+| `cancellato` | no | no | comando `cancella` (mai il tenant 1) | `riattiva` entro 30 giorni; poi `svuota_tenant` e la riga resta lapide (`svuotato_il`, slug → `cancellata-<id>`) |
+
+Dal pannello: pulsanti Sospendi/Riattiva/Archivia/Cancella nella scheda
+(conferma password + motivo). Da CLI:
+
+    pnpm tenant stato --slug=acme --archivia|--cancella --motivo="…" --scrivi [--attendi]
+    pnpm tenant svuota --slug=acme --davvero [--forza] --scrivi [--attendi]   # dati via PER SEMPRE
+
+`--forza` salta SOLO la ritenzione, mai le altre guardie (stato
+`cancellato`, mai il tenant 1, mai due volte). Lo svuotamento cancella file,
+righe relazionali, archivi `kv_store`, utenti e sedi del tenant; se anche un
+solo file non si lascia cancellare il comando va in `errore` e si riaccoda
+al giro successivo del ciclo di vita — i dati sono ancora tutti lì.
+
+### Il giro del ciclo di vita
+
+Parte dopo il `listen`, gira ogni 6 ore (log `[ciclo-di-vita]`): accoda
+`cancella` per le `in_attesa` più vecchie di 14 giorni e `svuota_tenant`
+per le `cancellato` oltre i 30 giorni. Non esegue nulla da sé: tutto passa
+dal giro dei comandi (30 s), quindi ogni passo è in `tenant_comandi` e nel
+registro eventi (`archiviato`, `cancellato`, `svuotato` coi conteggi).
+
+### Iscrizione pubblica «Prova gratuita» (`/prova`)
+
+Tre condizioni, tutte necessarie: `FLAG_ISCRIZIONE_PUBBLICA=on` (spento di
+default in produzione), `FLAG_MULTI_AZIENDA=on`, `RESEND_API_KEY` presente
+(il link d'invito viaggia SOLO per email — è anche la verifica
+dell'indirizzo; niente posta = modulo chiuso con il messaggio di cortesia).
+La pagina risponde SEMPRE «controlla la casella»: un'email già in uso non
+crea nulla e non si distingue da fuori (log `[iscrizione]` col solo
+dominio). Limite: 5 richieste l'ora per indirizzo IP + honeypot. L'azienda
+nasce `in_attesa` e si attiva accettando l'invito; chi non lo fa sparisce
+con la pulizia dei 14 giorni.
+
+### Inviti (chiusure del 10/09)
+
+- Disattivare o eliminare un utente annulla i suoi inviti validi (evento
+  `invito_annullato` con `perDisattivazione`); `accettaInvito` rifiuta
+  comunque un utente disattivato — prima un link in giro lo RIATTIVAVA.
+- Reinvio per lo stesso utente: non prima di 10 minuti («Un invito per
+  questo proprietario è appena partito»). Per rispedire subito: annulla
+  l'invito pendente dal pannello, poi «Invita di nuovo».
+- La seconda autenticazione dopo la password NON esiste (niente MFA nel
+  prodotto): debito registrato, decisione alla direzione.
+
+### Percorso di attivazione
+
+Eventi `invito_accettato`, `prima_commessa`, `prima_fattura`,
+`primo_utente_aggiunto` in `tenant_eventi` (attore `sistema`). L'elenco
+mostra «attivazione n/4» sotto lo stato (il dettaglio nel tooltip), la
+scheda ha la sezione «Percorso di attivazione». Un'azienda ferma al secondo
+giorno si vede da lì, prima che sparisca.
 
 ## Verifica in sola lettura (prima e dopo l'accensione)
 

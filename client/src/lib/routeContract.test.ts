@@ -20,6 +20,7 @@ const EXPECTED_PATHS = [
   "/fatture/:id/stampa",
   "/commesse/:id/limiti/stampa",
   "/invito/:token",
+  "/prova",
   "/",
   "/clienti",
   "/clienti/:id",

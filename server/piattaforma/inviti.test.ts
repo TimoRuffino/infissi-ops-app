@@ -11,7 +11,7 @@ import { hashPassword, verifyPassword } from "../_core/password";
 import { __impostaPostaPerTest } from "../_core/postaPiattaforma";
 import { getSediStore } from "../routers/sedi";
 import { creaUtenteInterno, getUtentiStore } from "../routers/utenti";
-import { RUOLO_PROPRIETARIO, TTL_INVITO_MS } from "../tenants/costanti";
+import { ATTESA_REINVIO_INVITO_MS, RUOLO_PROPRIETARIO, TTL_INVITO_MS } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
 import { getTenantRepository, resetTenantRepositoryForTesting } from "../tenants/repository";
 import { crea } from "../tenants/servizio";
@@ -103,17 +103,23 @@ describe("invitaProprietario", () => {
       adesso: T0,
       baseUrl: "https://crm.test",
     });
+    // Ciclo di vita, D8: un reinvio immediato viene rifiutato; passati i 10
+    // minuti passa, e il vecchio link muore.
+    await expect(
+      invitaProprietario({ tenantId: tenant.id, attore: piattaforma, adesso: T0, baseUrl: "https://crm.test" })
+    ).rejects.toThrow(MESSAGGI_PIATTAFORMA.invitoAppenaInviato);
+    const T10 = new Date(T0.getTime() + ATTESA_REINVIO_INVITO_MS);
     const secondo = await invitaProprietario({
       tenantId: tenant.id,
       attore: piattaforma,
-      adesso: T0,
+      adesso: T10,
       baseUrl: "https://crm.test",
     });
     expect(secondo.link).not.toBe(primo.link);
     const tokenVecchio = primo.link.split("/invito/")[1];
     const tokenNuovo = secondo.link.split("/invito/")[1];
-    expect(await anteprimaInvito({ token: tokenVecchio, adesso: T0 })).toBeNull();
-    expect(await anteprimaInvito({ token: tokenNuovo, adesso: T0 })).not.toBeNull();
+    expect(await anteprimaInvito({ token: tokenVecchio, adesso: T10 })).toBeNull();
+    expect(await anteprimaInvito({ token: tokenNuovo, adesso: T10 })).not.toBeNull();
   });
 
   it("con più proprietari senza email rifiuta; con email invita quello", async () => {
@@ -271,5 +277,48 @@ describe("avvisaBaseUrlMancante", () => {
     } finally {
       spia.mockRestore();
     }
+  });
+});
+
+// Ciclo di vita (piano 10/09/2026): l'accettazione attiva un'azienda nata
+// in_attesa (iscrizione pubblica, D7) e non riapre un utente disattivato (D8).
+describe("accettaInvito e ciclo di vita", () => {
+  it("un'azienda in_attesa diventa attiva accettando l'invito, con l'evento attivato", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em_att" }));
+    const { tenant } = await crea({ ...inputAcme(), statoIniziale: "in_attesa" }, script);
+    const { link } = await invitaProprietario({
+      tenantId: tenant.id,
+      attore: piattaforma,
+      adesso: T0,
+      baseUrl: "https://crm.test",
+    });
+    const token = link.split("/invito/")[1];
+    await accettaInvito({ token, password: "Password-lunga-12", adesso: T0 });
+    const repo = getTenantRepository();
+    expect(repo.perId(tenant.id)!.stato).toBe("attivo");
+    const eventi = await repo.eventi(tenant.id);
+    expect(eventi.map(e => e.tipo)).toContain("attivato");
+  });
+
+  it("un utente disattivato non si riapre da un link rimasto in giro", async () => {
+    __impostaPostaPerTest(async () => ({ inviato: true, id: "em_dis" }));
+    const { tenant, utenteId } = await crea(inputAcme(), script);
+    const { link } = await invitaProprietario({
+      tenantId: tenant.id,
+      attore: piattaforma,
+      adesso: T0,
+      baseUrl: "https://crm.test",
+    });
+    const token = link.split("/invito/")[1];
+    conTenant(tenant.id, () => {
+      const utente = getUtentiStore().find((u: any) => u.id === utenteId)!;
+      utente.attivo = false;
+    });
+    await expect(accettaInvito({ token, password: "Password-lunga-12", adesso: T0 })).rejects.toThrow(
+      MESSAGGI_PIATTAFORMA.invitoNonValido
+    );
+    conTenant(tenant.id, () => {
+      expect(getUtentiStore().find((u: any) => u.id === utenteId)!.attivo).toBe(false);
+    });
   });
 });

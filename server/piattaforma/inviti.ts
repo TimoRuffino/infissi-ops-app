@@ -16,11 +16,12 @@
 // lo stesso messaggio (invitoNonValido), senza distinguere il motivo — non
 // è un indizio da dare a chi prova un token a caso.
 import { hashPassword } from "../_core/password";
-import { inviaPosta } from "../_core/postaPiattaforma";
+import { contattoPiattaforma, inviaPosta } from "../_core/postaPiattaforma";
 import { getUtentiPersistedStore, getUtentiStore } from "../routers/utenti";
-import { RUOLO_PROPRIETARIO, TTL_INVITO_MS } from "../tenants/costanti";
+import { ATTESA_REINVIO_INVITO_MS, RUOLO_PROPRIETARIO, TTL_INVITO_MS } from "../tenants/costanti";
 import { conTenant } from "../tenants/contestoCorrente";
-import { getTenantRepository } from "../tenants/repository";
+import { getTenantRepository, invitoValido } from "../tenants/repository";
+import { attivaDaInvito } from "../tenants/servizio";
 import { attoreTesto, type Attore, type TenantInvito } from "../tenants/tipi";
 import { MESSAGGI_PIATTAFORMA, VARIABILE_BASE_URL } from "./costanti";
 import { testoInvito } from "./testi";
@@ -92,6 +93,18 @@ export async function invitaProprietario(input: {
   const utente = proprietarioDa(input.tenantId, input);
   if (!utente) throw new Error("Proprietario non trovato");
 
+  // Limite al reinvio (ciclo di vita, D8): per lo stesso utente non più di
+  // un invito ogni 10 minuti. Il flusso «email cambiata» non lo sente:
+  // annulla il precedente PRIMA di riemettere, quindi qui non trova più un
+  // invito valido.
+  const appenaEmesso = (await repo.invitiDi(input.tenantId)).find(
+    i =>
+      i.utenteId === utente.id &&
+      invitoValido(i, input.adesso) &&
+      input.adesso.getTime() - i.createdAt.getTime() < ATTESA_REINVIO_INVITO_MS
+  );
+  if (appenaEmesso) throw new Error(MESSAGGI_PIATTAFORMA.invitoAppenaInviato);
+
   const { invito, token } = await repo.emettiInvito({
     tenantId: tenant.id,
     utenteId: utente.id,
@@ -106,8 +119,18 @@ export async function invitaProprietario(input: {
     ...testoInvito({
       nome: utente.nome,
       azienda: tenant.nome,
+      // Il suo nome utente: nella mail va detto, non lasciato indovinare.
+      email: utente.email,
       link,
       giorni: Math.round(TTL_INVITO_MS / 86_400_000),
+      // La data vera dell'invito appena emesso, non un «fra 7 giorni»
+      // ricalcolato a mente da chi legge il quinto giorno.
+      scadeIl: invito.scadeIl,
+      // La stessa base del link: il marchio della busta nasce da lì, così
+      // una mail nata su un'anteprima non va a pescare l'immagine in
+      // produzione (e viceversa).
+      baseUrl: input.baseUrl,
+      contatto: contattoPiattaforma(),
     }),
   });
   await repo.registraEvento({
@@ -154,6 +177,11 @@ export async function accettaInvito(
   const email = conTenant(invito.tenantId, () => {
     const utente = getUtentiStore().find((u: any) => u.id === invito.utenteId);
     if (!utente) throw new Error(MESSAGGI_PIATTAFORMA.invitoNonValido);
+    // Ciclo di vita, D8: un utente DISATTIVATO non si riattiva da un link
+    // rimasto in giro — la disattivazione ora annulla i suoi inviti, questo
+    // è il secondo lucchetto per la corsa (o per una riga toccata a mano).
+    // Stesso esito generico degli altri rami; il token resta consumato.
+    if (utente.attivo === false) throw new Error(MESSAGGI_PIATTAFORMA.invitoNonValido);
     // Fix round 1 (Task 3, revisione): l'email sull'invito è quella di
     // quando è stato emesso. Se nel frattempo `modifica_proprietario` ha
     // cambiato l'email del proprietario FUORI dal router (es. dal giro dei
@@ -180,5 +208,10 @@ export async function accettaInvito(
     attore: attoreTesto({ tipo: "utente", id: invito.utenteId }),
     dettagli: { invitoId: invito.id, utenteId: invito.utenteId },
   });
+  // Ciclo di vita, D7: un'azienda nata `in_attesa` (iscrizione pubblica)
+  // diventa `attivo` QUI, accettando l'invito — su ogni altro stato è un
+  // no-op. Prima di aprire la sessione: `guardiaTenant` rifiuterebbe le
+  // richieste di un tenant ancora `in_attesa`.
+  await attivaDaInvito(invito.tenantId, { invitoId: invito.id, utenteId: invito.utenteId });
   return { tenantId: invito.tenantId, utenteId: invito.utenteId, email };
 }
