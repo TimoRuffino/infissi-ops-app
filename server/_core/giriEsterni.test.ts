@@ -52,4 +52,15 @@ describe("giri esterni", () => {
   it("in staging le risposte portano X-Robots-Tag", () => {
     expect(sorgente("index.ts")).toContain("X-Robots-Tag");
   });
+
+  it("nixpacks e railway.json avviano allo stesso modo (NODE_ENV=production garantito)", () => {
+    const radice = path.join(qui, "..", "..");
+    const nixpacks = readFileSync(path.join(radice, "nixpacks.toml"), "utf8");
+    expect(nixpacks).toContain('cmd = "pnpm start"');
+  });
+
+  it("in produzione la porta non scansiona: o PORT o crash", () => {
+    const index = sorgente("index.ts");
+    expect(index).toMatch(/inProduzione\s*\?\s*preferredPort\s*:\s*await findAvailablePort/);
+  });
 });

@@ -424,7 +424,12 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  // Su Railway la porta è un contratto con l'healthcheck: se è occupata il
+  // processo esce e il restart policy riprova. La scansione resta solo in
+  // sviluppo locale, dove più server convivono sulla stessa macchina.
+  const inProduzione =
+    process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+  const port = inProduzione ? preferredPort : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
