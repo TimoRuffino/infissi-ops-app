@@ -2,7 +2,7 @@
 // finestra, con almeno un allegato che potrebbe essere un documento
 // d'ordine. Qui il percorso in memoria; la SQL ha lo stesso contratto.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   insertComunicazione,
   listComunicazioniConAllegatiCandidati,
@@ -35,6 +35,16 @@ async function mail(extra: Record<string, unknown>) {
 }
 
 describe("listComunicazioniConAllegatiCandidati", () => {
+  // Il pre-filtro guarda i fornitori DELLA SEDE. Questi test descrivono il
+  // bacino, non il riconoscimento: girano col seed della Ruffino, che è il
+  // mondo di prima. Quello nuovo ha il suo test in fondo.
+  beforeEach(() => {
+    process.env.FLAG_FORNITORI_AZIENDA = "off";
+  });
+  afterEach(() => {
+    delete process.env.FLAG_FORNITORI_AZIENDA;
+  });
+
   it("prende la mail vecchia e scollegata con la conferma allegata; scarta uscita, spam, senza allegati utili, fuori finestra", async () => {
     const vecchiaScollegata = await mail({});
     const inUscita = await mail({ direzione: "out" });
@@ -103,5 +113,30 @@ describe("listComunicazioniConAllegatiCandidati", () => {
     });
     expect(strette).toHaveLength(1);
     expect(strette[0].id).toBe(recente.id);
+  });
+});
+
+describe("il pre-filtro segue l'anagrafica della sede", () => {
+  afterEach(() => {
+    delete process.env.FLAG_FORNITORI_AZIENDA;
+  });
+
+  it("a interruttore acceso e anagrafica vuota nessun mittente è «noto» — ma nessuno diventa noto per sbaglio", () => {
+    process.env.FLAG_FORNITORI_AZIENDA = "on";
+    // `sorgenteMittenti()` di un elenco vuoto è `(?!)`: non combacia con
+    // niente. Se fosse la stringa vuota, questa query pescherebbe OGNI mail.
+    return (async () => {
+      const muta = await mail({
+        mittente: "amministrazione@primed.it",
+        mittenteNome: "PRIMED S.R.L.",
+        allegati: [
+          { nome: "R237_2026WU367846_20052026165105.pdf", mimeType: "application/pdf", size: 120_000 },
+        ],
+      });
+      const ids = (
+        await listComunicazioniConAllegatiCandidati({ sedeId: SEDE, giorniIndietro: 540 })
+      ).map(c => c.id);
+      expect(ids).not.toContain(muta.id);
+    })();
   });
 });

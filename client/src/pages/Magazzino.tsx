@@ -44,7 +44,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toDateStr } from "@/lib/calendario";
-import { FORNITORI } from "@shared/fornitori";
 import { deliveryState, type DeliveryState } from "@/lib/operationalRoutes";
 import { STATI_ORDER } from "@/lib/stato";
 import { trpc } from "@/lib/trpc";
@@ -133,6 +132,10 @@ type GruppoCommessa = {
 export default function Magazzino() {
   const [, setLocation] = useLocation();
   const commesse = trpc.commesse.list.useQuery({});
+  // I fornitori sono dell'azienda (10/09/2026): l'elenco viene dalla sede, non
+  // da una costante del prodotto.
+  const anagrafica = trpc.fornitori.list.useQuery({ attivo: true });
+  const nomiFornitori = (anagrafica.data ?? []).map(f => f.ragioneSociale);
   const prodotti = trpc.magazzino.list.useQuery({});
   const utils = trpc.useUtils();
 
@@ -616,7 +619,7 @@ export default function Magazzino() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="tutti">Tutti i fornitori</SelectItem>
-                {FORNITORI.map(f => (
+                {nomiFornitori.map(f => (
                   <SelectItem key={f} value={f}>
                     {f}
                   </SelectItem>
@@ -812,6 +815,7 @@ export default function Magazzino() {
                     onUpdate={patch => update.mutate({ id: p.id, ...patch })}
                     onDelete={() => setDeleteTarget({ id: p.id, nome: p.nome })}
                     pending={consegnaInCorso === p.id}
+                    nomiFornitori={nomiFornitori}
                   />
                 ))}
               </div>
@@ -878,7 +882,7 @@ export default function Magazzino() {
                         <SelectValue placeholder="—" />
                       </SelectTrigger>
                       <SelectContent>
-                        {FORNITORI.map(f => (
+                        {nomiFornitori.map(f => (
                           <SelectItem key={f} value={f}>
                             {f}
                           </SelectItem>
@@ -1007,12 +1011,15 @@ function ProdottoRow({
   onUpdate,
   onDelete,
   pending,
+  nomiFornitori,
 }: {
   p: any;
   today: string;
   onUpdate: (patch: any) => void;
   onDelete: () => void;
   pending: boolean;
+  /** I fornitori della sede: la riga non fa una query per sé. */
+  nomiFornitori: readonly string[];
 }) {
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [qtaDraft, setQtaDraft] = useState<string | null>(null);
@@ -1105,10 +1112,10 @@ function ProdottoRow({
             </SelectTrigger>
             <SelectContent>
               {/* keep legacy free-text values selectable */}
-              {p.fornitore && !FORNITORI.includes(p.fornitore) && (
+              {p.fornitore && !nomiFornitori.includes(p.fornitore) && (
                 <SelectItem value={p.fornitore}>{p.fornitore}</SelectItem>
               )}
-              {FORNITORI.map(f => (
+              {nomiFornitori.map(f => (
                 <SelectItem key={f} value={f}>
                   {f}
                 </SelectItem>

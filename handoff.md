@@ -123,6 +123,42 @@
 > board → archivio → ripristina → torna sul board), console pulita e nessuno
 > scroll orizzontale.
 
+> **Novità 10/09/2026 — i fornitori sono dell'azienda (su branch).** I
+> venticinque fornitori della Ruffino Group erano una **costante compilata**
+> in `shared/fornitori.ts`, letta da cinque moduli: l'azienda 2 («hvuv», viva
+> dal 09/09) ereditava i fornitori della Ruffino e non poteva avere i suoi.
+> L'anagrafica per azienda esisteva già ed era **vuota**. Adesso è la fonte:
+> guadagna `chiavi` (le parole e i domini con cui si riconosce), `canale`
+> (mail o portale) e `portaleDomini` (`antenore` per Wnd), e `partitaIva`
+> diventa facoltativa. `shared/fornitori.ts` conserva le REGOLE
+> (`riconoscitoreFornitori(elenco)`) e il SEED, che solo due file possono
+> leggere — il ripiego a interruttore spento e l'importazione una tantum —
+> con una guardia di confine che lo verifica sui sorgenti. Il riconoscimento
+> passa da `riconoscitoreDiSede(sedeId)`, **senza cache**: una cache di modulo
+> qui fa vedere a un'azienda i fornitori di un'altra. La colonna sinistra di
+> `/fornitori` diventa l'anagrafica più i **candidati** (mittenti da cui è
+> arrivata una conferma e non ancora censiti, con un bottone solo): è così che
+> un'azienda nuova si costruisce l'elenco senza battere venticinque nomi.
+> **Il seed NON parte all'avvio**, ed è un fatto verificato: la riga
+> `fornitori` in `kv_store` esiste già in produzione (array vuoto), quindi
+> `firstBoot` è falso e un backfill non partirebbe mai; togliere quella
+> guardia calpesterebbe l'elenco di chi cancella. È un bottone in
+> `/fornitori`, a elenco vuoto e solo per l'azienda della piattaforma.
+> **Interruttore `FLAG_FORNITORI_AZIENDA`, spento in partenza: a spento non
+> cambia niente.** Attenzione in sviluppo: in `NODE_ENV=development` e `test`
+> gli interruttori nascono ACCESI, quindi un `pnpm dev` senza anagrafica non
+> riconosce nessun mittente finché non si importano i 25 (o si mette
+> `FLAG_FORNITORI_AZIENDA=off`). **Verificato:** `pnpm check` pulito, suite
+> intera verde, `pnpm build` riuscita, e la pagina provata nel browser a
+> 1440x900 e su mobile (config «Fornitori demo», porta 5195) — importazione,
+> Wnd una volta sola con Antenore fra i portali, menu del Magazzino a 25 voci,
+> nessuno scroll orizzontale, console pulita. **Non verificato:** il percorso
+> dei **candidati** dal vivo, che richiede un archivio con conferme vere; è
+> coperto dai test della vista. Spec
+> `docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md`
+> §4; piano `docs/superpowers/plans/2026-09-10-fornitori-per-azienda.md`.
+> Branch `claude/fornitori-per-azienda`, impilato sulla PR #17.
+
 > **Novità 10/09/2026 — «Ciclo di vita dell'azienda»: su branch
 > (`claude/company-lifecycle-e52127`), PR in arrivo.** I punti 1–4 della
 > nota della direzione «Aziende: nascita, vita, uscita» (piano

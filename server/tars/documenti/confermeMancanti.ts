@@ -19,7 +19,7 @@
 // il nostro codice nella mail, ma nel PDF riporta il cliente o il cantiere,
 // e quel riscontro vale per le mail che non sono collegate a niente.
 
-import { fornitoreNoto } from "@shared/fornitori";
+import type { Riconoscitore } from "@shared/fornitori";
 import type { Comunicazione } from "../../comunicazioni/comunicazioni";
 import { STATI_COMMESSA } from "../../commesse/transizioni";
 import type {
@@ -110,6 +110,13 @@ export function allegatoDaConferma(input: {
   mimeType: string | null | undefined;
   mittente?: string | null;
   mittenteNome?: string | null;
+  /**
+   * I fornitori di QUESTA sede. Obbligatorio: dimenticarlo dev'essere un
+   * errore di compilazione, non un silenzioso «nessun fornitore è noto» che
+   * richiuderebbe la porta aperta il 10/09/2026 senza che nessuno se ne
+   * accorga.
+   */
+  riconoscitore: Riconoscitore;
 }): EsitoAllegatoConferma {
   const daNome = nomeDaConferma(input.nome, input.mimeType);
   if (daNome) return daNome;
@@ -118,8 +125,8 @@ export function allegatoDaConferma(input: {
   if (NOME_ESCLUSO.test(input.nome)) return null;
   if (input.mimeType && !MIME_AMMESSI.test(input.mimeType)) return null;
   const noto =
-    fornitoreNoto(input.mittenteNome ?? null, input.mittente ?? null) ??
-    fornitoreNoto(input.mittente ?? null);
+    input.riconoscitore.nome(input.mittenteNome ?? null, input.mittente ?? null) ??
+    input.riconoscitore.nome(input.mittente ?? null);
   return noto ? "mittente" : null;
 }
 

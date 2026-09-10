@@ -24,7 +24,9 @@
 // modello al massimo trascrive una scansione, e la trascrizione passa dagli
 // stessi controlli.
 
-import { fornitoreNoto, normalizzaFornitore, FORNITORI_NOTI } from "@shared/fornitori";
+import type { Riconoscitore } from "@shared/fornitori";
+import { fornitoriDiSede } from "./anagrafica";
+import { riconoscitoreDiSede } from "./riconoscimento";
 import { persistedStore } from "../_core/persistence";
 import { leggiAllegatoRaw } from "../comunicazioni/allegati";
 import { caselle } from "../comunicazioni/caselle";
@@ -190,9 +192,12 @@ export function fornitoreDiComunicazione(
     mittenteNome?: string | null;
     allegati: ReadonlyArray<{ nome: string; mimeType: string }>;
   },
-  interni?: ReadonlySet<string>
+  interni: ReadonlySet<string> | undefined,
+  riconoscitore: Riconoscitore
 ): string | null {
-  const noto = fornitoreNoto(c.mittenteNome ?? null, c.mittente) ?? fornitoreNoto(c.mittente);
+  const noto =
+    riconoscitore.nome(c.mittenteNome ?? null, c.mittente) ??
+    riconoscitore.nome(c.mittente);
   if (noto) return noto;
   const portaConferma = c.allegati.some(
     a =>
@@ -201,13 +206,14 @@ export function fornitoreDiComunicazione(
         mimeType: a.mimeType,
         mittente: c.mittente,
         mittenteNome: c.mittenteNome ?? null,
+        riconoscitore,
       }) != null
   );
   if (!portaConferma) return null;
   const at = c.mittente.lastIndexOf("@");
   const dominio = at > 0 ? c.mittente.slice(at + 1).toLowerCase().replace(/^www\./, "") : "";
   if (interni?.has(dominio)) return FORNITORE_DA_RICONOSCERE;
-  const dalNome = normalizzaFornitore(c.mittenteNome ?? null, c.mittente);
+  const dalNome = riconoscitore.normalizza(c.mittenteNome ?? null, c.mittente);
   if (dalNome) return dalNome;
   return dominio ? dominio.slice(0, 60) : FORNITORE_DA_RICONOSCERE;
 }
@@ -233,10 +239,10 @@ function letturaPortaUnaConferma(lettura: LetturaArchivio): boolean {
 }
 
 /** Le chiavi con cui cercare le comunicazioni di un fornitore fra i mittenti. */
-export function chiaviRicercaFornitore(fornitore: string): string[] {
-  const noto = FORNITORI_NOTI.find(f => f.nome === fornitore);
-  if (noto) return [...noto.chiavi];
-  return [fornitore];
+export function chiaviRicercaFornitore(fornitore: string, sedeId: number): string[] {
+  const suo = fornitoriDiSede(sedeId).find(f => f.ragioneSociale === fornitore);
+  const chiavi = [...(suo?.chiavi ?? []), ...(suo?.portaleDomini ?? [])];
+  return chiavi.length > 0 ? chiavi : [fornitore];
 }
 
 // ── Il giro: scansione, lettura, decisione ─────────────────────────────────
@@ -385,13 +391,14 @@ export async function eseguiGiroArchivioFornitori(input: {
   const comunicazioni = await deps.comunicazioni(input.sedeId);
   const commesse = deps.commesse(input.sedeId);
   const interni = deps.dominiInterni(input.sedeId);
+  const riconoscitore = riconoscitoreDiSede(input.sedeId);
   const adesso = deps.adesso();
 
   // 1. Scansione: ogni allegato «da conferma» di un fornitore entra in
   //    archivio una volta sola.
   const daLeggere: Array<{ voce: VoceArchivioFornitore; comunicazione: Comunicazione }> = [];
   for (const c of comunicazioni) {
-    const fornitore = fornitoreDiComunicazione(c, interni);
+    const fornitore = fornitoreDiComunicazione(c, interni, riconoscitore);
     if (!fornitore) continue;
     for (const [indice, allegato] of c.allegati.entries()) {
       if (
@@ -400,6 +407,7 @@ export async function eseguiGiroArchivioFornitori(input: {
           mimeType: allegato.mimeType,
           mittente: c.mittente,
           mittenteNome: c.mittenteNome ?? null,
+          riconoscitore,
         })
       ) {
         continue;
@@ -485,7 +493,7 @@ export async function eseguiGiroArchivioFornitori(input: {
       };
       // Il fornitore vero è quello scritto nel documento, non il mittente.
       if (ricerca.fornitore) {
-        const meglio = normalizzaFornitore(ricerca.fornitore);
+        const meglio = riconoscitore.normalizza(ricerca.fornitore);
         if (meglio) voce.fornitore = meglio;
       }
       voce.updatedAt = adesso;
@@ -1003,6 +1011,7 @@ export function confermeDiSede(input: {
   gruppo?: GruppoConferma | null;
   limite?: number;
 }): ConfermaUnificata[] {
+  const riconoscitore = riconoscitoreDiSede(input.sedeId);
   const utenti = nomiUtenti();
   const righe: ConfermaUnificata[] = [];
   const documentiVisti = new Set<number>();
@@ -1062,7 +1071,7 @@ export function confermeDiSede(input: {
       documentoId: documento.id,
       comunicazioneId: null,
       allegatoIndex: null,
-      fornitore: normalizzaFornitore(lettura?.fornitore ?? null) ?? FORNITORE_DA_RICONOSCERE,
+      fornitore: riconoscitore.normalizza(lettura?.fornitore ?? null) ?? FORNITORE_DA_RICONOSCERE,
       nome: documento.nome,
       mimeType: documento.mimeType,
       quando: new Date(documento.createdAt).toISOString(),
@@ -1132,11 +1141,12 @@ export function consegneInArrivo(input: {
   adesso?: Date;
 }): ConsegnaInArrivo[] {
   const oggi = (input.adesso ?? new Date()).toISOString().slice(0, 10);
+  const riconoscitore = riconoscitoreDiSede(input.sedeId);
   const righe: ConsegnaInArrivo[] = [];
   for (const p of getMagazzinoStore()) {
     if (p.sedeId !== input.sedeId) continue;
     if (!input.includiRicevute && p.arrivato) continue;
-    const fornitore = normalizzaFornitore(p.fornitore) ?? p.fornitore ?? FORNITORE_DA_RICONOSCERE;
+    const fornitore = riconoscitore.normalizza(p.fornitore) ?? p.fornitore ?? FORNITORE_DA_RICONOSCERE;
     if (input.fornitore && fornitore !== input.fornitore) continue;
     const commessa = commessaLeggibile(p.commessaId);
     if (!commessa) continue;

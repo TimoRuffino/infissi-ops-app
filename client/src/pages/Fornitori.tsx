@@ -28,6 +28,8 @@ import { Input } from "@/components/ui/input";
 import { selezioneValida } from "@/lib/consegneSelezione";
 import { formatEuroSimbolo } from "@/lib/euro";
 import { trpc } from "@/lib/trpc";
+import { componiElencoFornitori, daDecidere } from "@/lib/fornitoriView";
+import { useVistaEssenziale } from "@/integrazioni/useVistaEssenziale";
 
 // Fornitori e conferme d'ordine, una pagina sola (07/09/2026, direzione:
 // «la pagina fornitori e conferme d'ordine devono essere insieme… deve
@@ -303,6 +305,50 @@ export default function Fornitori() {
 
   const fornitori = elenco.data?.fornitori ?? [];
   const totali = elenco.data?.totali;
+
+  // I fornitori sono dell'azienda (10/09/2026): questa colonna è l'anagrafica
+  // più i CANDIDATI — mittenti da cui è arrivata una conferma e che non sono
+  // ancora censiti. Un'azienda nuova non batte venticinque nomi: conferma
+  // quello che le è già arrivato.
+  const anagrafica = trpc.fornitori.list.useQuery(undefined);
+  const candidati = trpc.fornitori.candidati.useQuery();
+  const daPiattaforma = !useVistaEssenziale();
+
+  const censisci = trpc.fornitori.create.useMutation({
+    onSuccess: f => {
+      toast.success(`«${f.ragioneSociale}» è ora fra i tuoi fornitori.`);
+      void utils.fornitori.list.invalidate();
+      void utils.fornitori.candidati.invalidate();
+    },
+    onError: e => toast.error(e.message ?? "Non è stato possibile censirlo"),
+  });
+
+  const importa = trpc.fornitori.importaSeed.useMutation({
+    onSuccess: r => {
+      toast.success(
+        r.creati === 0
+          ? "Erano già tutti in elenco."
+          : `${r.creati} fornitori aggiunti all'elenco.`
+      );
+      void utils.fornitori.list.invalidate();
+      void utils.fornitori.candidati.invalidate();
+    },
+    onError: e => toast.error(e.message ?? "Importazione non riuscita"),
+  });
+
+  const voci = useMemo(
+    () =>
+      componiElencoFornitori({
+        anagrafica: (anagrafica.data ?? []).map(f => ({
+          id: f.id,
+          ragioneSociale: f.ragioneSociale,
+          attivo: f.attivo,
+        })),
+        riepilogo: fornitori as any,
+        candidati: candidati.data ?? [],
+      }),
+    [anagrafica.data, candidati.data, fornitori]
+  );
   const righe = (conferme.data ?? []) as unknown as Conferma[];
   // Riferimento stabile: un array nuovo a ogni render farebbe ripartire
   // tutto ciò che dipende dall'elenco.
@@ -495,21 +541,39 @@ export default function Fornitori() {
                   </span>
                 </button>
               </li>
-              {fornitori.map(f => {
-                const aspettano = f.daCollegare + f.incerte;
+              {voci.map(v => {
+                const aspettano = daDecidere(v);
+                const r = v.riepilogo;
+                const candidato = v.tipo === "candidato";
                 return (
-                  <li key={f.fornitore}>
+                  <li key={`${v.tipo}:${v.nome}`}>
                     <button
                       type="button"
-                      aria-pressed={fornitoreSel === f.fornitore}
-                      onClick={() => setFornitoreSel(f.fornitore)}
+                      aria-pressed={fornitoreSel === v.nome}
+                      onClick={() => setFornitoreSel(v.nome)}
                       className={`flex min-h-11 w-full min-w-0 items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
-                        fornitoreSel === f.fornitore
+                        fornitoreSel === v.nome
                           ? "bg-surface-2 font-semibold text-text-1"
                           : "text-text-2"
                       }`}
                     >
-                      <span className="min-w-0 truncate">{f.fornitore}</span>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={`min-w-0 truncate ${
+                            v.tipo === "anagrafica" && !v.attivo ? "line-through opacity-60" : ""
+                          }`}
+                        >
+                          {v.nome}
+                        </span>
+                        {candidato ? (
+                          <span
+                            title="Non è ancora fra i tuoi fornitori"
+                            className="shrink-0 rounded-[var(--radius-pill)] border border-border-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-3"
+                          >
+                            da censire
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="flex shrink-0 items-center gap-1">
                         {aspettano > 0 ? (
                           <span
@@ -519,34 +583,74 @@ export default function Fornitori() {
                             {aspettano}
                           </span>
                         ) : null}
-                        {f.inArrivo > 0 ? (
+                        {r && r.inArrivo > 0 ? (
                           <span
-                            title={`${f.inArrivo} in arrivo${
-                              f.inRitardo > 0 ? `, ${f.inRitardo} in ritardo` : ""
+                            title={`${r.inArrivo} in arrivo${
+                              r.inRitardo > 0 ? `, ${r.inRitardo} in ritardo` : ""
                             }`}
                             className={`inline-flex items-center gap-0.5 rounded-[var(--radius-pill)] px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
-                              f.inRitardo > 0
+                              r.inRitardo > 0
                                 ? "bg-danger-soft text-danger"
                                 : "bg-info-soft text-info"
                             }`}
                           >
                             <Truck className="h-3 w-3" aria-hidden="true" />
-                            {f.inArrivo}
+                            {r.inArrivo}
                           </span>
                         ) : null}
-                        {aspettano === 0 && f.inArrivo === 0 ? (
+                        {aspettano === 0 && (!r || r.inArrivo === 0) && r ? (
                           <span className="tabular-nums text-xs text-text-3">
-                            {f.collegateTars + f.nelFascicolo}
+                            {r.collegateTars + r.nelFascicolo}
                           </span>
                         ) : null}
                       </span>
                     </button>
+                    {candidato ? (
+                      <div className="px-3 pb-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 w-full text-xs"
+                          disabled={censisci.isPending}
+                          onClick={() =>
+                            censisci.mutate({
+                              ragioneSociale: v.nome,
+                              categoria: "altro",
+                              // Il dominio senza estensione è la chiave con cui
+                              // lo si riconoscerà: `vetreriabianchi.it` →
+                              // `vetreriabianchi`.
+                              chiavi: v.dominio
+                                ? [v.dominio.replace(/\.[a-z]{2,}$/i, "").toLowerCase()]
+                                : [],
+                            })
+                          }
+                        >
+                          Aggiungilo ai tuoi fornitori
+                        </Button>
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
-              {fornitori.length === 0 && !elenco.isPending ? (
-                <li className="px-3 py-3 text-sm text-text-3">
-                  Nessun fornitore in archivio: le conferme entrano qui appena arrivano per mail.
+              {voci.length === 0 && !elenco.isPending && !anagrafica.isPending ? (
+                <li className="space-y-2 px-3 py-3 text-sm text-text-3">
+                  <p>
+                    Nessun fornitore in elenco: le conferme che arrivano per mail compaiono
+                    qui come candidati, e da lì si censiscono con un click.
+                  </p>
+                  {daPiattaforma ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-full text-xs"
+                      disabled={importa.isPending}
+                      onClick={() => importa.mutate()}
+                    >
+                      Importa i 25 fornitori conosciuti
+                    </Button>
+                  ) : null}
                 </li>
               ) : null}
             </ul>

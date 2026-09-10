@@ -4,76 +4,100 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  FORNITORI,
-  SORGENTE_MITTENTE_FORNITORE,
-  fornitoreNoto,
-  normalizzaFornitore,
+  SEED_FORNITORI_TENANT_1,
+  riconoscitoreFornitori,
+  type FornitoreRiconoscibile,
 } from "./fornitori";
+
+/** Il riconoscitore costruito sul seed: è il comportamento di sempre. */
+const r = () => riconoscitoreFornitori(SEED_FORNITORI_TENANT_1);
 
 describe("normalizzaFornitore", () => {
   it("riconosce il fornitore dal testo della conferma, comunque scritto", () => {
-    expect(normalizzaFornitore("ALIAS Srl Porte blindate")).toBe("Alias");
-    expect(normalizzaFornitore("Alias")).toBe("Alias");
-    expect(normalizzaFornitore("OSKURA SRL")).toBe("Oskura");
-    expect(normalizzaFornitore("Brianzatende Srl")).toBe("Brianzatende");
-    expect(normalizzaFornitore("BRIANZA TENDE S.R.L.")).toBe("Brianzatende");
-    expect(normalizzaFornitore("Henry glass s.r.l.")).toBe("Henry Glass");
-    expect(normalizzaFornitore("HenryGlass")).toBe("Henry Glass");
-    expect(normalizzaFornitore("PAIL SERRAMENTI - Domenico Cinalli")).toBe("Pail");
-    expect(normalizzaFornitore("Primed s.r.l.")).toBe("Primed");
-    expect(normalizzaFornitore("ferramentafivizzanese.it")).toBe("Fivizzanese");
-    expect(normalizzaFornitore("Wnd")).toBe("Wnd");
-    expect(normalizzaFornitore("BT Glass . Ordini")).toBe("BT Glass");
+    expect(r().normalizza("ALIAS Srl Porte blindate")).toBe("Alias");
+    expect(r().normalizza("Alias")).toBe("Alias");
+    expect(r().normalizza("OSKURA SRL")).toBe("Oskura");
+    expect(r().normalizza("Brianzatende Srl")).toBe("Brianzatende");
+    expect(r().normalizza("BRIANZA TENDE S.R.L.")).toBe("Brianzatende");
+    expect(r().normalizza("Henry glass s.r.l.")).toBe("Henry Glass");
+    expect(r().normalizza("HenryGlass")).toBe("Henry Glass");
+    expect(r().normalizza("PAIL SERRAMENTI - Domenico Cinalli")).toBe("Pail");
+    expect(r().normalizza("Primed s.r.l.")).toBe("Primed");
+    expect(r().normalizza("ferramentafivizzanese.it")).toBe("Fivizzanese");
+    expect(r().normalizza("Wnd")).toBe("Wnd");
+    expect(r().normalizza("BT Glass . Ordini")).toBe("BT Glass");
     // L'agenzia che firma le conferme Alias, anche senza la mail.
-    expect(normalizzaFornitore("DE - DOOR DESIGN S.R.L. Veronica Gregori CECCONI")).toBe("Alias");
+    expect(r().normalizza("DE - DOOR DESIGN S.R.L. Veronica Gregori CECCONI")).toBe("Alias");
   });
 
   it("riconosce il fornitore dal dominio della mail quando il testo è un agente o un referente", () => {
     expect(
-      normalizzaFornitore("DE - DOOR DESIGN S.R.L. Veronica Gregori CECCONI", "v.gregori@aliasblindate.com")
+      r().normalizza("DE - DOOR DESIGN S.R.L. Veronica Gregori CECCONI", "v.gregori@aliasblindate.com")
     ).toBe("Alias");
-    expect(normalizzaFornitore("REFERENTE Natascia De Biasi -", "ordini@pailporte.com")).toBe("Pail");
-    expect(normalizzaFornitore(null, "vendite@oskura.it")).toBe("Oskura");
-    expect(fornitoreNoto("qualunque", "paola.cattai@henryglass.it")).toBe("Henry Glass");
+    expect(r().normalizza("REFERENTE Natascia De Biasi -", "ordini@pailporte.com")).toBe("Pail");
+    expect(r().normalizza(null, "vendite@oskura.it")).toBe("Oskura");
+    expect(r().nome("qualunque", "paola.cattai@henryglass.it")).toBe("Henry Glass");
   });
 
   it("un referente senza dominio noto non è un fornitore; un nome sconosciuto resta, ripulito", () => {
-    expect(normalizzaFornitore("REFERENTE Natascia De Biasi -")).toBeNull();
-    expect(normalizzaFornitore("Sig. Mario Rossi")).toBeNull();
-    expect(normalizzaFornitore("")).toBeNull();
-    expect(normalizzaFornitore(null)).toBeNull();
-    expect(normalizzaFornitore("Palmira Iacobitti")).toBe("Palmira Iacobitti");
-    expect(normalizzaFornitore("Vetreria Ligure Srl - Ufficio ordini")).toBe("Vetreria Ligure Srl");
+    expect(r().normalizza("REFERENTE Natascia De Biasi -")).toBeNull();
+    expect(r().normalizza("Sig. Mario Rossi")).toBeNull();
+    expect(r().normalizza("")).toBeNull();
+    expect(r().normalizza(null)).toBeNull();
+    expect(r().normalizza("Palmira Iacobitti")).toBe("Palmira Iacobitti");
+    expect(r().normalizza("Vetreria Ligure Srl - Ufficio ordini")).toBe("Vetreria Ligure Srl");
     // Due lettere non sono un nome: si passa al segmento dopo.
-    expect(normalizzaFornitore("XY - Vetreria Ligure Srl")).toBe("Vetreria Ligure Srl");
+    expect(r().normalizza("XY - Vetreria Ligure Srl")).toBe("Vetreria Ligure Srl");
   });
 
   it("le chiavi corte valgono solo come parola intera («wnd» non è dentro «downdraft»)", () => {
-    expect(fornitoreNoto("sistema downdraft per cucine")).toBeNull();
-    expect(fornitoreNoto("Aliasi Srl")).toBeNull();
+    expect(r().nome("sistema downdraft per cucine")).toBeNull();
+    expect(r().nome("Aliasi Srl")).toBeNull();
   });
 
   it("riconduce il portale al fornitore che rappresenta", () => {
     // Antenore è il portale di Wnd/Oknoplast (direzione, 10/09/2026): 94 mail
     // finivano in «Da riconoscere» perché il dominio non è del produttore.
-    expect(fornitoreNoto(null, "noreply@antenore.biz")).toBe("Wnd");
-    expect(fornitoreNoto("Antenore", null)).toBe("Wnd");
-    expect(normalizzaFornitore("Portale Antenore", "info@antenore.biz")).toBe("Wnd");
+    expect(r().nome(null, "noreply@antenore.biz")).toBe("Wnd");
+    expect(r().nome("Antenore", null)).toBe("Wnd");
+    expect(r().normalizza("Portale Antenore", "info@antenore.biz")).toBe("Wnd");
     // Un fornitore vero vince sul portale: il suo dominio è più preciso.
-    expect(fornitoreNoto(null, "ordini@pailporte.com")).toBe("Pail");
+    expect(r().nome(null, "ordini@pailporte.com")).toBe("Pail");
     // Un dominio qualunque non diventa un fornitore.
-    expect(fornitoreNoto(null, "mario@gmail.com")).toBeNull();
+    expect(r().nome(null, "mario@gmail.com")).toBeNull();
   });
 
-  it("la lista dei nomi è quella dei filtri, senza doppioni", () => {
-    expect(new Set(FORNITORI).size).toBe(FORNITORI.length);
-    expect(FORNITORI).toContain("Alias");
-    expect(FORNITORI).toContain("Pail");
+  it("il seed non ha doppioni fra i produttori e contiene i fornitori veri", () => {
+    const nomi = SEED_FORNITORI_TENANT_1.filter(f => !f.portaleDi).map(f => f.nome);
+    expect(new Set(nomi).size).toBe(nomi.length);
+    expect(nomi).toContain("Alias");
+    expect(nomi).toContain("Pail");
+  });
+
+  it("due elenchi diversi riconoscono cose diverse: è il punto di tutto", () => {
+    const mio: FornitoreRiconoscibile[] = [
+      { nome: "Vetreria Bianchi", chiavi: ["vetreriabianchi", "bianchi"] },
+    ];
+    const altro = riconoscitoreFornitori(mio);
+    expect(altro.nome(null, "ordini@vetreriabianchi.it")).toBe("Vetreria Bianchi");
+    // Alias è dei venticinque della Ruffino: qui non esiste.
+    expect(altro.nome(null, "v.gregori@aliasblindate.com")).toBeNull();
+    // E viceversa.
+    expect(r().nome(null, "ordini@vetreriabianchi.it")).toBeNull();
+  });
+
+  it("un elenco vuoto non riconosce niente e non esplode", () => {
+    const vuoto = riconoscitoreFornitori([]);
+    expect(vuoto.nome("Alias", "v.gregori@aliasblindate.com")).toBeNull();
+    expect(vuoto.normalizza("ALIAS Srl Porte blindate")).toBe("ALIAS Srl Porte blindate");
+    // Un pattern che non può combaciare con NIENTE, mai con tutto:
+    // `new RegExp("")` combacerebbe con ogni mittente esistente.
+    expect(new RegExp(vuoto.sorgenteMittenti(), "i").test("chiunque@ovunque.it")).toBe(false);
   });
 });
 
-describe("SORGENTE_MITTENTE_FORNITORE", () => {
-  const re = () => new RegExp(SORGENTE_MITTENTE_FORNITORE, "i");
+describe("sorgenteMittenti", () => {
+  const re = () => new RegExp(r().sorgenteMittenti(), "i");
 
   it("riconosce gli indirizzi dei fornitori veri", () => {
     for (const indirizzo of [

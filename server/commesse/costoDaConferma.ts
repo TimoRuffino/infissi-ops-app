@@ -64,7 +64,7 @@ import {
   type RiferimentiCommessa,
   type RiscontroCommessa,
 } from "../documenti/riscontroCommessa";
-import { normalizzaFornitore } from "@shared/fornitori";
+import { riconoscitoreDiSede } from "../fornitori/riconoscimento";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
@@ -667,10 +667,13 @@ export async function registraCostoDaConferma(input: {
   // Il fornitore con il nome aziendale (shared/fornitori): dal testo, dal
   // dominio della mail o dal mittente; un referente non è un fornitore.
   const mittente = await deps.mittente(documento);
+  // La sede è quella della commessa del documento: la stessa che l'identità
+  // della lettura visiva usa poco sopra.
+  const riconoscitore = riconoscitoreDiSede(Number(commessa.sedeId ?? 1));
   const fornitore =
     input.fornitore?.trim() ||
-    normalizzaFornitore(estrazione.fornitoreCitato?.valore ?? null, mittente?.email) ||
-    normalizzaFornitore(mittente?.nome ?? null, mittente?.email) ||
+    riconoscitore.normalizza(estrazione.fornitoreCitato?.valore ?? null, mittente?.email) ||
+    riconoscitore.normalizza(mittente?.nome ?? null, mittente?.email) ||
     null;
   const riferimenti = riferimentiOrdineDocumento({
     // Il numero d'ordine sta nel nome che il fornitore ha dato al file,
