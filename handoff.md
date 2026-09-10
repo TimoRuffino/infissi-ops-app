@@ -123,6 +123,27 @@
 > board → archivio → ripristina → torna sul board), console pulita e nessuno
 > scroll orizzontale.
 
+> **Novità 10/09/2026 — conferme parziali: la merce diversa si somma.**
+> Seguito immediato delle conferme discordi. Prima di dichiarare una
+> discordanza si confrontano gli **articoli** delle due conferme: nessun
+> articolo in comune ⇒ sono due pezzi dello stesso ordine e il costo è la
+> **somma** (esito `parziale`); un articolo in comune ⇒ stessa merce ⇒ resta
+> `discorde`; articoli assenti da una parte ⇒ non si può dire, e resta
+> `discorde` — un'assenza non è una prova di disgiunzione. Perché il confronto
+> fosse possibile bisognava smettere di buttare via le prove: gli articoli si
+> leggono ora per **ogni** conferma (`articoliLetti`), anche per quelle che
+> non producono costo né merce (dei quattro documenti di COM-2026-092 solo il
+> vincitore li aveva). **La somma si applica invece di essere proposta**, e la
+> ragione è la direzione dell'errore: sommare due revisioni gonfia il costo —
+> margine più basso, costa attenzione; NON sommare due parziali gonfia il
+> margine — costa soldi, per mesi, in silenzio. **Verificato:** `pnpm check`
+> pulito, suite intera verde, `pnpm build` riuscita. **Non fatto, dichiarato:**
+> i **dati già scritti** non si correggono da soli — si allineano alla
+> prossima rilettura. La **merce** di una parziale invece **entra**: è merce
+> in più e diventa la sua consegna a magazzino, mentre della parziale si
+> toglie solo il costo (il suo imponibile è già nella somma). Piano
+> `docs/superpowers/plans/2026-09-10-conferme-parziali.md`.
+
 > **Novità 10/09/2026 — conferme discordi: il costo non si sceglie più a
 > caso.** Difetto **misurato in produzione**: sette ordini su sei commesse
 > hanno copie della stessa conferma che dichiarano imponibili diversi (scarto

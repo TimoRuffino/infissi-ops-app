@@ -70,6 +70,7 @@ import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
 import { revisionePerData } from "./revisioneConferma";
+import { confrontoArticoli } from "./confrontoArticoli";
 import { getSediStore } from "../routers/sedi";
 import {
   creaConsegnaDaConferma,
@@ -709,6 +710,14 @@ export async function registraCostoDaConferma(input: {
     riscontro: [],
   };
 
+  // Gli articoli si leggono SEMPRE, anche se questo documento non produrrà né
+  // costo né merce: sono la prova che distingue una conferma parziale da una
+  // revisione, e buttarla via è ciò che ha reso il problema invisibile.
+  // Costa una scansione del testo già in memoria.
+  const articoliLetti = estraiRigheMerce(parser.pagine)
+    .map(r => r.nome)
+    .slice(0, 40);
+
   const memoriaBase = {
     fonteTesto,
     imponibile,
@@ -719,6 +728,7 @@ export async function registraCostoDaConferma(input: {
     riferimenti,
     sezioni,
     evidenze,
+    articoliLetti,
   };
 
   // ── Riscontro: un automatismo ha messo qui la conferma, il testo deve dirlo ──
@@ -790,6 +800,67 @@ export async function registraCostoDaConferma(input: {
     // insistere su una domanda a cui qualcuno ha già risposto. Quel caso
     // resta un duplicato con l'avviso, come prima.
     if (importiDiversi && correggibile && prova === "nessuna_prova") {
+      const confronto = confrontoArticoli(
+        articoliLetti,
+        letturaOriginale?.articoliLetti ?? null
+      );
+      if (confronto === "disgiunti") {
+        // Merce diversa sullo stesso ordine: sono due pezzi, e il costo è la
+        // somma. Si applica invece di proporla perché la direzione
+        // dell'errore è quella giusta: sommare due revisioni gonfia il costo
+        // (margine più basso, costa attenzione), NON sommare due parziali
+        // gonfia il margine (costa soldi, e in silenzio).
+        const somma = Math.round((costoOriginale!.importo + imponibile!) * 100) / 100;
+        aggiornaImportoCosto(
+          commessa,
+          costoOriginale!,
+          somma,
+          `Somma di due conferme parziali dell'ordine ${duplicato.riferimento}: ${euro(
+            costoOriginale!.importo
+          )} + ${euro(imponibile!)} da «${raw.nome}», che porta merce diversa.`,
+          { fornitore, data: dataDocumento, numeroOrdine }
+        );
+        // La merce di una parziale è merce IN PIÙ: entra a magazzino come
+        // quella della prima. Si toglie SOLO il costo — il suo imponibile è
+        // già nella somma sul primo documento — mai la consegna, che
+        // `ritira` avrebbe portato via insieme.
+        rimuoviCostoDelDocumento(documento.id, commessa.id);
+        const merceParziale = applicaMerceDaConferma({
+          commessa,
+          documento,
+          pagine: parser.pagine,
+          geometria,
+          estrazione,
+          fornitore,
+          numeroOrdine,
+          dataOrdine: dataDocumento,
+          riferimentoDocumento,
+          avvisoOcr,
+          adesso: deps.adesso(),
+          precedente: precedente?.merce ?? null,
+        });
+        const motivoParziale = `Conferma parziale dell'ordine ${duplicato.riferimento}: porta merce diversa da «${
+          originale.nome
+        }», quindi i due imponibili si sommano. A registro ${euro(somma)} (${euro(
+          costoOriginale!.importo
+        )} + ${euro(imponibile!)}).`;
+        salva({
+          ...memoriaBase,
+          esito: "parziale",
+          motivo: motivoParziale,
+          costoId: null,
+          merce: merceParziale,
+          duplicatoDi: originale.id,
+          discordi: [costoOriginale!.importo, imponibile!],
+          riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+        });
+        return base(documento, "parziale", motivoParziale, {
+          fonteTesto,
+          imponibile,
+          duplicatoDi: originale.id,
+        });
+      }
+
       const alto = Math.max(imponibile!, costoOriginale!.importo);
       const basso = Math.min(imponibile!, costoOriginale!.importo);
       if (alto > costoOriginale!.importo) {

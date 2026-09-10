@@ -69,7 +69,13 @@ export type EsitoLetturaCosto =
    * margine — e la discordanza si dichiara invece di sceglierne una in
    * silenzio (10/09/2026).
    */
-  | "discorde";
+  | "discorde"
+  /**
+   * Stesso ordine di un'altra conferma ma merce DIVERSA: sono due pezzi di un
+   * ordine solo, e il costo è la loro somma. Il costo resta sul primo
+   * documento; questo vi contribuisce e non ne crea un secondo (10/09/2026).
+   */
+  | "parziale";
 
 export type LetturaCostoDocumento = {
   versione: string;
@@ -99,6 +105,14 @@ export type LetturaCostoDocumento = {
   duplicatoDi?: number | null;
   /** Gli imponibili discordi visti su questo ordine, il maggiore per primo. */
   discordi?: number[];
+  /**
+   * I nomi degli articoli letti nel documento, anche quando non ha prodotto
+   * costo né merce. Servono a distinguere una conferma PARZIALE (merce
+   * diversa sullo stesso ordine) da una revisione, e senza di essi quel
+   * confronto è impossibile: fino al 10/09/2026 le copie che non vincevano
+   * non li avevano mai estratti.
+   */
+  articoliLetti?: string[];
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */
   riscontro?: { ok: boolean; prove: string[] } | null;
   /**

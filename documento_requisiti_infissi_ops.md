@@ -3056,6 +3056,24 @@ ordine», «le conferme ordine sono ferme, non deve arrendersi».
   ordini su sei commesse con copie discordi, scarto complessivo € 1.983,62;
   su COM-2026-092 il costo eletto era il più basso di quattro. Piano
   `docs/superpowers/plans/2026-09-10-conferme-discordi.md`.
+- **Conferme parziali (10/09/2026)**: prima di dichiarare una discordanza si
+  confrontano gli **articoli** delle due conferme
+  (`server/commesse/confrontoArticoli.ts`). Nessun articolo in comune ⇒ sono
+  due pezzi dello stesso ordine e il costo è la loro **somma** (esito
+  `parziale`; il costo resta sul primo documento e il secondo vi contribuisce
+  senza crearne un altro). Un articolo in comune ⇒ stessa merce ⇒ resta
+  `discorde`. Articoli assenti da una delle due ⇒ non si può dire, e resta
+  `discorde`: un'assenza non è una prova di disgiunzione. Gli articoli si
+  leggono ora per **ogni** conferma (`articoliLetti`), anche per quelle che
+  non producono costo né merce — senza, il confronto era impossibile.
+  **La somma si applica invece di essere proposta** per la direzione
+  dell'errore: sommare due revisioni gonfia il costo (margine più basso,
+  costa attenzione), non sommare due parziali gonfia il margine (costa soldi,
+  in silenzio). Piano
+  `docs/superpowers/plans/2026-09-10-conferme-parziali.md`. La **merce** di
+  una parziale **entra a magazzino** come quella della prima: è merce in più,
+  e diventa la sua consegna. Della parziale si toglie solo il costo — il suo
+  imponibile è già nella somma sul primo documento.
 - Un costo nato dalla regola e mai toccato a mano (`modificatoAMano`) viene
   corretto da una rilettura più precisa; un costo modificato a mano non si
   tocca. Il worker `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per

@@ -484,6 +484,82 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     `Tot. Imponibile ${imponibile}`,
   ];
 
+  it("stesso ordine, merce diversa: sono due pezzi e il costo è la somma", async () => {
+    const commessa = await inOrdine("Parziali Somma");
+    const porta = [
+      "Conferma Ordine",
+      "ALIAS Srl Porte blindate",
+      "2026 - CV 1690010 del 16/06/2026",
+      "NR 1,00PORST-C013 PORTA BLIND.STEEL/C < 1900",
+      "Tot. Imponibile 727,17",
+    ];
+    const coprifili = [
+      "Conferma Ordine",
+      "ALIAS Srl Porte blindate",
+      "2026 - CV 1690010 del 16/06/2026",
+      "NR 1,00COI5 SET COPRIFILI INTERNO SU MISURA",
+      "Tot. Imponibile 556,75",
+    ];
+    const primo = await carica(commessa.id, porta, { nome: "Ordini_di_Vendi_1690010(1).pdf" });
+    const secondo = await carica(commessa.id, coprifili, { nome: "Ordini_di_Vendi_1690010(1) (2).pdf" });
+
+    // Un costo solo, e vale la somma: 727,17 + 556,75.
+    const costi = costiDi(commessa.id);
+    expect(costi).toHaveLength(1);
+    expect(costi[0].importo).toBeCloseTo(1283.92, 2);
+    expect(costi[0].documentoId).toBe(primo.id);
+
+    const lettura = getDocumentoRecordById(secondo.id)?.letturaCosto;
+    expect(lettura?.esito).toBe("parziale");
+    expect(lettura?.motivo).toMatch(/merce diversa|parziale/i);
+
+    // E la merce della parziale ENTRA: è merce in più, non una copia. Due
+    // consegne, una per documento, con dentro i loro articoli.
+    const consegne = merceDi(commessa.id);
+    expect(consegne).toHaveLength(2);
+    expect(consegne.map(c => c.documentoId).sort()).toEqual([primo.id, secondo.id].sort());
+    const tutti = consegne.flatMap(c => (c.articoli ?? []).map(a => a.nome)).join(" ");
+    expect(tutti).toContain("PORST-C013");
+    expect(tutti).toContain("COI5");
+  });
+
+  it("stesso ordine, stessa merce: resta discordanza, non si somma", async () => {
+    const commessa = await inOrdine("Parziali No");
+    const primo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("PARZIALI NO", "1690011", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1690011(1).pdf" }
+    );
+    const secondo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("PARZIALI NO", "1690011", "16/06/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1690011(1) (2).pdf" }
+    );
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].importo).toBe(727.17);
+    expect(costiDi(commessa.id)[0].documentoId).toBe(primo.id);
+    expect(getDocumentoRecordById(secondo.id)?.letturaCosto?.esito).toBe("discorde");
+  });
+
+  it("anche la copia che non vince porta i suoi articoli: senza, nessun confronto è possibile", async () => {
+    const commessa = await inOrdine("Articoli Sempre");
+    const primo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("ARTICOLI SEMPRE", "1690001", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1690001(1).pdf" }
+    );
+    const secondo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("ARTICOLI SEMPRE", "1690001", "16/06/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1690001(1) (2).pdf" }
+    );
+    for (const doc of [primo, secondo]) {
+      const letti = getDocumentoRecordById(doc.id)?.letturaCosto?.articoliLetti ?? [];
+      expect(letti.length).toBeGreaterThan(0);
+      expect(letti.join(" ")).toContain("PORST-C013");
+    }
+  });
+
   it("stesso ordine, stessa data, importi diversi: è discordanza, e vince il più alto", async () => {
     // Il caso COM-2026-092: quattro copie entrate nello stesso giro d'archivio,
     // importi diversi, nessuna prova di quale sia la revisione. Prima il CRM
