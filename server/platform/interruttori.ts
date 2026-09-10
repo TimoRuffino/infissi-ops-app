@@ -73,7 +73,11 @@ export type Interruttore =
   // riconoscimento. Spento = il riconoscimento passa dal seed della Ruffino
   // Group e si comporta esattamente come prima. Spec:
   // docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md §8.
-  | "fornitoriAzienda";
+  | "fornitoriAzienda"
+  // Profili di lettura delle conferme (10/09/2026): da un esempio corretto a
+  // mano nascono le ancore di quel modulo. Spento = l'estrattore generico e
+  // basta, come prima. Spec §5.
+  | "profiliLettura";
 
 const VARIABILE: Record<Interruttore, string> = {
   documentIntelligence: "FLAG_DOCUMENT_INTELLIGENCE",
@@ -101,6 +105,7 @@ const VARIABILE: Record<Interruttore, string> = {
   multiAzienda: "FLAG_MULTI_AZIENDA",
   iscrizionePubblica: "FLAG_ISCRIZIONE_PUBBLICA",
   fornitoriAzienda: "FLAG_FORNITORI_AZIENDA",
+  profiliLettura: "FLAG_PROFILI_LETTURA",
 };
 
 const ETICHETTA: Record<Interruttore, string> = {
@@ -131,6 +136,7 @@ const ETICHETTA: Record<Interruttore, string> = {
   multiAzienda: "Il multi-azienda (tenant sopra le sedi)",
   iscrizionePubblica: "L'iscrizione pubblica «Prova gratuita»",
   fornitoriAzienda: "I fornitori per azienda",
+  profiliLettura: "I profili di lettura delle conferme",
 };
 
 const VALORI_ON = new Set(["on", "true", "1", "attivo", "si"]);
