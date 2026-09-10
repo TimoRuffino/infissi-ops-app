@@ -9,6 +9,8 @@
 import { persistedStore } from "../_core/persistence";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
 
+export type CanaleFornitore = "mail" | "portale" | "altro";
+
 export type CategoriaFornitore =
   | "pvc" | "alluminio" | "vetro" | "ferramenta" | "persiane"
   | "blindati" | "accessori" | "guarnizioni" | "altro";
@@ -24,6 +26,19 @@ export type Fornitore = {
   telefono?: string;
   email?: string;
   categoria: CategoriaFornitore;
+  /**
+   * Le parole e i domini con cui si riconosce questo fornitore nel testo di un
+   * documento o nel dominio di una mail. È la parte che fino al 10/09/2026
+   * viveva nella costante `FORNITORI_NOTI` di `shared/fornitori.ts`.
+   */
+  chiavi: string[];
+  /** Come gli si ordina (spec ordini §3, D-E). */
+  canale: CanaleFornitore;
+  /**
+   * I domini del PORTALE con cui si ordina da lui: `antenore.biz` per Wnd. Un
+   * portale non è un fornitore, è un canale: riconduce al produttore.
+   */
+  portaleDomini: string[];
   referenteCommerciale?: string;
   scontistica?: number; // % sconto
   note?: string;
@@ -32,10 +47,20 @@ export type Fornitore = {
   updatedAt: Date;
 };
 
-export const storeFornitori = persistedStore<Fornitore>("fornitori", loaded => {
-  for (const f of loaded) {
-    if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
+/** I default dei campi aggiunti il 10/09/2026, applicati ai record salvati prima. */
+export function applicaBackfillFornitori(righe: readonly unknown[]): void {
+  for (const riga of righe as any[]) {
+    if (riga.sedeId === undefined) riga.sedeId = 1;
+    if (!Array.isArray(riga.chiavi)) riga.chiavi = [];
+    if (riga.canale !== "mail" && riga.canale !== "portale" && riga.canale !== "altro") {
+      riga.canale = "mail";
+    }
+    if (!Array.isArray(riga.portaleDomini)) riga.portaleDomini = [];
   }
+}
+
+export const storeFornitori = persistedStore<Fornitore>("fornitori", loaded => {
+  applicaBackfillFornitori(loaded);
 });
 
 const fornitori = storeFornitori.items;
