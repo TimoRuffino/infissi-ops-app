@@ -3,10 +3,50 @@
 > Stato tecnico e operativo del CRM. Questo documento è pensato per chi entra
 > nel progetto senza il contesto delle sessioni precedenti.
 
-**Aggiornato:** 09/09/2026<br>
+**Aggiornato:** 10/09/2026<br>
 **Base Git descritta:** `main`, Tars v2 presente nel checkout; la rimozione del 28/08 è storia, non stato corrente<br>
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
+
+> **Novità 10/09/2026 — Staging con dati demo: i tre meccanismi sul
+> branch, ambiente Railway NON ancora creato.** Piano in 8 task,
+> `docs/superpowers/plans/2026-09-10-staging-demo.md`; spec
+> `docs/superpowers/specs/2026-09-10-staging-demo-design.md` (decisioni
+> D1–D8); runbook nuovo `docs/runbooks/staging.md`. Cosa esiste nel
+> codice: l'identità d'ambiente è la variabile `AMBIENTE` (mai `NODE_ENV`,
+> che deve restare `production` anche in staging per i gate di sicurezza),
+> letta in un solo punto — `ambienteStaging()`
+> (`server/_core/ambiente.ts`); i quattro giri esterni veri (backup Drive,
+> sync FiC, sonda SdI, poller IMAP) passano da `avviaGiriEsterni()`
+> (`server/_core/giriEsterni.ts`) e in staging non partono, con
+> `X-Robots-Tag: noindex, nofollow` su ogni risposta; il seme demo
+> (`server/staging/semeDemo.ts`) crea 6 clienti e 6 commesse al boot, solo
+> su store `clienti`/`commesse` entrambi vuoti, passando esclusivamente dai
+> percorsi di dominio (`createClienteFromSync`, `creaCommessa`); l'accesso
+> di prova è una rotta anonima `GET /api/staging/entra?token=…`
+> (`server/staging/rotta.ts`), montata SOLO con `AMBIENTE=staging` e
+> `STAGING_ACCESSO_TOKEN` ≥ 32 caratteri, confronto a tempo costante, 404
+> opaco su qualunque fallimento, apre la sessione dell'utente
+> `BOOTSTRAP_ADMIN_EMAIL`; la procedura pubblica `system.ambiente` espone
+> `{ staging: boolean }` al client, che mostra un banner «Ambiente di
+> prova — i dati sono dimostrativi e possono essere azzerati in ogni
+> momento.» non chiudibile in entrambe le shell; `nixpacks.toml` avvia ora
+> con `pnpm start` come `railway.json` (niente più scansione della porta
+> in produzione). **Verificato:** `pnpm check` pulito, `pnpm test` 360
+> file passati + 15 saltati (375) — 3893 test passati + 88 saltati
+> (3981) — zero falliti, `pnpm build` riuscito; verifica browser completa
+> (sessione aperta dal link, banner visibile, 1440×900 e 390×844 puliti,
+> console senza errori, 404 su token errato o assente). **Cosa resta
+> MANUALE e NON fatto — l'ambiente Railway non è stato creato da questo
+> lavoro:** nel progetto `successful-playfulness` un operatore deve
+> ancora creare l'environment `staging` con un servizio Postgres dedicato
+> e nuovo, impostare le variabili della tabella nella spec (generandone
+> quattro con `openssl rand -base64 32`: `JWT_SECRET`,
+> `MAIL_ENCRYPTION_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`,
+> `STAGING_ACCESSO_TOKEN`), eseguire la checklist di primo avvio del
+> runbook, e solo dopo accendere la levetta Railway «PR environments».
+> Finché non succede, staging esiste come codice, non come ambiente
+> raggiungibile — nessun documento lo presenta come attivo.
 
 > **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
 > aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono
