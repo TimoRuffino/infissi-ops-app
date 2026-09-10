@@ -3,7 +3,12 @@
 // agenti presi per fornitori).
 
 import { describe, expect, it } from "vitest";
-import { FORNITORI, fornitoreNoto, normalizzaFornitore } from "./fornitori";
+import {
+  FORNITORI,
+  SORGENTE_MITTENTE_FORNITORE,
+  fornitoreNoto,
+  normalizzaFornitore,
+} from "./fornitori";
 
 describe("normalizzaFornitore", () => {
   it("riconosce il fornitore dal testo della conferma, comunque scritto", () => {
@@ -64,5 +69,28 @@ describe("normalizzaFornitore", () => {
     expect(new Set(FORNITORI).size).toBe(FORNITORI.length);
     expect(FORNITORI).toContain("Alias");
     expect(FORNITORI).toContain("Pail");
+  });
+});
+
+describe("SORGENTE_MITTENTE_FORNITORE", () => {
+  const re = () => new RegExp(SORGENTE_MITTENTE_FORNITORE, "i");
+
+  it("riconosce gli indirizzi dei fornitori veri", () => {
+    for (const indirizzo of [
+      "amministrazione@primed.it",
+      "v.gregori@aliasblindate.com",
+      "ordini@pailporte.com",
+      "vendite@oskura.it",
+      "noreply@antenore.biz",
+      "paola.cattai@henryglass.it",
+    ]) {
+      expect(re().test(indirizzo)).toBe(true);
+    }
+  });
+
+  it("non riconosce gli indirizzi qualunque", () => {
+    for (const indirizzo of ["mario@gmail.com", "info@comune.laspezia.it", "noreply@stripe.com"]) {
+      expect(re().test(indirizzo)).toBe(false);
+    }
   });
 });

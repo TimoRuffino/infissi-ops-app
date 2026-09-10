@@ -136,3 +136,27 @@ export function normalizzaFornitore(
   if (!prima || NON_FORNITORE.test(prima)) return null;
   return prima.slice(0, 60);
 }
+
+/**
+ * Il pattern che riconosce il mittente di un fornitore noto, **una sola
+ * sorgente** per il pre-filtro in memoria e per quello in SQL: due copie
+ * divergerebbero, e la mail entrerebbe da una porta e non dall'altra.
+ *
+ * Le chiavi valgono come sottostringa, non come parola: `pailporte.com`
+ * contiene «pailporte», `aliasblindate.com` contiene «aliasblindate». È
+ * volutamente LARGO — il pre-filtro pesca, il giudizio fine
+ * (`allegatoDaConferma`, che passa da `fornitoreNoto`) scarta: una chiave
+ * corta come «wnd» sta dentro «downdraft», e va bene così.
+ *
+ * Sintassi comune a JS e POSIX (niente `\b`, niente lookahead): la stessa
+ * stringa finisce in un `RegExp` e in un `~*` di Postgres.
+ */
+export const SORGENTE_MITTENTE_FORNITORE: string = [
+  ...FORNITORI_NOTI.flatMap(f => f.chiavi),
+  ...PORTALI.flatMap(p => p.chiavi),
+]
+  // Uno spazio nella chiave («henry glass») nel dominio non c'è: diventa
+  // «qualunque cosa o niente fra le due parole».
+  .map(chiave => chiave.replace(/[^a-z0-9]+/g, "[^a-z0-9]*"))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
