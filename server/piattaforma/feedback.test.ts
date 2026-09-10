@@ -14,7 +14,7 @@ import {
   riassunto,
   type ContestoFeedback,
 } from "./feedback";
-import { __azzeraLimiteFeedbackPerTest, feedbackRouter } from "./feedbackRouter";
+import { feedbackRouter } from "./feedbackRouter";
 
 const contesto = (extra: Partial<ContestoFeedback> = {}): ContestoFeedback => ({
   azienda: { id: 2, nome: "Serramenti Però", stato: "attivo" },
@@ -37,7 +37,6 @@ beforeEach(() => {
     spedite.push(m);
     return { inviato: true, id: "em_feedback" };
   });
-  __azzeraLimiteFeedbackPerTest();
 });
 
 afterEach(() => {
@@ -277,14 +276,16 @@ describe("feedbackRouter", () => {
     expect(spedite).toHaveLength(0);
   });
 
-  it("cinque all'ora per persona, poi si aspetta", async () => {
+  it("nessun tetto: dodici di fila nella stessa ora partono tutte", async () => {
+    // Decisione della direzione del 10/09/2026. Un'azienda che trova dodici
+    // cose rotte in una mattinata deve poterle dire tutte e dodici: il
+    // rifiuto arriverebbe proprio quando il canale serve di più.
     const caller = feedbackRouter.createCaller(ctx());
-    for (let i = 0; i < 5; i++) {
-      await caller.invia({ tipo: "consiglio", testo: `Segnalazione numero ${i} del giorno` });
+    for (let i = 0; i < 12; i++) {
+      await expect(
+        caller.invia({ tipo: "consiglio", testo: `Segnalazione numero ${i} del giorno` })
+      ).resolves.toEqual({ ok: true });
     }
-    await expect(
-      caller.invia({ tipo: "consiglio", testo: "La sesta della stessa ora" })
-    ).rejects.toMatchObject({ message: MESSAGGI_FEEDBACK.troppiInvii });
-    expect(spedite).toHaveLength(5);
+    expect(spedite).toHaveLength(12);
   });
 });

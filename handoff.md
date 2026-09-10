@@ -39,8 +39,12 @@
 > `protectedProcedure` (la `guardiaTenant` bloccherebbe le mutation di
 > un'azienda sospesa, che è proprio quella che ha più bisogno di scrivere), e
 > `inviaFeedback` **lancia** invece di ingoiare l'errore come fa `inviaPosta`
-> — c'è una persona che aspetta. Limite: 5 all'ora per persona. La mail si
-> guarda con `pnpm posta:anteprima --mail=feedback`. **Verificato:**
+> — c'è una persona che aspetta. **Nessun tetto al numero di segnalazioni**
+> (direzione, 10/09 sera: il limitatore da 5/ora c'era ed è stato rimosso —
+> il rifiuto arriverebbe proprio quando il canale serve di più, e ogni invio
+> è comunque un gesto a mano). Restano i limiti della singola segnalazione:
+> 10–4000 caratteri e 2 MB d'immagine. La mail si guarda con
+> `pnpm posta:anteprima --mail=feedback`. **Verificato:**
 > `pnpm check`/`test`/`build` verdi, 33 test nuovi; browser 1440×900 e
 > 390×844, chiaro e scuro, tutte le porte, allegato ridotto da 96 kB PNG a
 > 22 kB JPEG, giro completo client→server, console senza errori React.
