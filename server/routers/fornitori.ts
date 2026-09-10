@@ -554,7 +554,7 @@ export const fornitoriRouter = router({
         const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
         const limite = input.limite ?? 20;
         const viste = new Map<number, any>();
-        for (const chiave of chiaviRicercaFornitore(input.fornitore)) {
+        for (const chiave of chiaviRicercaFornitore(input.fornitore, sedeId)) {
           const righe = await listComunicazioni({ sedeId, search: chiave, limit: limite });
           for (const c of righe) if (!viste.has(c.id)) viste.set(c.id, c);
           if (viste.size >= limite * 2) break;

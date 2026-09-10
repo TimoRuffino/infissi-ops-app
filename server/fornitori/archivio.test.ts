@@ -3,7 +3,7 @@
 // da sola nel fascicolo — con il costo fornitore e la consegna a magazzino.
 // Quando non è certa lo dice, e la collega una persona.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TrpcContext } from "../_core/context";
 import { getLiveComunicazione, insertComunicazione } from "../comunicazioni/comunicazioni";
 import { pdfConTesto } from "../documenti/pdfMinimo";
@@ -19,6 +19,8 @@ import {
 } from "../routers/preventiviContratti";
 import { getUtentiStore } from "../routers/utenti";
 import { azzeraMemoriaRicercaPerTest, creaLettoreCommessaNelDocumento } from "../tars/documenti/ricercaCommessaNelDocumento";
+import { storeFornitori } from "./anagrafica";
+import { riconoscitoreDiRipiego, riconoscitoreDiSede } from "./riconoscimento";
 import {
   FORNITORE_DA_RICONOSCERE,
   azzeraArchivioFornitoriPerTest,
@@ -148,26 +150,41 @@ async function commessaIn(stato: string, cliente: string) {
 beforeEach(() => {
   azzeraArchivioFornitoriPerTest();
   azzeraMemoriaRicercaPerTest();
+  // Questi test parlano dell'ARCHIVIO, non del riconoscimento: girano nel
+  // mondo di prima, dove i fornitori sono il seed della Ruffino. Il mondo
+  // nuovo — l'anagrafica della sede — ha il suo test in fondo al file.
+  process.env.FLAG_FORNITORI_AZIENDA = "off";
+});
+afterEach(() => {
+  delete process.env.FLAG_FORNITORI_AZIENDA;
 });
 
 describe("fornitoreDiComunicazione", () => {
   it("riconosce il fornitore dal dominio anche quando il mittente è l'agenzia", () => {
     expect(
-      fornitoreDiComunicazione({
-        mittente: "v.gregori@aliasblindate.com",
-        mittenteNome: "DE - DOOR DESIGN S.R.L. Veronica Gregori",
-        allegati: [{ nome: "conferma.pdf", mimeType: "application/pdf" }],
-      })
+      fornitoreDiComunicazione(
+        {
+          mittente: "v.gregori@aliasblindate.com",
+          mittenteNome: "DE - DOOR DESIGN S.R.L. Veronica Gregori",
+          allegati: [{ nome: "conferma.pdf", mimeType: "application/pdf" }],
+        },
+        undefined,
+        riconoscitoreDiRipiego()
+      )
     ).toBe("Alias");
   });
 
   it("una mail che non è di un fornitore e non porta conferme resta fuori dall'archivio", () => {
     expect(
-      fornitoreDiComunicazione({
-        mittente: "info@banca.example",
-        mittenteNome: "Banca",
-        allegati: [{ nome: "estratto_conto.pdf", mimeType: "application/pdf" }],
-      })
+      fornitoreDiComunicazione(
+        {
+          mittente: "info@banca.example",
+          mittenteNome: "Banca",
+          allegati: [{ nome: "estratto_conto.pdf", mimeType: "application/pdf" }],
+        },
+        undefined,
+        riconoscitoreDiRipiego()
+      )
     ).toBeNull();
   });
 
@@ -179,18 +196,23 @@ describe("fornitoreDiComunicazione", () => {
           mittenteNome: "Ufficio",
           allegati: [{ nome: "conf. ordine Cadimare.pdf", mimeType: "application/pdf" }],
         },
-        new Set(["ruffinogroup.example"])
+        new Set(["ruffinogroup.example"]),
+        riconoscitoreDiRipiego()
       )
     ).toBe(FORNITORE_DA_RICONOSCERE);
   });
 
   it("un mittente sconosciuto che manda una conferma entra col suo dominio", () => {
     expect(
-      fornitoreDiComunicazione({
-        mittente: "ordini@vetreriabianchi.example",
-        mittenteNome: null,
-        allegati: [{ nome: "Conferma ordine 12.pdf", mimeType: "application/pdf" }],
-      })
+      fornitoreDiComunicazione(
+        {
+          mittente: "ordini@vetreriabianchi.example",
+          mittenteNome: null,
+          allegati: [{ nome: "Conferma ordine 12.pdf", mimeType: "application/pdf" }],
+        },
+        undefined,
+        riconoscitoreDiRipiego()
+      )
     ).toBe("vetreriabianchi.example");
   });
 });
@@ -565,5 +587,34 @@ describe("il magazzino visto dal fornitore", () => {
         r => r.prodottoId === riga!.prodottoId
       )
     ).toBe(false);
+  });
+});
+
+describe("il riconoscimento segue l'anagrafica della sede", () => {
+  it("a interruttore acceso conta chi è censito, non il seed della Ruffino", () => {
+    process.env.FLAG_FORNITORI_AZIENDA = "on";
+    const mail = {
+      mittente: "v.gregori@aliasblindate.com",
+      mittenteNome: "DE - DOOR DESIGN S.R.L. Veronica Gregori",
+      allegati: [{ nome: "conferma.pdf", mimeType: "application/pdf" }],
+    };
+    // Alias non è nell'anagrafica di questa sede: entra col suo dominio, non
+    // col nome aziendale che il seed della Ruffino gli darebbe.
+    expect(fornitoreDiComunicazione(mail, undefined, riconoscitoreDiSede(SEDE))).not.toBe("Alias");
+
+    // Censito, torna a chiamarsi Alias.
+    storeFornitori.items.push({
+      id: storeFornitori.prossimoId(),
+      sedeId: SEDE,
+      ragioneSociale: "Alias",
+      categoria: "blindati",
+      attivo: true,
+      chiavi: ["alias", "aliasblindate", "door design"],
+      canale: "mail",
+      portaleDomini: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+    expect(fornitoreDiComunicazione(mail, undefined, riconoscitoreDiSede(SEDE))).toBe("Alias");
   });
 });
