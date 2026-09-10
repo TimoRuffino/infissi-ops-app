@@ -12,9 +12,9 @@ import { describe, expect, it } from "vitest";
 const AMMESSI = [
   // Il ripiego a interruttore spento.
   "server/fornitori/riconoscimento.ts",
-  // Al Task 8 si aggiunge `server/routers/fornitori.ts`, che importa il seed
-  // per l'importazione una tantum: aggiungerlo QUI è parte di quel lavoro, ed
-  // è il momento in cui questa guardia chiede di pensarci.
+  // L'importazione una tantum, chiesta da una persona dalla pagina
+  // `/fornitori` e rifiutata per ogni azienda che non sia la Ruffino Group.
+  "server/routers/fornitori.ts",
 ];
 
 function sorgenti(dir: string, acc: string[] = []): string[] {

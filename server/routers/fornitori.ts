@@ -2,7 +2,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import { SEED_FORNITORI_TENANT_1 } from "@shared/fornitori";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
 import {
+  fornitoriDiSede,
   storeFornitori as _fornitoriStore,
   type Fornitore,
 } from "../fornitori/anagrafica";
@@ -13,11 +16,13 @@ import {
   requireDirezioneOAmministrazione,
 } from "../_core/permissions";
 import {
+  FORNITORE_DA_RICONOSCERE,
   chiaviRicercaFornitore,
   collegaVoceArchivio,
   confermeDiSede,
   consegneInArrivo,
   eseguiGiroArchivioFornitori,
+  getArchivioFornitoriStore,
   riapriVoceArchivio,
   riepilogoFornitori,
   rileggiVoceArchivio,
@@ -214,12 +219,16 @@ export const fornitoriRouter = router({
     .input(
       z.object({
         ragioneSociale: z.string().min(1),
-        partitaIva: z.string().min(1),
+        /** Facoltativa: per riconoscere il mittente di una conferma non serve. */
+        partitaIva: z.string().min(1).optional(),
         indirizzo: z.string().optional(),
         citta: z.string().optional(),
         telefono: z.string().optional(),
         email: z.string().optional(),
         categoria: z.enum(["pvc", "alluminio", "vetro", "ferramenta", "persiane", "blindati", "accessori", "guarnizioni", "altro"]),
+        chiavi: z.array(z.string().trim().toLowerCase().min(2).max(60)).max(20).optional(),
+        canale: z.enum(["mail", "portale", "altro"]).optional(),
+        portaleDomini: z.array(z.string().trim().toLowerCase().min(2).max(60)).max(10).optional(),
         referenteCommerciale: z.string().optional(),
         scontistica: z.number().optional(),
         note: z.string().optional(),
@@ -230,6 +239,11 @@ export const fornitoriRouter = router({
       const fornitore: Fornitore = {
         id: _fornitoriStore.prossimoId(),
         ...input,
+        // I campi del riconoscimento nascono sempre presenti: chi legge non
+        // deve dover distinguere «vuoto» da «mai scritto».
+        chiavi: input.chiavi ?? [],
+        canale: input.canale ?? "mail",
+        portaleDomini: input.portaleDomini ?? [],
         sedeId: ctx.sedeId ?? 1,
         attivo: true,
         createdAt: now,
@@ -251,6 +265,9 @@ export const fornitoriRouter = router({
         telefono: z.string().optional(),
         email: z.string().optional(),
         categoria: z.enum(["pvc", "alluminio", "vetro", "ferramenta", "persiane", "blindati", "accessori", "guarnizioni", "altro"]).optional(),
+        chiavi: z.array(z.string().trim().toLowerCase().min(2).max(60)).max(20).optional(),
+        canale: z.enum(["mail", "portale", "altro"]).optional(),
+        portaleDomini: z.array(z.string().trim().toLowerCase().min(2).max(60)).max(10).optional(),
         referenteCommerciale: z.string().optional(),
         scontistica: z.number().optional(),
         note: z.string().optional(),
@@ -272,6 +289,80 @@ export const fornitoriRouter = router({
     fornitori.splice(idx, 1);
     _fornitoriStore.save();
     return { success: true };
+  }),
+
+  /**
+   * I mittenti da cui è arrivata una conferma e che nell'anagrafica non ci
+   * sono ancora. È così che un'azienda nuova si popola l'elenco: conferma
+   * quello che le è già arrivato invece di battere venticinque nomi.
+   */
+  candidati: protectedProcedure.query(({ ctx }) => {
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const gia = new Set(
+      fornitoriDiSede(sedeId).map(f => f.ragioneSociale.toLowerCase())
+    );
+    const conteggio = new Map<string, { dominio: string | null; conferme: number }>();
+    for (const v of getArchivioFornitoriStore()) {
+      if (v.sedeId !== sedeId) continue;
+      const nome = String(v.fornitore ?? "").trim();
+      if (!nome || nome === FORNITORE_DA_RICONOSCERE) continue;
+      if (gia.has(nome.toLowerCase())) continue;
+      const at = String(v.mittente ?? "").lastIndexOf("@");
+      const dominio = at > 0 ? String(v.mittente).slice(at + 1).toLowerCase() : null;
+      const riga = conteggio.get(nome) ?? { dominio, conferme: 0 };
+      riga.conferme += 1;
+      if (!riga.dominio && dominio) riga.dominio = dominio;
+      conteggio.set(nome, riga);
+    }
+    return [...conteggio.entries()]
+      .map(([nome, r]) => ({ nome, ...r }))
+      .sort((a, b) => b.conferme - a.conferme || a.nome.localeCompare(b.nome));
+  }),
+
+  /**
+   * I venticinque della Ruffino Group nell'anagrafica del tenant 1. UNA
+   * TANTUM e su richiesta: la riga di `kv_store` esiste già, quindi un seed
+   * al `firstBoot` non partirebbe mai, e uno senza quella guardia
+   * calpesterebbe l'elenco di chi li ha cancellati apposta.
+   */
+  importaSeed: adminProcedure.mutation(({ ctx }) => {
+    if ((ctx.tenantId ?? TENANT_PREDEFINITO_ID) !== TENANT_PREDEFINITO_ID) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Questo elenco è dei fornitori della Ruffino Group.",
+      });
+    }
+    const sedeId = ctx.sedeId ?? DEFAULT_SEDE_ID;
+    const gia = new Set(
+      fornitoriDiSede(sedeId).map(f => f.ragioneSociale.toLowerCase())
+    );
+    const now = new Date();
+    let creati = 0;
+    // Le voci di portale del seed non sono fornitori a sé: confluiscono nel
+    // produttore a cui riconducono.
+    for (const voce of SEED_FORNITORI_TENANT_1) {
+      if (voce.portaleDi) continue;
+      if (gia.has(voce.nome.toLowerCase())) continue;
+      const portali = SEED_FORNITORI_TENANT_1
+        .filter(p => p.portaleDi === voce.nome)
+        .flatMap(p => [...p.chiavi]);
+      fornitori.push({
+        id: _fornitoriStore.prossimoId(),
+        sedeId,
+        ragioneSociale: voce.nome,
+        categoria: "altro",
+        chiavi: [...voce.chiavi],
+        canale: portali.length > 0 ? "portale" : "mail",
+        portaleDomini: portali,
+        attivo: true,
+        createdAt: now,
+        updatedAt: now,
+      } as Fornitore);
+      gia.add(voce.nome.toLowerCase());
+      creati += 1;
+    }
+    if (creati > 0) _fornitoriStore.save();
+    return { creati };
   }),
 
   stats: protectedProcedure.query(({ ctx }) => {
