@@ -69,7 +69,13 @@ export type EsitoLetturaCosto =
    * margine — e la discordanza si dichiara invece di sceglierne una in
    * silenzio (10/09/2026).
    */
-  | "discorde";
+  | "discorde"
+  /**
+   * Stesso ordine di un'altra conferma ma merce DIVERSA: sono due pezzi di un
+   * ordine solo, e il costo è la loro somma. Il costo resta sul primo
+   * documento; questo vi contribuisce e non ne crea un secondo (10/09/2026).
+   */
+  | "parziale";
 
 export type LetturaCostoDocumento = {
   versione: string;

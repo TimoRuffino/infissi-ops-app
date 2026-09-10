@@ -70,6 +70,7 @@ import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
 import { revisionePerData } from "./revisioneConferma";
+import { confrontoArticoli } from "./confrontoArticoli";
 import { getSediStore } from "../routers/sedi";
 import {
   creaConsegnaDaConferma,
@@ -799,6 +800,49 @@ export async function registraCostoDaConferma(input: {
     // insistere su una domanda a cui qualcuno ha già risposto. Quel caso
     // resta un duplicato con l'avviso, come prima.
     if (importiDiversi && correggibile && prova === "nessuna_prova") {
+      const confronto = confrontoArticoli(
+        articoliLetti,
+        letturaOriginale?.articoliLetti ?? null
+      );
+      if (confronto === "disgiunti") {
+        // Merce diversa sullo stesso ordine: sono due pezzi, e il costo è la
+        // somma. Si applica invece di proporla perché la direzione
+        // dell'errore è quella giusta: sommare due revisioni gonfia il costo
+        // (margine più basso, costa attenzione), NON sommare due parziali
+        // gonfia il margine (costa soldi, e in silenzio).
+        const somma = Math.round((costoOriginale!.importo + imponibile!) * 100) / 100;
+        aggiornaImportoCosto(
+          commessa,
+          costoOriginale!,
+          somma,
+          `Somma di due conferme parziali dell'ordine ${duplicato.riferimento}: ${euro(
+            costoOriginale!.importo
+          )} + ${euro(imponibile!)} da «${raw.nome}», che porta merce diversa.`,
+          { fornitore, data: dataDocumento, numeroOrdine }
+        );
+        ritira(commessa, documento);
+        const motivoParziale = `Conferma parziale dell'ordine ${duplicato.riferimento}: porta merce diversa da «${
+          originale.nome
+        }», quindi i due imponibili si sommano. A registro ${euro(somma)} (${euro(
+          costoOriginale!.importo
+        )} + ${euro(imponibile!)}).`;
+        salva({
+          ...memoriaBase,
+          esito: "parziale",
+          motivo: motivoParziale,
+          costoId: null,
+          merce: null,
+          duplicatoDi: originale.id,
+          discordi: [costoOriginale!.importo, imponibile!],
+          riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+        });
+        return base(documento, "parziale", motivoParziale, {
+          fonteTesto,
+          imponibile,
+          duplicatoDi: originale.id,
+        });
+      }
+
       const alto = Math.max(imponibile!, costoOriginale!.importo);
       const basso = Math.min(imponibile!, costoOriginale!.importo);
       if (alto > costoOriginale!.importo) {
