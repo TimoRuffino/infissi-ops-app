@@ -852,10 +852,16 @@ export const commesseRouter = router({
         search: z.string().optional(),
         clienteId: z.number().optional(),
         assegnatoA: z.number().optional(),
-        // Archive scope:
-        //   "exclude" (default) — only active commesse (archivedAt IS NULL)
-        //   "only"              — only archived commesse (archivedAt IS NOT NULL)
-        //   "all"               — both (used rarely, e.g. admin exports)
+        // Archive scope. «Archiviata» esiste in due forme: il soft-archive
+        // `archivedAt` e lo stato terminale della macchina. Il board le
+        // toglie entrambe dalle colonne, quindi per l'archivio sono la
+        // stessa cosa (10/09/2026).
+        //   "exclude" (default) — fuori solo il soft-archive: lista, ricerca,
+        //                         scheda cliente e post-vendita devono
+        //                         continuare a vedere le commesse chiuse
+        //   "only"              — l'archivio: `archivedAt` OPPURE stato
+        //                         "archiviata"
+        //   "all"               — tutto (export, Platform Admin)
         archived: z.enum(["exclude", "only", "all"]).optional(),
       }).optional()
     )
@@ -865,7 +871,7 @@ export const commesseRouter = router({
       if (scope === "exclude") {
         result = result.filter((c) => !c.archivedAt);
       } else if (scope === "only") {
-        result = result.filter((c) => !!c.archivedAt);
+        result = result.filter((c) => !!c.archivedAt || c.stato === "archiviata");
       }
       if (input?.stato) {
         result = result.filter((c) => c.stato === input.stato);
@@ -2037,19 +2043,52 @@ export const commesseRouter = router({
       return sagomaDettaglio(commesse[idx], caps);
     }),
 
+  // Ripristino: riporta la commessa fra quelle attive, qualunque sia la
+  // forma dell'archiviazione. Il soft-archive è un flag e si azzera qui;
+  // lo stato terminale «archiviata» è invece una posizione della macchina e
+  // si lascia SOLO con una transizione vera — registro, Undo e
+  // `dataChiusura` azzerata li dà `eseguiTransizioneCommessa`, non una
+  // scrittura a mano. Le due forme convivono: un solo click le toglie
+  // entrambe, in un commit unico (`archivedAt` viaggia nella patch).
   restore: protectedProcedure
     .input(z.number())
     .mutation(async ({ input, ctx }) => {
       const idx = commesse.findIndex((c) => c.id === input);
-      recordOppureNotFound(commesse[idx], ctx.sedeId);
+      const corrente = recordOppureNotFound(commesse[idx], ctx.sedeId);
       const caps = await capacitaEconomiche(ctx);
-      if (!commesse[idx].archivedAt) return sagomaDettaglio(commesse[idx], caps);
-      commesse[idx] = {
-        ...commesse[idx],
-        archivedAt: null,
-        updatedAt: new Date(),
-      };
-      _store.save();
-      return sagomaDettaglio(commesse[idx], caps);
+      const softArchiviata = Boolean(corrente.archivedAt);
+      const statoArchiviata = corrente.stato === "archiviata";
+      if (!softArchiviata && !statoArchiviata) {
+        return sagomaDettaglio(corrente, caps);
+      }
+      if (statoArchiviata) {
+        // Indietro di un passo: il gate documentale non ferma mai una
+        // transizione all'indietro, ma la capability `commessa.change_state`
+        // sì — riaprire una commessa chiusa non è il flag reversibile.
+        await eseguiTransizioneCommessa(
+          {
+            ctx,
+            commessaId: input,
+            nuovoStato: "interventi_regolazioni",
+            origine: "router",
+            attoreNome: ctx.user?.name ?? null,
+            patchAutorizzata: softArchiviata ? { archivedAt: null } : {},
+          },
+          dipendenzeTransizioniCommesse()
+        );
+      } else {
+        const indiceCorrente = commesse.findIndex((c) => c.id === input);
+        commesse[indiceCorrente] = {
+          ...commesse[indiceCorrente],
+          archivedAt: null,
+          updatedAt: new Date(),
+        };
+        _store.save();
+      }
+      const aggiornata = recordOppureNotFound(
+        commesse.find((c) => c.id === input),
+        ctx.sedeId
+      );
+      return sagomaDettaglio(aggiornata, caps);
     }),
 });

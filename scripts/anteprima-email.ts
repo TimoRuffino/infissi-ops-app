@@ -18,8 +18,10 @@
 //   pnpm posta:anteprima --base=http://localhost:5000 --out=/tmp/invito.html
 //   pnpm posta:anteprima --contatto=""     # com'è senza indirizzo di risposta
 //   pnpm posta:anteprima --tema=scuro      # le regole del tema scuro, forzate
+//   pnpm posta:anteprima --mail=feedback   # la segnalazione che arriva a supporto
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { componiFeedback } from "../server/piattaforma/feedback";
 import { testoInvito } from "../server/piattaforma/testi";
 
 /** `--chiave=valore`; `undefined` se l'argomento non c'è (≠ presente e vuoto). */
@@ -34,25 +36,50 @@ const contatto = argomento("contatto") ?? "info@wyndoor.it";
 // Browser la apre come pagina vera invece che come istantanea, e la si
 // può ridimensionare a 390 per vedere com'è sul telefono.
 const tema = argomento("tema") === "scuro" ? "scuro" : "chiaro";
+const quale = argomento("mail") === "feedback" ? "feedback" : "invito";
 const uscita =
   argomento("out") ||
-  join(process.cwd(), "tmp", `anteprima-invito-${tema}.html`);
+  join(process.cwd(), "tmp", `anteprima-${quale}-${tema}.html`);
 mkdirSync(join(uscita, ".."), { recursive: true });
 
 // Sette giorni, come `TTL_INVITO_MS`, a partire da oggi: la data nella
 // scheda deve leggersi come si leggerà davvero.
 const scadeIl = new Date(Date.now() + 7 * 86_400_000);
 
-const invito = testoInvito({
-  nome: "Giulia Bianchi",
-  azienda: "Serramenti Bianchi S.r.l.",
-  email: "giulia.bianchi@serramentibianchi.it",
-  link: `${base.replace(/\/+$/, "")}/invito/7f3c9a21b5e84d06af12c7e390b4d5a86c1f2e73`,
-  giorni: 7,
-  scadeIl,
-  baseUrl: base,
-  contatto: contatto || undefined,
-});
+const invito =
+  quale === "feedback"
+    ? componiFeedback({
+        tipo: "bug",
+        testo:
+          "Salvo la conferma d'ordine di Oknoplast e la commessa resta senza costo.\n\nSuccede da stamattina, su tutte le commesse: il file entra nel fascicolo, il tipo è giusto, ma nel riepilogo il costo resta a zero. Ieri funzionava.",
+        conImmagine: true,
+        contesto: {
+          azienda: {
+            id: 2,
+            nome: "Serramenti Bianchi S.r.l.",
+            stato: "attivo",
+          },
+          sede: "Torino",
+          utente: {
+            nome: "Giulia Bianchi",
+            email: "giulia.bianchi@serramentibianchi.it",
+            ruoli: ["direzione"],
+          },
+          pagina: "/commesse/128?tab=fascicolo",
+          browser: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141",
+          baseUrl: base,
+        },
+      })
+    : testoInvito({
+        nome: "Giulia Bianchi",
+        azienda: "Serramenti Bianchi S.r.l.",
+        email: "giulia.bianchi@serramentibianchi.it",
+        link: `${base.replace(/\/+$/, "")}/invito/7f3c9a21b5e84d06af12c7e390b4d5a86c1f2e73`,
+        giorni: 7,
+        scadeIl,
+        baseUrl: base,
+        contatto: contatto || undefined,
+      });
 
 /**
  * Il tema scuro di una mail vive in `@media (prefers-color-scheme:dark)`, e

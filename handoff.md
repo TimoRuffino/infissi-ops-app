@@ -8,6 +8,121 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 10/09/2026 — Le aziende hanno un canale di ritorno: segnalazioni
+> e consigli via mail a `supporto@wyndoor.com` (PRD §60.16).** Richiesta
+> della direzione: un bottone che non dà fastidio, e quello che l'azienda
+> scrive arriva a supporto. Tre porte, nessun pixel in più: la voce «Segnala
+> un problema» nel menu profilo, le voci «Segnala un problema» / «Manda un
+> consiglio» nella palette ⌘K sotto «Supporto Wyndoor», e la stessa voce nel
+> piede di `NavigationSidebar` — che è anche il contenuto del cassetto
+> «Altro» della BottomNav, e quindi **l'unica porta raggiungibile dal
+> telefono** (la palette vuole una tastiera, il menu profilo sta in cima).
+> Quest'ultima è nata da una segnalazione della direzione il 10/09 sera;
+> l'azione non è una navigazione, quindi `onAzione` risale fino a
+> `ModularControlLayout` per chiudere il cassetto con lo stesso
+> `changeNavigationOpen(false)` di ogni voce di menu. Niente pillola
+> flottante: dove starebbe ci sono già la mascotte di Tars e la BottomNav.
+> Il dialogo vive una volta sola nella cornice (`FeedbackProvider` in
+> `DashboardLayout`, sopra entrambe le shell). **Nessuno store nuovo: la
+> casella di posta è l'archivio** — `server/piattaforma/feedback.ts` compone,
+> `feedbackRouter.ts` accoglie, `_core/postaPiattaforma.ts` spedisce
+> (destinatario `supporto@wyndoor.com`, spostabile con `POSTA_FEEDBACK`;
+> `reply_to` = l'indirizzo di chi ha scritto, così supporto risponde con
+> «Rispondi»). L'utente scrive due cose (problema o consiglio, e che cosa è
+> successo, 10–4000 caratteri): azienda, sede, ruoli, pagina, browser e data
+> li mette il server. Lo screenshot facoltativo **non tocca lo storage**:
+> viaggia come allegato dentro la mail (Resend `attachments`), quindi niente
+> `putFile`, niente quota, niente ledger, niente da cancellare; il client
+> riduce a 1600 px e comprime in JPEG (`client/src/lib/feedbackImmagine.ts`),
+> il server rifiuta oltre 2 MB o fuori da PNG/JPEG/WebP. Due scelte da
+> ricordare: l'endpoint è una `sessionProcedure` e non una
+> `protectedProcedure` (la `guardiaTenant` bloccherebbe le mutation di
+> un'azienda sospesa, che è proprio quella che ha più bisogno di scrivere), e
+> `inviaFeedback` **lancia** invece di ingoiare l'errore come fa `inviaPosta`
+> — c'è una persona che aspetta. Limite: 5 all'ora per persona. La mail si
+> guarda con `pnpm posta:anteprima --mail=feedback`. **Verificato:**
+> `pnpm check`/`test`/`build` verdi, 33 test nuovi; browser 1440×900 e
+> 390×844, chiaro e scuro, tutte le porte, allegato ridotto da 96 kB PNG a
+> 22 kB JPEG, giro completo client→server, console senza errori React.
+> **In produzione:** `RESEND_API_KEY` è impostata su Railway e
+> `POSTA_FEEDBACK` non serve (il default è già `supporto@wyndoor.com`); la
+> direzione ha confermato che l'invio funziona.
+
+> **Novità 10/09/2026 — Staging con dati demo: i tre meccanismi sul
+> branch, ambiente Railway NON ancora creato.** Piano in 8 task,
+> `docs/superpowers/plans/2026-09-10-staging-demo.md`; spec
+> `docs/superpowers/specs/2026-09-10-staging-demo-design.md` (decisioni
+> D1–D8); runbook nuovo `docs/runbooks/staging.md`. Cosa esiste nel
+> codice: l'identità d'ambiente è la variabile `AMBIENTE` (mai `NODE_ENV`,
+> che deve restare `production` anche in staging per i gate di sicurezza),
+> letta in un solo punto — `ambienteStaging()`
+> (`server/_core/ambiente.ts`); i quattro giri esterni veri (backup Drive,
+> sync FiC, sonda SdI, poller IMAP) passano da `avviaGiriEsterni()`
+> (`server/_core/giriEsterni.ts`) e in staging non partono, con
+> `X-Robots-Tag: noindex, nofollow` su ogni risposta; il seme demo
+> (`server/staging/semeDemo.ts`) crea 6 clienti e 6 commesse al boot, solo
+> su store `clienti`/`commesse` entrambi vuoti, passando esclusivamente dai
+> percorsi di dominio (`createClienteFromSync`, `creaCommessa`); l'accesso
+> di prova è una rotta anonima `GET /api/staging/entra?token=…`
+> (`server/staging/rotta.ts`), montata SOLO con `AMBIENTE=staging` e
+> `STAGING_ACCESSO_TOKEN` ≥ 32 caratteri, confronto a tempo costante, 404
+> opaco su qualunque fallimento, apre la sessione dell'utente
+> `BOOTSTRAP_ADMIN_EMAIL`; la procedura pubblica `system.ambiente` espone
+> `{ staging: boolean }` al client, che mostra un banner «Ambiente di
+> prova — i dati sono dimostrativi e possono essere azzerati in ogni
+> momento.» non chiudibile in entrambe le shell; `nixpacks.toml` avvia ora
+> con `pnpm start` come `railway.json` (niente più scansione della porta
+> in produzione). **Verificato:** `pnpm check` pulito, `pnpm test` 360
+> file passati + 15 saltati (375) — 3893 test passati + 88 saltati
+> (3981) — zero falliti, `pnpm build` riuscito; verifica browser completa
+> (sessione aperta dal link, banner visibile, 1440×900 e 390×844 puliti,
+> console senza errori, 404 su token errato o assente). **Cosa resta
+> MANUALE e NON fatto — l'ambiente Railway non è stato creato da questo
+> lavoro:** nel progetto `successful-playfulness` un operatore deve
+> ancora creare l'environment `staging` con un servizio Postgres dedicato
+> e nuovo, impostare le variabili della tabella nella spec (generandone
+> quattro con `openssl rand -base64 32`: `JWT_SECRET`,
+> `MAIL_ENCRYPTION_KEY`, `BOOTSTRAP_ADMIN_PASSWORD`,
+> `STAGING_ACCESSO_TOKEN`), eseguire la checklist di primo avvio del
+> runbook, e solo dopo accendere la levetta Railway «PR environments».
+> Finché non succede, staging esiste come codice, non come ambiente
+> raggiungibile — nessun documento lo presenta come attivo.
+
+> **Novità 10/09/2026 — L'archivio è uno solo: la commessa chiusa non è più
+> in un vicolo cieco (PRD §22).** Segnalazione della direzione: «la commessa
+> De Petris risulta archiviata ma non la vedo nell'archivio e non riesco a
+> ripristinarla». Causa: «archiviata» esisteva in due forme scollegate — il
+> soft-archive `archivedAt` (l'unico che `/archivio` leggeva e l'unico che
+> `commesse.restore` sapeva togliere) e lo stato terminale `archiviata` della
+> macchina (che il Board toglie dalle colonne e su cui «Avanza» non c'è più).
+> Chi arrivava in fondo al percorso spariva dal Board, non compariva in
+> archivio e non aveva nessun pulsante per tornare indietro: restava solo la
+> riga in `/commesse` col badge «Archiviata». In produzione erano **15**
+> commesse (COM-2026-003, -015, -016, -017, -051, -052 De Petris, -078, -079,
+> -102, -109, -114, -129, -139, -357, -378). **Che cosa cambia:** lo scope
+> `only` di `commesse.list` diventa l'archivio vero (`archivedAt` **oppure**
+> `stato = "archiviata"`); `commesse.restore` esce da entrambe le forme — il
+> flag si azzera com'era, la commessa chiusa torna a `interventi_regolazioni`
+> passando da `eseguiTransizioneCommessa` (transizione a registro,
+> `dataChiusura` azzerata dal cleanup all'indietro, Undo disponibile,
+> capability `commessa.change_state` a guardia: riaprire un lavoro chiuso non è
+> il flag reversibile che chiunque può premere), e con entrambe le forme un
+> solo click le toglie tutte e due in un commit unico. Scheda commessa: banner
+> «Commessa chiusa» accanto a «Commessa archiviata», «Ripristina» in entrambi i
+> casi, badge dell'header al solo soft-archive (per la chiusa lo dice già il
+> chip dello stato). Archivio: la data dichiara la forma («Archiviata: …» o
+> «Chiusa: …») e il dialog dice cosa succede. **Che cosa NON cambia:** lo scope
+> `exclude` resta il complemento del solo soft-archive — ricerca, scheda
+> cliente, post-vendita, Tars e la lista commesse devono continuare a vedere i
+> lavori chiusi; a nascondere lo stato terminale sono i consumatori che devono
+> (Board, Dashboard, Planning, Magazzino, Fornitori, Pagamenti), come già
+> facevano. Nessuna migrazione dati: le 15 commesse sono raggiungibili dal
+> deploy in poi. Sei test nuovi in `server/routers/commesse.test.ts`;
+> `pnpm check`/`test` (360 file/15 saltati, 3958 test/90 saltati)/`build`
+> verdi; verifica dal vivo a 1440x900 e 390x844 sul giro completo (chiusa dal
+> board → archivio → ripristina → torna sul board), console pulita e nessuno
+> scroll orizzontale.
+
 > **Novità 10/09/2026 — conferme discordi: il costo non si sceglie più a
 > caso.** Difetto **misurato in produzione**: sette ordini su sei commesse
 > hanno copie della stessa conferma che dichiarano imponibili diversi (scarto
