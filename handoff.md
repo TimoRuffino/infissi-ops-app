@@ -23,9 +23,10 @@
 > margine più basso, costa attenzione; NON sommare due parziali gonfia il
 > margine — costa soldi, per mesi, in silenzio. **Verificato:** `pnpm check`
 > pulito, suite intera verde, `pnpm build` riuscita. **Non fatto, dichiarato:**
-> la **merce a magazzino** di una conferma parziale non entra (la consegna
-> resta quella del primo documento), e i **dati già scritti** non si
-> correggono da soli — si allineano alla prossima rilettura. Piano
+> i **dati già scritti** non si correggono da soli — si allineano alla
+> prossima rilettura. La **merce** di una parziale invece **entra**: è merce
+> in più e diventa la sua consegna a magazzino, mentre della parziale si
+> toglie solo il costo (il suo imponibile è già nella somma). Piano
 > `docs/superpowers/plans/2026-09-10-conferme-parziali.md`.
 
 > **Novità 10/09/2026 — conferme discordi: il costo non si sceglie più a

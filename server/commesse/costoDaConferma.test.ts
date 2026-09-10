@@ -512,6 +512,15 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     const lettura = getDocumentoRecordById(secondo.id)?.letturaCosto;
     expect(lettura?.esito).toBe("parziale");
     expect(lettura?.motivo).toMatch(/merce diversa|parziale/i);
+
+    // E la merce della parziale ENTRA: è merce in più, non una copia. Due
+    // consegne, una per documento, con dentro i loro articoli.
+    const consegne = merceDi(commessa.id);
+    expect(consegne).toHaveLength(2);
+    expect(consegne.map(c => c.documentoId).sort()).toEqual([primo.id, secondo.id].sort());
+    const tutti = consegne.flatMap(c => (c.articoli ?? []).map(a => a.nome)).join(" ");
+    expect(tutti).toContain("PORST-C013");
+    expect(tutti).toContain("COI5");
   });
 
   it("stesso ordine, stessa merce: resta discordanza, non si somma", async () => {

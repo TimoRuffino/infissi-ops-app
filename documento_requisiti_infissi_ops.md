@@ -3033,7 +3033,10 @@ ordine», «le conferme ordine sono ferme, non deve arrendersi».
   dell'errore: sommare due revisioni gonfia il costo (margine più basso,
   costa attenzione), non sommare due parziali gonfia il margine (costa soldi,
   in silenzio). Piano
-  `docs/superpowers/plans/2026-09-10-conferme-parziali.md`.
+  `docs/superpowers/plans/2026-09-10-conferme-parziali.md`. La **merce** di
+  una parziale **entra a magazzino** come quella della prima: è merce in più,
+  e diventa la sua consegna. Della parziale si toglie solo il costo — il suo
+  imponibile è già nella somma sul primo documento.
 - Un costo nato dalla regola e mai toccato a mano (`modificatoAMano`) viene
   corretto da una rilettura più precisa; un costo modificato a mano non si
   tocca. Il worker `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per

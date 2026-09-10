@@ -820,7 +820,25 @@ export async function registraCostoDaConferma(input: {
           )} + ${euro(imponibile!)} da «${raw.nome}», che porta merce diversa.`,
           { fornitore, data: dataDocumento, numeroOrdine }
         );
-        ritira(commessa, documento);
+        // La merce di una parziale è merce IN PIÙ: entra a magazzino come
+        // quella della prima. Si toglie SOLO il costo — il suo imponibile è
+        // già nella somma sul primo documento — mai la consegna, che
+        // `ritira` avrebbe portato via insieme.
+        rimuoviCostoDelDocumento(documento.id, commessa.id);
+        const merceParziale = applicaMerceDaConferma({
+          commessa,
+          documento,
+          pagine: parser.pagine,
+          geometria,
+          estrazione,
+          fornitore,
+          numeroOrdine,
+          dataOrdine: dataDocumento,
+          riferimentoDocumento,
+          avvisoOcr,
+          adesso: deps.adesso(),
+          precedente: precedente?.merce ?? null,
+        });
         const motivoParziale = `Conferma parziale dell'ordine ${duplicato.riferimento}: porta merce diversa da «${
           originale.nome
         }», quindi i due imponibili si sommano. A registro ${euro(somma)} (${euro(
@@ -831,7 +849,7 @@ export async function registraCostoDaConferma(input: {
           esito: "parziale",
           motivo: motivoParziale,
           costoId: null,
-          merce: null,
+          merce: merceParziale,
           duplicatoDi: originale.id,
           discordi: [costoOriginale!.importo, imponibile!],
           riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
