@@ -24,6 +24,7 @@ import {
 } from "@/lib/shellPresentation";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import BannerAmbiente from "./BannerAmbiente";
 import CompactNavigation from "./CompactNavigation";
 import ContextBar from "./ContextBar";
 import MobileTopBar from "./MobileTopBar";
@@ -230,6 +231,7 @@ export default function ModularControlLayout({
             pagina: scorre con il contenuto invece di rubare una fascia fissa
             in cima, e non entra nell'AnimatePresence — non deve rifare la
             transizione a ogni cambio di route. */}
+        <BannerAmbiente />
         <AvvisoAzienda />
         <AnimatePresence mode="wait" initial={false}>
           <PageContainer key={location}>{children}</PageContainer>

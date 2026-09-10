@@ -156,6 +156,10 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
 - Tars agisce con i permessi dell'utente con cui parla: conferma umana
   solo per soldi, cancellazioni definitive ed effetti esterni (vedi
   «Agente AI»); ogni effetto di Tars è tracciato e segnalato.
+- `AMBIENTE=staging` è l'unica identità d'ambiente (`server/_core/ambiente.ts`,
+  mai `NODE_ENV`): in staging i giri esterni non partono (`giriEsterni.ts`),
+  il seme demo gira solo su store vuoti e la rotta `/api/staging/entra`
+  esiste solo lì. Nessun altro file legge `process.env.AMBIENTE`.
 
 ## UI e UX
 
