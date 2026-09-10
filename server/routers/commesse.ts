@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import { tenantCorrente } from "../tenants/contestoCorrente";
+import { segnaPietraMiliare } from "../tenants/pietreMiliari";
 import {
   addCommessaToCliente,
   getClienteById,
@@ -806,6 +809,11 @@ export async function creaCommessa(
     updatedAt: now,
     link: `/commesse/${commessa.id}`,
   });
+  // Percorso di attivazione (ciclo di vita, D9): la prima commessa
+  // dell'azienda diventa un evento del control plane. Idempotente, mai un
+  // errore che risale, inerte a flag spento — e copre anche Tars, che passa
+  // da questa stessa funzione.
+  await segnaPietraMiliare(tenantCorrente() ?? TENANT_PREDEFINITO_ID, "prima_commessa", { id: commessa.id });
   return sagomaDettaglio(commessa, await capacitaEconomiche(ctx));
 }
 

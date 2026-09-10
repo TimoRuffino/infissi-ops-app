@@ -11,6 +11,9 @@ export const MESSAGGI_PIATTAFORMA = {
   proprietarioAmbiguo: "L'azienda ha più proprietari: indica l'email di chi invitare.",
   tenantGiaEsistente: "L'azienda esiste già: nessun invito inviato.",
   troppiTentativi: "Troppi tentativi di accesso. Riprova tra qualche minuto.",
+  invitoAppenaInviato: "Un invito per questo proprietario è appena partito: riprova fra qualche minuto.",
+  iscrizioneNonDisponibile: "Le iscrizioni non sono aperte al momento: scrivici e ti apriamo noi la prova.",
+  iscrizioneNonRiuscita: "Non siamo riusciti a completare la registrazione: riprova fra qualche minuto.",
   // Stesso rifiuto di `pnpm tenant sospendi` (scripts/tenant.ts) per il
   // tenant 1, adattato al campo del pannello (`ancheTenant1`, non un flag CLI).
   tenant1SospensioneConferma:

@@ -83,6 +83,20 @@ export const APP_ROUTE_CONTRACT = [
     migrationStatus: "migrata",
   }),
   route({
+    path: "/prova",
+    kind: "page",
+    target: "ProvaPage",
+    uxGuard: "none (pagina pubblica, senza shell)",
+    serverAuthority:
+      "iscrizioneRouter.disponibile/registra (FLAG_ISCRIZIONE_PUBBLICA + posta configurata, limite per indirizzo)",
+    requiredCapabilities: [],
+    roleRule: null,
+    featureFlag: null,
+    navigation: "hidden",
+    mobileTreatment: "record",
+    migrationStatus: "migrata",
+  }),
+  route({
     path: "/",
     kind: "page",
     target: "Dashboard",

@@ -1,7 +1,7 @@
 // Regole pure del tenant: niente store, niente database, niente tRPC.
 import { interruttoreAttivo } from "../platform/interruttori";
 import { MESSAGGI, RUOLO_PROPRIETARIO, SLUG_RE, TENANT_PREDEFINITO_ID } from "./costanti";
-import type { TenantRecord } from "./tipi";
+import type { StatoTenant, TenantRecord } from "./tipi";
 
 export type UtentePresidio = {
   id: number;
@@ -16,6 +16,13 @@ export function slugValido(slug: string): boolean {
 
 export type Rifiuto = { codice: "PRECONDITION_FAILED"; messaggio: string };
 
+/**
+ * Gli stati che chiudono la porta del tutto (piano 10/09/2026, D2): niente
+ * letture, niente scritture, nessuna esenzione — a differenza del `sospeso`,
+ * che resta sola lettura. Il login usa la stessa lista (`routers.ts`).
+ */
+export const STATI_INACCESSIBILI: readonly StatoTenant[] = ["in_attesa", "archiviato", "cancellato"];
+
 /** Guardia unica di tRPC ed Express (spec WS2 §5.2). Pura: legge solo l'interruttore. */
 export function motivoRifiutoTenant(
   ctx: { tenantId: number | null; tenant: TenantRecord | null; sedeId: number | null },
@@ -23,10 +30,46 @@ export function motivoRifiutoTenant(
 ): Rifiuto | null {
   if (!interruttoreAttivo("multiAzienda")) return null;
   if (!ctx.tenant) return null; // contesto senza record (test a mano): nessuna guardia, come nel WS1
+  if (STATI_INACCESSIBILI.includes(ctx.tenant.stato)) {
+    return { codice: "PRECONDITION_FAILED", messaggio: MESSAGGI.aziendaNonAccessibile };
+  }
   if (op.scrittura && !op.esente && ctx.tenant.stato === "sospeso") {
     return { codice: "PRECONDITION_FAILED", messaggio: MESSAGGI.solaLettura };
   }
   if (ctx.sedeId == null) return { codice: "PRECONDITION_FAILED", messaggio: MESSAGGI.senzaSede };
+  return null;
+}
+
+// ── Transizioni del ciclo di vita (piano 10/09/2026, D3) ────────────────────
+// Da quali stati parte ciascuna azione. `sospendi` e `riattiva` restano
+// permissive quanto basta ai flussi esistenti (una ri-sospensione aggiorna il
+// motivo, il ripristino archivi sospende e riattiva senza guardare prima);
+// gli stati nuovi si raggiungono e si lasciano un passaggio alla volta.
+// `in_attesa` si lascia SOLO accettando l'invito (→ attivo) o con `cancella`.
+export const STATI_DI_PARTENZA = {
+  sospendi: ["attivo", "sospeso"],
+  riattiva: ["attivo", "sospeso", "archiviato", "cancellato"],
+  archivia: ["attivo", "sospeso"],
+  cancella: ["in_attesa", "attivo", "sospeso", "archiviato"],
+} as const satisfies Record<string, readonly StatoTenant[]>;
+
+export type AzioneCicloDiVita = keyof typeof STATI_DI_PARTENZA;
+
+/**
+ * Messaggio di rifiuto se `azione` non può partire dallo stato attuale del
+ * tenant (`null` = ammessa). Il caso «riattiva un cancellato già svuotato» ha
+ * il suo messaggio: lì il problema non è lo stato, è che i dati non ci sono più.
+ */
+export function motivoRifiutoTransizione(
+  azione: AzioneCicloDiVita,
+  tenant: Pick<TenantRecord, "stato" | "svuotatoIl">
+): string | null {
+  if (azione === "riattiva" && tenant.stato === "cancellato" && tenant.svuotatoIl) {
+    return MESSAGGI.aziendaSvuotata;
+  }
+  if (!(STATI_DI_PARTENZA[azione] as readonly StatoTenant[]).includes(tenant.stato)) {
+    return `Transizione non ammessa: ${azione} da «${tenant.stato}».`;
+  }
   return null;
 }
 

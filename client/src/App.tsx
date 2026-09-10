@@ -54,6 +54,7 @@ const Notifiche = lazy(() => import("./pages/Notifiche"));
 const AziendeList = lazy(() => import("./pages/piattaforma/AziendeList"));
 const AziendaDetail = lazy(() => import("./pages/piattaforma/AziendaDetail"));
 const InvitoPage = lazy(() => import("./pages/InvitoPage"));
+const ProvaPage = lazy(() => import("./pages/ProvaPage"));
 
 function RouteLoading() {
   return (
@@ -124,6 +125,16 @@ function Router() {
         {() => (
           <Suspense fallback={<RouteLoading />}>
             <InvitoPage />
+          </Suspense>
+        )}
+      </Route>
+      {/* Iscrizione pubblica «Prova gratuita» (ciclo di vita, D7): stessa
+          natura dell'invito qui sopra — pubblica, senza sessione, fuori
+          dalla shell. Il server decide se le iscrizioni sono aperte. */}
+      <Route path="/prova">
+        {() => (
+          <Suspense fallback={<RouteLoading />}>
+            <ProvaPage />
           </Suspense>
         )}
       </Route>

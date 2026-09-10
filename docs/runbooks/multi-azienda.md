@@ -1744,6 +1744,73 @@ roll-forward.
   `tenant_inviti`)…» — il server non ha ancora fatto boot con questa
   versione: deploy prima, pannello poi (v. sopra, ora sono otto).
 
+## Ciclo di vita dell'azienda — nascita, vita, uscita (10/09/2026)
+
+Piano: `docs/superpowers/plans/2026-09-10-ciclo-di-vita-azienda.md`; PRD
+§60.14. Moduli: `server/tenants/{cicloDiVita,svuotamento,pietreMiliari}.ts`,
+`server/piattaforma/{iscrizione,iscrizioneRouter}.ts`, pagina `/prova`.
+
+### Gli stati, in una riga ciascuno
+
+| stato | login | worker | come ci si arriva | come se ne esce |
+|---|---|---|---|---|
+| `in_attesa` | no | no | iscrizione pubblica (`crea` con `statoIniziale`) | invito accettato → `attivo`; 14 giorni → comando `cancella` |
+| `attivo` | sì | sì | creazione, riattivazione, invito accettato | `sospendi` / `archivia` / `cancella` |
+| `sospeso` | sì (sola lettura) | no | comando, o abbonamento (`abbonamento:`) | `riattiva` / `archivia` / `cancella` |
+| `archiviato` | no | no | comando `archivia` (mai il tenant 1) | `riattiva` / `cancella` |
+| `cancellato` | no | no | comando `cancella` (mai il tenant 1) | `riattiva` entro 30 giorni; poi `svuota_tenant` e la riga resta lapide (`svuotato_il`, slug → `cancellata-<id>`) |
+
+Dal pannello: pulsanti Sospendi/Riattiva/Archivia/Cancella nella scheda
+(conferma password + motivo). Da CLI:
+
+    pnpm tenant stato --slug=acme --archivia|--cancella --motivo="…" --scrivi [--attendi]
+    pnpm tenant svuota --slug=acme --davvero [--forza] --scrivi [--attendi]   # dati via PER SEMPRE
+
+`--forza` salta SOLO la ritenzione, mai le altre guardie (stato
+`cancellato`, mai il tenant 1, mai due volte). Lo svuotamento cancella file,
+righe relazionali, archivi `kv_store`, utenti e sedi del tenant; se anche un
+solo file non si lascia cancellare il comando va in `errore` e si riaccoda
+al giro successivo del ciclo di vita — i dati sono ancora tutti lì.
+
+### Il giro del ciclo di vita
+
+Parte dopo il `listen`, gira ogni 6 ore (log `[ciclo-di-vita]`): accoda
+`cancella` per le `in_attesa` più vecchie di 14 giorni e `svuota_tenant`
+per le `cancellato` oltre i 30 giorni. Non esegue nulla da sé: tutto passa
+dal giro dei comandi (30 s), quindi ogni passo è in `tenant_comandi` e nel
+registro eventi (`archiviato`, `cancellato`, `svuotato` coi conteggi).
+
+### Iscrizione pubblica «Prova gratuita» (`/prova`)
+
+Tre condizioni, tutte necessarie: `FLAG_ISCRIZIONE_PUBBLICA=on` (spento di
+default in produzione), `FLAG_MULTI_AZIENDA=on`, `RESEND_API_KEY` presente
+(il link d'invito viaggia SOLO per email — è anche la verifica
+dell'indirizzo; niente posta = modulo chiuso con il messaggio di cortesia).
+La pagina risponde SEMPRE «controlla la casella»: un'email già in uso non
+crea nulla e non si distingue da fuori (log `[iscrizione]` col solo
+dominio). Limite: 5 richieste l'ora per indirizzo IP + honeypot. L'azienda
+nasce `in_attesa` e si attiva accettando l'invito; chi non lo fa sparisce
+con la pulizia dei 14 giorni.
+
+### Inviti (chiusure del 10/09)
+
+- Disattivare o eliminare un utente annulla i suoi inviti validi (evento
+  `invito_annullato` con `perDisattivazione`); `accettaInvito` rifiuta
+  comunque un utente disattivato — prima un link in giro lo RIATTIVAVA.
+- Reinvio per lo stesso utente: non prima di 10 minuti («Un invito per
+  questo proprietario è appena partito»). Per rispedire subito: annulla
+  l'invito pendente dal pannello, poi «Invita di nuovo».
+- La seconda autenticazione dopo la password NON esiste (niente MFA nel
+  prodotto): debito registrato, decisione alla direzione.
+
+### Percorso di attivazione
+
+Eventi `invito_accettato`, `prima_commessa`, `prima_fattura`,
+`primo_utente_aggiunto` in `tenant_eventi` (attore `sistema`). L'elenco
+mostra «attivazione n/4» sotto lo stato (il dettaglio nel tooltip), la
+scheda ha la sezione «Percorso di attivazione». Un'azienda ferma al secondo
+giorno si vede da lì, prima che sparisca.
+
 ## Verifica in sola lettura (prima e dopo l'accensione)
 
     SELECT id, slug, stato FROM tenants ORDER BY id;

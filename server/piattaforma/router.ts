@@ -338,7 +338,7 @@ export const piattaformaRouter = router({
       };
     }),
 
-  /** Riattiva l'azienda (nessuna conferma aggiuntiva per il tenant 1: riattivare non toglie nulla). */
+  /** Riattiva l'azienda (nessuna conferma aggiuntiva per il tenant 1: riattivare non toglie nulla). Vale anche per archiviate e cancellate non ancora svuotate (ciclo di vita, D3). */
   riattiva: piattaformaProcedure
     .input(conPassword({ slug: slugInput, motivo: z.string().trim().min(3).max(500) }))
     .mutation(async ({ input, ctx }) => {
@@ -349,6 +349,50 @@ export const piattaformaRouter = router({
         comando: await accodaEdEsegui(
           ctx,
           "riattiva",
+          t.id,
+          schemaPayloadStato.parse({ slug: input.slug, motivo: input.motivo }),
+          true
+        ),
+      };
+    }),
+
+  /**
+   * Archivia l'azienda (ciclo di vita, D2-D3): porta chiusa, dati intatti,
+   * reversibile con «Riattiva». Il tenant 1 lo rifiuta il dominio
+   * (`tenant1NonSiChiude`) e qui arriva come comando in errore.
+   */
+  archivia: piattaformaProcedure
+    .input(conPassword({ slug: slugInput, motivo: z.string().trim().min(3).max(500) }))
+    .mutation(async ({ input, ctx }) => {
+      assicuraScrivibile();
+      confermaPassword(ctx.user as any, input.passwordConferma);
+      const t = tenantDaSlug(input.slug);
+      return {
+        comando: await accodaEdEsegui(
+          ctx,
+          "archivia",
+          t.id,
+          schemaPayloadStato.parse({ slug: input.slug, motivo: input.motivo }),
+          true
+        ),
+      };
+    }),
+
+  /**
+   * Cancella l'azienda con 30 giorni di ritenzione (D2, D5): da qui parte il
+   * conto alla rovescia dello svuotamento, che accoda il giro del ciclo di
+   * vita. Reversibile con «Riattiva» finché lo svuotamento non è avvenuto.
+   */
+  cancella: piattaformaProcedure
+    .input(conPassword({ slug: slugInput, motivo: z.string().trim().min(3).max(500) }))
+    .mutation(async ({ input, ctx }) => {
+      assicuraScrivibile();
+      confermaPassword(ctx.user as any, input.passwordConferma);
+      const t = tenantDaSlug(input.slug);
+      return {
+        comando: await accodaEdEsegui(
+          ctx,
+          "cancella",
           t.id,
           schemaPayloadStato.parse({ slug: input.slug, motivo: input.motivo }),
           true

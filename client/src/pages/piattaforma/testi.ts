@@ -29,16 +29,52 @@ export const TESTO_SOLA_LETTURA_FLAG_SPENTO =
 /** La password minima della pagina d'invito, come `passwordSchema` (server/routers/utenti.ts). */
 export const PASSWORD_MINIMA = 12;
 
-type StatoAzienda = "attivo" | "sospeso";
+/** Copia di `MESSAGGI_PIATTAFORMA.iscrizioneNonDisponibile` (server/piattaforma/costanti.ts). */
+export const TESTO_ISCRIZIONI_CHIUSE =
+  "Le iscrizioni non sono aperte al momento: scrivici e ti apriamo noi la prova.";
 
-/** «Attiva»/«Sospesa»: si parla dell'azienda, non della riga di una tabella. */
+type StatoAzienda = "in_attesa" | "attivo" | "sospeso" | "archiviato" | "cancellato";
+
+/** «Attiva»/«Sospesa»/…: si parla dell'azienda, non della riga di una tabella. */
 export function etichettaStatoAzienda(stato: StatoAzienda): string {
-  return stato === "sospeso" ? "Sospesa" : "Attiva";
+  switch (stato) {
+    case "in_attesa":
+      return "In attesa";
+    case "sospeso":
+      return "Sospesa";
+    case "archiviato":
+      return "Archiviata";
+    case "cancellato":
+      return "Cancellata";
+    default:
+      return "Attiva";
+  }
 }
 
-/** Variante del badge: solo ciò che toglie qualcosa si colora di rosso. */
-export function tonoStatoAzienda(stato: StatoAzienda): "success" | "danger" {
-  return stato === "sospeso" ? "danger" : "success";
+/** Variante del badge: rosso solo ciò che toglie qualcosa; l'attesa avvisa, l'archivio è neutro. */
+export function tonoStatoAzienda(stato: StatoAzienda): "success" | "danger" | "secondary" | "warning" {
+  if (stato === "sospeso" || stato === "cancellato") return "danger";
+  if (stato === "archiviato") return "secondary";
+  if (stato === "in_attesa") return "warning";
+  return "success";
+}
+
+/**
+ * Il conto alla rovescia dello svuotamento (ciclo di vita, 10/09/2026):
+ * `null` fuori dallo stato «cancellata». La ritenzione è di 30 giorni dal
+ * momento della cancellazione; a svuotamento avvenuto lo dice chiaro.
+ */
+export function etichettaRitenzione(
+  riga: { stato: StatoAzienda; cancellatoIl: Date | null; svuotatoIl: Date | null },
+  adesso: Date
+): string | null {
+  if (riga.stato !== "cancellato") return null;
+  if (riga.svuotatoIl) return `Svuotata il ${dataItaliana(riga.svuotatoIl)}: i dati non esistono più.`;
+  if (!riga.cancellatoIl) return null;
+  const svuotamento = new Date(riga.cancellatoIl.getTime() + 30 * 86_400_000);
+  return adesso.getTime() >= svuotamento.getTime()
+    ? "Ritenzione compiuta: lo svuotamento è in coda."
+    : `Dati conservati fino al ${dataItaliana(svuotamento)}: fino ad allora «Riattiva» annulla la cancellazione.`;
 }
 
 /**
@@ -282,6 +318,14 @@ const ETICHETTE_EVENTO: Record<string, string> = {
   tenant_modificato: "Azienda modificata",
   proprietario_modificato: "Proprietario modificato",
   slug_cambiato: "Slug cambiato",
+  // Ciclo di vita (10/09/2026)
+  attivato: "Azienda attivata",
+  archiviato: "Azienda archiviata",
+  cancellato: "Azienda cancellata",
+  svuotato: "Dati svuotati",
+  prima_commessa: "Prima commessa",
+  prima_fattura: "Prima fattura",
+  primo_utente_aggiunto: "Primo utente aggiunto",
 };
 
 export function etichettaEvento(tipo: string): string {
@@ -323,6 +367,9 @@ const ETICHETTE_COMANDO: Record<string, string> = {
   imposta_abbonamento: "Abbonamento",
   modifica_tenant: "Modifica dell'azienda",
   modifica_proprietario: "Modifica del proprietario",
+  archivia: "Archiviazione",
+  cancella: "Cancellazione",
+  svuota_tenant: "Svuotamento dei dati",
 };
 
 export function etichettaComando(tipo: string): string {

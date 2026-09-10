@@ -46,12 +46,24 @@ export const schemaPayloadCrea = z.object({
     // Mai in chiaro: lo script hasha prima di accodare.
     passwordHash: z.string().refine(isHashed, "passwordHash deve essere un hash scrypt"),
   }),
+  // Ciclo di vita (piano 10/09/2026, D7): l'iscrizione pubblica accoda lo
+  // STESSO comando ma fa nascere l'azienda `in_attesa` — attiva solo quando
+  // l'invito viene accettato. Assente = `attivo`, come pannello e CLI.
+  statoIniziale: z.enum(["attivo", "in_attesa"]).optional(),
 });
 export type PayloadCrea = z.infer<typeof schemaPayloadCrea>;
 
 export const schemaPayloadStato = z.object({
   slug,
   motivo: z.string().trim().min(3).max(500),
+});
+
+// `svuota_tenant` (ciclo di vita, D5): lo accoda il giro a fine ritenzione;
+// `forza` esiste SOLO per la CLI (`--forza`), salta il conto dei 30 giorni ma
+// mai le altre guardie (stato `cancellato`, mai il tenant 1, mai due volte).
+export const schemaPayloadSvuota = z.object({
+  slug,
+  forza: z.boolean().optional(),
 });
 
 export const schemaPayloadProprietario = z.object({

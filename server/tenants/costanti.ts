@@ -20,6 +20,15 @@ export const TTL_STATE_OAUTH_MS = 10 * 60_000;
 /** Un invito del pannello piattaforma non accettato entro una settimana è scaduto (WS6 §4.1). */
 export const TTL_INVITO_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Ciclo di vita (piano 10/09/2026, D6): un'azienda `in_attesa` mai attivata si cancella dopo 14 giorni. */
+export const ATTESA_ATTIVAZIONE_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Ritenzione di un'azienda `cancellato` prima che il giro accodi `svuota_tenant` (D5). */
+export const RITENZIONE_CANCELLAZIONE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Un reinvio dell'invito per lo stesso utente non prima di 10 minuti dal precedente (D8). */
+export const ATTESA_REINVIO_INVITO_MS = 10 * 60 * 1000;
+
 /** Minuscole, cifre, trattini interni; da 1 a 40 caratteri. */
 export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
@@ -57,4 +66,13 @@ export const MESSAGGI = {
   // 2 → Task 3): stessa parola, così il router del pannello può confrontare
   // l'esito del comando con la costante invece che con una stringa a mano.
   emailGiaInUso: "Email già in uso",
+  // Ciclo di vita (piano 10/09/2026). Un messaggio solo per i tre stati che
+  // chiudono la porta (`in_attesa`, `archiviato`, `cancellato`): distinguere
+  // aiuterebbe solo chi tasta account non suoi.
+  aziendaNonAccessibile: "Questa azienda non è attiva: contatta l'assistenza.",
+  // Come `tenant1SlugIntoccabile`: la proprietaria della piattaforma non si
+  // archivia né si cancella — sospenderla (con `ancheTenant1`) resta l'unico
+  // freno previsto.
+  tenant1NonSiChiude: "Il tenant 1 è la proprietaria della piattaforma: non si archivia né si cancella.",
+  aziendaSvuotata: "L'azienda è già stata svuotata: i dati non esistono più.",
 } as const;
