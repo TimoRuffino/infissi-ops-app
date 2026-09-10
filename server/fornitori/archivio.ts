@@ -46,7 +46,7 @@ import {
 } from "../routers/preventiviContratti";
 import { estraiConfermeNelDocumento } from "../documenti/estrazioneConferma";
 import { estraiRigheMerce } from "../documenti/estrazioneMerce";
-import { allegatoDaConferma } from "../tars/documenti/confermeMancanti";
+import { allegatoDaConferma, nomeDaConferma } from "../tars/documenti/confermeMancanti";
 import {
   creaLettoreCommessaNelDocumento,
   type CommessaRicercabile,
@@ -210,6 +210,26 @@ export function fornitoreDiComunicazione(
   const dalNome = normalizzaFornitore(c.mittenteNome ?? null, c.mittente);
   if (dalNome) return dalNome;
   return dominio ? dominio.slice(0, 60) : FORNITORE_DA_RICONOSCERE;
+}
+
+/**
+ * La voce è entrata SOLO perché la mandava un fornitore noto: il suo nome
+ * non dichiara né una conferma né un ordine. Si ricalcola dal nome e dal
+ * formato già memorizzati — nessun campo nuovo, nessun backfill.
+ */
+export function entrataDalSoloMittente(
+  voce: Pick<VoceArchivioFornitore, "nomeFile" | "mimeType">
+): boolean {
+  return nomeDaConferma(voce.nomeFile, voce.mimeType) == null;
+}
+
+/** Una conferma d'ordine porta almeno una di queste tre cose. */
+function letturaPortaUnaConferma(lettura: LetturaArchivio): boolean {
+  return (
+    lettura.numeroOrdine != null ||
+    lettura.imponibile != null ||
+    lettura.articoli.length > 0
+  );
 }
 
 /** Le chiavi con cui cercare le comunicazioni di un fornitore fra i mittenti. */
@@ -470,6 +490,28 @@ export async function eseguiGiroArchivioFornitori(input: {
       }
       voce.updatedAt = adesso;
       if (ricerca.esito === "non_leggibile") esito.nonLeggibili += 1;
+
+      // Chi è entrato solo perché lo mandava un fornitore noto deve
+      // dimostrare di essere una conferma: senza numero d'ordine, imponibile
+      // o articoli è un altro foglio dello stesso fornitore — una circolare,
+      // un accordo commerciale, una lettera (10/09/2026). Senza questa regola
+      // la bonifica raddoppierebbe la coda invece di svuotarla.
+      //
+      // Un file che NON si è potuto leggere non si scarta: non averlo capito
+      // non è la prova che non fosse una conferma.
+      if (
+        ricerca.esito !== "non_leggibile" &&
+        entrataDalSoloMittente(voce) &&
+        !letturaPortaUnaConferma(voce.lettura)
+      ) {
+        voce.stato = "scartata";
+        voce.motivoDecisione =
+          "Il file non porta una conferma d'ordine: nessun numero d'ordine, nessun imponibile, nessun articolo.";
+        voce.decisaDa = null;
+        voce.decisaAt = adesso.toISOString();
+        voce.updatedAt = adesso;
+        continue;
+      }
 
       // La commessa è una sola: si collega da sola, e da lì nascono costo e
       // merce (regola del fascicolo). Tutto il resto resta da collegare.

@@ -196,6 +196,63 @@ describe("fornitoreDiComunicazione", () => {
 });
 
 describe("eseguiGiroArchivioFornitori", () => {
+  it("chi entra dal solo mittente e non porta una conferma si scarta da solo", async () => {
+    // Una circolare di Primed: nessun numero d'ordine, nessun imponibile,
+    // nessuna riga di merce. Senza questa regola finirebbe in coda, e con
+    // essa altre trecento.
+    const circolare = pdfConTesto([
+      "PRIMED S.R.L.",
+      "Gentile cliente,",
+      "i nostri uffici resteranno chiusi dal 10 al 20 agosto.",
+      "Cordiali saluti",
+    ]);
+    const posta = await mailFornitore(
+      {
+        mittente: "amministrazione@primed.it",
+        mittenteNome: "PRIMED S.R.L.",
+        oggetto: "Comunicazione",
+        allegati: [
+          { nome: "R237_2026RU6102_13062026102047.pdf", mimeType: "application/pdf", size: circolare.length },
+        ],
+      },
+      circolare
+    );
+
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[posta.id, circolare]]), [posta]),
+    });
+
+    const voce = getArchivioFornitoriStore().find(v => v.comunicazioneId === posta.id);
+    expect(voce?.stato).toBe("scartata");
+    expect(voce?.motivoDecisione).toMatch(/non porta una conferma/i);
+  });
+
+  it("un file che si dichiara conferma resta in coda anche se la lettura non trova niente", async () => {
+    // Il nome lo dichiara: quella decisione è di una persona, non del filtro.
+    const circolare = pdfConTesto([
+      "ALIAS Srl Porte blindate",
+      "Gentile cliente, buone ferie.",
+      "Cordiali saluti",
+    ]);
+    const posta = await mailFornitore(
+      {
+        allegati: [
+          { nome: "Ordini_di_Vendi_9999.pdf", mimeType: "application/pdf", size: circolare.length },
+        ],
+      },
+      circolare
+    );
+
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[posta.id, circolare]]), [posta]),
+    });
+
+    const voce = getArchivioFornitoriStore().find(v => v.comunicazioneId === posta.id);
+    expect(voce?.stato).toBe("da_collegare");
+  });
+
   it("una conferma Primed entra col nome muto; il suo DDT resta fuori", async () => {
     // 312 mail in un anno e zero voci: il nome del file non dice niente.
     const pdf = pdfConTesto([
