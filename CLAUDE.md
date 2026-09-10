@@ -149,6 +149,15 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   override, ma vince solo se è la terna intera — un override a metà non
   eredita i pezzi mancanti dalla piattaforma (`appEffettiva`,
   `server/comunicazioni/whatsapp.ts`).
+- I fornitori sono **dell'azienda**: il riconoscimento passa sempre da
+  `riconoscitoreDiSede(sedeId)` (`server/fornitori/riconoscimento.ts`), mai da
+  una costante. `SEED_FORNITORI_TENANT_1` lo importano solo il ripiego a
+  interruttore spento e l'importazione una tantum del router (guardia
+  `server/fornitori/riconoscimento.confine.test.ts`). Nessuna cache di modulo
+  del riconoscitore: si costruisce per sede a ogni chiamata, perché una cache
+  qui fa vedere a un'azienda i fornitori di un'altra. Un elenco vuoto produce
+  il pattern `(?!)`, mai la stringa vuota: `new RegExp("")` combacia con tutto
+  e aprirebbe il pre-filtro della posta a ogni mittente.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.

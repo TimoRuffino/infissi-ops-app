@@ -711,8 +711,26 @@ necessario, va ricollocato dove nasce — la scheda commessa — con una
 decisione registrata.
 
 ### 19.1 Anagrafica fornitore
-- Campi: `ragioneSociale, partitaIva, indirizzo?, citta?, telefono?, email?, categoria, referenteCommerciale?, scontistica?, note?, attivo`.
+- Campi: `ragioneSociale, partitaIva?, indirizzo?, citta?, telefono?, email?,
+  categoria, chiavi[], canale, portaleDomini[], referenteCommerciale?,
+  scontistica?, note?, attivo`.
 - Categorie: `pvc, alluminio, vetro, ferramenta, persiane, blindati, accessori, guarnizioni, altro`.
+- **Dal 10/09/2026 l'anagrafica è la fonte del riconoscimento** (spec
+  `docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md`
+  §4): `chiavi` sono le parole e i domini con cui si riconosce il fornitore nel
+  testo di un documento o nel dominio di una mail; `canale` dice se gli si
+  ordina a mail o da portale; `portaleDomini` sono i domini del portale
+  (`antenore` per Wnd — un portale non è un fornitore, riconduce al
+  produttore). Il riconoscimento passa sempre da `riconoscitoreDiSede(sedeId)`
+  (`server/fornitori/riconoscimento.ts`), mai da una costante.
+  `shared/fornitori.ts` conserva le REGOLE e il SEED dei venticinque della
+  Ruffino Group, importabile una volta sola dal tenant 1 col bottone in
+  `/fornitori`; solo due file possono leggerlo (guardia
+  `server/fornitori/riconoscimento.confine.test.ts`).
+- `partitaIva` è **facoltativa**: per riconoscere un mittente non serve, e
+  obbligarla impediva di censire un fornitore in trenta secondi.
+- Dietro l'interruttore `FLAG_FORNITORI_AZIENDA`, fail-closed. A spento il
+  riconoscimento usa il seed e si comporta come prima del 10/09/2026.
 
 ### 19.2 Ordini fornitore
 - Campi: `fornitoreId, commessaId, codiceOrdine, stato, dataOrdine, dataConsegnaPrevista?, dataConsegnaEffettiva?, righe[], noteOrdine?, noteRicevimento?, importoTotale`.
@@ -1800,6 +1818,18 @@ nome fra i mittenti), ognuna con «Apri». «Aggiorna archivio» fa un giro
 subito invece di aspettare il worker. Su mobile l'elenco dei fornitori
 scorre dentro di sé, così le conferme restano a portata di pollice;
 nessuna vista introduce scroll orizzontale di pagina.
+
+Dal 10/09/2026 l'elenco di sinistra è **l'anagrafica dei fornitori
+dell'azienda** più i **candidati**: mittenti da cui è arrivata una conferma e
+che nell'anagrafica non ci sono ancora, marcati «da censire» e con un bottone
+solo, «Aggiungilo ai tuoi fornitori», che li registra con la chiave dedotta
+dal dominio da cui scrivono. È così che un'azienda nuova si costruisce
+l'elenco senza battere venticinque nomi: conferma quello che le è già
+arrivato. Tre fasce nell'ordine: chi ha conferme da decidere, il resto
+dell'anagrafica in ordine alfabetico, i candidati per numero di conferme. Un
+fornitore censito che non ha ancora scritto compare lo stesso (prima no:
+l'elenco veniva solo dall'archivio). A elenco vuoto, e **solo per l'azienda
+della piattaforma**, compare «Importa i 25 fornitori conosciuti».
 
 ### 36-bis.5 Fuori taglio
 Anagrafica fornitori, listini e ordini fornitore restano server-side senza
