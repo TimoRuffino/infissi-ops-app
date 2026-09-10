@@ -90,10 +90,15 @@ async function startServer() {
     }
   });
 
-  // Dati dimostrativi: solo in staging, solo su store vuoti (Task 5, piano
-  // 2026-09-10-staging-demo).
-  const { eseguiSemeDemo } = await import("../staging/semeDemo");
-  await eseguiSemeDemo();
+  // Dati dimostrativi: solo in staging, solo su store vuoti. Un seme che
+  // fallisce a metà non deve fermare il boot: staging vivo senza dati demo
+  // batte staging morto — e il log dice perché.
+  try {
+    const { eseguiSemeDemo } = await import("../staging/semeDemo");
+    await eseguiSemeDemo();
+  } catch (e) {
+    console.error("[staging] seme demo fallito:", (e as Error)?.message);
+  }
 
   // Action cases use dedicated relational tables. In production schema
   // failures must stop startup instead of silently degrading to memory.
@@ -191,7 +196,9 @@ async function startServer() {
   avviaSondaLoop();
 
   // Giri che parlano con servizi esterni (Drive, FiC/SdI, IMAP): in staging
-  // non partono. Vedi server/_core/giriEsterni.ts.
+  // non partono. Ogni NUOVO giro che parla con un servizio esterno nasce in
+  // giriEsterni.ts e il suo nome entra nella guardia di giriEsterni.test.ts:
+  // avviarlo qui direttamente riaprirebbe il buco in staging.
   const { avviaGiriEsterni } = await import("./giriEsterni");
   await avviaGiriEsterni();
 

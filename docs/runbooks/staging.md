@@ -91,6 +91,7 @@ Checklist da eseguire subito dopo il primo deploy dell'environment:
       **nel pannello** invece di essere spedito via email, perché
       `RESEND_API_KEY` non è impostata — comportamento atteso, non un
       guasto.
+- Il log del primo avvio NON contiene «is busy» sulla porta: in produzione e staging la porta non scansiona più — se compare, il gate `inProduzione` non ha funzionato.
 
 ## 5. Ambienti per PR
 

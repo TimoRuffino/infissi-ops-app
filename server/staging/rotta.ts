@@ -36,9 +36,11 @@ export function montaRottaStaging(app: Express): boolean {
       const { apriSessioneLocale } = await import("../localAuth");
       await apriSessioneLocale({ req, res }, utente);
       res.redirect(302, "/");
-    } catch {
+    } catch (e) {
       // Express 4 non cattura la promise rifiutata: senza questo catch il
       // processo cadrebbe (v. server/_core/rotteAnonime.ts).
+      // Log senza token e senza dettagli al client: solo il messaggio interno.
+      console.error("[staging] entra: errore", (e as Error)?.message);
       if (!res.headersSent) res.status(404).end();
     }
   });
