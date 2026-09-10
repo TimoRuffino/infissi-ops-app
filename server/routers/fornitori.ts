@@ -2,6 +2,10 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { persistedStore } from "../_core/persistence";
+import {
+  storeFornitori as _fornitoriStore,
+  type Fornitore,
+} from "../fornitori/anagrafica";
 import { DEFAULT_SEDE_ID } from "./sedi";
 import {
   oppureNotFound,
@@ -24,23 +28,6 @@ import { linkComunicazione } from "../tars/smistamento/segnali";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type Fornitore = {
-  id: number;
-  sedeId?: number;
-  ragioneSociale: string;
-  partitaIva: string;
-  indirizzo?: string;
-  citta?: string;
-  telefono?: string;
-  email?: string;
-  categoria: "pvc" | "alluminio" | "vetro" | "ferramenta" | "persiane" | "blindati" | "accessori" | "guarnizioni" | "altro";
-  referenteCommerciale?: string;
-  scontistica?: number; // % sconto
-  note?: string;
-  attivo: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-};
 
 type OrdineFornitore = {
   id: number;
@@ -91,11 +78,6 @@ type Listino = {
 
 // ── In-memory data ──────────────────────────────────────────────────────────
 
-const _fornitoriStore = persistedStore<Fornitore>("fornitori", (loaded) => {
-  for (const f of loaded) {
-    if ((f as any).sedeId === undefined) (f as any).sedeId = 1;
-  }
-});
 const fornitori = _fornitoriStore.items;
 
 const _ordiniStore = persistedStore<OrdineFornitore>("fornitori_ordini", (loaded) => {
