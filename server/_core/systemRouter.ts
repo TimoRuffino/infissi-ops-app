@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ambienteStaging } from "./ambiente";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
@@ -12,6 +13,10 @@ export const systemRouter = router({
     .query(() => ({
       ok: true,
     })),
+
+  // Il client mostra il banner «Ambiente di prova» solo se il server lo
+  // dichiara: nessuna variabile VITE_* (sarebbe cotta nel bundle al build).
+  ambiente: publicProcedure.query(() => ({ staging: ambienteStaging() })),
 
   notifyOwner: adminProcedure
     .input(
