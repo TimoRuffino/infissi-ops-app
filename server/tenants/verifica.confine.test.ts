@@ -90,6 +90,8 @@ const FORMA_DEL_RECORD: Record<string, Forma> = {
   fic_regole_costi: "sedeId",
   fornitori: "sedeId", // `sedeId?:` nel tipo, ma onLoad lo riempie con 1
   fornitori_archivio: "sedeId", // pagina Fornitori (fusione di `main` del 07/09)
+  fornitori_profili: "sedeId", // profili di lettura delle conferme (10/09/2026)
+  fornitori_esempi: "sedeId", // gli esempi da cui i profili nascono
   fornitori_listini: "sedeId", // idem
   fornitori_ordini: "sedeId", // idem
   garanzie: "sedeId",
@@ -133,11 +135,13 @@ describe("inventario delle famiglie", () => {
     expect(Object.keys(FORMA_DEL_RECORD).sort()).toEqual(NOMI);
   });
 
-  it("sono 52 l'08/09/2026: 4 globali (2 con sedeId) e 48 per tenant (9 senza sedeId)", () => {
-    // I tre store del backup sono passati per azienda col WS3: fino a ieri
+  it("sono 54 il 10/09/2026: 4 globali (2 con sedeId) e 50 per tenant (9 senza sedeId)", () => {
+    // I tre store del backup sono passati per azienda col WS3: fino all'08/09
     // le globali erano 7 e le famiglie per tenant senza sedeId 5. Il WS5
-    // aggiunge `onboarding_integrazioni`, per azienda e senza sede.
-    expect(NOMI).toHaveLength(52);
+    // aggiunge `onboarding_integrazioni`, per azienda e senza sede. Il
+    // 10/09 arrivano `fornitori_profili` e `fornitori_esempi`, per azienda
+    // e con sedeId sul record.
+    expect(NOMI).toHaveLength(54);
     expect(NOMI.filter(n => globale(n))).toHaveLength(4);
     expect(NOMI.filter(n => globale(n) && conSedeId(n))).toHaveLength(2);
     expect(NOMI.filter(n => !globale(n) && !conSedeId(n))).toHaveLength(9);

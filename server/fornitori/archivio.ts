@@ -27,6 +27,7 @@
 import type { Riconoscitore } from "@shared/fornitori";
 import { fornitoriDiSede } from "./anagrafica";
 import { riconoscitoreDiSede } from "./riconoscimento";
+import { contestoProfilo } from "./profili";
 import { persistedStore } from "../_core/persistence";
 import { leggiAllegatoRaw } from "../comunicazioni/allegati";
 import { caselle } from "../comunicazioni/caselle";
@@ -308,7 +309,10 @@ const NOTA_COLLEGAMENTO_AUTOMATICO =
  * e data di consegna. Nessuna lettura in più, nessuna scrittura: serve a
  * decidere prima di collegare e a far sapere al magazzino cosa aspetta.
  */
-function contenutoDellaConferma(pagine: readonly string[] | null): {
+function contenutoDellaConferma(
+  sedeId: number,
+  pagine: readonly string[] | null
+): {
   imponibile: number | null;
   articoli: Array<{ nome: string; quantita: number }>;
   dataConsegna: string | null;
@@ -325,10 +329,14 @@ function contenutoDellaConferma(pagine: readonly string[] | null): {
     };
   }
   try {
+    // Il profilo del modulo, quando ne conosciamo uno: le sue ancore girano
+    // dopo il generico e sovrascrivono solo ciò che trovano.
+    const { profilo } = contestoProfilo(sedeId, pagine);
     const { estrazione } = estraiConfermeNelDocumento(pagine, {
       codiceOrdine: null,
       fornitoreNome: null,
       righeOrdine: [],
+      profilo,
     });
     return {
       imponibile: estrazione.imponibileDocumento?.valore ?? null,
@@ -480,7 +488,7 @@ export async function eseguiGiroArchivioFornitori(input: {
       );
       if (ricerca.esito === "non_letto") continue; // tetto del lettore: al prossimo giro
       esito.lette += 1;
-      const contenutoDelleP = contenutoDellaConferma(ricerca.pagine);
+      const contenutoDelleP = contenutoDellaConferma(input.sedeId, ricerca.pagine);
       voce.lettura = {
         quando: adesso.toISOString(),
         fonteTesto: ricerca.fonteTesto,
@@ -556,7 +564,7 @@ export async function eseguiGiroArchivioFornitori(input: {
         candidati: [],
         motivo: `Lettura fallita: ${errore instanceof Error ? errore.message.slice(0, 160) : "errore"}`,
         numeroOrdine: null,
-        ...contenutoDellaConferma(null),
+        ...contenutoDellaConferma(input.sedeId, null),
       };
       voce.updatedAt = adesso;
     }
@@ -781,7 +789,7 @@ export async function rileggiVoceArchivio(input: {
     candidati: candidatiLeggibili(ricerca.candidati, commesse),
     motivo: ricerca.motivo,
     numeroOrdine: ricerca.riferimentoOrdine,
-    ...contenutoDellaConferma(ricerca.pagine),
+    ...contenutoDellaConferma(input.sedeId, ricerca.pagine),
   };
   voce.updatedAt = deps.adesso();
   _store.save();

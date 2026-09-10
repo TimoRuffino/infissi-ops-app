@@ -65,6 +65,7 @@ import {
   type RiscontroCommessa,
 } from "../documenti/riscontroCommessa";
 import { riconoscitoreDiSede } from "../fornitori/riconoscimento";
+import { contestoProfilo } from "../fornitori/profili";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
@@ -650,10 +651,14 @@ export async function registraCostoDaConferma(input: {
 
   // Un file può contenere più conferme (Bertolotto): si legge a sezioni e
   // l'imponibile è la somma, solo se ogni sezione ha il suo.
+  // Il profilo del modulo, se ne conosciamo uno: è la lettura da cui nasce il
+  // costo fornitore, quindi è qui che conta di più.
+  const { profilo } = contestoProfilo(Number(commessa.sedeId ?? 1), parser.pagine);
   const documentoLetto = estraiConfermeNelDocumento(parser.pagine, {
     codiceOrdine: input.numeroOrdine ?? null,
     fornitoreNome: input.fornitore ?? null,
     righeOrdine: [],
+    profilo,
   });
   const estrazione = documentoLetto.estrazione;
   const sezioni = documentoLetto.sezioni.length;

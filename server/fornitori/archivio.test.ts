@@ -21,6 +21,8 @@ import { getUtentiStore } from "../routers/utenti";
 import { azzeraMemoriaRicercaPerTest, creaLettoreCommessaNelDocumento } from "../tars/documenti/ricercaCommessaNelDocumento";
 import { storeFornitori } from "./anagrafica";
 import { riconoscitoreDiRipiego, riconoscitoreDiSede } from "./riconoscimento";
+import { azzeraProfiliPerTest, salvaProfilo } from "./profili";
+import { improntaLayout } from "../documenti/impronta";
 import {
   FORNITORE_DA_RICONOSCERE,
   azzeraArchivioFornitoriPerTest,
@@ -616,5 +618,89 @@ describe("il riconoscimento segue l'anagrafica della sede", () => {
       updatedAt: new Date(),
     } as any);
     expect(fornitoreDiComunicazione(mail, undefined, riconoscitoreDiSede(SEDE))).toBe("Alias");
+  });
+});
+
+describe("il profilo cambia quello che la lettura capisce", () => {
+  const RIGHE = [
+    "Conferma Ordine",
+    "ALIAS Srl Porte blindate",
+    "2026 - CV 1602923 23/02/2026",
+    "VS.RIFERIMENTO",
+    "ROSSI MARIO",
+    "PORST-C013 PORTA BLIND.STEEL/C < 1900   NR   1,00",
+    "Totale imponibile: EUR 948,73",
+    "Acconto versato: EUR 100,00",
+  ];
+
+  afterEach(() => {
+    delete process.env.FLAG_PROFILI_LETTURA;
+    azzeraProfiliPerTest();
+  });
+
+  async function leggiUnaVolta(): Promise<number | null | undefined> {
+    const pdf = pdfConTesto(RIGHE);
+    const mail = await mailFornitore({}, pdf);
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[mail.id, pdf]]), [mail]),
+    });
+    return getArchivioFornitoriStore().find(v => v.comunicazioneId === mail.id)?.lettura
+      ?.imponibile;
+  }
+
+  it("senza profilo vince il generico: «Totale imponibile»", async () => {
+    process.env.FLAG_PROFILI_LETTURA = "on";
+    azzeraProfiliPerTest();
+    expect(await leggiUnaVolta()).toBe(948.73);
+  });
+
+  it("con un'ancora su un'altra etichetta vince l'ancora", async () => {
+    process.env.FLAG_PROFILI_LETTURA = "on";
+    azzeraProfiliPerTest();
+    // Artificiale di proposito: punta all'acconto invece che all'imponibile.
+    // Dimostra che il profilo comanda, senza dipendere da un difetto
+    // dell'estrattore generico.
+    salvaProfilo({
+      sedeId: SEDE,
+      fornitoreId: 1,
+      impronta: improntaLayout([RIGHE.join("\n")]),
+      ancore: [
+        {
+          campo: "imponibileDocumento",
+          etichetta: "Acconto versato",
+          posizione: "dopo_etichetta",
+          forma: "importo",
+          pagina: null,
+        },
+      ],
+      blocco: null,
+      esempioId: null,
+      createdBy: 1,
+    });
+    expect(await leggiUnaVolta()).toBe(100);
+  });
+
+  it("a interruttore spento il profilo non conta", async () => {
+    process.env.FLAG_PROFILI_LETTURA = "off";
+    azzeraProfiliPerTest();
+    salvaProfilo({
+      sedeId: SEDE,
+      fornitoreId: 1,
+      impronta: improntaLayout([RIGHE.join("\n")]),
+      ancore: [
+        {
+          campo: "imponibileDocumento",
+          etichetta: "Acconto versato",
+          posizione: "dopo_etichetta",
+          forma: "importo",
+          pagina: null,
+        },
+      ],
+      blocco: null,
+      esempioId: null,
+      createdBy: 1,
+    });
+    expect(await leggiUnaVolta()).toBe(948.73);
   });
 });

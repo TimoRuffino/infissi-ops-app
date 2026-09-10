@@ -123,6 +123,32 @@
 > board → archivio → ripristina → torna sul board), console pulita e nessuno
 > scroll orizzontale.
 
+> **Novità 10/09/2026 — il motore dei profili di lettura (su branch).** Da un
+> esempio di conferma corretto a mano nascono le **ancore** di quel modulo, e
+> le conferme successive dello stesso modulo si leggono con quelle. **Nessun
+> modello viene allenato**: l'estrattore resta deterministico, e nell'ancora
+> entra l'etichetta stampata, mai il valore. Le ancore girano **dopo** il
+> generico e sovrascrivono solo ciò che trovano — un profilo non svuota mai un
+> campo, perché un imponibile mancante è un costo fornitore mancante. La
+> chiave è l'**impronta del layout**, non il fornitore: risolve la
+> circolarità «per scegliere il profilo dovrei già sapere di chi è la
+> conferma». Si applica in due punti — il costo dalla conferma e la lettura
+> dell'archivio — perché sono quelli che scrivono un importo. Interruttore
+> `FLAG_PROFILI_LETTURA`, **spento in partenza**. **Attenzione, e non è un
+> dettaglio: non c'è ancora una superficie.** Un profilo si scrive solo dai
+> test: il motore è provato, non è in mano a nessuno. Caricare un esempio
+> dalla scheda fornitore e correggerlo è un piano suo, da scrivere sapendo
+> come si comporta il motore su PDF veri; il catalogo comune delle forme (§6)
+> è un altro. **Fuori, dichiarato:** il blocco delle righe di merce
+> (`BloccoRighe`) — il tipo si persiste ma nessuno lo compila e nessuno lo
+> applica, `estraiRigheMerce` è invariato. **Verificato:** `pnpm check`
+> pulito, suite intera verde, `pnpm build` riuscita, e tre test
+> d'integrazione sull'archivio che dimostrano il profilo che comanda (948,73
+> senza, 100 con l'ancora altrove, 948,73 a interruttore spento). Spec
+> `docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md`
+> §5; piano `docs/superpowers/plans/2026-09-10-profili-di-lettura.md`. Branch
+> `claude/fornitori-per-azienda`, impilato sulla PR #17.
+
 > **Novità 10/09/2026 — i fornitori sono dell'azienda (su branch).** I
 > venticinque fornitori della Ruffino Group erano una **costante compilata**
 > in `shared/fornitori.ts`, letta da cinque moduli: l'azienda 2 («hvuv», viva

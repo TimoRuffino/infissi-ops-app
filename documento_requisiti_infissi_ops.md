@@ -751,6 +751,24 @@ fascicolo della commessa dell'ordine:
 
 - **Chi entra (10/09/2026)**: il candidato non lo decide più il solo nome del
   file. V. §36-bis.2 punto 1.
+- **Profili di lettura (10/09/2026, `FLAG_PROFILI_LETTURA`, spento in
+  partenza)**: da un esempio di conferma corretto a mano nascono le **ancore**
+  di quel modulo — «il numero segue l'etichetta CV», «l'imponibile è la cifra
+  dopo Totale imponibile». Nell'ancora entra l'ETICHETTA, **mai il valore**.
+  Le ancore girano **dopo** l'estrattore generico e sovrascrivono solo ciò che
+  trovano: un profilo non svuota mai un campo, perché un imponibile mancante
+  è un costo fornitore mancante. La chiave è l'**impronta del layout** (le
+  parole stampate: niente cifre, niente ciò che sta dopo i due punti, e solo
+  celle con almeno una minuscola — i valori scritti dentro questi moduli sono
+  in maiuscolo), non il fornitore: è ciò che permette di scegliere il profilo
+  prima di sapere di chi è la conferma. Due profili della stessa sede con la
+  stessa impronta: vince quello aggiornato più di recente. Se un fornitore ha
+  profili e nessuno combacia, il modulo è cambiato (`moduloSconosciuto`). Si
+  applica in due punti soli — il costo dalla conferma e la lettura
+  dell'archivio — perché sono quelli che scrivono un importo. **Non c'è
+  ancora una superficie**: un profilo si scrive solo dai test. Spec
+  `docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md`
+  §5; piano `docs/superpowers/plans/2026-09-10-profili-di-lettura.md`.
 - **Pipeline**: registro parser estendibile; oggi un solo parser,
   `pdf-testo-nativo` (unpdf, testo per pagina). Il run è persistito in
   `documenti_analisi` con impronta SHA-256 dei byte e versioni di
