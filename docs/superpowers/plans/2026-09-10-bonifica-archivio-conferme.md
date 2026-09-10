@@ -137,8 +137,14 @@ In fondo a `server/tars/documenti/confermeMancanti.test.ts`, aggiungi il blocco:
 describe("nomeDaConferma", () => {
   it("riconosce i nomi che dichiarano una conferma o un ordine", () => {
     expect(nomeDaConferma("Ordini_di_Vendi_1684077(1).pdf", "application/pdf")).toBe("ordine");
-    expect(nomeDaConferma("conf.26_29488 aggiornata.pdf", "application/pdf")).toBe("conferma");
+    expect(nomeDaConferma("Conferma ordine 4471.pdf", "application/pdf")).toBe("conferma");
     expect(nomeDaConferma("CO_4471.pdf", "application/pdf")).toBe("conferma");
+    // «conf.26_29488 aggiornata.pdf» è il nome vero delle conferme Pail, e
+    // dal NOME non è riconosciuto: «conf.» seguito da cifre non è nessuno
+    // dei disegni previsti. Il pattern non si allarga per questo — a farla
+    // entrare è il mittente noto (`allegatoDaConferma`), che è la porta
+    // giusta e non promuove i nomi esclusi.
+    expect(nomeDaConferma("conf.26_29488 aggiornata.pdf", "application/pdf")).toBeNull();
   });
 
   it("un sollecito non è una conferma d'ordine", () => {

@@ -58,6 +58,9 @@ const NOME_ESCLUSO = new RegExp(
     "(?<!conferm\\w*[\\W_]*)ordine[\\W_]*cliente",
     "ordine[\\W_]*(di[\\W_]*servizio|del[\\W_]*giorno)",
     "(fattura|ddt|preventivo|contratto|listino|catalogo|newsletter|privacy|firmato)",
+    // Un sollecito parla di un ordine, non lo conferma (10/09/2026: sette
+    // «Sollecito_Ordin_…» di Alias erano in coda come conferme).
+    "sollecit",
   ].join("|"),
   "i"
 );
