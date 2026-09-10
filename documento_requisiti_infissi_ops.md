@@ -3005,6 +3005,20 @@ ordine», «le conferme ordine sono ferme, non deve arrendersi».
   d'ordine nel nome o nel testo, oppure stesso imponibile, fornitore e data)
   non produce un secondo costo; la conferma aggiornata dello stesso ordine
   sostituisce la vecchia. Le date non sono mai riferimenti d'ordine.
+- **Conferme discordi (10/09/2026)**: due conferme dello stesso ordine con
+  importi diversi non sono automaticamente una revisione. La prova è la
+  **data del documento**, non l'ordine con cui i file sono entrati in
+  archivio — `createdAt` dice quando il worker ha archiviato, e su un giro in
+  blocco è rumore. Date diverse ⇒ vince la più recente, anche se abbassa.
+  Stessa data, o data mancante ⇒ **discordanza**: il costo resta il **più
+  alto** fra i discordi (sottostimarlo gonfierebbe il margine), la lettura
+  porta esito `discorde` con entrambi gli importi in `discordi[]`, e il
+  motivo dice di controllare i due file. Se il costo lo ha fissato una
+  PERSONA la discordanza non si dichiara: l'ha già risolta lei, e il caso
+  resta `duplicato` con l'avviso. Misurato in produzione il 10/09/2026: sette
+  ordini su sei commesse con copie discordi, scarto complessivo € 1.983,62;
+  su COM-2026-092 il costo eletto era il più basso di quattro. Piano
+  `docs/superpowers/plans/2026-09-10-conferme-discordi.md`.
 - Un costo nato dalla regola e mai toccato a mano (`modificatoAMano`) viene
   corretto da una rilettura più precisa; un costo modificato a mano non si
   tocca. Il worker `costoDaConfermaWorker` (boot +30 s, ogni 60 s, 10 per

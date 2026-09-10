@@ -8,6 +8,32 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 10/09/2026 — conferme discordi: il costo non si sceglie più a
+> caso.** Difetto **misurato in produzione**: sette ordini su sei commesse
+> hanno copie della stessa conferma che dichiarano imponibili diversi (scarto
+> complessivo **€ 1.983,62**), con **stessa data documento** e checksum
+> diversi. La regola eleggeva il vincitore con `piuRecente`, che guarda
+> `createdAt` — quando il **worker ha archiviato** il file: su un giro in
+> blocco è rumore, e su COM-2026-092 ha scelto **il più basso di quattro**
+> (556,75 invece di 727,17). Un costo più basso **gonfia il margine**, ed è il
+> verso sbagliato in cui sbagliare. Ora la prova è la **data del documento**:
+> date diverse ⇒ vince la più recente anche se abbassa; stessa data o data
+> mancante ⇒ esito **`discorde`**, il costo resta il più alto, e il motivo
+> dice di controllare i due file. Due vincoli tengono la regola stretta: una
+> conferma può girare più volte restando la stessa (stesso riferimento **e**
+> stesso imponibile ⇒ una volta sola, invariato), e se il costo l'ha fissato
+> una **persona** la discordanza non si dichiara — l'ha già risolta lei.
+> `piuRecente` è stata rimossa: non era una prova. **Attenzione:** il codice
+> cambia la regola, **non i dati già scritti**. I sei lavori in produzione si
+> allineano alla prossima rilettura di quelle conferme («Rileggi»
+> nell'archivio) oppure a mano dalla scheda. **Aperto e dichiarato:** le
+> conferme **parziali** — se due conferme dello stesso ordine portano merce
+> diversa il costo vero è la SOMMA, e oggi vengono trattate come discordi
+> tenendo la più alta. Per distinguerle servono gli articoli di entrambe, e le
+> copie scartate non li hanno nemmeno estratti (verificato: dei quattro
+> documenti di COM-2026-092 solo il vincitore ha righe di merce). Piano
+> `docs/superpowers/plans/2026-09-10-conferme-discordi.md`.
+
 > **Novità 10/09/2026 — il motore dei profili di lettura (su branch).** Da un
 > esempio di conferma corretto a mano nascono le **ancore** di quel modulo, e
 > le conferme successive dello stesso modulo si leggono con quelle. **Nessun
