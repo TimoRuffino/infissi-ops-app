@@ -1,21 +1,47 @@
-// I fornitori dell'azienda con un nome solo (07/09/2026, «la gestione del
-// magazzino è un casino»): le conferme d'ordine portano il fornitore come
-// lo scrive il PDF («ALIAS Srl Porte blindate», «DE - DOOR DESIGN S.R.L.
-// Veronica Gregori», «REFERENTE Natascia De Biasi -», «PAIL SERRAMENTI -
-// Domenico Cin…») e il magazzino finiva con dieci nomi per lo stesso
-// fornitore, che il filtro non trovava. Qui il nome letto (o il dominio
-// della mail) si riconduce al nome aziendale; ciò che non si riconosce resta
-// com'è, ripulito, e un referente non è mai un fornitore.
+// Le REGOLE con cui si riconosce un fornitore da un testo o dal dominio di una
+// mail, e il SEED dei venticinque della Ruffino Group.
 //
-// Condiviso fra server (regola delle conferme, costi) e client (filtri).
+// Le conferme d'ordine portano il fornitore come lo scrive il PDF («ALIAS Srl
+// Porte blindate», «DE - DOOR DESIGN S.R.L. Veronica Gregori», «REFERENTE
+// Natascia De Biasi -», «PAIL SERRAMENTI - Domenico Cin…») e il magazzino
+// finiva con dieci nomi per lo stesso fornitore, che il filtro non trovava.
+// Qui il nome letto (o il dominio della mail) si riconduce al nome
+// dell'elenco; ciò che non si riconosce resta com'è, ripulito, e un referente
+// non è mai un fornitore.
+//
+// Le regole sono conoscenza di dominio e restano qui. L'ELENCO no: dal
+// 10/09/2026 ogni azienda ha i suoi fornitori (spec
+// `docs/superpowers/specs/2026-09-10-fornitori-per-azienda-e-profili-design.md`),
+// e questo file non sa più chi siano. `riconoscitoreFornitori(elenco)`
+// costruisce il riconoscitore da un elenco qualunque; chi glielo passa è
+// `server/fornitori/riconoscimento.ts`.
+//
+// `SEED_FORNITORI_TENANT_1` sono i fornitori della Ruffino Group: si importano
+// UNA VOLTA nell'anagrafica del tenant 1 (bottone in `/fornitori`) e servono
+// da ripiego a interruttore spento. Nessun altro percorso li legge — guardia
+// `server/fornitori/riconoscimento.confine.test.ts`.
 
-export type FornitoreNoto = {
+export type FornitoreRiconoscibile = {
   nome: string;
   /** Parole o domini che lo identificano, in minuscolo. */
   chiavi: readonly string[];
+  /**
+   * Quando la voce è un PORTALE e non un produttore: il fornitore a cui
+   * riconduce. Antenore è il portale di Wnd/Oknoplast, non un fornitore.
+   */
+  portaleDi?: string | null;
 };
 
-export const FORNITORI_NOTI: readonly FornitoreNoto[] = [
+export type Riconoscitore = {
+  /** Il nome dell'elenco che il testo (o il dominio della mail) nomina. */
+  nome(testo: string | null | undefined, email?: string | null): string | null;
+  /** Il nome con cui registrare un fornitore letto da un documento. */
+  normalizza(testo: string | null | undefined, email?: string | null): string | null;
+  /** La sorgente del pattern dei mittenti, per i pre-filtri (memoria e SQL). */
+  sorgenteMittenti(): string;
+};
+
+export const SEED_FORNITORI_TENANT_1: readonly FornitoreRiconoscibile[] = [
   // «DE - DOOR DESIGN S.R.L. Veronica Gregori»: l'agenzia che firma le conferme Alias.
   { nome: "Alias", chiavi: ["alias", "aliasblindate", "door design", "doordesign"] },
   { nome: "Pail", chiavi: ["pail", "pailporte", "pail serramenti"] },
@@ -42,30 +68,10 @@ export const FORNITORI_NOTI: readonly FornitoreNoto[] = [
   { nome: "Effe Industrial", chiavi: ["effeindustrial", "effe industrial"] },
   { nome: "Bodytech", chiavi: ["bodytech"] },
   { nome: "Gianesin", chiavi: ["gianesin"] },
-];
-
-/** I nomi, nell'ordine in cui compaiono nei filtri. */
-export const FORNITORI: readonly string[] = FORNITORI_NOTI.map(f => f.nome);
-
-export type Portale = {
-  /** Parole o domini che identificano il portale, in minuscolo. */
-  chiavi: readonly string[];
-  /** Il fornitore da cui si ordina attraverso questo portale. */
-  fornitore: string;
-};
-
-/**
- * I portali con cui si ordina (direzione, 10/09/2026). Non sono fornitori:
- * sono il canale con cui si ordina DA un fornitore, e il loro dominio non è
- * quello del produttore. `antenore.biz` mandava 94 mail che finivano tutte
- * in «Da riconoscere».
- *
- * Un portale che serve più produttori riconduce a UNO solo — qui Wnd, l'unico
- * con consegne registrate. Se un giorno servisse distinguere Oknoplast, a
- * dirlo sarà il testo del documento, mai il dominio del portale.
- */
-export const PORTALI: readonly Portale[] = [
-  { chiavi: ["antenore"], fornitore: "Wnd" },
+  // Il portale con cui si ordina da Wnd/Oknoplast, non un fornitore: 94 mail
+  // da `antenore.biz` finivano in «Da riconoscere» perché il dominio non è
+  // quello del produttore (10/09/2026).
+  { nome: "Wnd", chiavi: ["antenore"], portaleDi: "Wnd" },
 ];
 
 function normalizza(testo: string): string {
@@ -89,74 +95,77 @@ function contieneChiave(testo: string, chiave: string): boolean {
   return norm.split(" ").some(parola => parola === attaccata);
 }
 
-/** Il fornitore aziendale che il testo (o il dominio di una mail) nomina, oppure null. */
-export function fornitoreNoto(
-  testo: string | null | undefined,
-  email?: string | null
-): string | null {
-  const dominio = email?.includes("@") ? email.split("@")[1] : null;
-  for (const f of FORNITORI_NOTI) {
-    for (const chiave of f.chiavi) {
-      if (testo && contieneChiave(testo, chiave)) return f.nome;
-      if (dominio && contieneChiave(dominio, chiave)) return f.nome;
-    }
-  }
-  // Il portale vale meno del produttore: si guarda solo se nessun fornitore
-  // noto ha risposto.
-  for (const p of PORTALI) {
-    for (const chiave of p.chiavi) {
-      if (testo && contieneChiave(testo, chiave)) return p.fornitore;
-      if (dominio && contieneChiave(dominio, chiave)) return p.fornitore;
-    }
-  }
-  return null;
-}
-
 /** Un referente, un agente o una persona non sono un fornitore. */
 const NON_FORNITORE =
   /^(?:referente|rif\.?|agente|sig\.?(?:ra)?|sigg?\.|dott\.?(?:ssa)?|geom\.?|arch\.?|ing\.?|att\.?ne|c\.a\.|alla cortese)(?:\s|$)/i;
 
 /**
- * Il nome con cui registrare un fornitore letto da un documento: quello
- * aziendale se lo si riconosce (dal testo o dal dominio della mail),
- * altrimenti il testo ripulito — la prima parte prima di un trattino, senza
- * referenti — o null se non resta niente di sensato.
+ * Le regole applicate a UN elenco: è la firma che rende i fornitori un dato
+ * dell'azienda invece di una costante del prodotto.
  */
-export function normalizzaFornitore(
-  testo: string | null | undefined,
-  email?: string | null
-): string | null {
-  const noto = fornitoreNoto(testo, email);
-  if (noto) return noto;
-  const grezzo = String(testo ?? "").replace(/\s+/g, " ").trim();
-  if (!grezzo) return null;
-  // Il primo segmento con almeno tre lettere: «DE - DOOR DESIGN…» non è «DE».
-  const segmenti = grezzo.split(/\s+[-–|]\s+/).map(s => s.trim());
-  const prima = segmenti.find(s => (s.match(/[a-zà-ú]/gi) ?? []).length >= 3) ?? "";
-  if (!prima || NON_FORNITORE.test(prima)) return null;
-  return prima.slice(0, 60);
-}
+export function riconoscitoreFornitori(
+  elenco: readonly FornitoreRiconoscibile[]
+): Riconoscitore {
+  // I portali si guardano DOPO i produttori: il dominio di chi fabbrica è più
+  // preciso di quello del canale con cui gli si ordina.
+  const diretti = elenco.filter(f => !f.portaleDi);
+  const portali = elenco.filter(f => f.portaleDi);
 
-/**
- * Il pattern che riconosce il mittente di un fornitore noto, **una sola
- * sorgente** per il pre-filtro in memoria e per quello in SQL: due copie
- * divergerebbero, e la mail entrerebbe da una porta e non dall'altra.
- *
- * Le chiavi valgono come sottostringa, non come parola: `pailporte.com`
- * contiene «pailporte», `aliasblindate.com` contiene «aliasblindate». È
- * volutamente LARGO — il pre-filtro pesca, il giudizio fine
- * (`allegatoDaConferma`, che passa da `fornitoreNoto`) scarta: una chiave
- * corta come «wnd» sta dentro «downdraft», e va bene così.
- *
- * Sintassi comune a JS e POSIX (niente `\b`, niente lookahead): la stessa
- * stringa finisce in un `RegExp` e in un `~*` di Postgres.
- */
-export const SORGENTE_MITTENTE_FORNITORE: string = [
-  ...FORNITORI_NOTI.flatMap(f => f.chiavi),
-  ...PORTALI.flatMap(p => p.chiavi),
-]
-  // Uno spazio nella chiave («henry glass») nel dominio non c'è: diventa
-  // «qualunque cosa o niente fra le due parole».
-  .map(chiave => chiave.replace(/[^a-z0-9]+/g, "[^a-z0-9]*"))
-  .sort((a, b) => b.length - a.length)
-  .join("|");
+  const cerca = (
+    voci: readonly FornitoreRiconoscibile[],
+    testo: string | null | undefined,
+    dominio: string | null
+  ): string | null => {
+    for (const f of voci) {
+      for (const chiave of f.chiavi) {
+        if (testo && contieneChiave(testo, chiave)) return f.portaleDi ?? f.nome;
+        if (dominio && contieneChiave(dominio, chiave)) return f.portaleDi ?? f.nome;
+      }
+    }
+    return null;
+  };
+
+  const nome: Riconoscitore["nome"] = (testo, email) => {
+    const dominio = email?.includes("@") ? email.split("@")[1] : null;
+    return cerca(diretti, testo, dominio) ?? cerca(portali, testo, dominio);
+  };
+
+  return {
+    nome,
+
+    normalizza(testo, email) {
+      const noto = nome(testo, email);
+      if (noto) return noto;
+      const grezzo = String(testo ?? "").replace(/\s+/g, " ").trim();
+      if (!grezzo) return null;
+      // Il primo segmento con almeno tre lettere: «DE - DOOR DESIGN…» non è «DE».
+      const segmenti = grezzo.split(/\s+[-–|]\s+/).map(s => s.trim());
+      const prima = segmenti.find(s => (s.match(/[a-zà-ú]/gi) ?? []).length >= 3) ?? "";
+      if (!prima || NON_FORNITORE.test(prima)) return null;
+      return prima.slice(0, 60);
+    },
+
+    /**
+     * Volutamente LARGO: il pre-filtro pesca, il giudizio fine
+     * (`allegatoDaConferma`) scarta. Le chiavi valgono come sottostringa —
+     * `pailporte.com` contiene «pailporte» — e una chiave corta come «wnd» sta
+     * dentro «downdraft»: va bene così, lì a decidere è `nome()`.
+     *
+     * Sintassi comune a JS e POSIX (niente `\b`, niente lookahead): la stessa
+     * stringa finisce in un `RegExp` e in un `~*` di Postgres.
+     */
+    sorgenteMittenti() {
+      const chiavi = elenco.flatMap(f => f.chiavi);
+      // Un elenco vuoto deve produrre un pattern che non combacia con NIENTE.
+      // `new RegExp("")` combacia con TUTTO: sarebbe il difetto peggiore
+      // possibile qui, perché aprirebbe il pre-filtro della posta a ogni
+      // mittente esistente proprio per le aziende che l'elenco non ce l'hanno
+      // ancora.
+      if (chiavi.length === 0) return "(?!)";
+      return chiavi
+        .map(chiave => chiave.replace(/[^a-z0-9]+/g, "[^a-z0-9]*"))
+        .sort((a, b) => b.length - a.length)
+        .join("|");
+    },
+  };
+}
