@@ -47,6 +47,27 @@ export const FORNITORI_NOTI: readonly FornitoreNoto[] = [
 /** I nomi, nell'ordine in cui compaiono nei filtri. */
 export const FORNITORI: readonly string[] = FORNITORI_NOTI.map(f => f.nome);
 
+export type Portale = {
+  /** Parole o domini che identificano il portale, in minuscolo. */
+  chiavi: readonly string[];
+  /** Il fornitore da cui si ordina attraverso questo portale. */
+  fornitore: string;
+};
+
+/**
+ * I portali con cui si ordina (direzione, 10/09/2026). Non sono fornitori:
+ * sono il canale con cui si ordina DA un fornitore, e il loro dominio non è
+ * quello del produttore. `antenore.biz` mandava 94 mail che finivano tutte
+ * in «Da riconoscere».
+ *
+ * Un portale che serve più produttori riconduce a UNO solo — qui Wnd, l'unico
+ * con consegne registrate. Se un giorno servisse distinguere Oknoplast, a
+ * dirlo sarà il testo del documento, mai il dominio del portale.
+ */
+export const PORTALI: readonly Portale[] = [
+  { chiavi: ["antenore"], fornitore: "Wnd" },
+];
+
 function normalizza(testo: string): string {
   return testo
     .normalize("NFD")
@@ -78,6 +99,14 @@ export function fornitoreNoto(
     for (const chiave of f.chiavi) {
       if (testo && contieneChiave(testo, chiave)) return f.nome;
       if (dominio && contieneChiave(dominio, chiave)) return f.nome;
+    }
+  }
+  // Il portale vale meno del produttore: si guarda solo se nessun fornitore
+  // noto ha risposto.
+  for (const p of PORTALI) {
+    for (const chiave of p.chiavi) {
+      if (testo && contieneChiave(testo, chiave)) return p.fornitore;
+      if (dominio && contieneChiave(dominio, chiave)) return p.fornitore;
     }
   }
   return null;
