@@ -31,6 +31,7 @@ import NotificheDropdown from "../NotificheDropdown";
 import { PromemoriaPopupHost } from "../PromemoriaPopupHost";
 import PageContainer from "../PageContainer";
 import SedeSwitcher from "../SedeSwitcher";
+import BannerAmbiente from "./BannerAmbiente";
 import {
   isPathActive,
   type NavigationAccess,
@@ -454,6 +455,7 @@ function DashboardLayoutContent({
         <main className="flex-1 min-h-dvh bg-background p-4 sm:p-5 lg:p-6">
           {/* Sopra la pagina e dentro il main: scorre con il contenuto, come
               nella shell Modular Control. */}
+          <BannerAmbiente />
           <AvvisoAzienda />
           <AnimatePresence mode="wait" initial={false}>
             <PageContainer key={location}>{children}</PageContainer>
