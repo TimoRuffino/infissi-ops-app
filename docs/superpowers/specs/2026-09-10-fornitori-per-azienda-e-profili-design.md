@@ -196,12 +196,27 @@ il momento in cui la pagina di §4.4 serve, e il percorso di §5 comincia.
 
 ### 4.4 UI
 
-Una sezione **Fornitori** dentro Impostazioni (non una rotta nuova di primo
-livello: è configurazione, non lavoro quotidiano). Elenco con nome, categoria,
-canale, numero di conferme arrivate; aggiungi, modifica, disattiva. Le chiavi
-di riconoscimento si mostrano come «da quali indirizzi arriva», con i domini
-già visti dall'archivio proposti come suggerimento invece di farli battere a
-mano.
+**Niente rotta nuova e niente scheda nuova: si usa la colonna che c'è già.**
+La pagina `/fornitori` ha a sinistra l'elenco dei fornitori — che oggi però
+non è l'anagrafica, è la lista dei **mittenti visti nella posta**
+(`riepilogoFornitori`, costruita dalle voci d'archivio). «Impostazioni» nel
+menu porta a `/integrazioni`, che è un'altra cosa e non è casa loro.
+
+Quella colonna diventa: **i fornitori dell'azienda**, più i **candidati** —
+mittenti da cui è arrivata una conferma e che nell'anagrafica non ci sono
+ancora, marcati come tali. Su un candidato un bottone solo: «Aggiungilo ai
+tuoi fornitori», che lo censisce con le chiavi già dedotte dal dominio da cui
+scrive.
+
+È questo che rende accettabile il lavoro per un'azienda nuova: non batte
+venticinque nomi: **conferma** quelli che le sono già arrivati. Il caso
+peggiore — azienda nuova, casella vuota — resta l'inserimento a mano, che è
+inevitabile e raro.
+
+Sul fornitore selezionato: nome, categoria, canale, «da quali indirizzi
+arriva» (le chiavi, coi domini visti proposti come suggerimento), portali,
+attivo/disattivo. Aggiungi, modifica, disattiva. Il bottone «Importa i 25
+fornitori conosciuti» di §4.3 vive qui, a elenco vuoto e solo per il tenant 1.
 
 Il menu dei fornitori del Magazzino smette di leggere la costante e legge la
 lista della sede.
