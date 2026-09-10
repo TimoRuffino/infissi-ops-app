@@ -158,6 +158,12 @@ default e backfill in `onLoad`. Evitare di salvare nuovi blob base64 in JSONB.
   qui fa vedere a un'azienda i fornitori di un'altra. Un elenco vuoto produce
   il pattern `(?!)`, mai la stringa vuota: `new RegExp("")` combacia con tutto
   e aprirebbe il pre-filtro della posta a ogni mittente.
+- Un **profilo di lettura** non svuota mai un campo: le ancore girano dopo
+  l'estrattore generico e sovrascrivono solo ciò che trovano. Nell'ancora
+  entra l'**etichetta**, mai il valore — è ciò che permetterà di promuovere la
+  forma senza portarsi dietro i dati di nessuno. La chiave è l'impronta del
+  layout, non il fornitore, e `contestoProfilo` è l'unico punto che guarda
+  l'interruttore.
 - Rispettare i ruoli in `server/_core/permissions.ts` e `client/src/lib/roles.ts`.
 - `importoIncassato` deriva da `pagamenti[]` e non è un input aggiornabile.
 - Usare gli helper di `client/src/lib/euro.ts` per ogni importo.
