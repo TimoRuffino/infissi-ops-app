@@ -5511,6 +5511,68 @@ creazione dell'environment `staging` con un Postgres dedicato, le
 variabili e la levetta «PR environments» restano operazioni manuali,
 descritte passo per passo nel runbook (`docs/runbooks/staging.md`).
 
+### 60.16 Il canale di ritorno: segnalazioni e consigli delle aziende (10/09/2026)
+
+Requisito della direzione: un'azienda cliente che incontra un bug o ha un
+consiglio deve poterlo dire **da dentro il gestionale**, con un bottone che
+non dà fastidio, e quello che scrive deve arrivare a
+`supporto@wyndoor.com`.
+
+**Dove sta il bottone.** Due porte, nessun pixel in più sullo schermo: la
+voce «Segnala un problema» nel menu profilo (`UserMenu`, accanto a
+Impostazioni) e due voci nella palette comandi ⌘K, «Segnala un problema» e
+«Manda un consiglio», sotto l'intestazione «Supporto Wyndoor». Niente
+pillola flottante: in basso a destra ci sono già la mascotte di Tars su
+desktop e la BottomNav su mobile. Il dialogo vive una volta sola nella
+cornice (`FeedbackProvider` in `DashboardLayout`, sopra entrambe le shell)
+e si apre da tutt'e due i punti.
+
+**Che cosa chiede.** Due cose: se è un problema o un consiglio, e che cosa
+è successo (10–4000 caratteri). Il resto — azienda con id e stato, sede
+attiva, chi scrive con ruoli ed email, la pagina di partenza, lo user agent,
+la data — **lo mette il server**, perché è esattamente la parte che chi
+segnala non pensa mai a scrivere e senza cui la segnalazione non si
+riproduce. La `pagina` arriva dal browser e finisce dentro un `href` della
+mail: la ripulisce `paginaSicura`, che accetta solo un cammino interno.
+
+**Niente archivio: la casella di posta È l'archivio.** Nessuno store nuovo,
+nessun backfill, niente da svuotare quando il tenant se ne va
+(`server/piattaforma/feedback.ts` compone, `feedbackRouter.ts` accoglie,
+`_core/postaPiattaforma.ts` spedisce). Il destinatario predefinito è
+`supporto@wyndoor.com` e si sposta con `POSTA_FEEDBACK`. Il `reply_to` è
+l'indirizzo di chi ha scritto — il mittente resta un `no-reply`, ma
+supporto risponde con «Rispondi» e la risposta arriva alla persona.
+
+**Lo screenshot facoltativo non tocca lo storage.** Viaggia come allegato
+dentro la mail (Resend `attachments`): non passa da `putFile`, non consuma
+la quota dell'azienda, non entra nel ledger e non c'è niente da cancellare
+dopo. Il client rimpicciolisce a 1600 px sul lato lungo e comprime in JPEG
+(`client/src/lib/feedbackImmagine.ts`: una schermata Retina da 3 MB parte a
+~200 kB); il server rifiuta oltre 2 MB o fuori da PNG/JPEG/WebP. Si allega
+da file o incollando la schermata copiata.
+
+**Due scelte da ricordare.** (1) L'endpoint è una `sessionProcedure`, non
+una `protectedProcedure`: la `guardiaTenant` rifiuta le mutation di
+un'azienda sospesa o in sola lettura, e un'azienda bloccata è precisamente
+quella che ha più bisogno di scrivere a supporto; qui non si tocca nessuno
+store di dominio, quindi il contesto tenant non serve. (2) A differenza di
+`inviaPosta`, che non lancia mai, `inviaFeedback` **lancia**: c'è una
+persona che aspetta, e una segnalazione persa in silenzio è peggio di
+nessun bottone. Senza `RESEND_API_KEY` il dialogo dice che il canale non è
+attivo e mostra l'indirizzo, invece di fingere l'invio. Limite: cinque
+segnalazioni all'ora per persona.
+
+**Verificato:** `pnpm check`/`test`/`build` verdi, 28 test nuovi
+(`server/piattaforma/feedback.test.ts`,
+`client/src/lib/feedbackImmagine.test.ts`); verifica browser a 1440×900 e
+390×844, tema chiaro e scuro, apertura da entrambe le porte, allegato
+preparato e ridotto, giro completo client→server con il messaggio del
+server a schermo, console senza errori di React, nessuno scorrimento
+orizzontale. La mail si guarda con `pnpm posta:anteprima --mail=feedback`.
+**Non fatto (operazioni esterne):** la casella `supporto@wyndoor.com` deve
+esistere e `RESEND_API_KEY` deve essere impostata sull'ambiente Railway di
+produzione — senza, il bottone c'è ma dice che il canale è spento.
+
 ---
 
 ## 61. Dal contratto verificato alla bozza automatica (decisione 07/09/2026)

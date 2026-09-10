@@ -25,3 +25,23 @@ export const VARIABILE_BASE_URL = "APP_BASE_URL";
  *  `no-reply`, e senza questo una risposta non arriva a nessuno. Assente =
  *  la mail non promette una risposta (v. `contattoPiattaforma`). */
 export const VARIABILE_POSTA_RISPOSTA = "POSTA_PIATTAFORMA_RISPOSTA";
+
+// --- Feedback delle aziende (PRD §60.16) -----------------------------------
+// La segnalazione non si archivia da nessuna parte: diventa una mail e basta.
+// I messaggi stanno qui con gli altri perché è il client a mostrarli, e il
+// test di dominio deve poter provare la stessa frase che vede l'utente.
+export const MESSAGGI_FEEDBACK = {
+  nonConfigurato:
+    "Il canale di supporto non è attivo su questa installazione: scrivi direttamente a supporto@wyndoor.com.",
+  nonRiuscito:
+    "Non siamo riusciti a inviare la segnalazione: riprova fra qualche minuto o scrivi a supporto@wyndoor.com.",
+  troppiInvii:
+    "Hai già inviato diverse segnalazioni: riprova fra un'ora. Per un'urgenza scrivi a supporto@wyndoor.com.",
+  immagineTroppoGrande:
+    "L'immagine è troppo grande: il limite è 2 MB. Ritaglia lo schermo o togli l'allegato.",
+  immagineNonValida: "Si possono allegare solo immagini PNG, JPEG o WebP.",
+} as const;
+
+/** Dove arrivano le segnalazioni. Assente = `supporto@wyndoor.com`. */
+export const VARIABILE_POSTA_FEEDBACK = "POSTA_FEEDBACK";
+export const FEEDBACK_DESTINATARIO_PREDEFINITO = "supporto@wyndoor.com";

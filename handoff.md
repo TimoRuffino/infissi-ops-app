@@ -8,6 +8,40 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 10/09/2026 — Le aziende hanno un canale di ritorno: segnalazioni
+> e consigli via mail a `supporto@wyndoor.com` (PRD §60.16).** Richiesta
+> della direzione: un bottone che non dà fastidio, e quello che l'azienda
+> scrive arriva a supporto. Due porte, nessun pixel in più: la voce «Segnala
+> un problema» nel menu profilo e le voci «Segnala un problema» / «Manda un
+> consiglio» nella palette ⌘K, sotto «Supporto Wyndoor» — niente pillola
+> flottante, dove starebbe ci sono già la mascotte di Tars e la BottomNav.
+> Il dialogo vive una volta sola nella cornice (`FeedbackProvider` in
+> `DashboardLayout`, sopra entrambe le shell). **Nessuno store nuovo: la
+> casella di posta è l'archivio** — `server/piattaforma/feedback.ts` compone,
+> `feedbackRouter.ts` accoglie, `_core/postaPiattaforma.ts` spedisce
+> (destinatario `supporto@wyndoor.com`, spostabile con `POSTA_FEEDBACK`;
+> `reply_to` = l'indirizzo di chi ha scritto, così supporto risponde con
+> «Rispondi»). L'utente scrive due cose (problema o consiglio, e che cosa è
+> successo, 10–4000 caratteri): azienda, sede, ruoli, pagina, browser e data
+> li mette il server. Lo screenshot facoltativo **non tocca lo storage**:
+> viaggia come allegato dentro la mail (Resend `attachments`), quindi niente
+> `putFile`, niente quota, niente ledger, niente da cancellare; il client
+> riduce a 1600 px e comprime in JPEG (`client/src/lib/feedbackImmagine.ts`),
+> il server rifiuta oltre 2 MB o fuori da PNG/JPEG/WebP. Due scelte da
+> ricordare: l'endpoint è una `sessionProcedure` e non una
+> `protectedProcedure` (la `guardiaTenant` bloccherebbe le mutation di
+> un'azienda sospesa, che è proprio quella che ha più bisogno di scrivere), e
+> `inviaFeedback` **lancia** invece di ingoiare l'errore come fa `inviaPosta`
+> — c'è una persona che aspetta. Limite: 5 all'ora per persona. La mail si
+> guarda con `pnpm posta:anteprima --mail=feedback`. **Verificato:**
+> `pnpm check`/`test`/`build` verdi, 28 test nuovi; browser 1440×900 e
+> 390×844, chiaro e scuro, entrambe le porte, allegato ridotto da 96 kB PNG a
+> 22 kB JPEG, giro completo client→server, console senza errori React.
+> **Cosa resta MANUALE e NON fatto:** la casella `supporto@wyndoor.com` deve
+> esistere e `RESEND_API_KEY` deve essere impostata sull'ambiente Railway di
+> produzione — senza, il bottone c'è ma dice che il canale è spento e mostra
+> l'indirizzo da copiare.
+
 > **Novità 10/09/2026 — Staging con dati demo: i tre meccanismi sul
 > branch, ambiente Railway NON ancora creato.** Piano in 8 task,
 > `docs/superpowers/plans/2026-09-10-staging-demo.md`; spec
