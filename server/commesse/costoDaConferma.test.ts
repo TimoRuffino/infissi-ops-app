@@ -471,6 +471,81 @@ describe("riscontro nel testo, duplicati e approntamento (caso Giacomazzi, 04/09
     expect(costiDi(commessa.id)).toHaveLength(1);
   });
 
+  // Una conferma Alias con numero d'ordine, data e imponibile scelti dal
+  // test: serve a fabbricare i casi discordi del 10/09/2026.
+  const ALIAS_ORDINE = (cliente: string, ordine: string, data: string, imponibile: string) => [
+    "Conferma Ordine",
+    "ALIAS Srl Porte blindate",
+    "RUFFINO GROUP SRLS",
+    `2026 - CV ${ordine} del ${data}`,
+    "VS.RIFERIMENTO",
+    cliente,
+    "NR 1,00PORST-C013 PORTA BLIND.STEEL/C < 1900",
+    `Tot. Imponibile ${imponibile}`,
+  ];
+
+  it("stesso ordine, stessa data, importi diversi: è discordanza, e vince il più alto", async () => {
+    // Il caso COM-2026-092: quattro copie entrate nello stesso giro d'archivio,
+    // importi diversi, nessuna prova di quale sia la revisione. Prima il CRM
+    // eleggeva l'ultima processata — che era la più bassa, e un costo più
+    // basso gonfia il margine.
+    const commessa = await inOrdine("Jacopucci Discordi");
+    const primo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("JACOPUCCI DISCORDI", "1684077", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1684077(1).pdf" }
+    );
+    const secondo = await carica(
+      commessa.id,
+      ALIAS_ORDINE("JACOPUCCI DISCORDI", "1684077", "16/06/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1684077(1) (2).pdf" }
+    );
+
+    // Un costo solo, e resta il più alto: senza prova non si abbassa.
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].importo).toBe(727.17);
+    expect(costiDi(commessa.id)[0].documentoId).toBe(primo.id);
+
+    // E lo dice, invece di tacerlo.
+    const lettura = getDocumentoRecordById(secondo.id)?.letturaCosto;
+    expect(lettura?.esito).toBe("discorde");
+    expect(lettura?.motivo).toMatch(/discord/i);
+    expect(lettura?.discordi).toEqual([727.17, 556.75]);
+  });
+
+  it("la copia più ALTA arrivata dopo alza il costo, sempre senza prova", async () => {
+    const commessa = await inOrdine("Jacopucci Alza");
+    await carica(
+      commessa.id,
+      ALIAS_ORDINE("JACOPUCCI ALZA", "1684078", "16/06/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1684078(1).pdf" }
+    );
+    await carica(
+      commessa.id,
+      ALIAS_ORDINE("JACOPUCCI ALZA", "1684078", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1684078(1) (2).pdf" }
+    );
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].importo).toBe(727.17);
+  });
+
+  it("date diverse: la revisione vince davvero, anche se abbassa", async () => {
+    const commessa = await inOrdine("Revisione Vera");
+    await carica(
+      commessa.id,
+      ALIAS_ORDINE("REVISIONE VERA", "1684079", "16/06/2026", "727,17"),
+      { nome: "Ordini_di_Vendi_1684079(1).pdf" }
+    );
+    const seconda = await carica(
+      commessa.id,
+      ALIAS_ORDINE("REVISIONE VERA", "1684079", "02/07/2026", "556,75"),
+      { nome: "Ordini_di_Vendi_1684079(1) (2).pdf" }
+    );
+    expect(costiDi(commessa.id)).toHaveLength(1);
+    expect(costiDi(commessa.id)[0].importo).toBe(556.75);
+    expect(costiDi(commessa.id)[0].documentoId).toBe(seconda.id);
+  });
+
   it("la stessa conferma inviata tre volte è UN costo e UNA merce: le copie sono duplicati", async () => {
     const commessa = await inOrdine("Giacomazzi Tre Copie");
     const prima = await carica(commessa.id, ALIAS("GIACOMAZZI TRE"), { nome: "Ordini_di_Vendi_1602923(1).pdf" });

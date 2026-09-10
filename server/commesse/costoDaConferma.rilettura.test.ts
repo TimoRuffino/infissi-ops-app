@@ -55,10 +55,16 @@ function contestoTrpc(): TrpcContext {
 }
 const direzione = () => appRouter.createCaller(contestoTrpc());
 
-function righeConferma(numero: string, imponibile: string, iva: string, totale: string): string[] {
+function righeConferma(
+  numero: string,
+  imponibile: string,
+  iva: string,
+  totale: string,
+  data = "01/09/2026"
+): string[] {
   return [
     "PAIL SERRAMENTI SRL",
-    `Conferma d'ordine n. ${numero} del 01/09/2026`,
+    `Conferma d'ordine n. ${numero} del ${data}`,
     `Totale imponibile: EUR ${imponibile}`,
     `IVA 22%: EUR ${iva}`,
     `Totale documento: EUR ${totale}`,
@@ -173,10 +179,14 @@ describe("la conferma aggiornata dello stesso ordine", () => {
     );
     expect(costiDi(commessa.id)).toEqual([expect.objectContaining({ importo: 4710.5, documentoId: prima.id })]);
 
+    // La revisione porta una DATA NUOVA: è quella la prova, non l'ordine con
+    // cui i file entrano in archivio (10/09/2026). Senza, le due conferme
+    // sarebbero discordi e il costo resterebbe il più alto senza cambiare
+    // documento.
     const seconda = await carica(
       commessa.id,
       "Commessa-N-1012779 Salvetti (ORDINE MODIFICATO).pdf",
-      righeConferma("1012779", "5.793,83", "1.274,64", "7.068,47")
+      righeConferma("1012779", "5.793,83", "1.274,64", "7.068,47", "15/09/2026")
     );
 
     const costi = costiDi(commessa.id);
@@ -203,11 +213,38 @@ describe("la conferma aggiornata dello stesso ordine", () => {
     const terza = await carica(
       commessa.id,
       "Commessa-N-1012779 Salvetti (ORDINE MODIFICATO) inviata di nuovo.pdf",
-      righeConferma("1012779", "5.793,83", "1.274,64", "7.068,47")
+      righeConferma("1012779", "5.793,83", "1.274,64", "7.068,47", "15/09/2026")
     );
     expect(getDocumentoRecordById(terza.id)?.letturaCosto?.esito).toBe("duplicato");
     expect(costiDi(commessa.id)).toHaveLength(1);
     expect(costiDi(commessa.id)[0]).toMatchObject({ importo: 5793.83, documentoId: seconda.id });
+  });
+
+  it("stessa data e nomi che non dicono niente: è discordanza, e resta il più alto", async () => {
+    // Il caso vero di COM-2026-095 (10/09/2026): due file dello stesso ordine,
+    // stessa data, importi 4.710,50 e 5.793,83. Il «(2)» del secondo nome lo
+    // aggiunge il CRM quando un nome è già preso, non il fornitore: non è la
+    // prova di niente. Prima vinceva l'ultimo archiviato; ora resta il più
+    // alto e la discordanza si dichiara.
+    const commessa = await direzione().commesse.create({ cliente: "Salvetti Discordi" });
+    const prima = await carica(
+      commessa.id,
+      "Commessa-N-1012779 Salvetti Marziana (ORDINE)_SK45 CARDINI CON CREMON.pdf",
+      righeConferma("1012779", "4.710,50", "1.036,31", "5.746,81")
+    );
+    const seconda = await carica(
+      commessa.id,
+      "Commessa-N-1012779 Salvetti Marziana (ORDINE)_SK45 CARDINI CON CREMON (2).pdf",
+      righeConferma("1012779", "5.793,83", "1.274,64", "7.068,47")
+    );
+
+    const costi = costiDi(commessa.id);
+    expect(costi).toHaveLength(1);
+    expect(costi[0]).toMatchObject({ importo: 5793.83, documentoId: prima.id });
+    const lettura = getDocumentoRecordById(seconda.id)?.letturaCosto;
+    expect(lettura?.esito).toBe("discorde");
+    expect(lettura?.discordi).toEqual([5793.83, 4710.5]);
+    expect(lettura?.motivo).toContain("stessa data");
   });
 
   it("non sostituisce un costo che una persona ha modificato: la nuova versione resta un duplicato, con l'avviso", async () => {

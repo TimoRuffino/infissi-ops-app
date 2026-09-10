@@ -300,9 +300,11 @@ In `server/commesse/costoDaConferma.ts`, importa `revisionePerData` e sostituisc
     // Nessuna prova e importi diversi: è una DISCORDANZA. Non si elegge un
     // vincitore con l'ordine d'archiviazione (che su un giro in blocco è
     // rumore): resta il più alto, e lo si dichiara.
-    const discorde = importoDiverso && prova === "nessuna_prova";
+    // Solo sui costi scritti dalla regola: un costo fissato da una persona
+    // significa che la discordanza l'ha già risolta lei.
+    const discorde = importiDiversi && correggibile && prova === "nessuna_prova";
 
-    if (discorde) {
+    if (importiDiversi && correggibile && prova === "nessuna_prova") {
       const alto = Math.max(imponibile!, costoOriginale!.importo);
       const basso = Math.min(imponibile!, costoOriginale!.importo);
       // Il costo non si abbassa mai da solo; se questa copia è la più alta e
