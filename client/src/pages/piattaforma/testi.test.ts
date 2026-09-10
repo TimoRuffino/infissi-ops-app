@@ -14,6 +14,7 @@ import {
   erroreDelComando,
   erroreFatturazione,
   erroreLunghezzaCampo,
+  erroreInvioPassword,
   esitoCreazione,
   etichettaBlocco,
   etichettaComando,
@@ -24,6 +25,7 @@ import {
   riassuntoSpazio,
   riassuntoTars,
   riepilogoModifiche,
+  regolePassword,
   statoInvito,
   testoEsitoInvito,
   tonoStatoAzienda,
@@ -128,9 +130,47 @@ describe("testoEsitoInvito", () => {
     expect(testo).toContain("copia");
     expect(testo).toBe(TESTO_POSTA_NON_CONFIGURATA);
   });
+
+  // La posta può fallire in due modi diversi, e all'amministratore servono
+  // due risposte diverse: «manca la chiave» si risolve su Railway, «Resend
+  // ha risposto 422» si risolve sul dominio del mittente. Fino al 10/09/2026
+  // il pannello diceva sempre la prima, anche quando era la seconda.
+  it("un rifiuto vero della posta non si traveste da «non configurata»", () => {
+    const testo = testoEsitoInvito({
+      inviato: false,
+      motivo: "Resend ha risposto 422",
+    });
+    expect(testo).toContain("Resend ha risposto 422");
+    expect(testo).not.toBe(TESTO_POSTA_NON_CONFIGURATA);
+    expect(testo).toContain("copia");
+  });
+
+  it("quando il motivo È la chiave mancante resta il testo del server", () => {
+    expect(
+      testoEsitoInvito({ inviato: false, motivo: TESTO_POSTA_NON_CONFIGURATA })
+    ).toBe(TESTO_POSTA_NON_CONFIGURATA);
+  });
+
+  it("senza motivo resta il ripiego di sempre", () => {
+    expect(testoEsitoInvito({ inviato: false })).toBe(TESTO_POSTA_NON_CONFIGURATA);
+  });
 });
 
 describe("esitoCreazione", () => {
+  it("porta fin dentro il dialogo il motivo per cui la posta non è partita", () => {
+    expect(
+      esitoCreazione({
+        stato: "eseguito",
+        invito: {
+          inviato: false,
+          email: "anna@esempio.it",
+          link: "https://app.wyndoor.com/invito/abc",
+          motivo: "Resend ha risposto 422",
+        },
+      }).descrizione
+    ).toContain("Resend ha risposto 422");
+  });
+
   it("azienda creata e invito inviato: il titolo è di successo e la scheda si apre", () => {
     expect(
       esitoCreazione({
@@ -496,5 +536,44 @@ describe("i comandi e gli eventi di «Modifica azienda»", () => {
     expect(etichettaEvento("tenant_modificato")).toBe("Azienda modificata");
     expect(etichettaEvento("proprietario_modificato")).toBe("Proprietario modificato");
     expect(etichettaEvento("slug_cambiato")).toBe("Slug cambiato");
+  });
+});
+
+// ── Pagina /invito: le regole della password ───────────────────────────
+// Vivono qui e non dentro InvitoPage.tsx perché una regola dentro un
+// componente non si prova: la suite gira senza DOM (vitest.config.ts).
+
+describe("regolePassword", () => {
+  it("la lunghezza si accende ai 12 caratteri, non prima", () => {
+    expect(regolePassword("corta", "").map(r => r.soddisfatta)).toEqual([false, false]);
+    expect(regolePassword("dodicicaratt", "")[0].soddisfatta).toBe(true);
+  });
+
+  it("con la conferma vuota le due password NON coincidono ancora", () => {
+    // Altrimenti a campi vuoti la regola nascerebbe già verde ("" === ""),
+    // e chi guarda crederebbe di aver già fatto qualcosa.
+    expect(regolePassword("", "")[1].soddisfatta).toBe(false);
+    expect(regolePassword("dodicicaratt", "")[1].soddisfatta).toBe(false);
+  });
+
+  it("coincidono solo se sono davvero uguali", () => {
+    expect(regolePassword("dodicicaratt", "dodicicaratt")[1].soddisfatta).toBe(true);
+    expect(regolePassword("dodicicaratt", "dodicicaratti")[1].soddisfatta).toBe(false);
+  });
+});
+
+describe("erroreInvioPassword", () => {
+  it("la password troppo corta si ferma qui, senza bruciare un tentativo del limitatore", () => {
+    expect(erroreInvioPassword("corta", "corta")).toContain("12 caratteri");
+  });
+
+  it("due password diverse sono un errore locale, non del server", () => {
+    expect(erroreInvioPassword("dodicicaratt", "dodicicaratti")).toBe(
+      "Le due password non coincidono."
+    );
+  });
+
+  it("niente da dire quando vanno bene", () => {
+    expect(erroreInvioPassword("dodicicaratt", "dodicicaratt")).toBeNull();
   });
 });

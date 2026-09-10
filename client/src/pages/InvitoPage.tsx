@@ -9,7 +9,7 @@
 //
 // Il token non compare mai in un titolo, in un log o in un toast: sta
 // nell'indirizzo e basta.
-import { AlertCircle, Eye, EyeOff, LogIn } from "lucide-react";
+import { AlertCircle, Check, Circle, Eye, EyeOff, LogIn } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
 
@@ -20,8 +20,9 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 
 import {
-  PASSWORD_MINIMA,
   TESTO_INVITO_NON_VALIDO,
+  erroreInvioPassword,
+  regolePassword,
   scadenzaInvito,
 } from "./piattaforma/testi";
 
@@ -124,20 +125,17 @@ export default function InvitoPage() {
 
   const invito = anteprima.data;
   const errore = erroreLocale || accetta.error?.message || "";
+  const regole = regolePassword(password, conferma);
 
   function invia(event: React.FormEvent) {
     event.preventDefault();
     setErroreLocale("");
-    if (password.length < PASSWORD_MINIMA) {
-      setErroreLocale(
-        `La password deve avere almeno ${PASSWORD_MINIMA} caratteri.`
-      );
-      return;
-    }
-    // Due password diverse non sono un errore del server: si dice subito,
-    // senza bruciare un tentativo del limitatore.
-    if (password !== conferma) {
-      setErroreLocale("Le due password non coincidono.");
+    // Password corta o due password diverse si fermano qui, senza bruciare
+    // un tentativo del limitatore: la regola vive in `testi.ts`, dove è
+    // provata (la suite gira senza DOM e non può montare questa pagina).
+    const problema = erroreInvioPassword(password, conferma);
+    if (problema) {
+      setErroreLocale(problema);
       return;
     }
     accetta.mutate({ token: token ?? "", password });
@@ -145,15 +143,40 @@ export default function InvitoPage() {
 
   return (
     <Involucro>
-      <div className="min-w-0 space-y-1">
-        <h2 className="text-lg font-semibold">Benvenuto in Wyndoor</h2>
-        <p className="text-sm leading-6 text-text-2">
-          Stai attivando l'accesso a{" "}
-          <span className="font-semibold text-text-1">{invito.azienda}</span>{" "}
-          per <span className="font-semibold text-text-1">{invito.email}</span>.
-        </p>
+      {/* Il saluto per nome e la scheda «Azienda / Accesso» ricalcano la
+          mail da cui si arriva (server/piattaforma/testi.ts): chi ha appena
+          premuto un bottone in una casella deve riconoscere subito di essere
+          nel posto giusto, e vedere con quale indirizzo sta entrando — è il
+          suo nome utente da qui in avanti. */}
+      <div className="min-w-0 space-y-3">
+        <div className="min-w-0 space-y-1">
+          <p className="truncate text-sm leading-5 text-text-2">
+            Ciao {invito.nome},
+          </p>
+          <h2 className="text-lg font-semibold">Scegli la tua password</h2>
+        </div>
+
+        <dl className="min-w-0 space-y-2 rounded-[var(--radius-control)] border border-border-soft bg-surface-2 p-3">
+          <div className="flex min-w-0 gap-3">
+            <dt className="w-[68px] shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-text-3">
+              Azienda
+            </dt>
+            <dd className="min-w-0 break-words text-sm font-semibold leading-5 text-text-1">
+              {invito.azienda}
+            </dd>
+          </div>
+          <div className="flex min-w-0 gap-3">
+            <dt className="w-[68px] shrink-0 pt-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-text-3">
+              Accesso
+            </dt>
+            <dd className="min-w-0 break-all text-sm font-semibold leading-5 text-text-1">
+              {invito.email}
+            </dd>
+          </div>
+        </dl>
+
         <p className="text-xs leading-5 text-text-3">
-          {scadenzaInvito(invito.scadeIl)}
+          {scadenzaInvito(invito.scadeIl)} · si usa una volta sola
         </p>
       </div>
 
@@ -194,9 +217,6 @@ export default function InvitoPage() {
               )}
             </button>
           </div>
-          <p id="invito-regola" className="text-xs leading-4 text-text-3">
-            Almeno {PASSWORD_MINIMA} caratteri.
-          </p>
         </div>
 
         <div className="space-y-2">
@@ -208,8 +228,31 @@ export default function InvitoPage() {
             onChange={event => setConferma(event.target.value)}
             autoComplete="new-password"
             className="h-11"
+            aria-describedby="invito-regola"
           />
         </div>
+
+        {/* Le due regole si accendono mentre si scrive invece di comparire
+            come errore dopo l'invio. L'elenco non è `aria-live`: cambierebbe
+            a ogni tasto. Per chi non lo vede resta `aria-describedby` sui
+            due campi, e l'errore vero all'invio è già un `role="alert"`. */}
+        <ul id="invito-regola" className="min-w-0 space-y-1.5">
+          {regole.map(regola => (
+            <li
+              key={regola.testo}
+              className="flex min-w-0 items-center gap-2 text-xs leading-4"
+            >
+              {regola.soddisfatta ? (
+                <Check className="size-3.5 shrink-0 text-success" aria-hidden="true" />
+              ) : (
+                <Circle className="size-3.5 shrink-0 text-text-3" aria-hidden="true" />
+              )}
+              <span className={regola.soddisfatta ? "text-text-2" : "text-text-3"}>
+                {regola.testo}
+              </span>
+            </li>
+          ))}
+        </ul>
 
         <Button
           type="submit"
