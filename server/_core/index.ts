@@ -90,6 +90,11 @@ async function startServer() {
     }
   });
 
+  // Dati dimostrativi: solo in staging, solo su store vuoti (Task 5, piano
+  // 2026-09-10-staging-demo).
+  const { eseguiSemeDemo } = await import("../staging/semeDemo");
+  await eseguiSemeDemo();
+
   // Action cases use dedicated relational tables. In production schema
   // failures must stop startup instead of silently degrading to memory.
   const { getActionCaseRepository } = await import(
