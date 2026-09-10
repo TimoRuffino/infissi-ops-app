@@ -27,6 +27,7 @@ import NuovaAziendaDialog from "./NuovaAziendaDialog";
 import {
   TESTO_SOLA_LETTURA_FLAG_SPENTO,
   etichettaBlocco,
+  etichettaRitenzione,
   etichettaStatoAzienda,
   riassuntoBackup,
   riassuntoSpazio,
@@ -62,17 +63,46 @@ function cerca(righe: Riga[], termine: string): Riga[] {
   );
 }
 
-function StatoAzienda({ riga }: { riga: Riga }) {
+/** Le quattro tappe del percorso di attivazione (D9), nell'ordine in cui si fanno. */
+const TAPPE_PERCORSO = [
+  ["invitoAccettato", "invito accettato"],
+  ["primaCommessa", "prima commessa"],
+  ["primaFattura", "prima fattura"],
+  ["primoUtenteAggiunto", "primo utente aggiunto"],
+] as const;
+
+function StatoAzienda({ riga, adesso }: { riga: Riga; adesso: Date }) {
+  const fatte = TAPPE_PERCORSO.filter(([campo]) => riga.percorso[campo] != null);
+  const mancanti = TAPPE_PERCORSO.filter(([campo]) => riga.percorso[campo] == null);
+  const ritenzione = etichettaRitenzione(riga, adesso);
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <Badge
-        variant={tonoStatoAzienda(riga.stato)}
-        title={riga.motivoStato ?? undefined}
-      >
-        {etichettaStatoAzienda(riga.stato)}
-      </Badge>
-      {riga.id === TENANT_PIATTAFORMA_ID ? (
-        <Badge variant="brand">piattaforma</Badge>
+    <span className="block min-w-0 space-y-1">
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <Badge
+          variant={tonoStatoAzienda(riga.stato)}
+          title={riga.motivoStato ?? undefined}
+        >
+          {etichettaStatoAzienda(riga.stato)}
+        </Badge>
+        {riga.id === TENANT_PIATTAFORMA_ID ? (
+          <Badge variant="brand">piattaforma</Badge>
+        ) : null}
+      </span>
+      {/* Il percorso di attivazione, compatto: chi si è fermato al secondo
+          giorno si vede da qui, prima che sparisca. Il tenant 1 non è in
+          attivazione; a percorso completo la riga tace. */}
+      {riga.id !== TENANT_PIATTAFORMA_ID && mancanti.length > 0 ? (
+        <span
+          className="block truncate text-xs text-text-3"
+          title={`Manca: ${mancanti.map(([, nome]) => nome).join(", ")}`}
+        >
+          attivazione {fatte.length}/4
+        </span>
+      ) : null}
+      {ritenzione ? (
+        <span className="block truncate text-xs text-warning" title={ritenzione}>
+          {ritenzione}
+        </span>
       ) : null}
     </span>
   );
@@ -261,7 +291,7 @@ export default function AziendeList() {
                           {riga.slug}
                         </span>
                       </span>
-                      <StatoAzienda riga={riga} />
+                      <StatoAzienda riga={riga} adesso={adesso} />
                     </span>
                   </Link>
                   <dl className="mt-2 grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 text-xs">
@@ -356,7 +386,7 @@ export default function AziendeList() {
                         </span>
                       </td>
                       <td className="px-2 py-2.5">
-                        <StatoAzienda riga={riga} />
+                        <StatoAzienda riga={riga} adesso={adesso} />
                       </td>
                       <td className="min-w-0 px-2 py-2.5">
                         <Abbonamento riga={riga} />

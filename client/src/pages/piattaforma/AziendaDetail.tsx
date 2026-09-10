@@ -17,7 +17,7 @@
 // `piattaforma.comando` ogni 2 secondi finché non si chiudono, e solo allora
 // racconta com'è andata.
 import type { inferRouterOutputs } from "@trpc/server";
-import { ArrowLeft, PauseCircle, Pencil, PlayCircle, RefreshCw } from "lucide-react";
+import { Archive, ArrowLeft, CheckCircle2, PauseCircle, Pencil, PlayCircle, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Link, useParams } from "wouter";
@@ -60,6 +60,7 @@ import {
   etichettaBlocco,
   etichettaComando,
   etichettaEvento,
+  etichettaRitenzione,
   etichettaStatoAzienda,
   etichettaStatoComando,
   tonoStatoAzienda,
@@ -169,6 +170,47 @@ function Tabella({
   );
 }
 
+// Ciclo di vita (piano 10/09/2026): le quattro azioni di stato condividono
+// lo stesso dialogo con conferma password; cambiano solo le parole.
+type AzioneStato = "sospendi" | "riattiva" | "archivia" | "cancella";
+
+const TESTI_STATO: Record<
+  AzioneStato,
+  { titolo: string; descrizione: string; conferma: string; successo: string; distruttiva: boolean }
+> = {
+  sospendi: {
+    titolo: "Sospendi l'azienda",
+    descrizione:
+      "L'azienda resta leggibile ma nessuno può più scrivere. Il motivo lo vedono anche i suoi utenti.",
+    conferma: "Sospendi",
+    successo: "Azienda sospesa",
+    distruttiva: true,
+  },
+  riattiva: {
+    titolo: "Riattiva l'azienda",
+    descrizione: "L'azienda torna operativa: i suoi utenti rientrano come prima.",
+    conferma: "Riattiva",
+    successo: "Azienda riattivata",
+    distruttiva: false,
+  },
+  archivia: {
+    titolo: "Archivia l'azienda",
+    descrizione:
+      "Porta chiusa: nessun accesso e nessun worker, ma i dati restano intatti. Reversibile con «Riattiva».",
+    conferma: "Archivia",
+    successo: "Azienda archiviata",
+    distruttiva: true,
+  },
+  cancella: {
+    titolo: "Cancella l'azienda",
+    descrizione:
+      "Da adesso partono 30 giorni di ritenzione: la porta si chiude subito, i dati vengono svuotati per sempre a fine ritenzione. Fino ad allora «Riattiva» annulla tutto.",
+    conferma: "Cancella",
+    successo: "Azienda cancellata: 30 giorni di ritenzione",
+    distruttiva: true,
+  },
+};
+
 /**
  * Segue UN comando lungo (ricalcolo o ripristino) finché non si chiude. La
  * pagina ne monta uno per ogni id in `inCorso` — un hook per comando
@@ -226,7 +268,7 @@ export default function AziendaDetail() {
   const [ultimo, setUltimo] = useState<Partial<Record<TipoComando, Comando>>>({});
 
   const [modificaAperta, setModificaAperta] = useState(false);
-  const [statoAperto, setStatoAperto] = useState<"sospendi" | "riattiva" | null>(null);
+  const [statoAperto, setStatoAperto] = useState<AzioneStato | null>(null);
   const [motivo, setMotivo] = useState("");
   const [ancheTenant1, setAncheTenant1] = useState(false);
   const [erroreStato, setErroreStato] = useState<string | null>(null);
@@ -286,18 +328,28 @@ export default function AziendaDetail() {
     [aggiorna]
   );
 
+  const esitoStato = useCallback(
+    (azione: AzioneStato) =>
+      ({ comando }: { comando: Comando }) => {
+        if (esitoComando(comando, TESTI_STATO[azione].successo)) chiudiStato(false);
+        else setErroreStato(erroreDelComando(comando.esito) ?? "Comando non riuscito.");
+      },
+    [esitoComando]
+  );
   const cambiaStato = trpc.piattaforma.sospendi.useMutation({
-    onSuccess: ({ comando }) => {
-      if (esitoComando(comando, "Azienda sospesa")) chiudiStato(false);
-      else setErroreStato(erroreDelComando(comando.esito) ?? "Comando non riuscito.");
-    },
+    onSuccess: esitoStato("sospendi"),
     onError: e => setErroreStato(e.message),
   });
   const riattiva = trpc.piattaforma.riattiva.useMutation({
-    onSuccess: ({ comando }) => {
-      if (esitoComando(comando, "Azienda riattivata")) chiudiStato(false);
-      else setErroreStato(erroreDelComando(comando.esito) ?? "Comando non riuscito.");
-    },
+    onSuccess: esitoStato("riattiva"),
+    onError: e => setErroreStato(e.message),
+  });
+  const archivia = trpc.piattaforma.archivia.useMutation({
+    onSuccess: esitoStato("archivia"),
+    onError: e => setErroreStato(e.message),
+  });
+  const cancella = trpc.piattaforma.cancella.useMutation({
+    onSuccess: esitoStato("cancella"),
     onError: e => setErroreStato(e.message),
   });
   const ricalcola = trpc.piattaforma.ricalcolaStorage.useMutation({
@@ -313,7 +365,16 @@ export default function AziendaDetail() {
       setErroreStato(null);
       cambiaStato.reset();
       riattiva.reset();
+      archivia.reset();
+      cancella.reset();
     }
+  }
+
+  function apriStato(azione: AzioneStato) {
+    setErroreStato(null);
+    setMotivo("");
+    setAncheTenant1(false);
+    setStatoAperto(azione);
   }
 
   // Un istante solo per tutta la scheda: due sezioni non devono raccontare
@@ -367,6 +428,13 @@ export default function AziendaDetail() {
   const scheda: Scheda = azienda.data;
   const tenant1 = scheda.id === TENANT_PIATTAFORMA_ID;
   const sospesa = scheda.stato === "sospeso";
+  // Ciclo di vita (D2-D3): quali azioni di stato hanno senso da qui.
+  const chiusa = scheda.stato === "archiviato" || scheda.stato === "cancellato";
+  const svuotata = scheda.svuotatoIl != null;
+  const riattivabile = (sospesa || chiusa) && !svuotata;
+  const archiviabile = !tenant1 && (scheda.stato === "attivo" || sospesa);
+  const cancellabile = !tenant1 && scheda.stato !== "cancellato";
+  const ritenzione = etichettaRitenzione(scheda, adesso);
   const abbonamento = scheda.abbonamento;
   const storage = scheda.storage;
   const bloccoSpazio = etichettaBlocco(storage?.bloccoDal ?? null, adesso);
@@ -402,6 +470,8 @@ export default function AziendaDetail() {
         warning={
           solaLettura ? (
             TESTO_SOLA_LETTURA_FLAG_SPENTO
+          ) : ritenzione ? (
+            ritenzione
           ) : scheda.workerSospesi.length > 0 ? (
             <span className="min-w-0">
               {scheda.workerSospesi.length}{" "}
@@ -431,26 +501,58 @@ export default function AziendaDetail() {
               <Pencil className="size-4" aria-hidden="true" />
               Modifica
             </Button>
-            <Button
-              type="button"
-              variant={sospesa ? "default" : "outline"}
-              className="min-h-11"
-              disabled={solaLettura}
-              title={titoloSolaLettura}
-              onClick={() => {
-                setErroreStato(null);
-                setMotivo("");
-                setAncheTenant1(false);
-                setStatoAperto(sospesa ? "riattiva" : "sospendi");
-              }}
-            >
-              {sospesa ? (
-                <PlayCircle className="size-4" aria-hidden="true" />
-              ) : (
+            {scheda.stato === "attivo" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={solaLettura}
+                title={titoloSolaLettura}
+                onClick={() => apriStato("sospendi")}
+              >
                 <PauseCircle className="size-4" aria-hidden="true" />
-              )}
-              {sospesa ? "Riattiva" : "Sospendi"}
-            </Button>
+                Sospendi
+              </Button>
+            ) : null}
+            {riattivabile ? (
+              <Button
+                type="button"
+                variant="default"
+                className="min-h-11"
+                disabled={solaLettura}
+                title={titoloSolaLettura}
+                onClick={() => apriStato("riattiva")}
+              >
+                <PlayCircle className="size-4" aria-hidden="true" />
+                Riattiva
+              </Button>
+            ) : null}
+            {archiviabile ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={solaLettura}
+                title={titoloSolaLettura}
+                onClick={() => apriStato("archivia")}
+              >
+                <Archive className="size-4" aria-hidden="true" />
+                Archivia
+              </Button>
+            ) : null}
+            {cancellabile ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 text-danger hover:text-danger"
+                disabled={solaLettura}
+                title={titoloSolaLettura}
+                onClick={() => apriStato("cancella")}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                Cancella
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -692,6 +794,33 @@ export default function AziendaDetail() {
         />
       </Sezione>
 
+      <Sezione
+        titolo="Percorso di attivazione"
+        descrizione="Le prime tappe dell'azienda: dove si è fermata, lo dice la prima riga vuota."
+      >
+        <Dati>
+          {(
+            [
+              ["Invito accettato", scheda.percorso.invitoAccettato],
+              ["Prima commessa", scheda.percorso.primaCommessa],
+              ["Prima fattura", scheda.percorso.primaFattura],
+              ["Primo utente aggiunto", scheda.percorso.primoUtenteAggiunto],
+            ] as Array<[string, Date | null]>
+          ).map(([etichetta, quando]) => (
+            <Dato key={etichetta} etichetta={etichetta}>
+              {quando ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
+                  {dataItaliana(quando)}
+                </span>
+              ) : (
+                <span className="text-text-3">non ancora</span>
+              )}
+            </Dato>
+          ))}
+        </Dati>
+      </Sezione>
+
       <Sezione titolo="Eventi" descrizione="Gli ultimi 50 fatti registrati per questa azienda.">
         {scheda.eventi.length === 0 ? (
           <p className="text-sm leading-5 text-text-2">Nessun evento.</p>
@@ -795,30 +924,21 @@ export default function AziendaDetail() {
       <ConfermaPassword
         open={statoAperto != null}
         onOpenChange={chiudiStato}
-        titolo={statoAperto === "riattiva" ? "Riattiva l'azienda" : "Sospendi l'azienda"}
-        descrizione={
-          statoAperto === "riattiva"
-            ? "L'azienda torna a scrivere: i suoi utenti rientrano come prima."
-            : "L'azienda resta leggibile ma nessuno può più scrivere. Il motivo lo vedono anche i suoi utenti."
-        }
-        etichettaConferma={statoAperto === "riattiva" ? "Riattiva" : "Sospendi"}
-        distruttiva={statoAperto === "sospendi"}
-        pending={cambiaStato.isPending || riattiva.isPending}
+        titolo={statoAperto ? TESTI_STATO[statoAperto].titolo : ""}
+        descrizione={statoAperto ? TESTI_STATO[statoAperto].descrizione : ""}
+        etichettaConferma={statoAperto ? TESTI_STATO[statoAperto].conferma : ""}
+        distruttiva={statoAperto != null && TESTI_STATO[statoAperto].distruttiva}
+        pending={cambiaStato.isPending || riattiva.isPending || archivia.isPending || cancella.isPending}
         errore={erroreStato}
         disabilitato={motivo.trim().length < 3 || (statoAperto === "sospendi" && tenant1 && !ancheTenant1)}
         onConferma={password => {
           if (!statoAperto) return;
           setErroreStato(null);
-          if (statoAperto === "riattiva") {
-            riattiva.mutate({ slug, motivo: motivo.trim(), passwordConferma: password });
-          } else {
-            cambiaStato.mutate({
-              slug,
-              motivo: motivo.trim(),
-              ...(tenant1 ? { ancheTenant1 } : {}),
-              passwordConferma: password,
-            });
-          }
+          const base = { slug, motivo: motivo.trim(), passwordConferma: password };
+          if (statoAperto === "riattiva") riattiva.mutate(base);
+          else if (statoAperto === "archivia") archivia.mutate(base);
+          else if (statoAperto === "cancella") cancella.mutate(base);
+          else cambiaStato.mutate({ ...base, ...(tenant1 ? { ancheTenant1 } : {}) });
         }}
       >
         <div className="min-w-0 space-y-1.5">

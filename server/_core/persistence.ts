@@ -732,6 +732,43 @@ export async function istanziaStoresPerTenant(tenantId: number): Promise<void> {
 }
 
 /**
+ * Toglie a un tenant i suoi archivi, per sempre (ciclo di vita, piano
+ * 10/09/2026, D5 — chiamata SOLO da `server/tenants/svuotamento.ts`): le
+ * istanze escono dal registro (nessun debounce potrà più riscriverle), le
+ * righe `tenant:<id>:%` di `kv_store` vengono cancellate — comprese quelle di
+ * famiglie non registrate in questo processo — e il tenant esce dai «noti».
+ * Mai il tenant 1: le sue chiavi sono i nomi nudi, indistinguibili dagli
+ * store globali.
+ */
+export async function rimuoviStoresDelTenant(tenantId: number): Promise<{ store: number; righeKv: number }> {
+  if (tenantId === TENANT_PREDEFINITO) {
+    throw new Error("[persistence] il tenant 1 non si svuota: le sue chiavi sono quelle legacy");
+  }
+  const entries: StoreEntry[] = [];
+  for (const f of famiglie.values()) {
+    if (f.ambito !== "tenant") continue;
+    const entry = f.istanze.get(tenantId);
+    if (entry) entries.push(entry);
+  }
+  return conStoreBloccati(entries.map(e => e.key), async () => {
+    for (const entry of entries) {
+      const timer = saveTimers.get(entry.key);
+      if (timer) clearTimeout(timer);
+      saveTimers.delete(entry.key);
+      registry.delete(entry.key);
+      entry.famiglia.istanze.delete(tenantId);
+    }
+    noti.delete(tenantId);
+    let righeKv = 0;
+    if (sql) {
+      const esito = await sql`DELETE FROM kv_store WHERE key LIKE ${`tenant:${tenantId}:%`}`;
+      righeKv = esito.count ?? 0;
+    }
+    return { store: entries.length, righeKv };
+  });
+}
+
+/**
  * Chiude il caricamento di un'istanza: backfill additivo di `tenantId`
  * (spec §3.4), `onLoad` del modulo, massimo degli id per il contatore della
  * famiglia, `loaded`. `onLoad` viene PRIMA del massimo: un modulo che semina

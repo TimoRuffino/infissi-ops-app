@@ -6,7 +6,8 @@
 //   pnpm tenant elenco
 //   pnpm tenant crea --slug=acme --nome="Acme Infissi" --sede="Acme Infissi" \
 //        --email=titolare@acme.it --nome-utente=Mario --cognome=Rossi [--citta=Sarzana] [--scrivi] [--attendi]
-//   pnpm tenant stato --slug=acme --sospendi|--riattiva --motivo="…" [--anche-tenant-1] [--scrivi] [--attendi]
+//   pnpm tenant stato --slug=acme --sospendi|--riattiva|--archivia|--cancella --motivo="…" [--anche-tenant-1] [--scrivi] [--attendi]
+//   pnpm tenant svuota --slug=acme --davvero [--forza] [--scrivi] [--attendi]   # dati via PER SEMPRE; --forza salta la ritenzione
 //   pnpm tenant proprietario --slug=acme --email=m.rossi@acme.it --assegna|--revoca [--scrivi] [--attendi]
 //   pnpm tenant storage --slug=acme [--ricalcola] [--scrivi] [--attendi]
 //   pnpm tenant ripristina --slug=acme --backup=<AAAA-MM-GG|folderId> [--solo=a,b] \
@@ -72,6 +73,7 @@ import {
   schemaPayloadRipristino,
   schemaPayloadStato,
   schemaPayloadStorage,
+  schemaPayloadSvuota,
   type PayloadAbbonamento,
 } from "../server/tenants/comandi";
 import { MESSAGGI, TENANT_PREDEFINITO_ID } from "../server/tenants/costanti";
@@ -92,7 +94,7 @@ import {
 } from "../server/tenants/verifica";
 
 const USO =
-  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | abbonamento | modifica | verifica [--json] " +
+  "Uso: pnpm tenant elenco | crea | stato | proprietario | storage | ripristina | abbonamento | modifica | svuota | verifica [--json] " +
   "(vedi docs/runbooks/multi-azienda.md). " +
   "ripristina --slug=<slug> --backup=<AAAA-MM-GG|folderId> [--solo=a,b] --prova|--scrivi [--anche-tenant-1] [--attendi]. " +
   "abbonamento --slug=<slug> UNA azione: --omaggio [--scadenza=AAAA-MM-GG] --motivo=… | --proroga=<giorni> --motivo=… | " +
@@ -322,13 +324,34 @@ async function main(): Promise<number> {
     const slug = obbligatoria("slug");
     const t = repo.perSlug(slug);
     if (!t) throw new Error(`Tenant ${slug} inesistente`);
-    if (flag.has("sospendi") === flag.has("riattiva")) throw new Error("Indica --sospendi oppure --riattiva");
-    tipo = flag.has("sospendi") ? "sospendi" : "riattiva";
+    // Ciclo di vita (piano 10/09/2026): quattro azioni, esattamente una.
+    const azioni = (["sospendi", "riattiva", "archivia", "cancella"] as const).filter(a => flag.has(a));
+    if (azioni.length !== 1) throw new Error("Indica UNA fra --sospendi, --riattiva, --archivia, --cancella");
+    tipo = azioni[0];
     tenantId = t.id;
     payload = schemaPayloadStato.parse({ slug, motivo: obbligatoria("motivo") });
     if (tipo === "sospendi" && t.id === TENANT_PREDEFINITO_ID && !flag.has("anche-tenant-1")) {
       throw new Error("Sospendere il tenant 1 mette Ruffino Group in sola lettura: aggiungi --anche-tenant-1 per confermare.");
     }
+    // Come per l'abbonamento: il servizio lo rifiuterebbe comunque, ma
+    // fermarsi qui evita un comando destinato a `comando_fallito`.
+    if ((tipo === "archivia" || tipo === "cancella") && t.id === TENANT_PREDEFINITO_ID) {
+      throw new Error(MESSAGGI.tenant1NonSiChiude);
+    }
+  } else if (sotto === "svuota") {
+    // Lo svuotamento vero lo accoda il giro del ciclo di vita a fine
+    // ritenzione: da qui SOLO con la doppia conferma, per la prova in
+    // staging o per un'uscita concordata prima dei 30 giorni.
+    const slug = obbligatoria("slug");
+    const t = repo.perSlug(slug);
+    if (!t) throw new Error(`Tenant ${slug} inesistente`);
+    if (t.id === TENANT_PREDEFINITO_ID) throw new Error(MESSAGGI.tenant1NonSiChiude);
+    if (!flag.has("davvero")) {
+      throw new Error("Svuotare cancella i dati PER SEMPRE: aggiungi --davvero per confermare (e --forza per saltare la ritenzione).");
+    }
+    tipo = "svuota_tenant";
+    tenantId = t.id;
+    payload = schemaPayloadSvuota.parse({ slug, forza: flag.has("forza") });
   } else if (sotto === "ripristina") {
     const slug = obbligatoria("slug");
     const t = repo.perSlug(slug);

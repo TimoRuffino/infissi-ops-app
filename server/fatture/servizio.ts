@@ -34,6 +34,9 @@ import { leggiContratto } from "../contratti/servizio";
 import { aggiornaAnagraficaCliente, getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { DEFAULT_SEDE_ID } from "../routers/sedi";
+import { TENANT_PREDEFINITO_ID } from "../tenants/costanti";
+import { tenantCorrente } from "../tenants/contestoCorrente";
+import { segnaPietraMiliare } from "../tenants/pietreMiliari";
 import { controlliCliente, snapshotCliente } from "./cliente";
 import { generaBozza, ricalcola, scadenzeDaRate, servizioProposto, type Bozza } from "./generatore";
 import { getFattureRepository, type FattureRepository, type PatchBozza } from "./repository";
@@ -357,6 +360,9 @@ export async function creaBozza(
     payload: { avvertenze },
     actorUserId: input.actorUserId,
   });
+  // Percorso di attivazione (ciclo di vita, D9): la prima fattura
+  // dell'azienda, qualunque sia l'origine.
+  await segnaPietraMiliare(tenantCorrente() ?? TENANT_PREDEFINITO_ID, "prima_fattura", { id: fattura.id });
   return { fattura, avvertenze };
 }
 
@@ -438,6 +444,7 @@ export async function creaBozzaLibera(
     payload: { origine: "libera", avvertenze },
     actorUserId: input.actorUserId,
   });
+  await segnaPietraMiliare(tenantCorrente() ?? TENANT_PREDEFINITO_ID, "prima_fattura", { id: fattura.id });
   void config;
   return { fattura, avvertenze };
 }

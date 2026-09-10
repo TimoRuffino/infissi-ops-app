@@ -35,6 +35,27 @@
       "port": 5199
     },
     {
+      "name": "Ciclo di vita demo (porta 5197)",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": [
+        "node_modules/.pnpm/tsx@4.20.6/node_modules/tsx/dist/cli.mjs",
+        "server/_core/index.ts"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "PORT": "5197",
+        "BOOTSTRAP_ADMIN_EMAIL": "demo@ruffinoflow.it",
+        "BOOTSTRAP_ADMIN_PASSWORD": "DemoPromo2026!Flow",
+        "BOOTSTRAP_ADMIN_NAME": "Marco",
+        "BOOTSTRAP_ADMIN_SURNAME": "Demo",
+        "OPENAI_API_KEY": "sk-promo-capture-placeholder-never-called",
+        "PLATFORM_ADMIN_EMAILS": "demo@ruffinoflow.it",
+        "RESEND_API_KEY": "re_finta_demo_mai_inviata"
+      },
+      "port": 5197
+    },
+    {
       "name": "Limiti demo (porta 5198)",
       "runtimeExecutable": "/opt/homebrew/bin/node",
       "runtimeArgs": [

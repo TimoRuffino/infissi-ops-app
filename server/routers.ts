@@ -53,8 +53,11 @@ import { tarsRouter } from "./routers/tars";
 import { interruttoreAttivo } from "./platform/interruttori";
 import { tenantVietato } from "./tenants/contesto";
 import { MESSAGGI } from "./tenants/costanti";
+import { STATI_INACCESSIBILI, presidioDi } from "./tenants/regole";
+import { getTenantRepository } from "./tenants/repository";
 import { tenantsRouter } from "./tenants/router";
 import { invitiRouter } from "./piattaforma/invitiRouter";
+import { iscrizioneRouter } from "./piattaforma/iscrizioneRouter";
 import { piattaformaRouter } from "./piattaforma/router";
 import { apriSessioneLocale, clearLocalSessionFromRequest } from "./localAuth";
 import { verifyPassword } from "./_core/password";
@@ -126,6 +129,20 @@ export const appRouter = router({
           });
         }
 
+        // Ciclo di vita (piano 10/09/2026, D10): un'azienda `in_attesa`,
+        // `archiviata` o `cancellata` non apre sessioni — il sospeso resta
+        // sola lettura come dal WS1. Anche qui DOPO la password, e con un
+        // messaggio unico: chi tasta account non suoi non impara lo stato.
+        if (interruttoreAttivo("multiAzienda")) {
+          const tenant = getTenantRepository().perId(presidioDi(utente).tenantId);
+          if (tenant && STATI_INACCESSIBILI.includes(tenant.stato)) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: MESSAGGI.aziendaNonAccessibile,
+            });
+          }
+        }
+
         return apriSessioneLocale(ctx, utente);
       }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -169,6 +186,7 @@ export const appRouter = router({
   integrazioni: integrazioniRouter,
   tenants: tenantsRouter,
   inviti: invitiRouter,
+  iscrizione: iscrizioneRouter,
   piattaforma: piattaformaRouter,
   mail: mailRouter,
   ficFatture: ficFattureRouter,
