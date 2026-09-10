@@ -196,6 +196,98 @@ describe("fornitoreDiComunicazione", () => {
 });
 
 describe("eseguiGiroArchivioFornitori", () => {
+  it("chi entra dal solo mittente e non porta una conferma si scarta da solo", async () => {
+    // Una circolare di Primed: nessun numero d'ordine, nessun imponibile,
+    // nessuna riga di merce. Senza questa regola finirebbe in coda, e con
+    // essa altre trecento.
+    const circolare = pdfConTesto([
+      "PRIMED S.R.L.",
+      "Gentile cliente,",
+      "i nostri uffici resteranno chiusi dal 10 al 20 agosto.",
+      "Cordiali saluti",
+    ]);
+    const posta = await mailFornitore(
+      {
+        mittente: "amministrazione@primed.it",
+        mittenteNome: "PRIMED S.R.L.",
+        oggetto: "Comunicazione",
+        allegati: [
+          { nome: "R237_2026RU6102_13062026102047.pdf", mimeType: "application/pdf", size: circolare.length },
+        ],
+      },
+      circolare
+    );
+
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[posta.id, circolare]]), [posta]),
+    });
+
+    const voce = getArchivioFornitoriStore().find(v => v.comunicazioneId === posta.id);
+    expect(voce?.stato).toBe("scartata");
+    expect(voce?.motivoDecisione).toMatch(/non porta una conferma/i);
+  });
+
+  it("un file che si dichiara conferma resta in coda anche se la lettura non trova niente", async () => {
+    // Il nome lo dichiara: quella decisione è di una persona, non del filtro.
+    const circolare = pdfConTesto([
+      "ALIAS Srl Porte blindate",
+      "Gentile cliente, buone ferie.",
+      "Cordiali saluti",
+    ]);
+    const posta = await mailFornitore(
+      {
+        allegati: [
+          { nome: "Ordini_di_Vendi_9999.pdf", mimeType: "application/pdf", size: circolare.length },
+        ],
+      },
+      circolare
+    );
+
+    await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(new Map([[posta.id, circolare]]), [posta]),
+    });
+
+    const voce = getArchivioFornitoriStore().find(v => v.comunicazioneId === posta.id);
+    expect(voce?.stato).toBe("da_collegare");
+  });
+
+  it("una conferma Primed entra col nome muto; il suo DDT resta fuori", async () => {
+    // 312 mail in un anno e zero voci: il nome del file non dice niente.
+    const pdf = pdfConTesto([
+      "Conferma d'ordine",
+      "PRIMED S.R.L.",
+      "Ns. rif. WU367846 del 20/05/2026",
+      "1 ANTA-9010 LUCIDO   NR   1,00",
+      "Totale imponibile: EUR 1.240,00",
+    ]);
+    const daPrimed = (nome: string) => ({
+      mittente: "amministrazione@primed.it",
+      mittenteNome: "PRIMED S.R.L.",
+      oggetto: "Documenti",
+      allegati: [{ nome, mimeType: "application/pdf", size: pdf.length }],
+    });
+    const conferma = await mailFornitore(daPrimed("R237_2026WU367846_20052026165105.pdf"), pdf);
+    const ddt = await mailFornitore(daPrimed("R237_DDT_11_5_2026_9782.pdf"), pdf);
+
+    const esito = await eseguiGiroArchivioFornitori({
+      sedeId: SEDE,
+      deps: deps(
+        new Map([
+          [conferma.id, pdf],
+          [ddt.id, pdf],
+        ]),
+        [conferma, ddt]
+      ),
+    });
+
+    expect(esito.nuove).toBe(1);
+    const voci = getArchivioFornitoriStore();
+    expect(voci.find(v => v.comunicazioneId === conferma.id)?.fornitore).toBe("Primed");
+    expect(voci.find(v => v.comunicazioneId === ddt.id)).toBeUndefined();
+  });
+
   it("la commessa è una sola: la conferma entra da sola nel fascicolo, con costo, consegna e mail collegata", async () => {
     const commessa = await commessaIn("da_ordinare", "Pistone Angelo");
     const pdf = confermaPer("PISTONE ANGELO");

@@ -3,7 +3,12 @@
 // agenti presi per fornitori).
 
 import { describe, expect, it } from "vitest";
-import { FORNITORI, fornitoreNoto, normalizzaFornitore } from "./fornitori";
+import {
+  FORNITORI,
+  SORGENTE_MITTENTE_FORNITORE,
+  fornitoreNoto,
+  normalizzaFornitore,
+} from "./fornitori";
 
 describe("normalizzaFornitore", () => {
   it("riconosce il fornitore dal testo della conferma, comunque scritto", () => {
@@ -48,9 +53,44 @@ describe("normalizzaFornitore", () => {
     expect(fornitoreNoto("Aliasi Srl")).toBeNull();
   });
 
+  it("riconduce il portale al fornitore che rappresenta", () => {
+    // Antenore è il portale di Wnd/Oknoplast (direzione, 10/09/2026): 94 mail
+    // finivano in «Da riconoscere» perché il dominio non è del produttore.
+    expect(fornitoreNoto(null, "noreply@antenore.biz")).toBe("Wnd");
+    expect(fornitoreNoto("Antenore", null)).toBe("Wnd");
+    expect(normalizzaFornitore("Portale Antenore", "info@antenore.biz")).toBe("Wnd");
+    // Un fornitore vero vince sul portale: il suo dominio è più preciso.
+    expect(fornitoreNoto(null, "ordini@pailporte.com")).toBe("Pail");
+    // Un dominio qualunque non diventa un fornitore.
+    expect(fornitoreNoto(null, "mario@gmail.com")).toBeNull();
+  });
+
   it("la lista dei nomi è quella dei filtri, senza doppioni", () => {
     expect(new Set(FORNITORI).size).toBe(FORNITORI.length);
     expect(FORNITORI).toContain("Alias");
     expect(FORNITORI).toContain("Pail");
+  });
+});
+
+describe("SORGENTE_MITTENTE_FORNITORE", () => {
+  const re = () => new RegExp(SORGENTE_MITTENTE_FORNITORE, "i");
+
+  it("riconosce gli indirizzi dei fornitori veri", () => {
+    for (const indirizzo of [
+      "amministrazione@primed.it",
+      "v.gregori@aliasblindate.com",
+      "ordini@pailporte.com",
+      "vendite@oskura.it",
+      "noreply@antenore.biz",
+      "paola.cattai@henryglass.it",
+    ]) {
+      expect(re().test(indirizzo)).toBe(true);
+    }
+  });
+
+  it("non riconosce gli indirizzi qualunque", () => {
+    for (const indirizzo of ["mario@gmail.com", "info@comune.laspezia.it", "noreply@stripe.com"]) {
+      expect(re().test(indirizzo)).toBe(false);
+    }
   });
 });

@@ -16,6 +16,7 @@
 import { kvSql, persistedStore } from "../_core/persistence";
 import { getClientiStore } from "../routers/clienti";
 import { getCommesseStore } from "../routers/commesse";
+import { SORGENTE_MITTENTE_FORNITORE } from "@shared/fornitori";
 import { normalizzaTelefono } from "@shared/telefono";
 import {
   categoriaEsclusa,
@@ -1682,8 +1683,17 @@ export async function listComunicazioniConAllegatiCandidati(input: {
   const nomeGrezzo = /conf|ord|acknowledg|bestat|\bc\.?o\.?[\W_]?\d|\bo\.?c\.?[\W_]?\d/i;
   const mimeAmmesso = /^application\/(pdf|vnd\.openxmlformats|msword|octet-stream)|^text\/plain|^image\//i;
   const MAX_BYTE = 10 * 1024 * 1024;
-  const allegatoCandidato = (a: Allegato) =>
-    nomeGrezzo.test(a.nome) &&
+  // Un fornitore noto scrive: il nome del file non conta più (10/09/2026).
+  // Primed allega `R237_…pdf` e non entrava mai. Il pre-filtro pesca, il
+  // giudizio fine (`allegatoDaConferma`) scarta.
+  const mittenteFornitore = new RegExp(SORGENTE_MITTENTE_FORNITORE, "i");
+  // La porta del mittente si apre SOLO ai documenti: `mimeAmmesso` ammette
+  // anche le immagini (servono ad altri consumatori) e senza questo vincolo
+  // le 118 `image001.png` della firma in calce di Oskura entrerebbero a ogni
+  // giro. Stessa lista di `MIME_AMMESSI` in `confermeMancanti.ts`.
+  const mimeDocumento = /^application\/(pdf|vnd\.openxmlformats|msword|octet-stream)|^text\/plain/i;
+  const allegatoCandidato = (a: Allegato, daFornitore: boolean) =>
+    (nomeGrezzo.test(a.nome) || (daFornitore && !!a.mimeType && mimeDocumento.test(a.mimeType))) &&
     (!a.mimeType || mimeAmmesso.test(a.mimeType)) &&
     (a.size ?? 0) <= MAX_BYTE;
 
@@ -1697,7 +1707,7 @@ export async function listComunicazioniConAllegatiCandidati(input: {
           r.categoria !== "spam" &&
           r.categoria !== "offerta_marketing" &&
           r.receivedAt.getTime() >= da.getTime() &&
-          r.allegati.some(allegatoCandidato)
+          r.allegati.some(a => allegatoCandidato(a, mittenteFornitore.test(r.mittente)))
       )
       .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())
       .slice(0, limite);
@@ -1715,14 +1725,22 @@ export async function listComunicazioniConAllegatiCandidati(input: {
       AND c.received_at >= ${da}
       AND EXISTS (
         SELECT 1 FROM jsonb_array_elements(COALESCE(c.allegati, '[]'::jsonb)) a
-        WHERE (a->>'nome') ~* '(conf|ord|acknowledg|bestat|(^|[^a-z])c\\.?o\\.?[^a-z0-9]?[0-9]|(^|[^a-z])o\\.?c\\.?[^a-z0-9]?[0-9])'
-          AND COALESCE((a->>'size')::bigint, 0) <= ${MAX_BYTE}
+        WHERE COALESCE((a->>'size')::bigint, 0) <= ${MAX_BYTE}
+          AND (
+            (a->>'nome') ~* '(conf|ord|acknowledg|bestat|(^|[^a-z])c\\.?o\\.?[^a-z0-9]?[0-9]|(^|[^a-z])o\\.?c\\.?[^a-z0-9]?[0-9])'
+            OR (
+              c.mittente ~* ${SORGENTE_MITTENTE_FORNITORE}
+              AND (a->>'mimeType') ~* '^application/(pdf|vnd\\.openxmlformats|msword|octet-stream)|^text/plain'
+            )
+          )
       )
     ORDER BY c.received_at DESC
     LIMIT ${limite}`;
   // Il filtro fine su mime e dimensione per singolo allegato resta in Node:
   // la riga passa se almeno un allegato è candidato.
-  return rows.map(fromRow).filter(c => c.allegati.some(allegatoCandidato));
+  return rows
+    .map(fromRow)
+    .filter(c => c.allegati.some(a => allegatoCandidato(a, mittenteFornitore.test(c.mittente))));
 }
 
 type GruppoWhatsApp = {

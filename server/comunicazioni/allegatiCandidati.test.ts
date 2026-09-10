@@ -60,6 +60,40 @@ describe("listComunicazioniConAllegatiCandidati", () => {
     expect(ids).not.toContain(troppoGrande.id);
   });
 
+  it("una mail di un fornitore noto entra anche col nome del file muto; una qualunque no", async () => {
+    // Il caso Primed: 312 mail in un anno, nome del file che non dice
+    // niente, zero voci in archivio.
+    const primed = await mail({
+      mittente: "amministrazione@primed.it",
+      mittenteNome: "PRIMED S.R.L.",
+      allegati: [
+        { nome: "R237_2026WU367846_20052026165105.pdf", mimeType: "application/pdf", size: 120_000 },
+      ],
+    });
+    // Lo stesso nome muto da un mittente qualunque resta fuori.
+    const estranea = await mail({
+      mittente: "mario@gmail.com",
+      mittenteNome: "Mario",
+      allegati: [
+        { nome: "R237_2026WU367846_20052026165105.pdf", mimeType: "application/pdf", size: 120_000 },
+      ],
+    });
+    // La porta del mittente si apre solo ai documenti: senza questo vincolo
+    // le 118 image001.png della firma di Oskura entrerebbero a ogni giro.
+    const firmaOskura = await mail({
+      mittente: "vendite@oskura.it",
+      mittenteNome: "Oskura",
+      allegati: [{ nome: "image001.png", mimeType: "image/png", size: 4_000 }],
+    });
+
+    const ids = (
+      await listComunicazioniConAllegatiCandidati({ sedeId: SEDE, giorniIndietro: 540 })
+    ).map(c => c.id);
+    expect(ids).toContain(primed.id);
+    expect(ids).not.toContain(estranea.id);
+    expect(ids).not.toContain(firmaOskura.id);
+  });
+
   it("la finestra e il limite si possono stringere, mai oltre i tetti", async () => {
     const recente = await mail({ receivedAt: giorniFa(5) });
     const strette = await listComunicazioniConAllegatiCandidati({
