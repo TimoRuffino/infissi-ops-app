@@ -12,6 +12,8 @@ export type CompactNavigationProps = {
   onOpenChange: (open: boolean) => void;
   currentPath: string;
   onNavigate: (path: string) => void;
+  /** Chiude il cassetto dopo un'azione che non è una navigazione. */
+  onAzione?: () => void;
 };
 
 /** Tablet/mobile navigation regime backed by the same groups as desktop. */
@@ -20,6 +22,7 @@ export default function CompactNavigation({
   onOpenChange,
   currentPath,
   onNavigate,
+  onAzione,
 }: CompactNavigationProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -39,6 +42,7 @@ export default function CompactNavigation({
             currentPath={currentPath}
             collapsed={false}
             onNavigate={onNavigate}
+            onAzione={onAzione}
             onCollapsedChange={() => onOpenChange(false)}
           />
         </div>

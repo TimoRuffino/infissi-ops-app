@@ -5518,14 +5518,28 @@ consiglio deve poterlo dire **da dentro il gestionale**, con un bottone che
 non dà fastidio, e quello che scrive deve arrivare a
 `supporto@wyndoor.com`.
 
-**Dove sta il bottone.** Due porte, nessun pixel in più sullo schermo: la
+**Dove sta il bottone.** Tre porte, nessun pixel in più sullo schermo: la
 voce «Segnala un problema» nel menu profilo (`UserMenu`, accanto a
-Impostazioni) e due voci nella palette comandi ⌘K, «Segnala un problema» e
-«Manda un consiglio», sotto l'intestazione «Supporto Wyndoor». Niente
-pillola flottante: in basso a destra ci sono già la mascotte di Tars su
-desktop e la BottomNav su mobile. Il dialogo vive una volta sola nella
-cornice (`FeedbackProvider` in `DashboardLayout`, sopra entrambe le shell)
-e si apre da tutt'e due i punti.
+Impostazioni); due voci nella palette comandi ⌘K, «Segnala un problema» e
+«Manda un consiglio», sotto l'intestazione «Supporto Wyndoor»; e la stessa
+voce nel piede della navigazione (`NavigationSidebar`), sotto l'ultima
+sezione. Niente pillola flottante: in basso a destra ci sono già la
+mascotte di Tars su desktop e la BottomNav su mobile. Il dialogo vive una
+volta sola nella cornice (`FeedbackProvider` in `DashboardLayout`, sopra
+entrambe le shell) e si apre da tutt'e tre i punti.
+
+> **Correzione 10/09/2026 — la terza porta.** Le prime due erano invisibili
+> dal telefono: la palette ⌘K non esiste senza tastiera e il menu profilo
+> sta in cima, mentre il pollice sta sul menu in basso. Segnalazione della
+> direzione: «non vedo la possibilità di inviare feedback o segnalare bug
+> nel menu in basso». La voce vive ora nel piede di `NavigationSidebar`,
+> che è anche il contenuto del cassetto «Altro» della BottomNav: sul
+> telefono è la porta raggiungibile, su desktop è una riga in fondo alla
+> barra laterale (sola icona con tooltip quando è rastremata). L'azione non
+> è una navigazione, quindi il cassetto non si chiuderebbe da solo:
+> `onAzione` risale da `NavigationSidebar` a `CompactNavigation` fino a
+> `ModularControlLayout`, che riusa lo stesso `changeNavigationOpen(false)`
+> di ogni voce di menu (guardia `client/src/lib/feedbackPorte.test.ts`).
 
 **Che cosa chiede.** Due cose: se è un problema o un consiglio, e che cosa
 è successo (10–4000 caratteri). Il resto — azienda con id e stato, sede
@@ -5562,10 +5576,11 @@ nessun bottone. Senza `RESEND_API_KEY` il dialogo dice che il canale non è
 attivo e mostra l'indirizzo, invece di fingere l'invio. Limite: cinque
 segnalazioni all'ora per persona.
 
-**Verificato:** `pnpm check`/`test`/`build` verdi, 28 test nuovi
+**Verificato:** `pnpm check`/`test`/`build` verdi, 33 test nuovi
 (`server/piattaforma/feedback.test.ts`,
-`client/src/lib/feedbackImmagine.test.ts`); verifica browser a 1440×900 e
-390×844, tema chiaro e scuro, apertura da entrambe le porte, allegato
+`client/src/lib/feedbackImmagine.test.ts`,
+`client/src/lib/feedbackPorte.test.ts`); verifica browser a 1440×900 e
+390×844, tema chiaro e scuro, apertura da tutte le porte, allegato
 preparato e ridotto, giro completo client→server con il messaggio del
 server a schermo, console senza errori di React, nessuno scorrimento
 orizzontale. La mail si guarda con `pnpm posta:anteprima --mail=feedback`.
