@@ -27,6 +27,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { serveWellKnown } from "./wellKnown";
 import { bootstrapAll } from "./persistence";
+import { ambienteStaging } from "./ambiente";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -184,21 +185,10 @@ async function startServer() {
   const { avviaSondaLoop } = await import("./osservabilita");
   avviaSondaLoop();
 
-  // Nightly backup to Google Drive (00:00 Europe/Rome).
-  const { startBackupScheduler } = await import("./driveBackup");
-  startBackupScheduler();
-
-  // Fatture in Cloud → clienti sync (every 6h when enabled).
-  const { startFicScheduler } = await import("../routers/fattureInCloud");
-  startFicScheduler();
-
-  // Sonda degli stati SdI delle fatture emesse (ogni 15 minuti).
-  const { startSondaFattureWorker } = await import("../fatture/sonda");
-  startSondaFattureWorker();
-
-  // Ingestione posta IMAP (ogni 5 minuti, solo per le caselle attive).
-  const { avviaPollerMail } = await import("../comunicazioni/imap");
-  avviaPollerMail();
+  // Giri che parlano con servizi esterni (Drive, FiC/SdI, IMAP): in staging
+  // non partono. Vedi server/_core/giriEsterni.ts.
+  const { avviaGiriEsterni } = await import("./giriEsterni");
+  await avviaGiriEsterni();
 
   const app = express();
   const server = createServer(app);
@@ -223,6 +213,8 @@ async function startServer() {
         "max-age=15552000; includeSubDomains"
       );
     }
+    // Staging non va indicizzato: il contenuto è dimostrativo.
+    if (ambienteStaging()) res.setHeader("X-Robots-Tag", "noindex, nofollow");
     next();
   });
 
