@@ -69,6 +69,7 @@ import { contestoProfilo } from "../fornitori/profili";
 import { getClienteById } from "../routers/clienti";
 import { getCommessaById } from "../routers/commesse";
 import { getOrdiniPerMargine } from "../routers/fornitori";
+import { revisionePerData } from "./revisioneConferma";
 import { getSediStore } from "../routers/sedi";
 import {
   creaConsegnaDaConferma,
@@ -216,14 +217,6 @@ function euro(valore: number): string {
   const [intero, decimali] = Math.abs(valore).toFixed(2).split(".");
   const conPunti = intero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return `${valore < 0 ? "-" : ""}${conPunti},${decimali}`;
-}
-
-/** Il documento entrato dopo nel fascicolo (a parità di istante, l'id più alto). */
-function piuRecente(a: Documento, b: Documento): boolean {
-  const ta = new Date(a.createdAt as any).getTime();
-  const tb = new Date(b.createdAt as any).getTime();
-  if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta > tb;
-  return a.id > b.id;
 }
 
 /**
@@ -774,13 +767,65 @@ export async function registraCostoDaConferma(input: {
     const originale = duplicato.documento;
     const costoOriginale = costoDelDocumento(commessa, originale.id);
     const letturaOriginale = originale.letturaCosto ?? null;
-    const revisione =
+    // La prova di una revisione è la DATA DEL DOCUMENTO, non l'ordine con cui
+    // i file sono entrati in archivio: `createdAt` dice quando il worker ha
+    // archiviato, e su un giro in blocco è rumore (10/09/2026, COM-2026-092:
+    // quattro copie in sedici minuti, e il costo eletto era il più basso).
+    const prova = revisionePerData(dataDocumento, letturaOriginale?.dataDocumento ?? null);
+    const importiDiversi =
       imponibile != null &&
       imponibile > 0 &&
       costoOriginale != null &&
-      costoScrittoDallaRegola(costoOriginale, letturaOriginale) &&
-      Math.abs(costoOriginale.importo - imponibile) >= 0.005 &&
-      piuRecente(documento, originale);
+      Math.abs(costoOriginale.importo - imponibile) >= 0.005;
+    const correggibile =
+      costoOriginale != null && costoScrittoDallaRegola(costoOriginale, letturaOriginale);
+    const revisione = importiDiversi && correggibile && prova === "nuovo";
+
+    // Importi diversi e nessuna prova di quale sia la revisione: è una
+    // DISCORDANZA. Non si elegge un vincitore con l'ordine d'archiviazione —
+    // resta il più alto e lo si dichiara. Sottostimare il costo gonfia il
+    // margine, ed è il verso sbagliato in cui sbagliare.
+    // Solo sui costi scritti dalla regola: se una PERSONA ha già fissato il
+    // costo a mano, la discordanza l'ha risolta lei, e segnalarla sarebbe
+    // insistere su una domanda a cui qualcuno ha già risposto. Quel caso
+    // resta un duplicato con l'avviso, come prima.
+    if (importiDiversi && correggibile && prova === "nessuna_prova") {
+      const alto = Math.max(imponibile!, costoOriginale!.importo);
+      const basso = Math.min(imponibile!, costoOriginale!.importo);
+      if (alto > costoOriginale!.importo) {
+        aggiornaImportoCosto(
+          commessa,
+          costoOriginale!,
+          alto,
+          `Alzato a ${euro(alto)} da «${raw.nome}»: conferme discordi sullo stesso ordine, e senza prova di quale sia la revisione resta il più alto.`,
+          { fornitore, data: dataDocumento, numeroOrdine }
+        );
+      }
+      ritira(commessa, documento);
+      const motivo = `Conferme discordi sull'ordine ${duplicato.riferimento}: «${originale.nome}» dice ${euro(
+        costoOriginale!.importo
+      )}, questa dice ${euro(
+        imponibile!
+      )}, e le due portano la stessa data — niente dice quale sia la revisione. A registro resta ${euro(
+        alto
+      )}, il più alto: sottostimare il costo gonfierebbe il margine. Controlla i due file e correggi a mano se serve.`;
+      salva({
+        ...memoriaBase,
+        esito: "discorde",
+        motivo,
+        costoId: null,
+        merce: null,
+        duplicatoDi: originale.id,
+        discordi: [alto, basso],
+        riscontro: riscontro ? { ok: true, prove: riscontro.prove } : null,
+      });
+      return base(documento, "discorde", motivo, {
+        fonteTesto,
+        imponibile,
+        duplicatoDi: originale.id,
+      });
+    }
+
     if (!revisione) {
       const ritirato = ritira(commessa, documento);
       const importoDiverso =

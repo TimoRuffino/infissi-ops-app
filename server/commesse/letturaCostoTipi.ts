@@ -61,7 +61,15 @@ export type EsitoLetturaCosto =
    */
   | "senza_riscontro"
   /** Stesso riferimento d'ordine di una conferma già a registro: nessun effetto in più. */
-  | "duplicato";
+  | "duplicato"
+  /**
+   * Stesso ordine di un'altra conferma, importo diverso, e NESSUNA prova di
+   * quale sia la revisione (stessa data del documento, o data mancante). Il
+   * costo resta il più alto fra i discordi — sottostimarlo gonfierebbe il
+   * margine — e la discordanza si dichiara invece di sceglierne una in
+   * silenzio (10/09/2026).
+   */
+  | "discorde";
 
 export type LetturaCostoDocumento = {
   versione: string;
@@ -89,6 +97,8 @@ export type LetturaCostoDocumento = {
   sezioni?: number;
   /** Il documento di cui questa conferma è un duplicato. */
   duplicatoDi?: number | null;
+  /** Gli imponibili discordi visti su questo ordine, il maggiore per primo. */
+  discordi?: number[];
   /** Il riscontro della commessa nel testo (solo per le archiviazioni automatiche). */
   riscontro?: { ok: boolean; prove: string[] } | null;
   /**
