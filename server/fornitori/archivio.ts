@@ -46,7 +46,7 @@ import {
 } from "../routers/preventiviContratti";
 import { estraiConfermeNelDocumento } from "../documenti/estrazioneConferma";
 import { estraiRigheMerce } from "../documenti/estrazioneMerce";
-import { nomeDaConferma } from "../tars/documenti/confermeMancanti";
+import { allegatoDaConferma } from "../tars/documenti/confermeMancanti";
 import {
   creaLettoreCommessaNelDocumento,
   type CommessaRicercabile,
@@ -194,7 +194,15 @@ export function fornitoreDiComunicazione(
 ): string | null {
   const noto = fornitoreNoto(c.mittenteNome ?? null, c.mittente) ?? fornitoreNoto(c.mittente);
   if (noto) return noto;
-  const portaConferma = c.allegati.some(a => nomeDaConferma(a.nome, a.mimeType) != null);
+  const portaConferma = c.allegati.some(
+    a =>
+      allegatoDaConferma({
+        nome: a.nome,
+        mimeType: a.mimeType,
+        mittente: c.mittente,
+        mittenteNome: c.mittenteNome ?? null,
+      }) != null
+  );
   if (!portaConferma) return null;
   const at = c.mittente.lastIndexOf("@");
   const dominio = at > 0 ? c.mittente.slice(at + 1).toLowerCase().replace(/^www\./, "") : "";
@@ -366,7 +374,16 @@ export async function eseguiGiroArchivioFornitori(input: {
     const fornitore = fornitoreDiComunicazione(c, interni);
     if (!fornitore) continue;
     for (const [indice, allegato] of c.allegati.entries()) {
-      if (!nomeDaConferma(allegato.nome, allegato.mimeType)) continue;
+      if (
+        !allegatoDaConferma({
+          nome: allegato.nome,
+          mimeType: allegato.mimeType,
+          mittente: c.mittente,
+          mittenteNome: c.mittenteNome ?? null,
+        })
+      ) {
+        continue;
+      }
       let voce = voceArchivioDiAllegato(input.sedeId, c.id, indice);
       if (!voce) {
         voce = {
