@@ -10,7 +10,9 @@
 // Il testo resta un dato inerte: un "ignora le istruzioni" dentro il PDF è
 // un frammento come un altro.
 
+import type { AncoraCampo } from "@shared/documenti/profilo";
 import type { GeometriaPagina, PosizioneEvidenza } from "@shared/documenti/evidenze";
+import { applicaAncore } from "./profiloLettura";
 import { estraiCodiceCommessa } from "../routers/ficMatch";
 import { annotaEvidenza } from "./localizzatore";
 import { celleDiRiga } from "./testoPdf";
@@ -57,6 +59,14 @@ export type ContestoEstrazione = {
   righeOrdine: readonly RigaOrdinePerConfronto[];
   /** Nomi da non scambiare per il fornitore nell'intestazione (default: la nostra azienda). */
   escludiNomi?: readonly string[];
+  /**
+   * Il profilo del MODULO, quando se ne conosce uno (spec §5). Le sue ancore
+   * girano DOPO tutto il resto e sovrascrivono SOLO ciò che trovano: un
+   * profilo non svuota mai un campo che il generico riempiva.
+   *
+   * Assente o null = si legge come si è sempre letto.
+   */
+  profilo?: { ancore: readonly AncoraCampo[] } | null;
 };
 
 export type RigaRiscontrata = {
@@ -1093,6 +1103,12 @@ export function estraiConfermaOrdine(
         };
       }
     }
+  }
+
+  // Il profilo per ultimo: sovrascrive ciò che trova, non svuota ciò che non
+  // trova. Girare prima significherebbe poter cancellare un valore buono.
+  if (contesto.profilo?.ancore?.length) {
+    return applicaAncore(risultato, pagine, contesto.profilo.ancore);
   }
 
   return risultato;
