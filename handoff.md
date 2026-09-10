@@ -8,6 +8,41 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 10/09/2026 — L'archivio è uno solo: la commessa chiusa non è più
+> in un vicolo cieco (PRD §22).** Segnalazione della direzione: «la commessa
+> De Petris risulta archiviata ma non la vedo nell'archivio e non riesco a
+> ripristinarla». Causa: «archiviata» esisteva in due forme scollegate — il
+> soft-archive `archivedAt` (l'unico che `/archivio` leggeva e l'unico che
+> `commesse.restore` sapeva togliere) e lo stato terminale `archiviata` della
+> macchina (che il Board toglie dalle colonne e su cui «Avanza» non c'è più).
+> Chi arrivava in fondo al percorso spariva dal Board, non compariva in
+> archivio e non aveva nessun pulsante per tornare indietro: restava solo la
+> riga in `/commesse` col badge «Archiviata». In produzione erano **15**
+> commesse (COM-2026-003, -015, -016, -017, -051, -052 De Petris, -078, -079,
+> -102, -109, -114, -129, -139, -357, -378). **Che cosa cambia:** lo scope
+> `only` di `commesse.list` diventa l'archivio vero (`archivedAt` **oppure**
+> `stato = "archiviata"`); `commesse.restore` esce da entrambe le forme — il
+> flag si azzera com'era, la commessa chiusa torna a `interventi_regolazioni`
+> passando da `eseguiTransizioneCommessa` (transizione a registro,
+> `dataChiusura` azzerata dal cleanup all'indietro, Undo disponibile,
+> capability `commessa.change_state` a guardia: riaprire un lavoro chiuso non è
+> il flag reversibile che chiunque può premere), e con entrambe le forme un
+> solo click le toglie tutte e due in un commit unico. Scheda commessa: banner
+> «Commessa chiusa» accanto a «Commessa archiviata», «Ripristina» in entrambi i
+> casi, badge dell'header al solo soft-archive (per la chiusa lo dice già il
+> chip dello stato). Archivio: la data dichiara la forma («Archiviata: …» o
+> «Chiusa: …») e il dialog dice cosa succede. **Che cosa NON cambia:** lo scope
+> `exclude` resta il complemento del solo soft-archive — ricerca, scheda
+> cliente, post-vendita, Tars e la lista commesse devono continuare a vedere i
+> lavori chiusi; a nascondere lo stato terminale sono i consumatori che devono
+> (Board, Dashboard, Planning, Magazzino, Fornitori, Pagamenti), come già
+> facevano. Nessuna migrazione dati: le 15 commesse sono raggiungibili dal
+> deploy in poi. Sei test nuovi in `server/routers/commesse.test.ts`;
+> `pnpm check`/`test` (360 file/15 saltati, 3958 test/90 saltati)/`build`
+> verdi; verifica dal vivo a 1440x900 e 390x844 sul giro completo (chiusa dal
+> board → archivio → ripristina → torna sul board), console pulita e nessuno
+> scroll orizzontale.
+
 > **Novità 10/09/2026 — «Ciclo di vita dell'azienda»: su branch
 > (`claude/company-lifecycle-e52127`), PR in arrivo.** I punti 1–4 della
 > nota della direzione «Aziende: nascita, vita, uscita» (piano

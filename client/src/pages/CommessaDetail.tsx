@@ -801,6 +801,14 @@ export default function CommessaDetail() {
           : []),
   ];
 
+  // Archiviata in due forme (10/09/2026): il soft-archive `archivedAt` e lo
+  // stato terminale. Per la scheda contano uguale — banner, niente rail,
+  // niente «Avanza» e un «Ripristina» che sa cosa deve disfare. Senza questa
+  // unione una commessa chiusa dal board restava senza vie d'uscita: fuori
+  // dal board, fuori dall'archivio, senza pulsante.
+  const chiusa = c.stato === "archiviata";
+  const archiviata = Boolean(c.archivedAt) || chiusa;
+
   const nextStatoByStato: Record<string, string> = {
     preventivo: "misure_esecutive",
     misure_esecutive: "aggiornamento_contratto",
@@ -816,10 +824,7 @@ export default function CommessaDetail() {
   const nextStato = nextStatoByStato[c.stato];
   const gateBlocked = statoGate.data ? !statoGate.data.canAdvance : false;
   const primaryAction =
-    puoCambiareStato &&
-    !c.archivedAt &&
-    c.stato !== "archiviata" &&
-    nextStato ? (
+    puoCambiareStato && !archiviata && nextStato ? (
       <Button
         variant="brand"
         onClick={() => {
@@ -856,21 +861,44 @@ export default function CommessaDetail() {
       {/* Archived banner — surfaces the archived state front-and-center so
           users don't mistake an archived job for an active one. No buttons
           inside: restore is in the header to match the archive entry point. */}
-      {c.archivedAt && (
+      {archiviata && (
         <div className="rounded-md border border-border-strong bg-surface-2 px-4 py-3 flex items-start gap-3">
           <Archive className="h-5 w-5 text-text-2 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="font-semibold text-text-1">Commessa archiviata</p>
+            <p className="font-semibold text-text-1">
+              {c.archivedAt ? "Commessa archiviata" : "Commessa chiusa"}
+            </p>
             <p className="text-sm text-text-2">
-              Archiviata il{" "}
-              {new Date(c.archivedAt).toLocaleDateString("it-IT", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-              })}
-              . Non compare nelle liste, nel board o nel planning. Dati, file e
-              stato di avanzamento sono preservati — usa <em>Ripristina</em>{" "}
-              per riattivarla.
+              {c.archivedAt ? (
+                <>
+                  Archiviata il{" "}
+                  {new Date(c.archivedAt).toLocaleDateString("it-IT", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                  . Non compare nelle liste, nel board o nel planning. Dati,
+                  file e stato di avanzamento sono preservati — usa{" "}
+                  <em>Ripristina</em> per riattivarla.
+                </>
+              ) : (
+                <>
+                  Chiusa
+                  {c.dataChiusura
+                    ? ` il ${new Date(
+                        `${c.dataChiusura}T12:00:00`
+                      ).toLocaleDateString("it-IT", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}`
+                    : ""}
+                  : è l'ultimo stato del percorso, quindi non compare più nel
+                  board né nel planning e la trovi in Archivio. Dati e file
+                  restano — usa <em>Ripristina</em> per riaprirla a «Interventi
+                  / Regolazioni».
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -886,6 +914,8 @@ export default function CommessaDetail() {
           meta={headerMeta}
           primaryAction={primaryAction}
           onBack={() => setLocation("/commesse")}
+          // Il badge dice solo il soft-archive: per la commessa chiusa
+          // «Archiviata» lo dice già il chip dello stato.
           archived={Boolean(c.archivedAt)}
           secondaryActions={
             <>
@@ -914,13 +944,17 @@ export default function CommessaDetail() {
                   Nuovo cliente
                 </Button>
               ) : null}
-              {c.archivedAt ? (
+              {archiviata ? (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => restoreCommessa.mutate(commessaId)}
                   disabled={restoreCommessa.isPending}
-                  title="Ripristina commessa — torna attiva con stato e dati invariati"
+                  title={
+                    c.archivedAt
+                      ? "Ripristina commessa — torna attiva con stato e dati invariati"
+                      : "Ripristina commessa — la riapre a «Interventi / Regolazioni»"
+                  }
                 >
                   <ArchiveRestore className="h-3.5 w-3.5" />
                   Ripristina
@@ -964,7 +998,7 @@ export default function CommessaDetail() {
             </>
           }
           statusRail={
-            !c.archivedAt ? (
+            !archiviata ? (
               <StatusRail
                 stato={c.stato}
                 gateBloccato={Boolean(
