@@ -3,6 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  SEED_FORNITORI_TENANT_1,
+  riconoscitoreFornitori,
+} from "@shared/fornitori";
+import {
   allegatoDaConferma,
   confermeOrdineMancanti,
   nomeDaConferma,
@@ -246,24 +250,26 @@ describe("nomeDaConferma", () => {
 });
 
 describe("allegatoDaConferma", () => {
+  const rico = riconoscitoreFornitori(SEED_FORNITORI_TENANT_1);
+
   it("un mittente noto apre la porta a un nome che non dice niente", () => {
     const primed = "R237_2026WU367846_20052026165105.pdf";
     // Senza mittente il nome non basta, ed è il caso di oggi: 312 mail, zero voci.
-    expect(allegatoDaConferma({ nome: primed, mimeType: "application/pdf" })).toBeNull();
+    expect(allegatoDaConferma({ nome: primed, mimeType: "application/pdf", riconoscitore: rico })).toBeNull();
     expect(
-      allegatoDaConferma({ nome: primed, mimeType: "application/pdf", mittente: "amministrazione@primed.it" })
+      allegatoDaConferma({ nome: primed, mimeType: "application/pdf", mittente: "amministrazione@primed.it", riconoscitore: rico })
     ).toBe("mittente");
     // I 59 allegati Alias che si chiamano letteralmente «allegato».
     expect(
-      allegatoDaConferma({ nome: "allegato", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com" })
+      allegatoDaConferma({ nome: "allegato", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com", riconoscitore: rico })
     ).toBe("mittente");
     // Il nome vero delle conferme Pail, che dal nome non si riconosce.
     expect(
-      allegatoDaConferma({ nome: "conf.26_29488 aggiornata.pdf", mimeType: "application/pdf", mittente: "ordini@pailporte.com" })
+      allegatoDaConferma({ nome: "conf.26_29488 aggiornata.pdf", mimeType: "application/pdf", mittente: "ordini@pailporte.com", riconoscitore: rico })
     ).toBe("mittente");
     // E il portale.
     expect(
-      allegatoDaConferma({ nome: "Esportazione.pdf", mimeType: "application/pdf", mittente: "noreply@antenore.biz" })
+      allegatoDaConferma({ nome: "Esportazione.pdf", mimeType: "application/pdf", mittente: "noreply@antenore.biz", riconoscitore: rico })
     ).toBe("mittente");
   });
 
@@ -273,6 +279,7 @@ describe("allegatoDaConferma", () => {
         nome: "Ordini_di_Vendi_1684077(1).pdf",
         mimeType: "application/pdf",
         mittente: "v.gregori@aliasblindate.com",
+        riconoscitore: rico,
       })
     ).toBe("ordine");
   });
@@ -280,29 +287,43 @@ describe("allegatoDaConferma", () => {
   it("un nome escluso resta escluso anche da un fornitore noto", () => {
     // Primed manda anche i DDT, Alias i solleciti: il mittente non li promuove.
     expect(
-      allegatoDaConferma({ nome: "R237_DDT_11_5_2026_9782.pdf", mimeType: "application/pdf", mittente: "amministrazione@primed.it" })
+      allegatoDaConferma({ nome: "R237_DDT_11_5_2026_9782.pdf", mimeType: "application/pdf", mittente: "amministrazione@primed.it", riconoscitore: rico })
     ).toBeNull();
     expect(
-      allegatoDaConferma({ nome: "Sollecito_Ordin_1685983(1).pdf", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com" })
+      allegatoDaConferma({ nome: "Sollecito_Ordin_1685983(1).pdf", mimeType: "application/pdf", mittente: "v.gregori@aliasblindate.com", riconoscitore: rico })
     ).toBeNull();
     expect(
-      allegatoDaConferma({ nome: "ACCORDO COMMERCIALE 2026 listino.pdf", mimeType: "application/pdf", mittente: "vendite@oskura.it" })
+      allegatoDaConferma({ nome: "ACCORDO COMMERCIALE 2026 listino.pdf", mimeType: "application/pdf", mittente: "vendite@oskura.it", riconoscitore: rico })
     ).toBeNull();
   });
 
   it("un'immagine di firma non diventa una conferma", () => {
     // image001.png sono 118 allegati solo da Oskura.
     expect(
-      allegatoDaConferma({ nome: "image001.png", mimeType: "image/png", mittente: "vendite@oskura.it" })
+      allegatoDaConferma({ nome: "image001.png", mimeType: "image/png", mittente: "vendite@oskura.it", riconoscitore: rico })
     ).toBeNull();
   });
 
   it("un mittente sconosciuto non apre niente", () => {
     expect(
-      allegatoDaConferma({ nome: "IMG_9888.jpeg", mimeType: "image/jpeg", mittente: "mario@gmail.com" })
+      allegatoDaConferma({ nome: "IMG_9888.jpeg", mimeType: "image/jpeg", mittente: "mario@gmail.com", riconoscitore: rico })
     ).toBeNull();
     expect(
-      allegatoDaConferma({ nome: "documento.pdf", mimeType: "application/pdf", mittente: "mario@gmail.com" })
+      allegatoDaConferma({ nome: "documento.pdf", mimeType: "application/pdf", mittente: "mario@gmail.com", riconoscitore: rico })
+    ).toBeNull();
+  });
+
+  it("con un elenco che non contiene quel fornitore, la porta resta chiusa", () => {
+    const altra = riconoscitoreFornitori([
+      { nome: "Vetreria Bianchi", chiavi: ["vetreriabianchi"] },
+    ]);
+    expect(
+      allegatoDaConferma({
+        nome: "R237_2026WU367846_20052026165105.pdf",
+        mimeType: "application/pdf",
+        mittente: "amministrazione@primed.it",
+        riconoscitore: altra,
+      })
     ).toBeNull();
   });
 });
