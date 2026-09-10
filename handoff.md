@@ -8,6 +8,34 @@
 **Produzione:** https://app.wyndoor.com (alias di https://crm-ruffinogroup.up.railway.app)<br>
 **Deploy:** Railway segue `main`
 
+> **Novità 10/09/2026 — bonifica dell'archivio conferme (su branch).** Il
+> candidato «conferma d'ordine» non lo decide più il solo nome del file: se il
+> mittente è un fornitore noto il nome smette di essere un filtro, in memoria
+> come in SQL (`SORGENTE_MITTENTE_FORNITORE`, sorgente unica per i due rami —
+> due copie divergerebbero e la mail entrerebbe da una porta e non
+> dall'altra). Motivo misurato in produzione: Primed mandava **312 mail e
+> aveva zero voci in archivio**, perché allega
+> `R237_2026WU367846_20052026165105.pdf`; stessa sorte per i 59 allegati Alias
+> chiamati «allegato» e per «conf.26_29488 aggiornata.pdf», il nome vero delle
+> conferme Pail. `antenore.biz` è ora riconosciuto come **portale** di
+> Wnd/Oknoplast (`PORTALI` in `shared/fornitori.ts`) invece di finire in «Da
+> riconoscere» (94 mail); i «Sollecito_Ordin_…» non passano più per conferme
+> (sette in coda). La porta del mittente si apre **solo ai documenti**: senza
+> quel vincolo le 118 `image001.png` della firma di Oskura entrerebbero a ogni
+> giro. E perché la coda non raddoppi, chi entra dal SOLO mittente e alla
+> lettura non porta né numero d'ordine né imponibile né articoli **si scarta
+> da solo** con il motivo — un file illeggibile invece resta, perché non
+> averlo capito non è la prova che non fosse una conferma. **Fuori,
+> dichiarato:** il nome Alias che arriva mangiato (`LIAS Srl`, `IAS Srl`) — la
+> causa è a monte, nell'estrazione, e va diagnosticata su un PDF vero prima di
+> scriverci una regola. Lo smistamento non è stato toccato: `allegatoDaLeggere`
+> accetta già ogni PDF via `MIME_CON_TESTO`. Spec
+> `docs/superpowers/specs/2026-09-10-gestione-ordini-design.md` §8; piano
+> `docs/superpowers/plans/2026-09-10-bonifica-archivio-conferme.md`. **Non
+> verificato:** l'effetto vero in produzione — il ramo SQL del pre-filtro non
+> gira nei test (la suite usa il ramo in memoria) e il numero di voci nuove si
+> vedrà al primo giro del worker.
+
 > **Novità 09/09/2026 (notte) — «Modifica azienda»: su branch, PR
 > aperta.** Dalla scheda di un'azienda (pannello piattaforma) si correggono
 > ora ragione sociale, slug e note; i dati di fatturazione (P.IVA, codice

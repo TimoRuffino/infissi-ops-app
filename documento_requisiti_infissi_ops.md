@@ -730,6 +730,8 @@ Prima slice della Document Intelligence (visione completa in §54.6; piano in
 (direzione) il pannello «Conferma d'ordine (PDF)» analizza un documento del
 fascicolo della commessa dell'ordine:
 
+- **Chi entra (10/09/2026)**: il candidato non lo decide più il solo nome del
+  file. V. §36-bis.2 punto 1.
 - **Pipeline**: registro parser estendibile; oggi un solo parser,
   `pdf-testo-nativo` (unpdf, testo per pagina). Il run è persistito in
   `documenti_analisi` con impronta SHA-256 dei byte e versioni di
@@ -1740,10 +1742,24 @@ Il worker `archivioFornitoriWorker` (boot +60 s, ogni 10 minuti,
 1. **scansione** — le comunicazioni in ingresso degli ultimi 18 mesi con
    allegati candidati; il fornitore si riconosce dal mittente o dal suo
    dominio (`shared/fornitori.ts`), e una mail che non è di un fornitore e
-   non porta conferme resta fuori. Ogni allegato «da conferma»
-   (`nomeDaConferma`) entra in archivio una volta sola; se è già nel
+   non porta conferme resta fuori. Ogni allegato candidato
+   (`allegatoDaConferma`) entra in archivio una volta sola; se è già nel
    fascicolo per un'altra strada, l'archivio lo registra invece di
-   riproporlo.
+   riproporlo. **Tre modi di essere candidato** (10/09/2026): il nome
+   dichiara una conferma, il nome dice almeno «ordine», oppure **il mittente
+   è un fornitore noto** — e allora il nome smette di essere un filtro,
+   perché Primed allega `R237_2026WU367846_….pdf` e in un anno non era mai
+   entrato niente (312 mail, zero voci), i 59 allegati Alias si chiamano
+   letteralmente «allegato» e le conferme Pail «conf.26_29488 aggiornata».
+   I nomi esclusi (fattura, DDT, listino, preventivo, contratto e, da oggi,
+   **sollecito**) restano esclusi anche per un mittente noto, e i formati non
+   documentali pure. Chi entra dal SOLO mittente deve però dimostrarsi: se la
+   lettura non trova né numero d'ordine, né imponibile, né articoli, la voce
+   si **scarta da sola** con il motivo e non finisce nella coda delle
+   decisioni; un file che non si è potuto leggere non si scarta.
+   `antenore.biz` non è un fornitore ma il **portale** con cui si ordina da
+   Wnd e Oknoplast: `PORTALI` in `shared/fornitori.ts` lo riconduce al
+   produttore invece di lasciarlo in «Da riconoscere» (94 mail).
 2. **lettura** — al massimo 25 file nuovi per giro: testo nativo, OCR o
    trascrizione del modello per le scansioni, poi il riscontro
    deterministico del testo contro tutte le commesse vive della sede
